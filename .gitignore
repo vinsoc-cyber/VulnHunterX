@@ -1,6 +1,7 @@
 # Phase 2: cloned repos and CodeQL databases
 repos/
 databases/
+.codeql_build.sh
 
 # Env and build
 .env

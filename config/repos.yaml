@@ -19,13 +19,13 @@ repos:
   - name: re2
     url: https://github.com/google/re2.git
     language: cpp
-    build_command: "cmake . && make"
+    build_command: "mkdir -p build && cd build && cmake .. && make"
 
   # --- C (OSS-Fuzz) ---
   - name: libjpeg-turbo
     url: https://github.com/libjpeg-turbo/libjpeg-turbo.git
     language: c
-    build_command: "cmake . && make"
+    build_command: "mkdir -p build && cd build && cmake .. && make"
   - name: libucl
     url: https://github.com/vstakhov/libucl.git
     language: c
@@ -33,11 +33,11 @@ repos:
   - name: libconfig
     url: https://github.com/hyperrealm/libconfig.git
     language: c
-    build_command: "./configure && make"
+    build_command: "autoreconf -i && ./configure && make"
   - name: c-ares
     url: https://github.com/c-ares/c-ares.git
     language: c
-    build_command: "./configure && make"
+    build_command: "autoreconf -i && ./configure && make"
 
   # --- C++ (OSS-Fuzz) ---
   - name: nghttp2
