@@ -50,3 +50,16 @@ repos:
   - name: requests
     url: https://github.com/psf/requests.git
     language: python
+
+  # --- Intentionally Vulnerable Projects (for demo/testing) ---
+  - name: dvcp
+    url: https://github.com/hardik05/Damn_Vulnerable_C_Program.git
+    language: c
+    build_command: "gcc -g -o dvcp imgRead.c"
+  - name: fuzzgoat
+    url: https://github.com/fuzzstati0n/fuzzgoat.git
+    language: cpp
+    build_command: "make"
+  - name: bad-python-extract
+    url: https://github.com/ajinabraham/bad_python_extract.git
+    language: python

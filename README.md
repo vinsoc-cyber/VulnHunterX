@@ -20,76 +20,111 @@ This framework provides:
 
 ## Quick Start
 
-### Installation
+> **TL;DR**: Get results in 5 minutes with a single command.
+
+### 1. Installation
 
 ```bash
-# Create venv and install
+# Clone the repository
+git clone https://github.com/your-org/CodeQLxLLM.git
+cd CodeQLxLLM
+
+# Create virtual environment and install
 uv venv --python python3.12 .venv
 source .venv/bin/activate
 pip install -e .
 ```
 
-### CodeQL Query Packs Setup
-
-Before using `extract-context`, install CodeQL query pack dependencies:
+### 2. Configuration
 
 ```bash
-# Install dependencies for tool queries (required for extract-context)
-codeql pack install config/queries/tools/cpp
-codeql pack install config/queries/tools/python
-codeql pack install config/queries/tools/javascript
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env and add your OpenAI API key
+echo "OPENAI_API_KEY=sk-your-key-here" >> .env
 ```
 
-This downloads the required CodeQL standard libraries (`codeql/cpp-all`, `codeql/python-all`, `codeql/javascript-all`) that the tool queries depend on.
-
-**Note:** You only need to run this once after cloning the repository.
-
-### Configuration
-
-Configuration is split between two files:
-
-**`.env`** - Secrets and environment-specific settings:
+### 3. Verify Setup
 
 ```bash
-# Required for OpenAI
-OPENAI_API_KEY=sk-...
-
-# Optional: Ollama server URL (default: http://localhost:11434)
-OLLAMA_API_BASE=http://remote-server:11434
-
-# Optional: CodeQL path (if not on PATH)
-CODEQL_PATH=/path/to/codeql
-```
-
-**`config/confirm_findings.yaml`** - Application settings:
-
-```yaml
-provider: openai          # LLM provider (openai or ollama)
-model: gpt-4o             # Model name
-mode: vulnhalla           # Verification mode (simple or vulnhalla)
-temperature: 0.2          # LLM temperature
-max_iterations: 3         # Max conversation rounds
-```
-
-See [Configuration](#configuration-1) section for full options.
-
-### Run the Full Pipeline
-
-```bash
-# 1. Check environment
 codeql-llm check-env
+```
 
-# 2. Clone repos and create CodeQL databases
-codeql-llm clone --lang c
+You should see green checkmarks for CodeQL and your LLM provider.
 
-# 3. Run CodeQL analysis
-codeql-llm analyze --lang c
+### 4. Run Example Pipeline
 
-# 4. Extract context CSVs (for multi-turn mode)
-codeql-llm extract-context --lang c
+Use one of the ready-to-run example scripts:
 
-# 5. Verify findings with LLM
-codeql-llm verify --lang c --repo c-ares
+```bash
+# C repository (libucl) - full pipeline
+python examples/pipeline_c.py
+
+# C++ repository (re2)
+python examples/pipeline_cpp.py
+
+# Python repository (pyyaml) - faster, no compilation
+python examples/pipeline_python.py
+
+# JavaScript repository (minimist) - known vulnerabilities
+python examples/pipeline_javascript.py
+```
+
+Or run individual commands:
+
+```bash
+# Clone a repository and create CodeQL database
+codeql-llm clone --repo libucl
+
+# Run CodeQL security analysis
+codeql-llm analyze --repo libucl
+
+# Verify findings with LLM
+codeql-llm verify --repo libucl --mode vulnhalla --limit 5
+```
+
+### 5. View Results
+
+```bash
+# Results are saved to output/results/
+ls output/results/
+
+# View the JSON summary
+cat output/results/summary_vulnhalla_*.json
+```
+
+---
+
+**For detailed documentation, see [QUICKSTART.md](QUICKSTART.md)**
+
+---
+
+## Example Scripts
+
+Ready-to-run pipeline examples for each language:
+
+| Script | Language | Repository | Description |
+|--------|----------|------------|-------------|
+| `examples/pipeline_c.py` | C | libucl | Full pipeline with CMake build |
+| `examples/pipeline_cpp.py` | C++ | re2 | Google RE2 regex library |
+| `examples/pipeline_python.py` | Python | pyyaml | No compilation required |
+| `examples/pipeline_javascript.py` | JavaScript | minimist | Known prototype pollution |
+
+All scripts support the same options:
+
+```bash
+# Basic options
+python examples/pipeline_c.py --dry-run     # Preview without executing
+python examples/pipeline_c.py --skip-clone  # Skip clone if exists
+
+# Verification mode options
+python examples/pipeline_c.py --simple      # Use simple mode (faster, less accurate)
+python examples/pipeline_c.py --compare     # Compare simple vs vulnhalla modes
+
+# Python API instead of CLI
+python examples/pipeline_c.py --api         # Use Python API
+python examples/pipeline_c.py --api --simple  # API with simple mode
 ```
 
 ## CLI Reference
