@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -10,7 +11,6 @@ from typing import Optional
 from codeql_llm import __version__
 from codeql_llm.core.config import Config, load_config
 from codeql_llm.core.types import Finding, Verdict
-from codeql_llm.verification.engine import VerificationEngine
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -21,14 +21,20 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Verify all findings with default settings
-  codeql-llm verify
+  # Check environment
+  codeql-llm check-env
 
-  # Verify specific repository
+  # Clone repos and create databases
+  codeql-llm clone --lang c
+
+  # Run CodeQL analysis
+  codeql-llm analyze --repo c-ares
+
+  # Extract context CSVs
+  codeql-llm extract-context
+
+  # Verify findings with LLM
   codeql-llm verify --repo c-ares --lang c
-
-  # Use Ollama instead of OpenAI
-  codeql-llm verify --provider ollama --model ollama/llama3.2
 
   # Quick scan with simple mode
   codeql-llm verify --mode simple -q --limit 10
@@ -43,6 +49,33 @@ Examples:
     
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
+    # Check-env command
+    check_parser = subparsers.add_parser(
+        "check-env",
+        help="Check environment (CodeQL, OpenAI, Ollama)",
+    )
+    
+    # Clone command
+    clone_parser = subparsers.add_parser(
+        "clone",
+        help="Clone repos and create CodeQL databases",
+    )
+    _add_clone_args(clone_parser)
+    
+    # Analyze command
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Run CodeQL analysis on databases",
+    )
+    _add_analyze_args(analyze_parser)
+    
+    # Extract-context command
+    extract_parser = subparsers.add_parser(
+        "extract-context",
+        help="Extract context CSVs from databases",
+    )
+    _add_extract_args(extract_parser)
+    
     # Verify command
     verify_parser = subparsers.add_parser(
         "verify",
@@ -55,122 +88,223 @@ Examples:
         "info",
         help="Show configuration and environment info",
     )
-    info_parser.add_argument(
-        "--config",
-        type=Path,
-        help="Path to configuration file",
-    )
+    info_parser.add_argument("--config", type=Path, help="Path to configuration file")
     
     return parser
+
+
+def _add_clone_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for clone command."""
+    parser.add_argument("--config", type=Path, help="Path to repos.yaml")
+    parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
+    parser.add_argument("--repo", help="Only this repository")
+    parser.add_argument("--skip-clone", action="store_true", help="Skip git clone")
+    parser.add_argument("--skip-db", action="store_true", help="Skip database creation")
+    parser.add_argument("--ask-llm", action="store_true", help="Ask LLM on build failure")
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only")
+
+
+def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for analyze command."""
+    parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
+    parser.add_argument("--repo", help="Only this repository")
+    parser.add_argument("--json", action="store_true", help="Also output findings JSON")
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only")
+
+
+def _add_extract_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for extract-context command."""
+    parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
+    parser.add_argument("--repo", help="Only this repository")
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only")
 
 
 def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for the verify command."""
     # Config
-    parser.add_argument(
-        "--config",
-        type=Path,
-        help="Path to configuration file",
-    )
+    parser.add_argument("--config", type=Path, help="Path to configuration file")
     
     # LLM settings
     llm_group = parser.add_argument_group("LLM Settings")
-    llm_group.add_argument(
-        "--provider",
-        choices=["openai", "ollama"],
-        help="LLM provider",
-    )
-    llm_group.add_argument(
-        "--model",
-        help="LLM model name",
-    )
-    llm_group.add_argument(
-        "--temperature",
-        type=float,
-        help="LLM temperature (0.0-1.0)",
-    )
-    llm_group.add_argument(
-        "--max-tokens",
-        type=int,
-        help="Maximum tokens in response",
-    )
+    llm_group.add_argument("--provider", choices=["openai", "ollama"], help="LLM provider")
+    llm_group.add_argument("--model", help="LLM model name")
+    llm_group.add_argument("--temperature", type=float, help="LLM temperature (0.0-1.0)")
+    llm_group.add_argument("--max-tokens", type=int, help="Maximum tokens in response")
     
     # Verification settings
     verify_group = parser.add_argument_group("Verification Settings")
-    verify_group.add_argument(
-        "--mode",
-        choices=["simple", "vulnhalla"],
-        help="Verification mode",
-    )
-    verify_group.add_argument(
-        "--max-iterations",
-        type=int,
-        help="Maximum LLM conversation rounds (vulnhalla mode)",
-    )
+    verify_group.add_argument("--mode", choices=["simple", "vulnhalla"], help="Verification mode")
+    verify_group.add_argument("--max-iterations", type=int, help="Max LLM rounds (vulnhalla mode)")
     
     # Filters
     filter_group = parser.add_argument_group("Filters")
-    filter_group.add_argument(
-        "--sarif",
-        type=Path,
-        help="Specific SARIF file to process",
-    )
-    filter_group.add_argument(
-        "--repo",
-        help="Only process this repository",
-    )
-    filter_group.add_argument(
-        "--lang",
-        choices=["c", "cpp", "python", "javascript"],
-        help="Only process this language",
-    )
-    filter_group.add_argument(
-        "--limit",
-        type=int,
-        help="Maximum findings to process",
-    )
+    filter_group.add_argument("--sarif", type=Path, help="Specific SARIF file to process")
+    filter_group.add_argument("--repo", help="Only process this repository")
+    filter_group.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
+    filter_group.add_argument("--limit", type=int, help="Maximum findings to process")
     
     # Output
     output_group = parser.add_argument_group("Output")
-    output_group.add_argument(
-        "-q", "--quiet",
-        action="store_true",
-        help="Minimal output",
-    )
-    output_group.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Verbose output with LLM prompts/responses",
-    )
-    output_group.add_argument(
-        "--log-file",
-        type=Path,
-        help="Save full LLM conversations to file",
-    )
-    output_group.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show what would be processed without calling LLM",
+    output_group.add_argument("-q", "--quiet", action="store_true", help="Minimal output")
+    output_group.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    output_group.add_argument("--log-file", type=Path, help="Save LLM conversations to file")
+    output_group.add_argument("--dry-run", action="store_true", help="Show what would be processed")
+
+
+def cmd_check_env(args: argparse.Namespace) -> int:
+    """Execute check-env command."""
+    from codeql_llm.cli.env import run_env_check
+    
+    results = run_env_check()
+    
+    # Check if CodeQL is available (required)
+    codeql_ok = results.get("codeql", (False, ""))[0]
+    
+    if codeql_ok:
+        print("Environment check passed. CodeQL is available.")
+        return 0
+    else:
+        print("Environment check failed. CodeQL is required for analysis.")
+        return 1
+
+
+def cmd_clone(args: argparse.Namespace) -> int:
+    """Execute clone command."""
+    from codeql_llm.codeql.repository import RepositoryManager
+    
+    base_path = Path.cwd()
+    config_path = args.config or base_path / "config" / "repos.yaml"
+    
+    if not config_path.exists():
+        print(f"Config not found: {config_path}", file=sys.stderr)
+        return 1
+    
+    codeql_path = os.environ.get("CODEQL_PATH", "codeql")
+    
+    manager = RepositoryManager(
+        repos_dir=base_path / "repos",
+        databases_dir=base_path / "databases",
+        codeql_path=codeql_path,
     )
     
-    # Paths
-    paths_group = parser.add_argument_group("Paths")
-    paths_group.add_argument(
-        "--output-dir",
-        type=Path,
-        help="Output directory for results",
+    print("Clone repos and create CodeQL databases\n")
+    
+    results = manager.process_repos_config(
+        config_path,
+        lang_filter=args.lang,
+        repo_filter=args.repo,
+        skip_clone=args.skip_clone,
+        skip_db=args.skip_db,
+        dry_run=args.dry_run,
+        ask_llm=args.ask_llm,
     )
-    paths_group.add_argument(
-        "--repos-dir",
-        type=Path,
-        help="Repositories directory",
+    
+    ok_count = sum(1 for _, ok, _ in results if ok)
+    
+    for name, ok, msg in results:
+        status = "OK" if ok else "FAIL"
+        print(f"[{name}] [{status}] {msg[:100]}")
+    
+    print(f"\nDone. {ok_count}/{len(results)} succeeded.")
+    return 0 if ok_count == len(results) else 1
+
+
+def cmd_analyze(args: argparse.Namespace) -> int:
+    """Execute analyze command."""
+    from codeql_llm.codeql.analysis import CodeQLAnalyzer
+    from codeql_llm.codeql.context_extractor import discover_databases
+    
+    base_path = Path.cwd()
+    codeql_path = os.environ.get("CODEQL_PATH", "codeql")
+    
+    analyzer = CodeQLAnalyzer(
+        codeql_path=codeql_path,
+        output_dir=base_path / "output",
     )
+    
+    dbs = discover_databases(base_path / "databases")
+    
+    if args.lang:
+        dbs = [(p, l, n) for p, l, n in dbs if l == args.lang]
+    if args.repo:
+        dbs = [(p, l, n) for p, l, n in dbs if n.lower() == args.repo.lower()]
+    
+    if not dbs:
+        print("No CodeQL databases found.", file=sys.stderr)
+        return 1
+    
+    print(f"Running CodeQL analysis on {len(dbs)} database(s)\n")
+    
+    ok_count = 0
+    for db_path, lang, name in dbs:
+        print(f"[{name}] {lang}")
+        
+        if args.dry_run:
+            print(f"  [dry-run] Would analyze {db_path}")
+            ok_count += 1
+            continue
+        
+        ok, sarif_path, msg = analyzer.run_analysis(db_path, lang, name)
+        
+        if ok:
+            ok_count += 1
+            print(f"  -> {sarif_path}")
+        else:
+            print(f"  FAILED: {msg}", file=sys.stderr)
+    
+    print(f"\nDone. {ok_count}/{len(dbs)} succeeded.")
+    return 0 if ok_count == len(dbs) else 1
+
+
+def cmd_extract_context(args: argparse.Namespace) -> int:
+    """Execute extract-context command."""
+    from codeql_llm.codeql.context_extractor import ContextExtractorDB
+    
+    base_path = Path.cwd()
+    codeql_path = os.environ.get("CODEQL_PATH", "codeql")
+    
+    extractor = ContextExtractorDB(
+        codeql_path=codeql_path,
+        queries_dir=base_path / "config" / "queries" / "tools",
+        output_dir=base_path / "config" / "context",
+    )
+    
+    results = extractor.extract_all(
+        databases_dir=base_path / "databases",
+        lang_filter=args.lang,
+        repo_filter=args.repo,
+        dry_run=args.dry_run,
+    )
+    
+    if not results:
+        print("No databases found.", file=sys.stderr)
+        return 1
+    
+    print(f"Extracting context from {len(results)} database(s)\n")
+    
+    total_ok = 0
+    total_queries = 0
+    
+    for repo_name, lang, query_results in results:
+        print(f"[{repo_name}] {lang}")
+        for query_name, (ok, msg) in query_results.items():
+            status = "OK" if ok else "FAIL"
+            print(f"  {query_name}: [{status}] {msg}")
+            total_queries += 1
+            if ok:
+                total_ok += 1
+    
+    print(f"\nDone. {total_ok}/{total_queries} queries succeeded.")
+    return 0 if total_ok == total_queries else 1
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
     """Execute the verify command."""
-    # Load config
+    from codeql_llm.verification.engine import VerificationEngine
+    
     base_path = Path.cwd()
+    
+    # Load config
     if args.config:
         config = load_config(args.config, base_path)
     else:
@@ -211,6 +345,31 @@ def cmd_verify(args: argparse.Namespace) -> int:
         print(f"Mode: {config.verification.mode}")
         print(f"Provider: {config.llm.provider}, Model: {config.llm.model}")
         print()
+    
+    # Handle dry-run
+    if args.dry_run:
+        from codeql_llm.sarif.parser import discover_sarif_files, parse_sarif_file
+        
+        sarif_files = discover_sarif_files(config.paths.output_dir)
+        if args.lang:
+            sarif_files = [(p, l, n) for p, l, n in sarif_files if l == args.lang]
+        if args.repo:
+            sarif_files = [(p, l, n) for p, l, n in sarif_files if n.lower() == args.repo.lower()]
+        
+        all_findings = []
+        for sarif_path, lang, repo_name in sarif_files:
+            findings = parse_sarif_file(sarif_path, lang, repo_name)
+            all_findings.extend(findings)
+        
+        if args.limit:
+            all_findings = all_findings[:args.limit]
+        
+        print("[DRY RUN] Would process these findings:")
+        for i, f in enumerate(all_findings[:10], 1):
+            print(f"  {i}. {f.rule_id} @ {f.file}:{f.start_line}")
+        if len(all_findings) > 10:
+            print(f"  ... and {len(all_findings) - 10} more")
+        return 0
     
     # Create engine
     engine = VerificationEngine(config)
@@ -258,7 +417,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     print(f"  Total: {result.total_findings}")
     for verdict_type, count in result.stats.items():
         if count > 0:
-            pct = count / result.total_findings * 100
+            pct = count / result.total_findings * 100 if result.total_findings else 0
             print(f"  {verdict_type}: {count} ({pct:.1f}%)")
     print(f"  Time: {result.total_time_seconds:.2f}s")
     
@@ -315,7 +474,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = create_parser()
     args = parser.parse_args(argv)
     
-    if args.command == "verify":
+    if args.command == "check-env":
+        return cmd_check_env(args)
+    elif args.command == "clone":
+        return cmd_clone(args)
+    elif args.command == "analyze":
+        return cmd_analyze(args)
+    elif args.command == "extract-context":
+        return cmd_extract_context(args)
+    elif args.command == "verify":
         return cmd_verify(args)
     elif args.command == "info":
         return cmd_info(args)

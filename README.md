@@ -16,23 +16,16 @@ This framework provides:
 - **Guided questions** per rule type for structured reasoning
 - **Multi-turn LLM interaction** for context expansion
 - **Support for OpenAI and Ollama** via LiteLLM
-- **CLI and Python API** for flexible usage
-
-See [the plan](.cursor/plans/codeql_llm_bug_verification_demo_692ae989.plan.md) for full phases.
+- **Unified CLI** for the entire workflow
 
 ## Quick Start
 
 ### Installation
 
 ```bash
-# Create venv and install deps
+# Create venv and install
 uv venv --python python3.12 .venv
-source .venv/bin/activate   # or .venv\Scripts\activate on Windows
-
-# Install in development mode
-uv pip install -e .
-
-# Or with pip
+source .venv/bin/activate
 pip install -e .
 ```
 
@@ -52,49 +45,119 @@ LLM_PROVIDER=openai
 LLM_MODEL=gpt-4o
 ```
 
-### Run Verification
+### Run the Full Pipeline
 
 ```bash
-# Using CLI
+# 1. Check environment
+codeql-llm check-env
+
+# 2. Clone repos and create CodeQL databases
+codeql-llm clone --lang c
+
+# 3. Run CodeQL analysis
+codeql-llm analyze --lang c
+
+# 4. Extract context CSVs (for multi-turn mode)
+codeql-llm extract-context --lang c
+
+# 5. Verify findings with LLM
+codeql-llm verify --lang c --repo c-ares
+```
+
+## CLI Reference
+
+```
+codeql-llm <command> [options]
+
+Commands:
+  check-env        Check environment (CodeQL, OpenAI, Ollama)
+  clone            Clone repos and create CodeQL databases
+  analyze          Run CodeQL analysis on databases
+  extract-context  Extract context CSVs from databases
+  verify           Verify CodeQL findings using LLM
+  info             Show configuration and environment info
+```
+
+### check-env
+
+Check that CodeQL CLI and LLM providers are working.
+
+```bash
+codeql-llm check-env
+```
+
+### clone
+
+Clone repositories and create CodeQL databases.
+
+```bash
+# All repos from config
+codeql-llm clone
+
+# Specific language
+codeql-llm clone --lang c
+
+# Specific repo
+codeql-llm clone --repo c-ares
+
+# Skip database creation (clone only)
+codeql-llm clone --skip-db
+
+# Ask LLM for build help on failure
+codeql-llm clone --ask-llm
+```
+
+### analyze
+
+Run CodeQL security analysis on databases.
+
+```bash
+# All databases
+codeql-llm analyze
+
+# Specific language/repo
+codeql-llm analyze --lang c --repo c-ares
+
+# Also output findings JSON
+codeql-llm analyze --json
+```
+
+### extract-context
+
+Extract context CSVs from databases for multi-turn verification.
+
+```bash
+codeql-llm extract-context --lang c
+```
+
+### verify
+
+Verify CodeQL findings using LLM.
+
+```bash
+# All findings
+codeql-llm verify
+
+# Specific repo/language
 codeql-llm verify --lang c --repo c-ares
 
-# Using script
-python scripts/confirm_findings.py --lang c --repo c-ares
+# Use Ollama
+codeql-llm verify --provider ollama --model ollama/llama3.2
 
-# Dry run to see what would be processed
-codeql-llm verify --dry-run
-```
+# Simple mode (single-shot, faster)
+codeql-llm verify --mode simple
 
-## Framework Architecture
+# Vulnhalla mode (multi-turn, more accurate)
+codeql-llm verify --mode vulnhalla --max-iterations 5
 
-```
-src/codeql_llm/
-├── __init__.py           # Package exports
-├── core/
-│   ├── types.py          # Finding, Verdict, GuidedQuestions dataclasses
-│   └── config.py         # Configuration management
-├── sarif/
-│   └── parser.py         # SARIF file parsing
-├── context/
-│   ├── extractor.py      # Heuristic-based context extraction
-│   └── provider.py       # CSV-based context lookup
-├── questions/
-│   └── loader.py         # Guided questions loading
-├── llm/
-│   ├── prompts.py        # Prompt templates
-│   └── client.py         # LLM client (OpenAI/Ollama)
-├── verification/
-│   └── engine.py         # Main verification orchestrator
-├── codeql/
-│   ├── database.py       # Database creation/management
-│   └── analysis.py       # Running CodeQL queries
-└── cli/
-    └── main.py           # Command-line interface
+# Limit findings and quiet output
+codeql-llm verify --limit 10 -q
+
+# Save LLM conversations to file
+codeql-llm verify --log-file output/conversations.md
 ```
 
 ## Python API
-
-### Basic Usage
 
 ```python
 from codeql_llm import VerificationEngine
@@ -134,75 +197,6 @@ engine.on_finding_complete(on_complete)
 result = engine.verify_all_sarif()
 ```
 
-### Custom Configuration
-
-```python
-from codeql_llm import VerificationEngine
-from codeql_llm.core.config import Config
-
-# Create custom config
-config = Config.from_dict({
-    "provider": "ollama",
-    "model": "ollama/llama3.2",
-    "mode": "simple",
-    "max_iterations": 1,
-})
-
-engine = VerificationEngine(config)
-result = engine.verify_sarif("output/sarif/c/test.sarif", "c", "test")
-```
-
-### Direct Component Usage
-
-```python
-from pathlib import Path
-from codeql_llm.sarif.parser import parse_sarif_file
-from codeql_llm.questions.loader import QuestionsLoader
-from codeql_llm.context.extractor import ContextExtractor
-from codeql_llm.llm.client import LLMClient
-
-# Parse SARIF
-findings = parse_sarif_file(Path("output/sarif/c/test.sarif"), "c", "test")
-
-# Load questions
-loader = QuestionsLoader(Path("config/prompts"))
-questions = loader.get_questions("cpp/buffer-overflow")
-
-# Extract context
-extractor = ContextExtractor(Path("repos"))
-context = extractor.get_context(findings[0].file, findings[0].start_line, "c")
-
-# Analyze with LLM
-client = LLMClient(provider="openai", model="gpt-4o", mode="vulnhalla")
-verdict = client.analyze(
-    finding=findings[0],
-    context=context.code,
-    questions=questions,
-    func_name=context.function_name,
-)
-```
-
-## CLI Reference
-
-```
-codeql-llm verify [OPTIONS]
-
-Options:
-  --config PATH           Configuration file path
-  --provider [openai|ollama]  LLM provider
-  --model TEXT            LLM model name
-  --mode [simple|vulnhalla]   Verification mode
-  --max-iterations INT    Max LLM rounds (vulnhalla mode)
-  --sarif PATH            Specific SARIF file to process
-  --repo TEXT             Filter by repository name
-  --lang [c|cpp|python|javascript]  Filter by language
-  --limit INT             Max findings to process
-  -q, --quiet             Minimal output
-  -v, --verbose           Detailed output with prompts/responses
-  --log-file PATH         Save conversations to markdown file
-  --dry-run               Show what would be processed
-```
-
 ## Verification Modes
 
 ### Simple Mode (`--mode simple`)
@@ -222,7 +216,7 @@ Multi-turn LLM analysis with dynamic context expansion.
 - Up to `max_iterations` conversation rounds
 - Higher accuracy for complex data-flow issues
 
-## Configuration File
+## Configuration
 
 `config/confirm_findings.yaml`:
 
@@ -239,61 +233,36 @@ max_iterations: 3         # Max multi-turn rounds
 
 # Output settings
 verbosity: normal         # quiet, normal, or verbose
-log_file: null            # Path to save conversations
-
-# Processing limits
-limit: 0                  # 0 = process all findings
-languages: []             # Empty = all languages
-repositories: []          # Empty = all repos
 ```
 
-## Project Phases
+## Project Structure
 
-### Phase 1: Environment Check
-
-Verify CodeQL CLI and LLM providers.
-
-```bash
-python scripts/check_env.py
 ```
-
-### Phase 2: Clone Repos & Create Databases
-
-```bash
-# Clone and create DBs for all repos
-python scripts/clone_and_db.py
-
-# Only specific language/repo
-python scripts/clone_and_db.py --lang c --repo c-ares
+CodeQLxLLM/
+├── src/codeql_llm/       # Framework package
+│   ├── cli/              # CLI commands
+│   ├── codeql/           # CodeQL operations
+│   ├── context/          # Context extraction
+│   ├── core/             # Types and config
+│   ├── llm/              # LLM client
+│   ├── questions/        # Guided questions
+│   ├── sarif/            # SARIF parsing
+│   └── verification/     # Verification engine
+├── config/               # Configuration
+│   ├── confirm_findings.yaml
+│   ├── repos.yaml
+│   ├── prompts/          # Guided questions
+│   ├── queries/          # CodeQL tool queries
+│   └── context/          # Pre-extracted CSVs
+├── docs/                 # Documentation
+├── examples/             # Usage examples
+├── tests/                # Test suite
+├── repos/                # Cloned repositories
+├── databases/            # CodeQL databases
+└── output/               # Analysis results
+    ├── sarif/            # SARIF files
+    └── results/          # Verification results
 ```
-
-### Phase 3: Run CodeQL Analysis
-
-```bash
-# Analyze all databases
-python scripts/run_codeql_analysis.py
-
-# Specific repo
-python scripts/run_codeql_analysis.py --repo c-ares
-```
-
-### Phase 4: LLM Verification
-
-```bash
-# Using CLI
-codeql-llm verify
-
-# Using script with options
-python scripts/confirm_findings.py \
-    --mode vulnhalla \
-    --provider openai \
-    --limit 10 \
-    --verbose
-```
-
-### Phase 5: Framework (This README)
-
-The framework is now refactored into a proper Python package.
 
 ## Guided Questions
 
@@ -313,12 +282,9 @@ cpp/use-after-free:
 
 ## Security Checks Documentation
 
-See detailed CodeQL security check documentation:
-
 - [C/C++ Security Checks](docs/codeql_cpp_security.md)
 - [Python Security Checks](docs/codeql_python_security.md)
 - [JavaScript Security Checks](docs/codeql_javascript_security.md)
-- [General Overview](docs/codeql_security_checks.md)
 
 ## Development
 
@@ -330,35 +296,15 @@ pip install -e ".[dev]"
 pytest tests/
 
 # Lint code
-ruff check src/ scripts/
+ruff check src/
 
 # Type check
 mypy src/
 ```
 
-## Directory Structure
-
-```
-CodeQLxLLM/
-├── src/codeql_llm/      # Python framework package
-├── scripts/             # CLI scripts
-├── config/              # Configuration files
-│   ├── prompts/         # Guided questions YAML
-│   ├── queries/         # CodeQL tool queries
-│   └── context/         # Pre-extracted context CSVs
-├── repos/               # Cloned repositories
-├── databases/           # CodeQL databases
-├── output/
-│   ├── sarif/           # SARIF analysis results
-│   └── results/         # LLM verification results
-├── docs/                # Documentation
-├── examples/            # Usage examples
-└── tests/               # Test suite
-```
-
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License
 
 ## References
 
