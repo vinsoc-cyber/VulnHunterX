@@ -84,14 +84,14 @@ class LLMClient:
         
         # Print initial prompts in verbose mode
         if verbose:
-            print(f"\n    === SYSTEM PROMPT ===")
+            print("\n    === SYSTEM PROMPT ===")
             sys_prompt = self.prompt_builder.system_prompt
             if len(sys_prompt) > 1000:
                 print(f"    [System prompt: {len(sys_prompt)} chars, showing first 1000...]")
                 print(f"    {sys_prompt[:1000]}...")
             else:
                 print(f"    {sys_prompt}")
-            print(f"    === END SYSTEM PROMPT ===\n")
+            print("    === END SYSTEM PROMPT ===\n")
         
         # Log initial prompt
         if log_file:
@@ -117,7 +117,7 @@ class LLMClient:
             if verbose:
                 print(f"\n    [Iteration {iterations}/{max_iterations}] Sending request to LLM...")
                 # Print the request being sent
-                print(f"\n    === LLM REQUEST ===")
+                print("\n    === LLM REQUEST ===")
                 last_user_msg = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
                 # Show truncated version for readability
                 if len(last_user_msg) > 2000:
@@ -125,9 +125,9 @@ class LLMClient:
                     print(f"    {last_user_msg[:2000]}...")
                 else:
                     print(f"    {last_user_msg}")
-                print(f"    === END REQUEST ===\n")
+                print("    === END REQUEST ===\n")
             elif not quiet:
-                print(f"    Calling LLM...", end="", flush=True)
+                print("    Calling LLM...", end="", flush=True)
             
             try:
                 response = litellm.completion(
@@ -150,7 +150,7 @@ class LLMClient:
                 if verbose:
                     print(f"    === LLM RESPONSE ({len(raw_response)} chars) ===")
                     print(f"    {raw_response}")
-                    print(f"    === END RESPONSE ===\n")
+                    print("    === END RESPONSE ===\n")
                 
                 # Parse response
                 parsed = self._parse_response(raw_response)
@@ -302,15 +302,15 @@ class LLMClient:
         elapsed: float,
     ) -> None:
         """Log final verdict to file."""
-        log_file.write(f"### Final Verdict\n\n")
+        log_file.write("### Final Verdict\n\n")
         log_file.write(f"- **Verdict**: {parsed.get('verdict', 'Unknown')}\n")
         log_file.write(f"- **Confidence**: {parsed.get('confidence', 'Low')}\n")
         log_file.write(f"- **Iterations**: {iterations}\n")
         log_file.write(f"- **Time**: {elapsed:.2f}s\n")
         log_file.write(f"- **Reasoning**: {parsed.get('reasoning', 'N/A')}\n\n")
         if parsed.get("answers"):
-            log_file.write(f"**Answers:**\n")
+            log_file.write("**Answers:**\n")
             for ai, ans in enumerate(parsed.get("answers", []), 1):
                 log_file.write(f"{ai}. {ans}\n")
-            log_file.write(f"\n")
-        log_file.write(f"---\n\n")
+            log_file.write("\n")
+        log_file.write("---\n\n")

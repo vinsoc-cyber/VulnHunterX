@@ -50,7 +50,7 @@ Examples:
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
     # Check-env command
-    check_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "check-env",
         help="Check environment (CodeQL, OpenAI, Ollama)",
     )
@@ -238,9 +238,9 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print()
     
     if args.lang:
-        dbs = [(p, l, n) for p, l, n in dbs if l == args.lang]
+        dbs = [(p, lang, n) for p, lang, n in dbs if lang == args.lang]
     if args.repo:
-        dbs = [(p, l, n) for p, l, n in dbs if n.lower() == args.repo.lower()]
+        dbs = [(p, lang, n) for p, lang, n in dbs if n.lower() == args.repo.lower()]
     
     if not dbs:
         print("No CodeQL databases found.", file=sys.stderr)
@@ -371,9 +371,9 @@ def cmd_verify(args: argparse.Namespace) -> int:
         
         sarif_files = discover_sarif_files(config.paths.output_dir)
         if args.lang:
-            sarif_files = [(p, l, n) for p, l, n in sarif_files if l == args.lang]
+            sarif_files = [(p, lang, n) for p, lang, n in sarif_files if lang == args.lang]
         if args.repo:
-            sarif_files = [(p, l, n) for p, l, n in sarif_files if n.lower() == args.repo.lower()]
+            sarif_files = [(p, lang, n) for p, lang, n in sarif_files if n.lower() == args.repo.lower()]
         
         all_findings = []
         for sarif_path, lang, repo_name in sarif_files:

@@ -86,7 +86,8 @@ output_dir: output
 repos_dir: repos
 
 # Context CSV directory (for multi-turn context expansion)
-context_dir: config/context
+# Note: This is generated data from extract-context, stored in output/
+context_dir: output/context
 
 # Guided questions file
 questions_file: config/prompts/guided_questions.yaml
