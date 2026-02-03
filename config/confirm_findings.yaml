@@ -1,7 +1,17 @@
-# Configuration for confirm_findings.py (Phase 4: LLM Bug Verification)
-# 
-# These settings can be overridden by command-line arguments.
-# Environment variables take precedence over this config file.
+# =============================================================================
+# CodeQL + LLM Verification Configuration
+# =============================================================================
+#
+# This file contains APPLICATION SETTINGS for LLM verification.
+# Secrets and environment-specific settings go in .env file.
+#
+# Configuration Priority (highest to lowest):
+#   1. Command-line arguments (--provider, --model, etc.)
+#   2. Environment variables (OLLAMA_API_BASE, CODEQL_PATH)
+#   3. This config file
+#   4. Built-in defaults
+#
+# =============================================================================
 
 # =============================================================================
 # LLM Provider Settings
@@ -15,8 +25,8 @@ provider: openai
 # For Ollama: ollama/llama3.2, ollama/codellama, ollama/mistral
 model: gpt-4o
 
-# Ollama server URL (only used when provider is "ollama")
-ollama_base_url: http://localhost:11434
+# Note: Ollama server URL is set via OLLAMA_API_BASE environment variable
+# in .env file (default: http://localhost:11434)
 
 # =============================================================================
 # Analysis Mode Settings

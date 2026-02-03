@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 
 class CodeQLAnalyzer:
@@ -26,9 +26,16 @@ class CodeQLAnalyzer:
         self,
         codeql_path: str = "codeql",
         output_dir: Path | None = None,
+        verbose: bool = False,
     ):
         self.codeql_path = codeql_path
         self.output_dir = output_dir or Path("output")
+        self.verbose = verbose
+        self._log: Callable[[str], None] = lambda msg: None
+    
+    def set_logger(self, log_func: Callable[[str], None]) -> None:
+        """Set a logging function for verbose output."""
+        self._log = log_func
     
     def run_analysis(
         self,
@@ -57,13 +64,24 @@ class CodeQLAnalyzer:
         sarif_dir.mkdir(parents=True, exist_ok=True)
         sarif_path = sarif_dir / f"{output_name}.sarif"
         
-        # First, finalize if needed
-        if not self._is_finalized(db_path):
+        self._log(f"  Database: {db_path}")
+        self._log(f"  Suite: {suite}")
+        self._log(f"  Output: {sarif_path}")
+        
+        # Check and finalize if needed
+        self._log("  Checking database status...")
+        finalized = self._is_finalized(db_path)
+        self._log(f"  Database finalized: {finalized}")
+        
+        if not finalized:
+            self._log("  Finalizing database...")
             success, msg = self._finalize(db_path)
             if not success:
                 return False, None, f"Finalization failed: {msg}"
+            self._log(f"  Finalization: {msg}")
         
         # Run analysis
+        self._log("  Running CodeQL analysis...")
         cmd = [
             self.codeql_path,
             "database",
@@ -74,6 +92,7 @@ class CodeQLAnalyzer:
             f"--output={sarif_path}",
             "--sarif-add-snippets",
         ]
+        self._log(f"  Command: {' '.join(cmd)}")
         
         try:
             result = subprocess.run(
@@ -84,14 +103,32 @@ class CodeQLAnalyzer:
             )
             
             if result.returncode == 0:
-                return True, sarif_path, "Analysis completed"
+                # Count results in SARIF
+                findings_count = self._count_sarif_results(sarif_path)
+                return True, sarif_path, f"Analysis completed ({findings_count} findings)"
             else:
-                return False, None, result.stderr or result.stdout
+                error_msg = result.stderr or result.stdout
+                self._log(f"  Error output: {error_msg[:500]}")
+                return False, None, error_msg
                 
         except subprocess.TimeoutExpired:
-            return False, None, "Analysis timed out"
+            return False, None, "Analysis timed out (1 hour limit)"
         except Exception as e:
             return False, None, str(e)
+    
+    def _count_sarif_results(self, sarif_path: Path) -> int:
+        """Count the number of results in a SARIF file."""
+        if not sarif_path.is_file():
+            return 0
+        try:
+            import json
+            data = json.loads(sarif_path.read_text())
+            count = 0
+            for run in data.get("runs", []):
+                count += len(run.get("results", []))
+            return count
+        except Exception:
+            return 0
     
     def run_tool_query(
         self,
@@ -163,13 +200,29 @@ class CodeQLAnalyzer:
             return False, str(e)
     
     def _is_finalized(self, db_path: Path) -> bool:
-        """Check if database is finalized."""
-        return (db_path / "db-cpp" / "trap" / "completion-stamp").exists() or \
-               (db_path / "db-python" / "trap" / "completion-stamp").exists() or \
-               (db_path / "db-javascript" / "trap" / "completion-stamp").exists()
+        """Check if database is finalized by looking for completion stamps."""
+        # Check for completion stamps in various language DBs
+        for lang_db in ["db-cpp", "db-python", "db-javascript"]:
+            stamp = db_path / lang_db / "trap" / "completion-stamp"
+            if stamp.exists():
+                return True
+        
+        # Also check codeql-database.yml for finalized status
+        db_yml = db_path / "codeql-database.yml"
+        if db_yml.exists():
+            try:
+                import yaml
+                data = yaml.safe_load(db_yml.read_text())
+                # If there's no "inProgress" or it's False, consider it finalized
+                if not data.get("inProgress", False):
+                    return True
+            except Exception:
+                pass
+        
+        return False
     
     def _finalize(self, db_path: Path) -> tuple[bool, str]:
-        """Finalize the database."""
+        """Finalize the database. Returns success even if already finalized."""
         cmd = [self.codeql_path, "database", "finalize", str(db_path)]
         
         try:
@@ -180,11 +233,28 @@ class CodeQLAnalyzer:
                 timeout=600,
             )
             
+            output = (result.stderr or "") + (result.stdout or "")
+            output_lower = output.lower()
+            
             if result.returncode == 0:
-                return True, "Finalized"
-            else:
-                return False, result.stderr or result.stdout
+                return True, "Finalized successfully"
+            
+            # Treat "already finalized" as success
+            if "already finalized" in output_lower:
+                return True, "Already finalized"
+            
+            # Treat "no longer under construction" as success
+            if "no longer under construction" in output_lower:
+                return True, "Already finalized (not under construction)"
+            
+            # Treat "nothing to do" as success
+            if "nothing to do" in output_lower:
+                return True, "Already finalized (nothing to do)"
+            
+            return False, output
                 
+        except subprocess.TimeoutExpired:
+            return False, "Finalization timed out (10 minute limit)"
         except Exception as e:
             return False, str(e)
     

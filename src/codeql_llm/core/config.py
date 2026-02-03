@@ -99,12 +99,15 @@ class Config:
     @classmethod
     def from_dict(cls, data: dict[str, Any], base_path: Optional[Path] = None) -> "Config":
         """Create config from dictionary."""
+        # Ollama URL comes from environment only (not from YAML config)
+        ollama_url = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
+        
         llm = LLMConfig(
             provider=data.get("provider", "openai"),
             model=data.get("model", "gpt-4o"),
             temperature=data.get("temperature", 0.2),
             max_tokens=data.get("max_tokens", 1500),
-            ollama_base_url=data.get("ollama_base_url", "http://localhost:11434"),
+            ollama_base_url=ollama_url,
         )
         
         verification = VerificationConfig(
@@ -156,12 +159,10 @@ class Config:
     
     @classmethod
     def from_env(cls, base_path: Optional[Path] = None) -> "Config":
-        """Create config from environment variables."""
+        """Create config from environment variables only."""
         data = {
-            "provider": os.environ.get("LLM_PROVIDER", "openai"),
-            "model": os.environ.get("LLM_MODEL", "gpt-4o"),
             "codeql_path": os.environ.get("CODEQL_PATH", "codeql"),
-            "ollama_base_url": os.environ.get("OLLAMA_API_BASE", "http://localhost:11434"),
+            # Note: ollama_base_url is read in from_dict via OLLAMA_API_BASE
         }
         return cls.from_dict(data, base_path)
     
@@ -206,9 +207,14 @@ def load_config(
     Load configuration from file and environment.
     
     Priority (highest to lowest):
-    1. Environment variables
-    2. Config file
+    1. Environment variables (secrets + environment-specific)
+    2. Config file (application settings)
     3. Defaults
+    
+    Environment variables:
+    - OPENAI_API_KEY: OpenAI API key (secret)
+    - OLLAMA_API_BASE: Ollama server URL (environment-specific)
+    - CODEQL_PATH: CodeQL CLI path (environment-specific)
     """
     # Start with defaults
     config = Config()
@@ -217,16 +223,13 @@ def load_config(
     if config_path and config_path.is_file():
         config = Config.from_file(config_path, base_path)
     
-    # Override with environment variables
-    env_provider = os.environ.get("LLM_PROVIDER")
-    env_model = os.environ.get("LLM_MODEL")
+    # Override with environment variables (environment-specific settings)
     env_codeql = os.environ.get("CODEQL_PATH")
+    env_ollama = os.environ.get("OLLAMA_API_BASE")
     
-    if env_provider:
-        config.llm.provider = env_provider
-    if env_model:
-        config.llm.model = env_model
     if env_codeql:
         config.codeql_path = env_codeql
+    if env_ollama:
+        config.llm.ollama_base_url = env_ollama
     
     return config

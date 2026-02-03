@@ -1,0 +1,4 @@
+name: codeql-llm/cpp-tools
+version: 0.0.1
+dependencies:
+  codeql/cpp-all: "*"

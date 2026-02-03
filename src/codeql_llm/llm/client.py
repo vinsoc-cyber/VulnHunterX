@@ -82,6 +82,17 @@ class LLMClient:
             {"role": "user", "content": user_prompt},
         ]
         
+        # Print initial prompts in verbose mode
+        if verbose:
+            print(f"\n    === SYSTEM PROMPT ===")
+            sys_prompt = self.prompt_builder.system_prompt
+            if len(sys_prompt) > 1000:
+                print(f"    [System prompt: {len(sys_prompt)} chars, showing first 1000...]")
+                print(f"    {sys_prompt[:1000]}...")
+            else:
+                print(f"    {sys_prompt}")
+            print(f"    === END SYSTEM PROMPT ===\n")
+        
         # Log initial prompt
         if log_file:
             log_file.write(f"## Finding: {finding.rule_id}\n\n")
@@ -105,6 +116,16 @@ class LLMClient:
             
             if verbose:
                 print(f"\n    [Iteration {iterations}/{max_iterations}] Sending request to LLM...")
+                # Print the request being sent
+                print(f"\n    === LLM REQUEST ===")
+                last_user_msg = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+                # Show truncated version for readability
+                if len(last_user_msg) > 2000:
+                    print(f"    [User message: {len(last_user_msg)} chars, showing first 2000...]")
+                    print(f"    {last_user_msg[:2000]}...")
+                else:
+                    print(f"    {last_user_msg}")
+                print(f"    === END REQUEST ===\n")
             elif not quiet:
                 print(f"    Calling LLM...", end="", flush=True)
             
@@ -127,7 +148,9 @@ class LLMClient:
                     log_file.write(f"```json\n{raw_response}\n```\n\n")
                 
                 if verbose:
-                    print(f"    Response: {len(raw_response)} chars")
+                    print(f"    === LLM RESPONSE ({len(raw_response)} chars) ===")
+                    print(f"    {raw_response}")
+                    print(f"    === END RESPONSE ===\n")
                 
                 # Parse response
                 parsed = self._parse_response(raw_response)
@@ -135,7 +158,7 @@ class LLMClient:
                 context_needed = parsed.get("context_needed", [])
                 
                 if verbose:
-                    print(f"    Parsed verdict: {verdict}")
+                    print(f"    Parsed: verdict={verdict}, confidence={parsed.get('confidence', 'Low')}")
                 
                 # Final verdict or no context expansion
                 if verdict != "Needs More Data" or not context_needed or not context_provider:

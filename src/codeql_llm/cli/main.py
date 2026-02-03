@@ -109,6 +109,7 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
     parser.add_argument("--repo", help="Only this repository")
     parser.add_argument("--json", action="store_true", help="Also output findings JSON")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output with command details")
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
 
 
@@ -216,13 +217,25 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     
     base_path = Path.cwd()
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
+    verbose = getattr(args, 'verbose', False)
     
     analyzer = CodeQLAnalyzer(
         codeql_path=codeql_path,
         output_dir=base_path / "output",
+        verbose=verbose,
     )
     
+    # Set up verbose logging
+    if verbose:
+        analyzer.set_logger(lambda msg: print(msg))
+    
     dbs = discover_databases(base_path / "databases")
+    
+    if verbose:
+        print(f"Found {len(dbs)} database(s) in {base_path / 'databases'}")
+        for db_path, lang, name in dbs:
+            print(f"  - {lang}/{name}: {db_path}")
+        print()
     
     if args.lang:
         dbs = [(p, l, n) for p, l, n in dbs if l == args.lang]
@@ -231,6 +244,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     
     if not dbs:
         print("No CodeQL databases found.", file=sys.stderr)
+        if args.lang or args.repo:
+            print(f"  Filter: lang={args.lang}, repo={args.repo}", file=sys.stderr)
         return 1
     
     print(f"Running CodeQL analysis on {len(dbs)} database(s)\n")
@@ -240,7 +255,10 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print(f"[{name}] {lang}")
         
         if args.dry_run:
+            suite = analyzer.DEFAULT_SUITES.get("cpp" if lang in ("c", "cpp") else lang)
             print(f"  [dry-run] Would analyze {db_path}")
+            print(f"  [dry-run] Suite: {suite}")
+            print(f"  [dry-run] Output: {base_path / 'output' / 'sarif' / lang / f'{name}.sarif'}")
             ok_count += 1
             continue
         
@@ -249,6 +267,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         if ok:
             ok_count += 1
             print(f"  -> {sarif_path}")
+            print(f"  {msg}")
         else:
             print(f"  FAILED: {msg}", file=sys.stderr)
     

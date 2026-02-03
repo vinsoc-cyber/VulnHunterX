@@ -29,9 +29,26 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+### CodeQL Query Packs Setup
+
+Before using `extract-context`, install CodeQL query pack dependencies:
+
+```bash
+# Install dependencies for tool queries (required for extract-context)
+codeql pack install config/queries/tools/cpp
+codeql pack install config/queries/tools/python
+codeql pack install config/queries/tools/javascript
+```
+
+This downloads the required CodeQL standard libraries (`codeql/cpp-all`, `codeql/python-all`, `codeql/javascript-all`) that the tool queries depend on.
+
+**Note:** You only need to run this once after cloning the repository.
+
 ### Configuration
 
-Copy `.env.example` to `.env` and configure:
+Configuration is split between two files:
+
+**`.env`** - Secrets and environment-specific settings:
 
 ```bash
 # Required for OpenAI
@@ -40,10 +57,21 @@ OPENAI_API_KEY=sk-...
 # Optional: Ollama server URL (default: http://localhost:11434)
 OLLAMA_API_BASE=http://remote-server:11434
 
-# Optional: Default provider and model
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o
+# Optional: CodeQL path (if not on PATH)
+CODEQL_PATH=/path/to/codeql
 ```
+
+**`config/confirm_findings.yaml`** - Application settings:
+
+```yaml
+provider: openai          # LLM provider (openai or ollama)
+model: gpt-4o             # Model name
+mode: vulnhalla           # Verification mode (simple or vulnhalla)
+temperature: 0.2          # LLM temperature
+max_iterations: 3         # Max conversation rounds
+```
+
+See [Configuration](#configuration-1) section for full options.
 
 ### Run the Full Pipeline
 
@@ -76,6 +104,13 @@ Commands:
   extract-context  Extract context CSVs from databases
   verify           Verify CodeQL findings using LLM
   info             Show configuration and environment info
+
+Common Options (where supported):
+  --lang           Filter by language (c, cpp, python, javascript)
+  --repo           Filter by repository name
+  -v, --verbose    Detailed output (analyze, verify)
+  --dry-run        Preview without executing (clone, analyze, extract-context)
+  --help           Show command help
 ```
 
 ### check-env
@@ -118,17 +153,53 @@ codeql-llm analyze
 # Specific language/repo
 codeql-llm analyze --lang c --repo c-ares
 
+# Verbose output (shows commands, paths, status)
+codeql-llm analyze --repo c-ares -v
+
 # Also output findings JSON
 codeql-llm analyze --json
+
+# Dry run (preview without executing)
+codeql-llm analyze --dry-run
 ```
+
+Verbose mode (`-v`) shows:
+- Database path and finalization status
+- Query suite being used
+- Full CodeQL command being executed
+- Number of findings in the output
 
 ### extract-context
 
 Extract context CSVs from databases for multi-turn verification.
 
 ```bash
+# Extract context for all databases
+codeql-llm extract-context
+
+# Specific language
 codeql-llm extract-context --lang c
+
+# Specific repository
+codeql-llm extract-context --repo libucl
+
+# Dry run (preview without executing)
+codeql-llm extract-context --dry-run
 ```
+
+This command runs CodeQL tool queries to pre-extract structured context into CSV files:
+
+| CSV File | Description |
+|----------|-------------|
+| `functions.csv` | Function definitions with file, start/end lines, parameter count |
+| `callers.csv` | Caller-callee relationships between functions |
+| `structs.csv` | Structure/class definitions with their fields |
+| `globals.csv` | Global variable declarations |
+| `macros.csv` | Macro definitions (C/C++ only) |
+
+CSV files are stored in `config/context/<repo>/` and are used by **Vulnhalla mode** to provide additional context when the LLM requests it during multi-turn verification.
+
+**Note:** This step is optional for `--mode simple` but recommended for `--mode vulnhalla`.
 
 ### verify
 
@@ -216,15 +287,156 @@ Multi-turn LLM analysis with dynamic context expansion.
 - Up to `max_iterations` conversation rounds
 - Higher accuracy for complex data-flow issues
 
+## Verification Process
+
+### Flow Diagram
+
+```
+┌───────────────────────────────────────────────────────────────────────┐
+│                       VERIFICATION PIPELINE                           │
+└───────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│ 1. PARSE SARIF                                                        │
+│    - Load CodeQL SARIF file                                           │
+│    - Extract findings (rule_id, file, line, message)                  │
+└───────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│ 2. LOAD CONTEXT                                                       │
+│    - Read source file around the finding location                     │
+│    - Extract enclosing function                                       │
+│    - Load pre-indexed CSVs (functions, callers, structs, globals)     │
+└───────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│ 3. LOAD GUIDED QUESTIONS                                              │
+│    - Match rule_id to question template (e.g., cpp/use-after-free)    │
+│    - Fall back to generic questions if no specific template           │
+└───────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│ 4. BUILD PROMPT                                                       │
+│    - System prompt (simple or vulnhalla mode)                         │
+│    - User prompt: finding details + code context + guided questions   │
+└───────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│ 5. LLM ANALYSIS (Multi-turn for Vulnhalla mode)                       │
+│                                                                       │
+│    ┌───────────────────────────────────────────────────────────────┐  │
+│    │ Iteration 1..N:                                               │  │
+│    │   - Send messages to LLM (OpenAI/Ollama via LiteLLM)          │  │
+│    │   - Parse JSON response                                       │  │
+│    │   - If verdict = "Needs More Data" AND has context_needed:    │  │
+│    │       -> Fetch additional context from CSVs                   │  │
+│    │       -> Append to conversation                               │  │
+│    │       -> Continue to next iteration                           │  │
+│    │   - Else: Return final verdict                                │  │
+│    └───────────────────────────────────────────────────────────────┘  │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│ 6. VERDICT OUTPUT                                                     │
+│    - verdict: True Positive | False Positive | Needs More Data        │
+│    - confidence: High | Medium | Low                                  │
+│    - reasoning: Explanation of the analysis                           │
+│    - answers: Responses to each guided question                       │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+### LLM Response Format
+
+The LLM returns a structured JSON response:
+
+```json
+{
+  "answers": [
+    "Q1: The buffer is allocated at line 45 with malloc(size)...",
+    "Q2: The size comes from user input via argv[1]...",
+    "Q3: No bounds checking is performed before the copy..."
+  ],
+  "verdict": "True Positive",
+  "confidence": "High",
+  "reasoning": "The buffer overflow is confirmed because...",
+  "context_needed": []
+}
+```
+
+When the LLM needs more context (Vulnhalla mode only):
+
+```json
+{
+  "answers": ["Partial analysis..."],
+  "verdict": "Needs More Data",
+  "confidence": "Low",
+  "reasoning": "Cannot determine without seeing caller functions",
+  "context_needed": ["caller:process_input", "struct:user_data"]
+}
+```
+
+### Context Types
+
+The LLM can request these context types in `context_needed`:
+
+| Request Format | Description | Example |
+|----------------|-------------|---------|
+| `caller:<func>` | All callers of a function | `caller:parse_input` |
+| `struct:<name>` | Structure definition | `struct:user_data` |
+| `global:<name>` | Global variable | `global:config` |
+| `function:<name>` | Function definition | `function:validate` |
+
+### Verbose Output
+
+Use `-v` to see the full LLM interaction:
+
+```bash
+codeql-llm verify --mode vulnhalla --repo libucl -v
+```
+
+This prints:
+- System prompt being used
+- User prompt with code context and questions
+- Raw LLM response
+- Parsed verdict and confidence
+- Additional context being fetched (if any)
+
+### Saving Conversations
+
+Save full LLM conversations to a markdown file:
+
+```bash
+codeql-llm verify --mode vulnhalla --log-file output/conversations.md
+```
+
 ## Configuration
 
-`config/confirm_findings.yaml`:
+Configuration is split between environment variables and a YAML config file:
+
+### Environment Variables (`.env`)
+
+For secrets and environment-specific settings:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | OpenAI API key (required for OpenAI) | - |
+| `OLLAMA_API_BASE` | Ollama server URL | `http://localhost:11434` |
+| `CODEQL_PATH` | Path to CodeQL CLI | `codeql` (on PATH) |
+
+### Application Settings (`config/confirm_findings.yaml`)
 
 ```yaml
-# LLM settings
+# LLM provider and model
 provider: openai          # openai or ollama
 model: gpt-4o             # Model name
-temperature: 0.2          # Response temperature
+temperature: 0.2          # Response temperature (0.0-1.0)
 max_tokens: 1500          # Max response tokens
 
 # Verification settings
@@ -233,7 +445,20 @@ max_iterations: 3         # Max multi-turn rounds
 
 # Output settings
 verbosity: normal         # quiet, normal, or verbose
+log_file: null            # Path to save LLM conversations
+
+# Processing limits
+limit: 0                  # Max findings (0 = unlimited)
+languages: []             # Filter by language
+repositories: []          # Filter by repository
 ```
+
+### Configuration Priority
+
+1. Command-line arguments (highest)
+2. Environment variables
+3. Config file
+4. Built-in defaults (lowest)
 
 ## Project Structure
 
