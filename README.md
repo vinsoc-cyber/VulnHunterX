@@ -197,7 +197,7 @@ This command runs CodeQL tool queries to pre-extract structured context into CSV
 | `globals.csv` | Global variable declarations |
 | `macros.csv` | Macro definitions (C/C++ only) |
 
-CSV files are stored in `config/context/<repo>/` and are used by **Vulnhalla mode** to provide additional context when the LLM requests it during multi-turn verification.
+CSV files are stored in `output/context/<repo>/` and are used by **Vulnhalla mode** to provide additional context when the LLM requests it during multi-turn verification.
 
 **Note:** This step is optional for `--mode simple` but recommended for `--mode vulnhalla`.
 
@@ -473,19 +473,19 @@ CodeQLxLLM/
 │   ├── questions/        # Guided questions
 │   ├── sarif/            # SARIF parsing
 │   └── verification/     # Verification engine
-├── config/               # Configuration
+├── config/               # Configuration (static files)
 │   ├── confirm_findings.yaml
 │   ├── repos.yaml
 │   ├── prompts/          # Guided questions
-│   ├── queries/          # CodeQL tool queries
-│   └── context/          # Pre-extracted CSVs
+│   └── queries/          # CodeQL tool queries
 ├── docs/                 # Documentation
 ├── examples/             # Usage examples
 ├── tests/                # Test suite
 ├── repos/                # Cloned repositories
 ├── databases/            # CodeQL databases
-└── output/               # Analysis results
+└── output/               # Generated output
     ├── sarif/            # SARIF files
+    ├── context/          # Extracted context CSVs
     └── results/          # Verification results
 ```
 

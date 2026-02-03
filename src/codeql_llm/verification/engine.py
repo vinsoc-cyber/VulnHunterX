@@ -151,9 +151,9 @@ class VerificationEngine:
         sarif_files = discover_sarif_files(output_dir)
         
         if lang_filter:
-            sarif_files = [(p, l, n) for p, l, n in sarif_files if l == lang_filter]
+            sarif_files = [(p, lang, n) for p, lang, n in sarif_files if lang == lang_filter]
         if repo_filter:
-            sarif_files = [(p, l, n) for p, l, n in sarif_files 
+            sarif_files = [(p, lang, n) for p, lang, n in sarif_files 
                           if n.lower() == repo_filter.lower()]
         
         # Collect all findings

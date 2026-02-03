@@ -71,7 +71,7 @@ class ContextExtractorDB:
     ):
         self.codeql_path = codeql_path
         self.queries_dir = queries_dir or Path("config/queries/tools")
-        self.output_dir = output_dir or Path("config/context")
+        self.output_dir = output_dir or Path("output/context")
     
     def run_query(
         self,
@@ -209,9 +209,9 @@ class ContextExtractorDB:
         dbs = discover_databases(databases_dir)
         
         if lang_filter:
-            dbs = [(p, l, n) for p, l, n in dbs if l == lang_filter]
+            dbs = [(p, lang, n) for p, lang, n in dbs if lang == lang_filter]
         if repo_filter:
-            dbs = [(p, l, n) for p, l, n in dbs if n.lower() == repo_filter.lower()]
+            dbs = [(p, lang, n) for p, lang, n in dbs if n.lower() == repo_filter.lower()]
         
         all_results: list[tuple[str, str, dict[str, tuple[bool, str]]]] = []
         

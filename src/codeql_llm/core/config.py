@@ -49,7 +49,7 @@ class PathsConfig:
     repos_dir: Path = field(default_factory=lambda: Path("repos"))
     databases_dir: Path = field(default_factory=lambda: Path("databases"))
     output_dir: Path = field(default_factory=lambda: Path("output"))
-    context_dir: Path = field(default_factory=lambda: Path("config/context"))
+    context_dir: Path = field(default_factory=lambda: Path("output/context"))  # Generated CSV data
     prompts_dir: Path = field(default_factory=lambda: Path("config/prompts"))
     queries_dir: Path = field(default_factory=lambda: Path("config/queries"))
     
@@ -119,7 +119,7 @@ class Config:
             repos_dir=Path(data.get("repos_dir", "repos")),
             databases_dir=Path(data.get("databases_dir", "databases")),
             output_dir=Path(data.get("output_dir", "output")),
-            context_dir=Path(data.get("context_dir", "config/context")),
+            context_dir=Path(data.get("context_dir", "output/context")),
             prompts_dir=Path(data.get("prompts_dir", "config/prompts")),
             queries_dir=Path(data.get("queries_dir", "config/queries")),
         )
