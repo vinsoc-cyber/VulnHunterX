@@ -1,0 +1,293 @@
+"""LLM client abstraction for OpenAI and Ollama via LiteLLM."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+from typing import Any, Optional
+
+import litellm
+
+from codeql_llm.core.types import Finding, Verdict, GuidedQuestions
+from codeql_llm.llm.prompts import PromptBuilder
+from codeql_llm.context.provider import ContextProvider
+
+
+class LLMClient:
+    """
+    Unified LLM client using LiteLLM for OpenAI and Ollama.
+    
+    Supports both simple (single-shot) and vulnhalla (multi-turn) modes.
+    """
+    
+    def __init__(
+        self,
+        provider: str = "openai",
+        model: str = "gpt-4o",
+        mode: str = "vulnhalla",
+        temperature: float = 0.2,
+        max_tokens: int = 1500,
+    ):
+        self.provider = provider
+        self.model = model
+        self.mode = mode
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.prompt_builder = PromptBuilder(mode)
+        
+        # Configure Ollama base URL if provided
+        if provider == "ollama":
+            ollama_base = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
+            os.environ["OLLAMA_API_BASE"] = ollama_base
+    
+    def analyze(
+        self,
+        finding: Finding,
+        context: str,
+        questions: GuidedQuestions,
+        func_name: str,
+        context_provider: Optional[ContextProvider] = None,
+        max_iterations: int = 3,
+        verbose: bool = False,
+        log_file: Optional[Any] = None,
+        quiet: bool = False,
+    ) -> Verdict:
+        """
+        Analyze a finding and return a verdict.
+        
+        In vulnhalla mode, supports multi-turn conversation with context expansion.
+        In simple mode, uses single-shot analysis.
+        
+        Args:
+            finding: The CodeQL finding to analyze
+            context: Code context around the finding
+            questions: Guided questions for the rule
+            func_name: Name of the function containing the finding
+            context_provider: Provider for additional context (multi-turn)
+            max_iterations: Maximum conversation rounds (vulnhalla mode)
+            verbose: Show detailed output
+            log_file: Optional file to log conversations
+            quiet: Suppress output
+            
+        Returns:
+            Verdict with the analysis result
+        """
+        user_prompt = self.prompt_builder.build_user_prompt(
+            finding, context, questions, func_name
+        )
+        messages = [
+            {"role": "system", "content": self.prompt_builder.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        
+        # Log initial prompt
+        if log_file:
+            log_file.write(f"## Finding: {finding.rule_id}\n\n")
+            log_file.write(f"- **File**: `{finding.file}:{finding.start_line}`\n")
+            log_file.write(f"- **Message**: {finding.message}\n")
+            log_file.write(f"- **Function**: `{func_name}`\n\n")
+            log_file.write(f"### System Prompt\n\n```\n{self.prompt_builder.system_prompt}\n```\n\n")
+            log_file.write(f"### User Prompt\n\n```\n{user_prompt}\n```\n\n")
+        
+        # Simple mode: single-shot
+        if self.mode == "simple":
+            max_iterations = 1
+            context_provider = None
+        
+        start_time = time.time()
+        iterations = 0
+        all_raw_responses: list[str] = []
+        
+        while iterations < max_iterations:
+            iterations += 1
+            
+            if verbose:
+                print(f"\n    [Iteration {iterations}/{max_iterations}] Sending request to LLM...")
+            elif not quiet:
+                print(f"    Calling LLM...", end="", flush=True)
+            
+            try:
+                response = litellm.completion(
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
+                raw_response = response.choices[0].message.content or ""
+                all_raw_responses.append(raw_response)
+                
+                if not verbose and not quiet:
+                    print(f" done ({len(raw_response)} chars)")
+                
+                # Log response
+                if log_file:
+                    log_file.write(f"### LLM Response (Iteration {iterations})\n\n")
+                    log_file.write(f"```json\n{raw_response}\n```\n\n")
+                
+                if verbose:
+                    print(f"    Response: {len(raw_response)} chars")
+                
+                # Parse response
+                parsed = self._parse_response(raw_response)
+                verdict = parsed.get("verdict", "Needs More Data")
+                context_needed = parsed.get("context_needed", [])
+                
+                if verbose:
+                    print(f"    Parsed verdict: {verdict}")
+                
+                # Final verdict or no context expansion
+                if verdict != "Needs More Data" or not context_needed or not context_provider:
+                    elapsed = time.time() - start_time
+                    
+                    if log_file:
+                        self._log_final_verdict(log_file, parsed, iterations, elapsed)
+                    
+                    return Verdict(
+                        finding=finding,
+                        verdict=verdict,
+                        confidence=parsed.get("confidence", "Low"),
+                        reasoning=parsed.get("reasoning", "Could not parse response"),
+                        answers=parsed.get("answers", []),
+                        raw_response="\n---\n".join(all_raw_responses),
+                        model=self.model,
+                        elapsed_seconds=elapsed,
+                        context_needed=context_needed,
+                        iterations=iterations,
+                        mode=self.mode,
+                    )
+                
+                # Fetch additional context
+                if verbose:
+                    print(f"    Fetching additional context: {context_needed}")
+                
+                additional = context_provider.get_additional_context(
+                    repo_name=finding.repo_name,
+                    lang=finding.lang,
+                    context_requests=context_needed,
+                )
+                
+                if not additional:
+                    elapsed = time.time() - start_time
+                    return Verdict(
+                        finding=finding,
+                        verdict=verdict,
+                        confidence=parsed.get("confidence", "Low"),
+                        reasoning=parsed.get("reasoning", "") + " [No additional context available]",
+                        answers=parsed.get("answers", []),
+                        raw_response="\n---\n".join(all_raw_responses),
+                        model=self.model,
+                        elapsed_seconds=elapsed,
+                        context_needed=context_needed,
+                        iterations=iterations,
+                        mode=self.mode,
+                    )
+                
+                # Build follow-up
+                follow_up = self.prompt_builder.build_followup_prompt(additional)
+                
+                if log_file:
+                    log_file.write(f"### Follow-up Prompt (Iteration {iterations} -> {iterations+1})\n\n")
+                    log_file.write(f"```\n{follow_up}\n```\n\n")
+                
+                messages.append({"role": "assistant", "content": raw_response})
+                messages.append({"role": "user", "content": follow_up})
+                
+            except Exception as e:
+                elapsed = time.time() - start_time
+                if verbose:
+                    print(f"    ERROR: {e}")
+                return Verdict(
+                    finding=finding,
+                    verdict="Error",
+                    confidence="Low",
+                    reasoning=f"LLM call failed: {e}",
+                    answers=[],
+                    raw_response=str(e),
+                    model=self.model,
+                    elapsed_seconds=elapsed,
+                    iterations=iterations,
+                    mode=self.mode,
+                )
+        
+        # Max iterations reached
+        elapsed = time.time() - start_time
+        return Verdict(
+            finding=finding,
+            verdict="Needs More Data",
+            confidence="Low",
+            reasoning=f"Max iterations ({max_iterations}) reached without final verdict",
+            answers=[],
+            raw_response="\n---\n".join(all_raw_responses),
+            model=self.model,
+            elapsed_seconds=elapsed,
+            iterations=iterations,
+            mode=self.mode,
+        )
+    
+    def _parse_response(self, raw: str) -> dict[str, Any]:
+        """Parse JSON from LLM response."""
+        # Try to extract JSON from markdown code block
+        json_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+        
+        # Try direct JSON parse
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+        
+        # Try to find JSON object in response
+        brace_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if brace_match:
+            try:
+                return json.loads(brace_match.group())
+            except json.JSONDecodeError:
+                pass
+        
+        # Manual extraction as fallback
+        result: dict[str, Any] = {
+            "answers": [],
+            "verdict": "Needs More Data",
+            "confidence": "Low",
+            "reasoning": "",
+        }
+        
+        for v in ["True Positive", "False Positive", "Needs More Data"]:
+            if v.lower() in raw.lower():
+                result["verdict"] = v
+                break
+        
+        for c in ["High", "Medium", "Low"]:
+            if f'confidence": "{c}' in raw or f'confidence":"{c}' in raw:
+                result["confidence"] = c
+                break
+        
+        result["reasoning"] = raw[:500]
+        return result
+    
+    def _log_final_verdict(
+        self,
+        log_file: Any,
+        parsed: dict,
+        iterations: int,
+        elapsed: float,
+    ) -> None:
+        """Log final verdict to file."""
+        log_file.write(f"### Final Verdict\n\n")
+        log_file.write(f"- **Verdict**: {parsed.get('verdict', 'Unknown')}\n")
+        log_file.write(f"- **Confidence**: {parsed.get('confidence', 'Low')}\n")
+        log_file.write(f"- **Iterations**: {iterations}\n")
+        log_file.write(f"- **Time**: {elapsed:.2f}s\n")
+        log_file.write(f"- **Reasoning**: {parsed.get('reasoning', 'N/A')}\n\n")
+        if parsed.get("answers"):
+            log_file.write(f"**Answers:**\n")
+            for ai, ans in enumerate(parsed.get("answers", []), 1):
+                log_file.write(f"{ai}. {ans}\n")
+            log_file.write(f"\n")
+        log_file.write(f"---\n\n")
