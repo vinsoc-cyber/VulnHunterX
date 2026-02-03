@@ -1,0 +1,172 @@
+"""SARIF file parsing and finding extraction."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Iterator
+
+from codeql_llm.core.types import Finding
+
+
+class SarifParser:
+    """Parser for SARIF (Static Analysis Results Interchange Format) files."""
+    
+    def __init__(self, sarif_path: Path):
+        self.sarif_path = Path(sarif_path)
+        self._data: dict | None = None
+    
+    @property
+    def data(self) -> dict:
+        """Lazy load SARIF data."""
+        if self._data is None:
+            self._data = self._load()
+        return self._data
+    
+    def _load(self) -> dict:
+        """Load SARIF file."""
+        if not self.sarif_path.is_file():
+            raise FileNotFoundError(f"SARIF file not found: {self.sarif_path}")
+        
+        with open(self.sarif_path, encoding="utf-8") as f:
+            return json.load(f)
+    
+    def get_runs(self) -> list[dict]:
+        """Get all runs from SARIF data."""
+        return self.data.get("runs", [])
+    
+    def get_results(self, run_index: int = 0) -> list[dict]:
+        """Get results from a specific run."""
+        runs = self.get_runs()
+        if run_index >= len(runs):
+            return []
+        return runs[run_index].get("results", [])
+    
+    def get_artifacts(self, run_index: int = 0) -> dict[int, dict]:
+        """Get artifacts (file info) from a specific run, indexed by index."""
+        runs = self.get_runs()
+        if run_index >= len(runs):
+            return {}
+        
+        artifacts = runs[run_index].get("artifacts", [])
+        return {i: art for i, art in enumerate(artifacts)}
+    
+    def parse_findings(
+        self,
+        lang: str,
+        repo_name: str,
+    ) -> list[Finding]:
+        """
+        Parse all findings from the SARIF file.
+        
+        Args:
+            lang: Language of the codebase (c, cpp, python, javascript)
+            repo_name: Name of the repository
+            
+        Returns:
+            List of Finding objects
+        """
+        findings: list[Finding] = []
+        
+        for run in self.get_runs():
+            artifacts = {i: art for i, art in enumerate(run.get("artifacts", []))}
+            
+            for result in run.get("results", []):
+                rule_id = result.get("ruleId") or ""
+                message = (result.get("message") or {}).get("text") or ""
+                
+                locations = result.get("locations") or []
+                
+                for loc in locations:
+                    phys = (loc.get("physicalLocation") or {})
+                    art_ref = phys.get("artifactLocation") or {}
+                    
+                    # Get file URI
+                    uri = art_ref.get("uri") or ""
+                    art_index = art_ref.get("index")
+                    if art_index is not None and art_index in artifacts:
+                        uri = artifacts[art_index].get("location", {}).get("uri") or uri
+                    
+                    # Get line numbers
+                    region = phys.get("region") or {}
+                    start_line = region.get("startLine") or 0
+                    end_line = region.get("endLine") or start_line
+                    
+                    findings.append(Finding(
+                        rule_id=rule_id,
+                        message=message,
+                        file=uri,
+                        start_line=start_line,
+                        end_line=end_line,
+                        repo_name=repo_name,
+                        lang=lang,
+                        sarif_path=str(self.sarif_path),
+                    ))
+                
+                # Handle results without locations
+                if not locations:
+                    findings.append(Finding(
+                        rule_id=rule_id,
+                        message=message,
+                        file="",
+                        start_line=0,
+                        end_line=0,
+                        repo_name=repo_name,
+                        lang=lang,
+                        sarif_path=str(self.sarif_path),
+                    ))
+        
+        return findings
+    
+    def __iter__(self) -> Iterator[dict]:
+        """Iterate over all results."""
+        for run in self.get_runs():
+            yield from run.get("results", [])
+
+
+def parse_sarif_file(
+    sarif_path: Path,
+    lang: str,
+    repo_name: str,
+) -> list[Finding]:
+    """
+    Convenience function to parse a SARIF file.
+    
+    Args:
+        sarif_path: Path to the SARIF file
+        lang: Language of the codebase
+        repo_name: Name of the repository
+        
+    Returns:
+        List of Finding objects
+    """
+    parser = SarifParser(sarif_path)
+    return parser.parse_findings(lang, repo_name)
+
+
+def discover_sarif_files(output_dir: Path) -> list[tuple[Path, str, str]]:
+    """
+    Discover SARIF files under output/sarif/<lang>/<name>.sarif.
+    
+    Args:
+        output_dir: Base output directory
+        
+    Returns:
+        List of (sarif_path, lang, repo_name) tuples
+    """
+    sarif_dir = output_dir / "sarif"
+    if not sarif_dir.is_dir():
+        return []
+    
+    results: list[tuple[Path, str, str]] = []
+    
+    for lang_dir in sarif_dir.iterdir():
+        if not lang_dir.is_dir():
+            continue
+        lang = lang_dir.name
+        
+        for sarif_file in lang_dir.glob("*.sarif"):
+            repo_name = sarif_file.stem
+            results.append((sarif_file, lang, repo_name))
+    
+    return results
