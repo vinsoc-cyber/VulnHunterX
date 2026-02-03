@@ -1,0 +1,52 @@
+# Phase 2: Repos to clone and CodeQL DBs to create.
+# Format: list of { name, url, language, build_command? }
+# name: used for dirs repos/<lang>/<name>/ and databases/<lang>/<name>/
+# build_command: required for c/cpp; omit for python/javascript.
+# Demo subset (small/fast for testing) is listed first.
+
+repos:
+  # --- Demo subset (small, fast) ---
+  - name: minimist
+    url: https://github.com/substack/minimist.git
+    language: javascript
+  - name: pyyaml
+    url: https://github.com/yaml/pyyaml.git
+    language: python
+  - name: zlib
+    url: https://github.com/madler/zlib.git
+    language: c
+    build_command: "./configure && make"
+  - name: re2
+    url: https://github.com/google/re2.git
+    language: cpp
+    build_command: "cmake . && make"
+
+  # --- C (OSS-Fuzz) ---
+  - name: libjpeg-turbo
+    url: https://github.com/libjpeg-turbo/libjpeg-turbo.git
+    language: c
+    build_command: "cmake . && make"
+  - name: libucl
+    url: https://github.com/vstakhov/libucl.git
+    language: c
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: libconfig
+    url: https://github.com/hyperrealm/libconfig.git
+    language: c
+    build_command: "./configure && make"
+  - name: c-ares
+    url: https://github.com/c-ares/c-ares.git
+    language: c
+    build_command: "./configure && make"
+
+  # --- C++ (OSS-Fuzz) ---
+  - name: nghttp2
+    url: https://github.com/nghttp2/nghttp2.git
+    language: cpp
+    build_command: "autoreconf -i && ./configure && make"
+  - name: lodash
+    url: https://github.com/lodash/lodash.git
+    language: javascript
+  - name: requests
+    url: https://github.com/psf/requests.git
+    language: python

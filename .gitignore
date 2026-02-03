@@ -1,0 +1,16 @@
+# Phase 2: cloned repos and CodeQL databases
+repos/
+databases/
+
+# Env and build
+.env
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+__pycache__/
+
+# Output
+output/
+*.sarif

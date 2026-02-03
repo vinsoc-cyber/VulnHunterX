@@ -1,0 +1,1 @@
+Please refer to `<projec-root>/.agents/AGENTS.md` for the instruction policies
