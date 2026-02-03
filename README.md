@@ -26,7 +26,7 @@ This framework provides:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/CodeQLxLLM.git
+git clone https://github.com/vinsoc-cyber/CodeQLxLLM.git
 cd CodeQLxLLM
 
 # Create virtual environment and install
@@ -570,4 +570,3 @@ MIT License
 
 - [Vulnhalla - CyberArk](https://www.cyberark.com/resources/threat-research-blog/vulnhalla-picking-the-true-vulnerabilities-from-the-codeql-haystack)
 - [CodeQL Documentation](https://codeql.github.com/docs/)
-- [LiteLLM](https://github.com/BerriAI/litellm)

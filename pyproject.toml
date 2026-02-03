@@ -41,9 +41,9 @@ codeql-llm = "codeql_llm.cli.main:main"
 
 # [project.urls]
 # Update these URLs when publishing to a repository
-# Homepage = "https://github.com/your-org/CodeQLxLLM"
-# Documentation = "https://github.com/your-org/CodeQLxLLM#readme"
-# Repository = "https://github.com/your-org/CodeQLxLLM"
+# Homepage = "https://github.com/vinsoc-cyber/CodeQLxLLM"
+# Documentation = "https://github.com/vinsoc-cyber/CodeQLxLLM#readme"
+# Repository = "https://github.com/vinsoc-cyber/CodeQLxLLM"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

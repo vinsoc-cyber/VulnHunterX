@@ -54,7 +54,7 @@ git --version
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/your-org/CodeQLxLLM.git
+git clone https://github.com/vinsoc-cyber/CodeQLxLLM.git
 cd CodeQLxLLM
 ```
 
