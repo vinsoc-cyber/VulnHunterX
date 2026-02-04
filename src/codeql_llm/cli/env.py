@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from typing import Optional
 
 
 def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:
@@ -44,7 +43,7 @@ def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:
         return False, str(e)
 
 
-def check_openai(api_key: Optional[str] = None) -> tuple[bool, str]:
+def check_openai(api_key: str | None = None) -> tuple[bool, str]:
     """
     Verify OpenAI API via LiteLLM.
     
@@ -79,8 +78,8 @@ def check_openai(api_key: Optional[str] = None) -> tuple[bool, str]:
 
 
 def check_ollama(
-    model: Optional[str] = None,
-    api_base: Optional[str] = None,
+    model: str | None = None,
+    api_base: str | None = None,
 ) -> tuple[bool, str]:
     """
     Verify Ollama via LiteLLM.

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Optional
-
 
 # Query files by language
 QUERIES_BY_LANG: dict[str, list[str]] = {
@@ -52,9 +50,7 @@ def discover_databases(databases_dir: Path) -> list[tuple[Path, str, str]]:
                 continue
             
             # Check for CodeQL database markers
-            if (name_dir / "codeql-database.yml").exists():
-                results.append((name_dir, lang, name_dir.name))
-            elif (name_dir / "log").exists():
+            if (name_dir / "codeql-database.yml").exists() or (name_dir / "log").exists():
                 results.append((name_dir, lang, name_dir.name))
     
     return results
@@ -66,8 +62,8 @@ class ContextExtractorDB:
     def __init__(
         self,
         codeql_path: str = "codeql",
-        queries_dir: Optional[Path] = None,
-        output_dir: Optional[Path] = None,
+        queries_dir: Path | None = None,
+        output_dir: Path | None = None,
     ):
         self.codeql_path = codeql_path
         self.queries_dir = queries_dir or Path("config/queries/tools")
@@ -190,8 +186,8 @@ class ContextExtractorDB:
     def extract_all(
         self,
         databases_dir: Path,
-        lang_filter: Optional[str] = None,
-        repo_filter: Optional[str] = None,
+        lang_filter: str | None = None,
+        repo_filter: str | None = None,
         dry_run: bool = False,
     ) -> list[tuple[str, str, dict[str, tuple[bool, str]]]]:
         """

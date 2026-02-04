@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional
 
 from codeql_llm.core.types import CodeContext
 
@@ -42,7 +41,7 @@ class ContextExtractor:
     def __init__(self, repos_base: Path):
         self.repos_base = Path(repos_base)
         self._file_cache: dict[str, list[str]] = {}
-        self._path_cache: dict[tuple[str, str], Optional[Path]] = {}
+        self._path_cache: dict[tuple[str, str], Path | None] = {}
     
     def clear_cache(self) -> None:
         """Clear all caches."""
@@ -117,7 +116,7 @@ class ContextExtractor:
         except (OSError, UnicodeDecodeError):
             return []
     
-    def _resolve_path(self, file_path: str, lang: str) -> Optional[Path]:
+    def _resolve_path(self, file_path: str, lang: str) -> Path | None:
         """Resolve file path to actual location in repos/."""
         cache_key = (file_path, lang)
         if cache_key in self._path_cache:
@@ -154,13 +153,13 @@ class ContextExtractor:
         lines: list[str],
         target_line: int,
         lang: str,
-    ) -> tuple[Optional[int], Optional[int], Optional[str]]:
+    ) -> tuple[int | None, int | None, str | None]:
         """Find the enclosing function boundaries for a target line."""
         patterns = self._FUNCTION_PATTERNS.get(lang, self._FUNCTION_PATTERNS.get("c", []))
         
         # Search backward for function start
-        func_start: Optional[int] = None
-        func_name: Optional[str] = None
+        func_start: int | None = None
+        func_name: str | None = None
         
         for i in range(target_line, -1, -1):
             line = lines[i]
@@ -179,7 +178,7 @@ class ContextExtractor:
         # Search forward for function end (matching braces)
         brace_depth = 0
         in_function = False
-        func_end: Optional[int] = None
+        func_end: int | None = None
         
         for i in range(func_start, len(lines)):
             line = lines[i]

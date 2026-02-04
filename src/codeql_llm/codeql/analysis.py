@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 
 class CodeQLAnalyzer:
@@ -41,8 +41,8 @@ class CodeQLAnalyzer:
         self,
         db_path: Path,
         lang: str,
-        output_name: Optional[str] = None,
-        suite: Optional[str] = None,
+        output_name: str | None = None,
+        suite: str | None = None,
     ) -> tuple[bool, Path | None, str]:
         """
         Run CodeQL analysis on a database.

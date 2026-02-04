@@ -17,7 +17,7 @@ Example usage:
 __version__ = "0.1.0"
 __author__ = "CodeQLxLLM Team"
 
-from codeql_llm.core.types import Finding, Verdict, GuidedQuestions
+from codeql_llm.core.types import Finding, GuidedQuestions, Verdict
 from codeql_llm.verification.engine import VerificationEngine
 
 __all__ = [

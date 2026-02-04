@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from codeql_llm.core.types import RepositoryInfo
 
@@ -128,7 +127,7 @@ class DatabaseManager:
         except Exception as e:
             return False, str(e)
     
-    def get_database_language(self, db_path: Path) -> Optional[str]:
+    def get_database_language(self, db_path: Path) -> str | None:
         """Get the language of a CodeQL database."""
         codeql_db_scheme = db_path / "codeql-database.yml"
         if not codeql_db_scheme.is_file():
@@ -138,13 +137,16 @@ class DatabaseManager:
         try:
             with open(codeql_db_scheme) as f:
                 data = yaml.safe_load(f)
-            return data.get("primaryLanguage")
+            if isinstance(data, dict):
+                lang = data.get("primaryLanguage")
+                return str(lang) if lang is not None else None
+            return None
         except Exception:
             return None
     
     def list_databases(
         self,
-        lang_filter: Optional[str] = None,
+        lang_filter: str | None = None,
     ) -> list[tuple[Path, str]]:
         """
         List all databases in the databases directory.
