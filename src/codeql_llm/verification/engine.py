@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Iterator, Optional
 
-from codeql_llm.core.config import Config, load_config
-from codeql_llm.core.types import Finding, Verdict, VerificationResult
-from codeql_llm.sarif.parser import parse_sarif_file, discover_sarif_files
 from codeql_llm.context.extractor import ContextExtractor
 from codeql_llm.context.provider import ContextProvider
-from codeql_llm.questions.loader import QuestionsLoader
+from codeql_llm.core.config import Config, load_config
+from codeql_llm.core.types import Finding, Verdict, VerificationResult
 from codeql_llm.llm.client import LLMClient
+from codeql_llm.questions.loader import QuestionsLoader
+from codeql_llm.sarif.parser import discover_sarif_files, parse_sarif_file
 
 
 class VerificationEngine:
@@ -39,10 +39,10 @@ class VerificationEngine:
     def __init__(
         self,
         config: Config,
-        questions_loader: Optional[QuestionsLoader] = None,
-        context_extractor: Optional[ContextExtractor] = None,
-        context_provider: Optional[ContextProvider] = None,
-        llm_client: Optional[LLMClient] = None,
+        questions_loader: QuestionsLoader | None = None,
+        context_extractor: ContextExtractor | None = None,
+        context_provider: ContextProvider | None = None,
+        llm_client: LLMClient | None = None,
     ):
         self.config = config
         
@@ -50,6 +50,7 @@ class VerificationEngine:
         self.questions_loader = questions_loader or QuestionsLoader(config.paths.prompts_dir)
         self.context_extractor = context_extractor or ContextExtractor(config.paths.repos_dir)
         
+        self.context_provider: ContextProvider | None
         if config.verification.is_vulnhalla:
             self.context_provider = context_provider or ContextProvider(
                 config.paths.context_dir,
@@ -67,16 +68,16 @@ class VerificationEngine:
         )
         
         # Callbacks for progress reporting
-        self._on_finding_start: Optional[Callable[[int, int, Finding], None]] = None
-        self._on_finding_complete: Optional[Callable[[int, int, Verdict], None]] = None
+        self._on_finding_start: Callable[[int, int, Finding], None] | None = None
+        self._on_finding_complete: Callable[[int, int, Verdict], None] | None = None
     
     @classmethod
     def from_config(
         cls,
-        config_path: Optional[Path] = None,
-        base_path: Optional[Path] = None,
+        config_path: Path | None = None,
+        base_path: Path | None = None,
         **overrides,
-    ) -> "VerificationEngine":
+    ) -> VerificationEngine:
         """
         Create engine from configuration file.
         
@@ -88,10 +89,7 @@ class VerificationEngine:
         Returns:
             Configured VerificationEngine
         """
-        if config_path:
-            config = load_config(Path(config_path), base_path)
-        else:
-            config = Config()
+        config = load_config(Path(config_path), base_path) if config_path else Config()
         
         if overrides:
             config = config.merge_with_args(**overrides)
@@ -130,9 +128,9 @@ class VerificationEngine:
     
     def verify_all_sarif(
         self,
-        output_dir: Optional[Path] = None,
-        lang_filter: Optional[str] = None,
-        repo_filter: Optional[str] = None,
+        output_dir: Path | None = None,
+        lang_filter: str | None = None,
+        repo_filter: str | None = None,
         limit: int = 0,
     ) -> VerificationResult:
         """
@@ -276,7 +274,7 @@ class VerificationEngine:
     def save_results(
         self,
         result: VerificationResult,
-        output_dir: Optional[Path] = None,
+        output_dir: Path | None = None,
     ) -> tuple[Path, Path]:
         """
         Save verification results to files.

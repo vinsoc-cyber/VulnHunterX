@@ -6,13 +6,13 @@ import json
 import os
 import re
 import time
-from typing import Any, Optional
+from typing import Any
 
 import litellm
 
-from codeql_llm.core.types import Finding, Verdict, GuidedQuestions
-from codeql_llm.llm.prompts import PromptBuilder
 from codeql_llm.context.provider import ContextProvider
+from codeql_llm.core.types import Finding, GuidedQuestions, Verdict
+from codeql_llm.llm.prompts import PromptBuilder
 
 
 class LLMClient:
@@ -48,10 +48,10 @@ class LLMClient:
         context: str,
         questions: GuidedQuestions,
         func_name: str,
-        context_provider: Optional[ContextProvider] = None,
+        context_provider: ContextProvider | None = None,
         max_iterations: int = 3,
         verbose: bool = False,
-        log_file: Optional[Any] = None,
+        log_file: Any | None = None,
         quiet: bool = False,
     ) -> Verdict:
         """
@@ -255,13 +255,17 @@ class LLMClient:
         json_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
         if json_match:
             try:
-                return json.loads(json_match.group(1))
+                parsed = json.loads(json_match.group(1))
+                if isinstance(parsed, dict):
+                    return parsed
             except json.JSONDecodeError:
                 pass
         
         # Try direct JSON parse
         try:
-            return json.loads(raw)
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
         except json.JSONDecodeError:
             pass
         
@@ -269,7 +273,9 @@ class LLMClient:
         brace_match = re.search(r'\{.*\}', raw, re.DOTALL)
         if brace_match:
             try:
-                return json.loads(brace_match.group())
+                parsed = json.loads(brace_match.group())
+                if isinstance(parsed, dict):
+                    return parsed
             except json.JSONDecodeError:
                 pass
         

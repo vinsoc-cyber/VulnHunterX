@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -13,9 +12,9 @@ from codeql_llm.core.types import GuidedQuestions
 class QuestionsLoader:
     """Loads and retrieves guided questions for CodeQL rules."""
     
-    def __init__(self, prompts_dir: Optional[Path] = None):
+    def __init__(self, prompts_dir: Path | None = None):
         self.questions: dict[str, GuidedQuestions] = {}
-        self._default_questions: Optional[GuidedQuestions] = None
+        self._default_questions: GuidedQuestions | None = None
         
         if prompts_dir:
             self.load_from_directory(prompts_dir)

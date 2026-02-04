@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -53,7 +53,7 @@ class PathsConfig:
     prompts_dir: Path = field(default_factory=lambda: Path("config/prompts"))
     queries_dir: Path = field(default_factory=lambda: Path("config/queries"))
     
-    def resolve(self, base_path: Path) -> "PathsConfig":
+    def resolve(self, base_path: Path) -> PathsConfig:
         """Resolve all paths relative to a base path."""
         return PathsConfig(
             repos_dir=base_path / self.repos_dir,
@@ -69,7 +69,7 @@ class PathsConfig:
 class OutputConfig:
     """Output and logging configuration."""
     verbosity: str = "normal"  # quiet, normal, verbose
-    log_file: Optional[Path] = None
+    log_file: Path | None = None
     
     @property
     def is_quiet(self) -> bool:
@@ -97,7 +97,7 @@ class Config:
     codeql_path: str = "codeql"
     
     @classmethod
-    def from_dict(cls, data: dict[str, Any], base_path: Optional[Path] = None) -> "Config":
+    def from_dict(cls, data: dict[str, Any], base_path: Path | None = None) -> Config:
         """Create config from dictionary."""
         # Ollama URL comes from environment only (not from YAML config)
         ollama_url = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
@@ -144,7 +144,7 @@ class Config:
         )
     
     @classmethod
-    def from_file(cls, config_path: Path, base_path: Optional[Path] = None) -> "Config":
+    def from_file(cls, config_path: Path, base_path: Path | None = None) -> Config:
         """Load config from YAML file."""
         if not config_path.is_file():
             return cls()
@@ -158,7 +158,7 @@ class Config:
         return cls.from_dict(data, base_path)
     
     @classmethod
-    def from_env(cls, base_path: Optional[Path] = None) -> "Config":
+    def from_env(cls, base_path: Path | None = None) -> Config:
         """Create config from environment variables only."""
         data = {
             "codeql_path": os.environ.get("CODEQL_PATH", "codeql"),
@@ -166,7 +166,7 @@ class Config:
         }
         return cls.from_dict(data, base_path)
     
-    def merge_with_args(self, **kwargs) -> "Config":
+    def merge_with_args(self, **kwargs) -> Config:
         """Merge config with command-line arguments."""
         # Create a copy with updated values
         llm = LLMConfig(
@@ -200,8 +200,8 @@ class Config:
 
 
 def load_config(
-    config_path: Optional[Path] = None,
-    base_path: Optional[Path] = None,
+    config_path: Path | None = None,
+    base_path: Path | None = None,
 ) -> Config:
     """
     Load configuration from file and environment.

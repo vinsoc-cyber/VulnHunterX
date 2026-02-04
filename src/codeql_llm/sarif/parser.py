@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
+from typing import Any
 
 from codeql_llm.core.types import Finding
 
@@ -23,24 +24,27 @@ class SarifParser:
             self._data = self._load()
         return self._data
     
-    def _load(self) -> dict:
+    def _load(self) -> dict[str, Any]:
         """Load SARIF file."""
         if not self.sarif_path.is_file():
             raise FileNotFoundError(f"SARIF file not found: {self.sarif_path}")
         
         with open(self.sarif_path, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
     
-    def get_runs(self) -> list[dict]:
+    def get_runs(self) -> list[dict[str, Any]]:
         """Get all runs from SARIF data."""
-        return self.data.get("runs", [])
+        runs = self.data.get("runs", [])
+        return runs if isinstance(runs, list) else []
     
-    def get_results(self, run_index: int = 0) -> list[dict]:
+    def get_results(self, run_index: int = 0) -> list[dict[str, Any]]:
         """Get results from a specific run."""
         runs = self.get_runs()
         if run_index >= len(runs):
             return []
-        return runs[run_index].get("results", [])
+        results = runs[run_index].get("results", [])
+        return results if isinstance(results, list) else []
     
     def get_artifacts(self, run_index: int = 0) -> dict[int, dict]:
         """Get artifacts (file info) from a specific run, indexed by index."""

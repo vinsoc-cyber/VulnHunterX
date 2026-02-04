@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 
 class VerdictType(Enum):
@@ -196,6 +195,6 @@ class RepositoryInfo:
     name: str
     url: str
     lang: str
-    build_command: Optional[str] = None
-    local_path: Optional[str] = None
-    database_path: Optional[str] = None
+    build_command: str | None = None
+    local_path: str | None = None
+    database_path: str | None = None

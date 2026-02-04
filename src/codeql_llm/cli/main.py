@@ -6,7 +6,6 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 from codeql_llm import __version__
 from codeql_llm.core.config import Config, load_config
@@ -488,7 +487,7 @@ def cmd_info(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point."""
     parser = create_parser()
     args = parser.parse_args(argv)

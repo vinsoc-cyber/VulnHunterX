@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -107,10 +106,10 @@ def write_build_script(repo_root: Path, build_command: str) -> Path:
 def ask_llm_for_build_help(
     repo_name: str,
     language: str,
-    build_command: Optional[str],
+    build_command: str | None,
     error_output: str,
     repo_url: str = "",
-) -> Optional[str]:
+) -> str | None:
     """
     Ask LLM for build error recommendations.
     
@@ -204,7 +203,7 @@ class RepositoryManager:
         name: str,
         url: str,
         language: str,
-        build_command: Optional[str] = None,
+        build_command: str | None = None,
         skip_clone: bool = False,
         skip_db: bool = False,
         dry_run: bool = False,
@@ -299,8 +298,8 @@ class RepositoryManager:
     def process_repos_config(
         self,
         config_path: Path,
-        lang_filter: Optional[str] = None,
-        repo_filter: Optional[str] = None,
+        lang_filter: str | None = None,
+        repo_filter: str | None = None,
         skip_clone: bool = False,
         skip_db: bool = False,
         dry_run: bool = False,
