@@ -1,0 +1,15 @@
+"name","file","start_line","end_line","param_count"
+"isNumber","index.js",13,17,1
+"exports","index.js",23,271,2
+"hasKey","index.js",3,11,2
+"isConstructorOrProto","index.js",19,21,2
+"unknownFn","test/unknown.js",8,11,1
+"unknownFn","test/unknown.js",28,31,1
+"unknownFn","test/unknown.js",46,49,1
+"unknownFn","test/unknown.js",66,69,1
+"unknownFn","test/unknown.js",87,90,1
+"isBooleanKey","index.js",46,56,1
+"argDefined","index.js",80,85,2
+"setKey","index.js",87,121,3
+"setArg","index.js",123,136,3
+"fnToBeTested","test/proto.js",68,68,0

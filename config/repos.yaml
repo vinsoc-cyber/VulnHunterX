@@ -7,7 +7,7 @@
 repos:
   # --- Demo subset (small, fast) ---
   - name: minimist
-    url: https://github.com/substack/minimist.git
+    url: https://github.com/minimistjs/minimist.git
     language: javascript
   - name: pyyaml
     url: https://github.com/yaml/pyyaml.git
@@ -52,6 +52,12 @@ repos:
     language: python
 
   # --- Intentionally Vulnerable Projects (for demo/testing) ---
+  - name: nodegoat
+    url: https://github.com/OWASP/NodeGoat.git
+    language: javascript
+  - name: dvpwa
+    url: https://github.com/anxolerd/dvpwa.git
+    language: python
   - name: dvcp
     url: https://github.com/hardik05/Damn_Vulnerable_C_Program.git
     language: c

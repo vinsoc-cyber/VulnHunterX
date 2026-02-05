@@ -27,7 +27,7 @@ from pathlib import Path
 # Configuration
 # =============================================================================
 
-REPO_NAME = "minimist"
+REPO_NAME = "nodegoat"
 LANGUAGE = "javascript"
 MAX_FINDINGS = 5
 

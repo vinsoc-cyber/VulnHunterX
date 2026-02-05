@@ -7,6 +7,8 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from codeql_llm import __version__
 from codeql_llm.core.config import Config, load_config
 from codeql_llm.core.types import Finding, Verdict
@@ -489,6 +491,9 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Main entry point."""
+    # Load .env file for environment variables (CODEQL_PATH, API keys, etc.)
+    load_dotenv()
+    
     parser = create_parser()
     args = parser.parse_args(argv)
     

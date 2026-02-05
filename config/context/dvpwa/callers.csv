@@ -1,0 +1,8 @@
+"callee_name","callee_file","caller_name","caller_file","caller_start_line","caller_end_line"
+"setup_database","sqli/services/db.py","init","sqli/app.py",16,16
+"setup_redis","sqli/services/redis.py","init","sqli/app.py",16,16
+"setup_routes","sqli/routes.py","init","sqli/app.py",16,16
+"get_auth_user","sqli/utils/auth.py","index","sqli/views.py",23,23
+"get_auth_user","sqli/utils/auth.py","auth_user_processor","sqli/utils/jinja2.py",19,19
+"get_auth_user","sqli/utils/auth.py","__wrapper__","sqli/utils/auth.py",15,15
+"middleware","sqli/middlewares.py","session_middleware","sqli/middlewares.py",13,13

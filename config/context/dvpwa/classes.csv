@@ -1,0 +1,6 @@
+"name","file","start_line","end_line"
+"User","sqli/dao/user.py",7,7
+"Course","sqli/dao/course.py",6,6
+"Mark","sqli/dao/mark.py",7,7
+"Review","sqli/dao/review.py",7,7
+"Student","sqli/dao/student.py",6,6

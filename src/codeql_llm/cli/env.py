@@ -5,6 +5,21 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from pathlib import Path
+
+import yaml
+
+
+def load_config_for_check() -> dict:
+    """Load config from confirm_findings.yaml for environment checks."""
+    config_path = Path.cwd() / "config" / "confirm_findings.yaml"
+    if not config_path.is_file():
+        return {}
+    try:
+        with open(config_path) as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
 
 
 def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:
@@ -43,12 +58,13 @@ def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:
         return False, str(e)
 
 
-def check_openai(api_key: str | None = None) -> tuple[bool, str]:
+def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
     """
     Verify OpenAI API via LiteLLM.
     
     Args:
         api_key: OpenAI API key (defaults to env var)
+        model: Model name to test (defaults to gpt-4o-mini)
         
     Returns:
         Tuple of (success, message)
@@ -62,7 +78,8 @@ def check_openai(api_key: str | None = None) -> tuple[bool, str]:
     except ImportError:
         return False, "litellm not installed; run: pip install litellm"
     
-    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    # Use provided model, or default to gpt-4o-mini for testing
+    model = model or "gpt-4o-mini"
     
     try:
         resp = litellm.completion(
@@ -85,8 +102,8 @@ def check_ollama(
     Verify Ollama via LiteLLM.
     
     Args:
-        model: Ollama model name
-        api_base: Ollama server URL
+        model: Ollama model name (from config)
+        api_base: Ollama server URL (from env)
         
     Returns:
         Tuple of (success, message)
@@ -96,7 +113,10 @@ def check_ollama(
     except ImportError:
         return False, "litellm not installed; run: pip install litellm"
     
-    model = model or os.environ.get("OLLAMA_MODEL", "ollama/llama3.2")
+    # Model comes from config, api_base from environment
+    if not model:
+        return False, "No Ollama model configured"
+    
     if not model.startswith("ollama/"):
         model = f"ollama/{model}"
     
@@ -124,6 +144,9 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
     """
     Run all environment checks.
     
+    Loads model/provider settings from config/confirm_findings.yaml.
+    Loads secrets (API keys, URLs) from environment variables.
+    
     Args:
         quiet: Suppress output
         
@@ -132,10 +155,16 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
     """
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
     
+    # Load config for model/provider settings
+    config = load_config_for_check()
+    provider = config.get("provider", "openai")
+    model = config.get("model", "gpt-4o")
+    
     results: dict[str, tuple[bool, str]] = {}
     
     if not quiet:
         print("Environment Check (CodeQL + LLM)\n")
+        print(f"  Config: provider={provider}, model={model}\n")
     
     # CodeQL
     ok, msg = check_codeql(codeql_path)
@@ -144,19 +173,31 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
         status = "OK" if ok else "FAIL"
         print(f"  CodeQL: [{status}] {msg}")
     
-    # OpenAI
-    ok, msg = check_openai()
-    results["openai"] = (ok, msg)
-    if not quiet:
-        status = "OK" if ok else "SKIP/FAIL"
-        print(f"  OpenAI: [{status}] {msg}")
+    # OpenAI - test if provider is openai or if we have an API key
+    if provider == "openai" or os.environ.get("OPENAI_API_KEY"):
+        openai_model = model if provider == "openai" and not model.startswith("ollama/") else None
+        ok, msg = check_openai(model=openai_model)
+        results["openai"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  OpenAI: [{status}] {msg}")
+    else:
+        results["openai"] = (False, "Not configured")
+        if not quiet:
+            print("  OpenAI: [SKIP] Not configured")
     
-    # Ollama
-    ok, msg = check_ollama()
-    results["ollama"] = (ok, msg)
-    if not quiet:
-        status = "OK" if ok else "SKIP/FAIL"
-        print(f"  Ollama: [{status}] {msg}")
+    # Ollama - test if provider is ollama or model starts with ollama/
+    if provider == "ollama" or model.startswith("ollama/"):
+        ollama_model = model if model.startswith("ollama/") else f"ollama/{model}"
+        ok, msg = check_ollama(model=ollama_model)
+        results["ollama"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  Ollama: [{status}] {msg}")
+    else:
+        results["ollama"] = (False, "Not configured")
+        if not quiet:
+            print("  Ollama: [SKIP] Not configured")
     
     if not quiet:
         print()

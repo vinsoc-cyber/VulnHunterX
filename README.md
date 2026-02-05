@@ -730,7 +730,7 @@ Defines which repositories to clone and analyze:
 repos:
   # Interpreted language (no build command needed)
   - name: minimist
-    url: https://github.com/substack/minimist.git
+    url: https://github.com/minimistjs/minimist.git
     language: javascript
 
   # Compiled language (build command required)

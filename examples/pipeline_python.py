@@ -24,7 +24,7 @@ from pathlib import Path
 # Configuration
 # =============================================================================
 
-REPO_NAME = "pyyaml"
+REPO_NAME = "dvpwa"
 LANGUAGE = "python"
 MAX_FINDINGS = 5  # Limit findings to process for demo
 

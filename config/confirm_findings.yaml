@@ -18,12 +18,14 @@
 # =============================================================================
 
 # LLM provider: "openai" or "ollama"
-provider: openai
+# provider: openai
+provider: ollama
 
 # LLM model name
 # For OpenAI: gpt-4o, gpt-4-turbo, gpt-3.5-turbo
 # For Ollama: ollama/llama3.2, ollama/codellama, ollama/mistral
-model: gpt-4o
+# model: gpt-5.1
+model: ollama/qwen3:latest
 
 # Note: Ollama server URL is set via OLLAMA_API_BASE environment variable
 # in .env file (default: http://localhost:11434)
@@ -39,13 +41,13 @@ mode: vulnhalla
 
 # Maximum LLM conversation rounds for context expansion (vulnhalla mode only)
 # Set to 1 to disable multi-turn
-max_iterations: 3
+max_iterations: 7
 
 # LLM temperature (0.0 = deterministic, 1.0 = creative)
 temperature: 0.2
 
 # Maximum tokens in LLM response
-max_tokens: 1500
+max_tokens: 5000
 
 # =============================================================================
 # Output Settings
@@ -59,7 +61,7 @@ verbosity: normal
 
 # Save full LLM conversations to a log file (set to null to disable)
 # Use markdown format (.md) for best readability
-log_file: null
+log_file: output/llm_conversations.md
 
 # =============================================================================
 # Processing Limits
