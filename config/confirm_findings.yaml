@@ -18,14 +18,14 @@
 # =============================================================================
 
 # LLM provider: "openai" or "ollama"
-# provider: openai
-provider: ollama
+provider: openai
+# provider: ollama
 
 # LLM model name
 # For OpenAI: gpt-4o, gpt-4-turbo, gpt-3.5-turbo
 # For Ollama: ollama/llama3.2, ollama/codellama, ollama/mistral
-# model: gpt-5.1
-model: ollama/qwen3:latest
+model: gpt-5.1
+# model: ollama/qwen3:latest
 
 # Note: Ollama server URL is set via OLLAMA_API_BASE environment variable
 # in .env file (default: http://localhost:11434)

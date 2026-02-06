@@ -111,6 +111,7 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repo", help="Only this repository")
     parser.add_argument("--json", action="store_true", help="Also output findings JSON")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output with command details")
+    parser.add_argument("-f", "--force", action="store_true", help="Force re-analysis even if SARIF already exists")
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
 
 
@@ -118,6 +119,7 @@ def _add_extract_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for extract-context command."""
     parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
     parser.add_argument("--repo", help="Only this repository")
+    parser.add_argument("-f", "--force", action="store_true", help="Force re-extraction even if context CSVs exist")
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
 
 
@@ -219,6 +221,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     base_path = Path.cwd()
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
     verbose = getattr(args, 'verbose', False)
+    force = getattr(args, 'force', False)
     
     analyzer = CodeQLAnalyzer(
         codeql_path=codeql_path,
@@ -252,55 +255,112 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     print(f"Running CodeQL analysis on {len(dbs)} database(s)\n")
     
     ok_count = 0
+    skip_count = 0
     for db_path, lang, name in dbs:
         print(f"[{name}] {lang}")
+        
+        # Check if SARIF already exists (skip unless --force)
+        sarif_path = base_path / "output" / "sarif" / lang / f"{name}.sarif"
+        if sarif_path.exists() and not force:
+            # Count findings in existing SARIF
+            try:
+                import json
+                with open(sarif_path) as f:
+                    sarif_data = json.load(f)
+                findings_count = sum(
+                    len(run.get("results", []))
+                    for run in sarif_data.get("runs", [])
+                )
+                print(f"  [SKIP] SARIF already exists ({findings_count} findings)")
+            except Exception:
+                print(f"  [SKIP] SARIF already exists")
+            skip_count += 1
+            ok_count += 1
+            continue
         
         if args.dry_run:
             suite = analyzer.DEFAULT_SUITES.get("cpp" if lang in ("c", "cpp") else lang)
             print(f"  [dry-run] Would analyze {db_path}")
             print(f"  [dry-run] Suite: {suite}")
-            print(f"  [dry-run] Output: {base_path / 'output' / 'sarif' / lang / f'{name}.sarif'}")
+            print(f"  [dry-run] Output: {sarif_path}")
             ok_count += 1
             continue
         
-        ok, sarif_path, msg = analyzer.run_analysis(db_path, lang, name)
+        ok, result_path, msg = analyzer.run_analysis(db_path, lang, name)
         
         if ok:
             ok_count += 1
-            print(f"  -> {sarif_path}")
+            print(f"  -> {result_path}")
             print(f"  {msg}")
         else:
             print(f"  FAILED: {msg}", file=sys.stderr)
     
-    print(f"\nDone. {ok_count}/{len(dbs)} succeeded.")
+    if skip_count > 0:
+        print(f"\nDone. {ok_count}/{len(dbs)} succeeded ({skip_count} skipped, use --force to re-analyze).")
+    else:
+        print(f"\nDone. {ok_count}/{len(dbs)} succeeded.")
     return 0 if ok_count == len(dbs) else 1
 
 
 def cmd_extract_context(args: argparse.Namespace) -> int:
     """Execute extract-context command."""
-    from codeql_llm.codeql.context_extractor import ContextExtractorDB
+    from codeql_llm.codeql.context_extractor import ContextExtractorDB, discover_databases
     
     base_path = Path.cwd()
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
+    force = getattr(args, 'force', False)
+    context_dir = base_path / "output" / "context"
+    
+    # Discover databases first to check for existing context
+    dbs = discover_databases(base_path / "databases")
+    
+    if args.lang:
+        dbs = [(p, lang, n) for p, lang, n in dbs if lang == args.lang]
+    if args.repo:
+        dbs = [(p, lang, n) for p, lang, n in dbs if n.lower() == args.repo.lower()]
+    
+    if not dbs:
+        print("No databases found.", file=sys.stderr)
+        return 1
+    
+    print(f"Extracting context from {len(dbs)} database(s)\n")
+    
+    # Check which repos already have context and can be skipped
+    repos_to_process = []
+    skip_count = 0
+    
+    for db_path, lang, name in dbs:
+        repo_context_dir = context_dir / name
+        csv_files = list(repo_context_dir.glob("*.csv")) if repo_context_dir.exists() else []
+        
+        if csv_files and not force:
+            print(f"[{name}] {lang}")
+            print(f"  [SKIP] Context already exists ({len(csv_files)} CSV files)")
+            skip_count += 1
+        else:
+            repos_to_process.append((db_path, lang, name))
+    
+    if not repos_to_process:
+        print(f"\nDone. All {len(dbs)} repos skipped (use --force to re-extract).")
+        return 0
     
     extractor = ContextExtractorDB(
         codeql_path=codeql_path,
         queries_dir=base_path / "config" / "queries" / "tools",
-        output_dir=base_path / "config" / "context",
+        output_dir=context_dir,
     )
     
+    # Filter to only process repos that need extraction
     results = extractor.extract_all(
         databases_dir=base_path / "databases",
         lang_filter=args.lang,
-        repo_filter=args.repo,
+        repo_filter=args.repo if len(repos_to_process) == len(dbs) else None,
         dry_run=args.dry_run,
     )
     
-    if not results:
-        print("No databases found.", file=sys.stderr)
-        return 1
-    
-    print(f"Extracting context from {len(results)} database(s)\n")
+    # Filter results to only show repos we're actually processing
+    process_names = {name for _, _, name in repos_to_process}
+    results = [(name, lang, qr) for name, lang, qr in results if name in process_names]
     
     total_ok = 0
     total_queries = 0
@@ -314,7 +374,10 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
             if ok:
                 total_ok += 1
     
-    print(f"\nDone. {total_ok}/{total_queries} queries succeeded.")
+    if skip_count > 0:
+        print(f"\nDone. {total_ok}/{total_queries} queries succeeded ({skip_count} repos skipped, use --force to re-extract).")
+    else:
+        print(f"\nDone. {total_ok}/{total_queries} queries succeeded.")
     return 0 if total_ok == total_queries else 1
 
 

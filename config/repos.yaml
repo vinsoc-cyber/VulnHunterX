@@ -52,6 +52,14 @@ repos:
     language: python
 
   # --- Intentionally Vulnerable Projects (for demo/testing) ---
+  - name: insecure-coding-examples
+    url: https://github.com/patricia-gallardo/insecure-coding-examples.git
+    language: cpp
+    build_command: "mkdir -p build && cd build && cmake .. && make || true"
+  - name: insecure-cpp-dojo
+    url: https://github.com/patricia-gallardo/insecure-cplusplus-dojo.git
+    language: cpp
+    build_command: "mkdir -p build && cd build && cmake .. && make || true"
   - name: nodegoat
     url: https://github.com/OWASP/NodeGoat.git
     language: javascript
