@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Full Pipeline Example: C++ Repository (re2)
+Full Pipeline Example: C++ Repository (insecure-coding-examples)
 
 This script demonstrates the complete CodeQL + LLM verification pipeline
-for a C++ repository (Google's RE2 regex library).
+for a C++ repository with intentional vulnerabilities (Patricia Gallardo's
+insecure coding examples - buffer overflows, format strings, etc.).
 
 Usage:
     python examples/pipeline_cpp.py              # Run full pipeline
@@ -23,7 +24,7 @@ from pathlib import Path
 # Configuration
 # =============================================================================
 
-REPO_NAME = "re2"
+REPO_NAME = "insecure-coding-examples"
 LANGUAGE = "cpp"
 MAX_FINDINGS = 5  # Limit findings to process for demo
 
@@ -81,7 +82,7 @@ def stage_clone(dry_run: bool = False, skip: bool = False) -> bool:
         print(f"[SKIP] Skipping clone for {REPO_NAME}")
         return True
     
-    print(f"Repository: {REPO_NAME} (Google RE2 - Regular Expression Library)")
+    print(f"Repository: {REPO_NAME} (Intentionally Vulnerable C++ Examples)")
     print(f"Language: {LANGUAGE}")
     print(f"Build: CMake-based build system")
     print()

@@ -300,9 +300,17 @@ class VerificationEngine:
             result_file.parent.mkdir(parents=True, exist_ok=True)
             result_file.write_text(json.dumps(verdict.to_dict(), indent=2))
         
-        # Save summary
+        # Save summary with descriptive name: summary_{repos}_{mode}_{timestamp}.json
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        summary_file = results_dir / f"summary_{result.mode}_{timestamp}.json"
+        
+        # Extract unique repo names from verdicts
+        repo_names = sorted(set(v.finding.repo_name for v in result.verdicts))
+        repo_part = "_".join(repo_names) if repo_names else "unknown"
+        # Truncate if too long (max 50 chars for repo part)
+        if len(repo_part) > 50:
+            repo_part = repo_part[:47] + "..."
+        
+        summary_file = results_dir / f"summary_{repo_part}_{result.mode}_{timestamp}.json"
         summary_file.write_text(json.dumps(result.to_dict(), indent=2))
         
         return summary_file, results_dir
