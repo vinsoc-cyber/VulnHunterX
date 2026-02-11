@@ -24,9 +24,9 @@ from pathlib import Path
 # Configuration
 # =============================================================================
 
-REPO_NAME = "libucl"
+REPO_NAME = "zlib"
 LANGUAGE = "c"
-MAX_FINDINGS = 5  # Limit findings to process for demo
+MAX_FINDINGS = 8  # Limit findings to process for demo
 
 # =============================================================================
 # Pipeline Stages

@@ -216,6 +216,7 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     filter_group.add_argument("--repo", help="Only process this repository")
     filter_group.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
     filter_group.add_argument("--limit", type=int, help="Maximum findings to process")
+    filter_group.add_argument("--include-tests", action="store_true", help="Include findings under test/ or tests/ (default: exclude)")
     
     # Output
     output_group = parser.add_argument_group("Output")
@@ -502,6 +503,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     # Handle dry-run
     if args.dry_run:
         from codeql_llm.sarif.parser import discover_sarif_files, parse_sarif_file
+        from codeql_llm.verification.engine import _is_test_path
         
         sarif_files = discover_sarif_files(config.paths.output_dir)
         if args.lang:
@@ -512,6 +514,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
         all_findings = []
         for sarif_path, lang, repo_name in sarif_files:
             findings = parse_sarif_file(sarif_path, lang, repo_name)
+            if not getattr(args, "include_tests", False):
+                findings = [f for f in findings if not _is_test_path(f.file)]
             all_findings.extend(findings)
         
         if args.limit:
@@ -548,6 +552,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     engine.on_finding_start(on_start)
     engine.on_finding_complete(on_complete)
     
+    exclude_test_paths = not getattr(args, "include_tests", False)
     # Determine what to verify
     if args.sarif:
         result = engine.verify_sarif(
@@ -555,12 +560,14 @@ def cmd_verify(args: argparse.Namespace) -> int:
             lang=args.lang or "c",
             repo_name=args.sarif.stem,
             limit=args.limit or 0,
+            exclude_test_paths=exclude_test_paths,
         )
     else:
         result = engine.verify_all_sarif(
             lang_filter=args.lang,
             repo_filter=args.repo,
             limit=args.limit or 0,
+            exclude_test_paths=exclude_test_paths,
         )
     
     # Print summary

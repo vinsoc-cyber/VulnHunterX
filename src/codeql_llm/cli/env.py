@@ -80,14 +80,23 @@ def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[
     
     # Use provided model, or default to gpt-4o-mini for testing
     model = model or "gpt-4o-mini"
-    
+
+    # Custom base URL for OpenAI-compatible endpoints (e.g. Z.ai)
+    api_base = (os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or "").strip()
+    api_base = api_base.rstrip("/") if api_base else None
+    if api_base and not model.startswith("openai/"):
+        model = "openai/" + model
+
     try:
-        resp = litellm.completion(
-            model=model,
-            messages=[{"role": "user", "content": "Reply with exactly: OK"}],
-            api_key=api_key,
-            max_tokens=10,
-        )
+        kwargs = {
+            "model": model,
+            "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+            "api_key": api_key,
+            "max_tokens": 10,
+        }
+        if api_base:
+            kwargs["api_base"] = api_base
+        resp = litellm.completion(**kwargs)
         text = (resp.choices[0].message.content or "").strip()
         return True, f"OpenAI ({model}): {text[:50]}"
     except Exception as e:

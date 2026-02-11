@@ -11,8 +11,10 @@ Stages:
 2. Analyze: Run CodeQL security analysis (generates SARIF)
 3. Extract: Extract context CSVs for multi-turn verification
 4. Verify: Verify findings with LLM (vulnhalla or simple mode)
-5–8 (optional, C/C++ only, with --fuzz): build-sanitized, extract-fuzz-context,
-   generate-fuzz-drivers --build, fuzz-run
+5. [optional] Build with sanitizers for fuzz harness linking (C/C++ only)
+6. [optional] Extract fuzz context CSVs (function_signatures, includes) from C/C++ databases (C/C++ only)
+7. [optional] Generate libFuzzer harness .cc from verified findings (C/C++ only)
+8. [optional] Run libFuzzer for each compiled harness; collect crashes and write a summary. (C/C++ only)
 
 Features:
 - Skips stages if results already exist (use --force to override)
