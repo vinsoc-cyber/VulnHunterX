@@ -81,8 +81,17 @@ def run_sanitized_build(
     if not build_command:
         return False, "No build command"
 
+    work_dir = Path(work_dir).resolve()
+    if not work_dir.is_dir():
+        return False, f"Work directory does not exist: {work_dir}"
+
     script = work_dir / ".sanitized_build.sh"
-    script.write_text("#!/bin/sh\nset -e\n\n" + build_command + "\n", encoding="utf-8")
+    script_content = (
+        "#!/bin/sh\nset -e\n\n"
+        f'cd "{work_dir}"\n\n'
+        f"{build_command}\n"
+    )
+    script.write_text(script_content, encoding="utf-8")
     script.chmod(0o755)
 
     try:
@@ -180,6 +189,8 @@ def build_sanitized(
     if lang not in ("c", "cpp"):
         return False, f"Sanitized build only supported for c/cpp, got {lang}", None
 
+    repos_dir = Path(repos_dir).resolve()
+    builds_dir = Path(builds_dir).resolve()
     repo_src = repos_dir / lang / name
     if not repo_src.is_dir():
         return False, f"Repository not found: {repo_src}", None

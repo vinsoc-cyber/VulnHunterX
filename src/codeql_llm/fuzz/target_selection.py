@@ -212,8 +212,8 @@ def select_targets(
                 results_dir, repo_filter=repo_filter, lang_filter=lang_filter, verdict_filter=wanted
             )
         else:
-            findings = get_findings_from_sarif(output_dir, repo_filter=repo_filter, lang_filter=lang_filter)
-            verdicts_for_finding = [(f, "all") for f in findings]
+            # Only use verification results for verdict-filtered mode; do not fall back to all SARIF
+            verdicts_for_finding = []
 
     targets: list[tuple[Finding, str, dict]] = []
     for finding, verdict in verdicts_for_finding:
