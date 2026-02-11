@@ -40,12 +40,88 @@ repos:
     url: https://github.com/c-ares/c-ares.git
     language: c
     build_command: "autoreconf -i && ./configure && make"
+  - name: libssh
+    url: https://github.com/libssh/libssh-mirror.git
+    language: c
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: json-c
+    url: https://github.com/json-c/json-c.git
+    language: c
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: libsndfile
+    url: https://github.com/libsndfile/libsndfile.git
+    language: c
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: expat
+    url: https://github.com/libexpat/libexpat.git
+    language: c
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: libyaml
+    url: https://github.com/yaml/libyaml.git
+    language: c
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: lz4
+    url: https://github.com/lz4/lz4.git
+    language: c
+    build_command: "make"
+  - name: xz
+    url: https://github.com/tukaani-project/xz.git
+    language: c
+    build_command: "autoreconf -fi && ./configure && make"
+  - name: libevent
+    url: https://github.com/libevent/libevent.git
+    language: c
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: libusb
+    url: https://github.com/libusb/libusb.git
+    language: c
+    build_command: "autoreconf -i && ./configure && make"
+  - name: libssh2
+    url: https://github.com/libssh2/libssh2.git
+    language: c
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: pcre2
+    url: https://github.com/PCRE2Project/pcre2.git
+    language: c
+    build_command: "./configure && make"
+  - name: flac
+    url: https://github.com/xiph/flac.git
+    language: c
+    build_command: "mkdir -p build && cd build && cmake .. && make"
 
   # --- C++ (OSS-Fuzz) ---
   - name: nghttp2
     url: https://github.com/nghttp2/nghttp2.git
     language: cpp
     build_command: "autoreconf -i && ./configure && make"
+  - name: libxml2
+    url: https://github.com/GNOME/libxml2.git
+    language: cpp
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: libpng
+    url: https://github.com/pnggroup/libpng.git
+    language: cpp
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: curl
+    url: https://github.com/curl/curl.git
+    language: cpp
+    build_command: "autoreconf -fi && ./configure && make"
+  - name: libarchive
+    url: https://github.com/libarchive/libarchive.git
+    language: cpp
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: harfbuzz
+    url: https://github.com/harfbuzz/harfbuzz.git
+    language: cpp
+    build_command: "meson setup build && ninja -C build"
+  - name: tinyxml2
+    url: https://github.com/leethomason/tinyxml2.git
+    language: cpp
+    build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: freetype2
+    url: https://github.com/freetype/freetype.git
+    language: cpp
+    build_command: "mkdir -p build && cd build && cmake .. && make"
   - name: lodash
     url: https://github.com/lodash/lodash.git
     language: javascript
