@@ -102,8 +102,26 @@ codeql-llm verify --repo my-app
 | `could not resolve module cpp` | Run `codeql pack install config/queries/tools/cpp` |
 | `Database is already finalized` | Normal - analysis proceeds automatically |
 
+## Fuzz-based confirmation (C/C++)
+
+Optional stages 5–8 build with sanitizers, extract fuzz context, generate libFuzzer harnesses from verified findings, and run fuzzers to collect crashes. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
+
+```bash
+codeql-llm build-sanitized --repo libucl
+codeql-llm extract-fuzz-context --repo libucl
+codeql-llm generate-fuzz-drivers --repo libucl --build
+codeql-llm fuzz-run --repo libucl
+```
+
+Or run the full pipeline including fuzz stages:
+
+```bash
+python examples/run_all_pipelines.py --fuzz --repo libucl
+```
+
 ## Next Steps
 
 - See [README.md](README.md) for full CLI reference and API documentation
 - Explore [guided questions](config/prompts/guided_questions.yaml)
 - Check [security check docs](docs/) for supported vulnerability types
+- [Fuzz stages](docs/fuzz_stages.md) for C/C++ fuzz-based confirmation

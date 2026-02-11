@@ -21,6 +21,7 @@ from codeql_llm.fuzz.driver_generator import generate_harness
 from codeql_llm.fuzz.generate_drivers import generate_fuzz_drivers, build_and_record
 from codeql_llm.fuzz.driver_builder import build_harness, find_manifest_for_repo, write_harness_status
 from codeql_llm.fuzz.driver_fix_loop import fix_harness_with_llm, make_llm_fix_fn
+from codeql_llm.fuzz.runner import run_fuzzer, run_fuzzers_for_repo, run_all_fuzzers
 
 __all__ = [
     "build_sanitized_env",
@@ -44,4 +45,7 @@ __all__ = [
     "write_harness_status",
     "fix_harness_with_llm",
     "make_llm_fix_fn",
+    "run_fuzzer",
+    "run_fuzzers_for_repo",
+    "run_all_fuzzers",
 ]

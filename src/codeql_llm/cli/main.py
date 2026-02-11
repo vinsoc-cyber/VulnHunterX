@@ -98,6 +98,13 @@ Examples:
     )
     _add_generate_fuzz_drivers_args(gen_drivers_parser)
     
+    # Fuzz-run command (Stage 8: optional)
+    fuzz_run_parser = subparsers.add_parser(
+        "fuzz-run",
+        help="Run libFuzzer for compiled harnesses, collect crashes (C/C++ only)",
+    )
+    _add_fuzz_run_args(fuzz_run_parser)
+    
     # Verify command
     verify_parser = subparsers.add_parser(
         "verify",
@@ -175,6 +182,15 @@ def _add_generate_fuzz_drivers_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--build", action="store_true", help="Compile and link harnesses (Stage 7.4)")
     parser.add_argument("--llm-fix", action="store_true", help="Use LLM to fix compile/link errors (Stage 7.5)")
     parser.add_argument("--max-fix-iterations", type=int, default=3, help="Max LLM fix attempts (default 3)")
+
+
+def _add_fuzz_run_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for fuzz-run command."""
+    parser.add_argument("--config", type=Path, help="Path to config YAML (for paths)")
+    parser.add_argument("--repo", help="Only this repository")
+    parser.add_argument("--timeout", type=int, default=60, help="Timeout per harness in seconds (default 60)")
+    parser.add_argument("--max-fuzz-time", type=int, default=30, help="libFuzzer -max_total_time (default 30)")
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only, do not run fuzzers")
 
 
 def _add_verify_args(parser: argparse.ArgumentParser) -> None:
@@ -742,6 +758,50 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fuzz_run(args: argparse.Namespace) -> int:
+    """Execute fuzz-run command (Stage 8: run libFuzzer, collect crashes)."""
+    from codeql_llm.fuzz.runner import run_all_fuzzers
+
+    base_path = Path.cwd()
+    config_path = args.config or base_path / "config" / "confirm_findings.yaml"
+    if config_path.exists():
+        config = load_config(config_path, base_path)
+        fuzz_targets_dir = config.paths.fuzz_targets_dir
+        fuzz_results_dir = config.paths.fuzz_results_dir
+    else:
+        fuzz_targets_dir = base_path / "output" / "fuzz_targets"
+        fuzz_results_dir = base_path / "output" / "fuzz_results"
+
+    results = run_all_fuzzers(
+        fuzz_targets_dir=fuzz_targets_dir,
+        fuzz_results_dir=fuzz_results_dir,
+        repo_filter=args.repo,
+        timeout_per_harness=args.timeout,
+        max_total_time=args.max_fuzz_time,
+        dry_run=args.dry_run,
+    )
+
+    if not results:
+        print("No repos with status.json (run generate-fuzz-drivers --build first).")
+        return 0
+
+    print("Fuzz run (Stage 8)\n")
+    for repo_name, harness_results, summary_path in results:
+        print(f"[{repo_name}]")
+        for r in harness_results:
+            status = r.get("status", "?")
+            if status != "compiled":
+                print(f"  {r.get('harness', '?')}: skip ({status})")
+                continue
+            crashed = r.get("crashed", False)
+            count = r.get("crash_count", 0)
+            elapsed = r.get("time_sec", 0)
+            print(f"  {r.get('harness', '?')}: {'CRASH' if crashed else 'ok'} (crashes={count}, time={elapsed}s)")
+        print(f"  -> {summary_path}")
+    print("\nDone.")
+    return 0
+
+
 def cmd_info(args: argparse.Namespace) -> int:
     """Execute the info command."""
     print(f"CodeQL + LLM Bug Verification v{__version__}")
@@ -804,6 +864,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_extract_fuzz_context(args)
     elif args.command == "generate-fuzz-drivers":
         return cmd_generate_fuzz_drivers(args)
+    elif args.command == "fuzz-run":
+        return cmd_fuzz_run(args)
     elif args.command == "verify":
         return cmd_verify(args)
     elif args.command == "info":

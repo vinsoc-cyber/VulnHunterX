@@ -223,6 +223,12 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 | 2 | `analyze` | CodeQL database | SARIF file with findings |
 | 3 | `extract-context` | CodeQL database | CSV files with context |
 | 4 | `verify` | SARIF + CSVs | JSON with verdicts |
+| 5 (C/C++) | `build-sanitized` | Repo + config | Sanitized build + manifest |
+| 6 (C/C++) | `extract-fuzz-context` | CodeQL DB | function_signatures.csv, includes.csv |
+| 7 (C/C++) | `generate-fuzz-drivers` | Verification + context | Harness .cc + optional build + status.json |
+| 8 (C/C++) | `fuzz-run` | Compiled harnesses | Crashes + summary.json |
+
+See [Fuzz-based confirmation](docs/fuzz_stages.md) for stages 5–8.
 
 ---
 
@@ -459,6 +465,25 @@ codeql-llm generate-fuzz-drivers --dry-run
 | `--build` | Compile and link harnesses (Stage 7.4); write status.json |
 | `--llm-fix` | Use LLM to fix compile/link errors (Stage 7.5) |
 | `--max-fix-iterations N` | Max LLM fix attempts (default 3) |
+
+---
+
+### fuzz-run (Stage 8: optional, C/C++ only)
+
+Run libFuzzer for each compiled harness; collect crashes and write `output/fuzz_results/<repo>/summary.json`. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
+
+```bash
+codeql-llm fuzz-run
+codeql-llm fuzz-run --repo libucl --timeout 120 --max-fuzz-time 60
+codeql-llm fuzz-run --dry-run
+```
+
+| Option | Description |
+|--------|-------------|
+| `--repo NAME` | Only this repository |
+| `--timeout N` | Timeout per harness in seconds (default 60) |
+| `--max-fuzz-time N` | libFuzzer `-max_total_time` (default 30) |
+| `--dry-run` | Do not run fuzzers |
 
 ---
 

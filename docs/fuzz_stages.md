@@ -104,4 +104,33 @@ codeql-llm generate-fuzz-drivers --build --llm-fix --max-fix-iterations 5
 
 ---
 
-Stage 8 is documented when implemented.
+## Stage 8: Run fuzzers (optional)
+
+Run libFuzzer for each harness that reached `compiled` in Stage 7; collect crashes and write a summary.
+
+### Sub-stages
+
+- **8.1 Compile (if needed)**: Binaries are produced in Stage 7.4 next to each `.cc` (no extension). No extra compile step.
+- **8.2 Run libFuzzer**: For each binary, run with `-max_total_time=N`, `-artifact_prefix=crash-`, and `ASAN_OPTIONS=abort_on_error=1`. Crashes are written under `output/fuzz_results/<repo>/<harness_stem>/`.
+- **8.3 Summarize**: Write `output/fuzz_results/<repo>/summary.json` with per-harness: `crashed`, `crash_count`, `crash_files`, `time_sec`, `log_snippet`. Map finding → crash yes/no for reporting.
+
+### CLI
+
+```bash
+codeql-llm fuzz-run
+codeql-llm fuzz-run --repo libucl
+codeql-llm fuzz-run --timeout 120 --max-fuzz-time 60
+codeql-llm fuzz-run --dry-run
+```
+
+| Option | Description |
+|--------|-------------|
+| `--repo NAME` | Only this repository |
+| `--timeout N` | Subprocess timeout per harness in seconds (default 60) |
+| `--max-fuzz-time N` | libFuzzer `-max_total_time` (default 30) |
+| `--dry-run` | Print actions only |
+
+### Prerequisites
+
+- Harnesses built in Stage 7 (`generate-fuzz-drivers --build`); at least one with status `compiled`.
+- libFuzzer and AddressSanitizer (Clang).
