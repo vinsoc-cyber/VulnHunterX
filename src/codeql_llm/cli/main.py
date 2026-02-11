@@ -172,6 +172,9 @@ def _add_generate_fuzz_drivers_args(parser: argparse.ArgumentParser) -> None:
         help="Verdict filter: tp,nmd (default), tp, nmd, all (use SARIF only)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print actions only, do not write .cc")
+    parser.add_argument("--build", action="store_true", help="Compile and link harnesses (Stage 7.4)")
+    parser.add_argument("--llm-fix", action="store_true", help="Use LLM to fix compile/link errors (Stage 7.5)")
+    parser.add_argument("--max-fix-iterations", type=int, default=3, help="Max LLM fix attempts (default 3)")
 
 
 def _add_verify_args(parser: argparse.ArgumentParser) -> None:
@@ -674,22 +677,25 @@ def cmd_extract_fuzz_context(args: argparse.Namespace) -> int:
 
 
 def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
-    """Execute generate-fuzz-drivers command (Stage 7.1–7.3: fuzz)."""
-    from codeql_llm.fuzz.generate_drivers import generate_fuzz_drivers
+    """Execute generate-fuzz-drivers command (Stage 7.1–7.6: fuzz)."""
+    from codeql_llm.fuzz.generate_drivers import generate_fuzz_drivers, build_and_record
 
     base_path = Path.cwd()
     config_path = args.config or base_path / "config" / "confirm_findings.yaml"
+    config = None
     if config_path.exists():
         config = load_config(config_path, base_path)
         results_dir = config.paths.output_dir / "results"
         context_dir = config.paths.context_dir
         output_dir = config.paths.output_dir
         fuzz_targets_dir = config.paths.fuzz_targets_dir
+        builds_dir = config.paths.builds_dir
     else:
         results_dir = base_path / "output" / "results"
         context_dir = base_path / "output" / "context"
         output_dir = base_path / "output"
         fuzz_targets_dir = base_path / "output" / "fuzz_targets"
+        builds_dir = base_path / "builds"
 
     results = generate_fuzz_drivers(
         results_dir=results_dir,
@@ -715,6 +721,24 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
         else:
             print(f"  [dry-run] {finding.repo_name} {finding.rule_id} {finding.file}:{finding.start_line} -> {fn}")
     print(f"\nDone. {len(results)} harness(es) generated.")
+
+    if args.build and not args.dry_run and any(p for _, _, p in results if p is not None):
+        print("\nBuild harnesses (Stage 7.4–7.6)\n")
+        build_results = build_and_record(
+            results,
+            builds_dir=builds_dir,
+            fuzz_targets_dir=fuzz_targets_dir,
+            llm_fix=args.llm_fix,
+            max_fix_iterations=args.max_fix_iterations,
+            llm_provider=config.llm.provider if config else "openai",
+            llm_model=config.llm.model if config else "gpt-4o",
+            llm_max_tokens=config.llm.max_tokens if config else 4000,
+        )
+        for repo_name, entries in build_results:
+            for e in entries:
+                print(f"  [{repo_name}] {e['harness']}: {e['status']}")
+            status_path = fuzz_targets_dir / repo_name / "status.json"
+            print(f"  -> {status_path}")
     return 0
 
 

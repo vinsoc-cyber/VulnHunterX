@@ -456,6 +456,9 @@ codeql-llm generate-fuzz-drivers --dry-run
 | `--lang {c,cpp}` | Only this language |
 | `--verdict FILTER` | `tp,nmd` (default), `tp`, `nmd`, or `all` |
 | `--dry-run` | Do not write .cc files |
+| `--build` | Compile and link harnesses (Stage 7.4); write status.json |
+| `--llm-fix` | Use LLM to fix compile/link errors (Stage 7.5) |
+| `--max-fix-iterations N` | Max LLM fix attempts (default 3) |
 
 ---
 
