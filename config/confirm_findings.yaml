@@ -25,6 +25,7 @@ provider: openai
 # For OpenAI: gpt-4o, gpt-4-turbo, gpt-3.5-turbo
 # For Ollama: ollama/llama3.2, ollama/codellama, ollama/mistral
 model: gpt-5.1
+# model: glm-4.7
 # model: ollama/qwen3:latest
 
 # Note: Ollama server URL is set via OLLAMA_API_BASE environment variable

@@ -13,6 +13,7 @@ Usage:
     python examples/pipeline_cpp.py --simple     # Use simple mode (faster)
     python examples/pipeline_cpp.py --compare    # Compare simple vs vulnhalla
     python examples/pipeline_cpp.py --api        # Use Python API instead of CLI
+    python examples/pipeline_cpp.py --fuzz       # Include fuzz stages 5-8 (confirm findings)
 """
 
 import subprocess
@@ -40,32 +41,33 @@ def print_header(title: str) -> None:
     print(f"{'=' * 70}\n")
 
 
-def run_command(cmd: list[str], dry_run: bool = False) -> tuple[bool, str]:
+def run_command(cmd: list[str], dry_run: bool = False, timeout: int = 1800) -> tuple[bool, str]:
     """
     Run a shell command and return success status.
-    
+
     Args:
         cmd: Command as list of strings
         dry_run: If True, only print the command
-        
+        timeout: Timeout in seconds (default 1800)
+
     Returns:
         Tuple of (success, output)
     """
     cmd_str = " ".join(cmd)
-    
+
     if dry_run:
         print(f"[DRY-RUN] Would execute: {cmd_str}")
         return True, ""
-    
+
     print(f"Executing: {cmd_str}")
     print("-" * 50)
-    
+
     try:
         result = subprocess.run(
             cmd,
             capture_output=False,
             text=True,
-            timeout=1800,  # 30 minute timeout
+            timeout=timeout,
         )
         return result.returncode == 0, ""
     except subprocess.TimeoutExpired:
@@ -188,6 +190,82 @@ def stage_verify(dry_run: bool = False, mode: str = "vulnhalla") -> bool:
     return success
 
 
+def stage_build_sanitized(dry_run: bool = False) -> bool:
+    """Stage 5 (fuzz): Build repo with sanitizers for fuzz harness linking."""
+    print_header("Stage 5: Build with Sanitizers")
+    print("Building with ASan/UBSan for fuzz harness linking...")
+    print()
+    success, error = run_command(
+        ["codeql-llm", "build-sanitized", "--repo", REPO_NAME],
+        dry_run,
+        timeout=2400,
+    )
+    if success:
+        print(f"\n[OK] Sanitized build done")
+    else:
+        print(f"\n[FAIL] Build failed: {error}")
+    return success
+
+
+def stage_extract_fuzz_context(dry_run: bool = False) -> bool:
+    """Stage 6 (fuzz): Extract fuzz context CSVs (function_signatures, includes)."""
+    print_header("Stage 6: Extract Fuzz Context")
+    print("Extracting function signatures and includes for harness generation...")
+    print()
+    success, error = run_command(
+        ["codeql-llm", "extract-fuzz-context", "--repo", REPO_NAME],
+        dry_run,
+    )
+    if success:
+        print(f"\n[OK] Fuzz context extracted")
+    else:
+        print(f"\n[FAIL] Extract failed: {error}")
+    return success
+
+
+def stage_generate_fuzz_drivers(dry_run: bool = False) -> bool:
+    """Stage 7 (fuzz): Generate fuzz drivers and build."""
+    print_header("Stage 7: Generate Fuzz Drivers")
+    print("Generating libFuzzer harnesses from verified findings and building...")
+    print()
+    success, error = run_command(
+        ["codeql-llm", "generate-fuzz-drivers", "--repo", REPO_NAME, "--build"],
+        dry_run,
+        timeout=600,
+    )
+    if success:
+        print(f"\n[OK] Fuzz drivers generated and built")
+    else:
+        print(f"\n[FAIL] Generate/build failed: {error}")
+    return success
+
+
+def stage_fuzz_run(
+    dry_run: bool = False,
+    timeout: int = 60,
+    max_fuzz_time: int = 30,
+) -> bool:
+    """Stage 8 (fuzz): Run libFuzzer for compiled harnesses, collect crashes."""
+    print_header("Stage 8: Run Fuzzers")
+    print(f"Running libFuzzer (timeout={timeout}s per harness, max_fuzz_time={max_fuzz_time}s)...")
+    print()
+    success, error = run_command(
+        [
+            "codeql-llm", "fuzz-run",
+            "--repo", REPO_NAME,
+            "--timeout", str(timeout),
+            "--max-fuzz-time", str(max_fuzz_time),
+        ],
+        dry_run,
+        timeout=600,
+    )
+    if success:
+        print(f"\n[OK] Fuzz run done")
+    else:
+        print(f"\n[FAIL] Fuzz run failed: {error}")
+    return success
+
+
 def compare_modes(dry_run: bool = False) -> None:
     """Compare simple vs vulnhalla verification modes."""
     print_header("Mode Comparison: Simple vs Vulnhalla")
@@ -286,19 +364,19 @@ def run_with_api(mode: str = "vulnhalla") -> None:
     print(f"\nResults saved to: {summary_path}")
 
 
-def print_summary(results: dict[str, bool], elapsed: float) -> None:
+def print_summary(results: dict[str, bool], elapsed: float, run_fuzz: bool = False) -> None:
     """Print pipeline summary."""
     print_header("Pipeline Summary")
-    
+
     print(f"Repository: {REPO_NAME} ({LANGUAGE})")
     print(f"Total time: {elapsed:.1f} seconds")
     print()
     print("Stage Results:")
-    
+
     for stage, success in results.items():
         status = "[OK]" if success else "[FAIL]"
         print(f"  {status} {stage}")
-    
+
     all_success = all(results.values())
     print()
     if all_success:
@@ -308,6 +386,9 @@ def print_summary(results: dict[str, bool], elapsed: float) -> None:
         print(f"  - SARIF: output/sarif/{LANGUAGE}/{REPO_NAME}.sarif")
         print(f"  - Results: output/results/")
         print(f"  - Context: output/context/{REPO_NAME}/")
+        if run_fuzz:
+            print(f"  - Fuzz targets: output/fuzz_targets/{REPO_NAME}/")
+            print(f"  - Fuzz results: output/fuzz_results/{REPO_NAME}/")
     else:
         print("Pipeline completed with errors.")
 
@@ -324,7 +405,24 @@ def main():
     simple_mode = "--simple" in sys.argv
     compare = "--compare" in sys.argv
     use_api = "--api" in sys.argv
-    
+    run_fuzz = "--fuzz" in sys.argv
+    fuzz_timeout = 60
+    fuzz_max_time = 30
+    if "--fuzz-timeout" in sys.argv:
+        i = sys.argv.index("--fuzz-timeout")
+        if i + 1 < len(sys.argv):
+            try:
+                fuzz_timeout = int(sys.argv[i + 1])
+            except ValueError:
+                pass
+    if "--fuzz-max-time" in sys.argv:
+        i = sys.argv.index("--fuzz-max-time")
+        if i + 1 < len(sys.argv):
+            try:
+                fuzz_max_time = int(sys.argv[i + 1])
+            except ValueError:
+                pass
+
     print(f"""
 ╔══════════════════════════════════════════════════════════════════════╗
 ║         CodeQL + LLM Bug Verification Pipeline                       ║
@@ -372,10 +470,17 @@ def main():
             results["LLM Verification"] = stage_verify(dry_run, mode)
     else:
         results["LLM Verification"] = False
-    
+
+    # Stages 5-8 (fuzz): optional, run when --fuzz
+    if run_fuzz:
+        results["Build sanitized"] = stage_build_sanitized(dry_run)
+        results["Extract fuzz context"] = stage_extract_fuzz_context(dry_run)
+        results["Generate fuzz drivers"] = stage_generate_fuzz_drivers(dry_run)
+        results["Fuzz run"] = stage_fuzz_run(dry_run, timeout=fuzz_timeout, max_fuzz_time=fuzz_max_time)
+
     elapsed = time.time() - start_time
-    print_summary(results, elapsed)
-    
+    print_summary(results, elapsed, run_fuzz=run_fuzz)
+
     sys.exit(0 if all(results.values()) else 1)
 
 

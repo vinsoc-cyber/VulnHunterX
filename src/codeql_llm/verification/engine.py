@@ -17,6 +17,17 @@ from codeql_llm.questions.loader import QuestionsLoader
 from codeql_llm.sarif.parser import discover_sarif_files, parse_sarif_file
 
 
+def _is_test_path(file_path: str) -> bool:
+    """Return True if file_path is under a test/ or tests/ path segment."""
+    if not file_path:
+        return False
+    normalized = file_path.replace("\\", "/").strip()
+    if normalized.lower().startswith("file://"):
+        normalized = normalized[7:].lstrip("/")
+    parts = [p for p in normalized.split("/") if p]
+    return any(part in ("test", "tests") for part in parts)
+
+
 class VerificationEngine:
     """
     Main engine for CodeQL + LLM bug verification.
@@ -110,6 +121,7 @@ class VerificationEngine:
         lang: str,
         repo_name: str,
         limit: int = 0,
+        exclude_test_paths: bool = True,
     ) -> VerificationResult:
         """
         Verify findings from a single SARIF file.
@@ -119,11 +131,14 @@ class VerificationEngine:
             lang: Language of the codebase
             repo_name: Name of the repository
             limit: Maximum findings to process (0 = all)
+            exclude_test_paths: If True, skip findings under test/ or tests/
             
         Returns:
             VerificationResult with all verdicts
         """
         findings = parse_sarif_file(Path(sarif_path), lang, repo_name)
+        if exclude_test_paths:
+            findings = [f for f in findings if not _is_test_path(f.file)]
         return self.verify_findings(findings, limit)
     
     def verify_all_sarif(
@@ -132,6 +147,7 @@ class VerificationEngine:
         lang_filter: str | None = None,
         repo_filter: str | None = None,
         limit: int = 0,
+        exclude_test_paths: bool = True,
     ) -> VerificationResult:
         """
         Verify findings from all SARIF files in output directory.
@@ -141,6 +157,7 @@ class VerificationEngine:
             lang_filter: Only process this language
             repo_filter: Only process this repository
             limit: Maximum total findings to process (0 = all)
+            exclude_test_paths: If True, skip findings under test/ or tests/
             
         Returns:
             VerificationResult with all verdicts
@@ -158,6 +175,8 @@ class VerificationEngine:
         all_findings: list[Finding] = []
         for sarif_path, lang, repo_name in sarif_files:
             findings = parse_sarif_file(sarif_path, lang, repo_name)
+            if exclude_test_paths:
+                findings = [f for f in findings if not _is_test_path(f.file)]
             all_findings.extend(findings)
         
         return self.verify_findings(all_findings, limit)

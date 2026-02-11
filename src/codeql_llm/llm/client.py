@@ -130,12 +130,22 @@ class LLMClient:
                 print("    Calling LLM...", end="", flush=True)
             
             try:
-                response = litellm.completion(
-                    model=self.model,
-                    messages=messages,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                )
+                model = self.model
+                api_base = None
+                if self.provider == "openai":
+                    api_base = (os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or "").strip()
+                    api_base = api_base.rstrip("/") if api_base else None
+                    if api_base and not model.startswith("openai/"):
+                        model = "openai/" + model
+                kwargs = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
+                }
+                if api_base:
+                    kwargs["api_base"] = api_base
+                response = litellm.completion(**kwargs)
                 raw_response = response.choices[0].message.content or ""
                 all_raw_responses.append(raw_response)
                 
