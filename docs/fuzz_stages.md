@@ -58,4 +58,35 @@ codeql-llm extract-fuzz-context --lang cpp --dry-run
 
 ---
 
-Stages 7–8 are documented as they are implemented.
+## Stage 7: Generate fuzz drivers
+
+Generate libFuzzer harness source (`.cc`) from verified findings, then compile/link (7.4–7.6) and optionally run (Stage 8).
+
+### Sub-stages 7.1–7.3 (this command)
+
+- **7.1 Select targets**: From verification results (or SARIF if `--verdict all`), filter by verdict (default: True Positive, Needs More Data). Resolve (file, line) → enclosing function via `functions.csv` or `function_signatures.csv`.
+- **7.2 Gather per-target context**: For each target, load signature (params) and includes from Stage 6 CSVs.
+- **7.3 Generate harness source**: For each target, write a `.cc` with `#include` from context, `FuzzedDataProvider`, and `LLVMFuzzerTestOneInput` calling the target function. Output: `output/fuzz_targets/<repo>/<rule>_<file>_<line>.cc`.
+
+### CLI (generation only)
+
+```bash
+codeql-llm generate-fuzz-drivers --repo libucl
+codeql-llm generate-fuzz-drivers --verdict tp,nmd   # default
+codeql-llm generate-fuzz-drivers --verdict all      # use SARIF only (no verification filter)
+codeql-llm generate-fuzz-drivers --dry-run
+```
+
+### Prerequisites
+
+- Verification results under `output/results/` (or use `--verdict all` to use SARIF only).
+- Stage 6 context: `output/context/<repo>/function_signatures.csv` and `includes.csv`.
+- Optionally `functions.csv` (from extract-context) for enclosing function resolution.
+
+### Sub-stages 7.4–7.6 (compile, LLM fix, status)
+
+Documented when implemented: compile/link harness with Stage 5 manifest, optional LLM fix loop, per-harness status.
+
+---
+
+Stages 7.4–7.6 and Stage 8 are documented as they are implemented.

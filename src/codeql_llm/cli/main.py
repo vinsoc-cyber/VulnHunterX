@@ -91,6 +91,13 @@ Examples:
     )
     _add_extract_fuzz_context_args(extract_fuzz_parser)
     
+    # Generate-fuzz-drivers command (Stage 7.1–7.3: fuzz)
+    gen_drivers_parser = subparsers.add_parser(
+        "generate-fuzz-drivers",
+        help="Generate libFuzzer harness .cc from verified findings (C/C++ only)",
+    )
+    _add_generate_fuzz_drivers_args(gen_drivers_parser)
+    
     # Verify command
     verify_parser = subparsers.add_parser(
         "verify",
@@ -152,6 +159,19 @@ def _add_extract_fuzz_context_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--lang", choices=["c", "cpp"], help="Only this language")
     parser.add_argument("--repo", help="Only this repository")
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
+
+
+def _add_generate_fuzz_drivers_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for generate-fuzz-drivers command."""
+    parser.add_argument("--config", type=Path, help="Path to config YAML (for paths)")
+    parser.add_argument("--lang", choices=["c", "cpp"], help="Only this language")
+    parser.add_argument("--repo", help="Only this repository")
+    parser.add_argument(
+        "--verdict",
+        default="tp,nmd",
+        help="Verdict filter: tp,nmd (default), tp, nmd, all (use SARIF only)",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only, do not write .cc")
 
 
 def _add_verify_args(parser: argparse.ArgumentParser) -> None:
@@ -653,6 +673,51 @@ def cmd_extract_fuzz_context(args: argparse.Namespace) -> int:
     return 0 if ok_count == len(results) else 1
 
 
+def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
+    """Execute generate-fuzz-drivers command (Stage 7.1–7.3: fuzz)."""
+    from codeql_llm.fuzz.generate_drivers import generate_fuzz_drivers
+
+    base_path = Path.cwd()
+    config_path = args.config or base_path / "config" / "confirm_findings.yaml"
+    if config_path.exists():
+        config = load_config(config_path, base_path)
+        results_dir = config.paths.output_dir / "results"
+        context_dir = config.paths.context_dir
+        output_dir = config.paths.output_dir
+        fuzz_targets_dir = config.paths.fuzz_targets_dir
+    else:
+        results_dir = base_path / "output" / "results"
+        context_dir = base_path / "output" / "context"
+        output_dir = base_path / "output"
+        fuzz_targets_dir = base_path / "output" / "fuzz_targets"
+
+    results = generate_fuzz_drivers(
+        results_dir=results_dir,
+        context_dir=context_dir,
+        output_dir=output_dir,
+        fuzz_targets_dir=fuzz_targets_dir,
+        repo_filter=args.repo,
+        lang_filter=args.lang,
+        verdict_filter=args.verdict,
+        use_verification=True,
+        dry_run=args.dry_run,
+    )
+
+    if not results:
+        print("No targets selected (run verify first and/or check --verdict, --repo, --lang).")
+        return 0
+
+    print("Generate fuzz drivers (Stage 7.1–7.3)\n")
+    for finding, target_info, cc_path in results:
+        fn = target_info.get("name", "?")
+        if cc_path:
+            print(f"  {finding.repo_name} {finding.rule_id} {finding.file}:{finding.start_line} -> {fn} -> {cc_path}")
+        else:
+            print(f"  [dry-run] {finding.repo_name} {finding.rule_id} {finding.file}:{finding.start_line} -> {fn}")
+    print(f"\nDone. {len(results)} harness(es) generated.")
+    return 0
+
+
 def cmd_info(args: argparse.Namespace) -> int:
     """Execute the info command."""
     print(f"CodeQL + LLM Bug Verification v{__version__}")
@@ -713,6 +778,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_build_sanitized(args)
     elif args.command == "extract-fuzz-context":
         return cmd_extract_fuzz_context(args)
+    elif args.command == "generate-fuzz-drivers":
+        return cmd_generate_fuzz_drivers(args)
     elif args.command == "verify":
         return cmd_verify(args)
     elif args.command == "info":

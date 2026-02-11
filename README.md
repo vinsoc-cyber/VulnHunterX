@@ -439,6 +439,26 @@ codeql-llm extract-fuzz-context --lang cpp --dry-run
 
 ---
 
+### generate-fuzz-drivers (Stage 7.1–7.3: fuzz, C/C++ only)
+
+Generate libFuzzer harness `.cc` files from verified findings (True Positive / Needs More Data by default). Resolves enclosing function from context CSVs and writes one harness per target. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
+
+```bash
+codeql-llm generate-fuzz-drivers --repo libucl
+codeql-llm generate-fuzz-drivers --verdict tp,nmd   # default
+codeql-llm generate-fuzz-drivers --verdict all      # all SARIF findings (no verification filter)
+codeql-llm generate-fuzz-drivers --dry-run
+```
+
+| Option | Description |
+|--------|-------------|
+| `--repo NAME` | Only this repository |
+| `--lang {c,cpp}` | Only this language |
+| `--verdict FILTER` | `tp,nmd` (default), `tp`, `nmd`, or `all` |
+| `--dry-run` | Do not write .cc files |
+
+---
+
 ### verify
 
 Verify CodeQL findings using LLM analysis.
