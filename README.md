@@ -421,6 +421,24 @@ codeql-llm build-sanitized --lang cpp -f   # Force rebuild
 
 ---
 
+### extract-fuzz-context (Stage 6: fuzz, C/C++ only)
+
+Extract fuzz-oriented context (function signatures and includes) from C/C++ CodeQL databases. Writes `output/context/<repo>/function_signatures.csv` and `includes.csv` for harness generation. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
+
+```bash
+codeql-llm extract-fuzz-context
+codeql-llm extract-fuzz-context --repo libucl
+codeql-llm extract-fuzz-context --lang cpp --dry-run
+```
+
+| Option | Description |
+|--------|-------------|
+| `--repo NAME` | Only this repository |
+| `--lang {c,cpp}` | Only this language |
+| `--dry-run` | Preview only |
+
+---
+
 ### verify
 
 Verify CodeQL findings using LLM analysis.

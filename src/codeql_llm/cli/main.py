@@ -84,6 +84,13 @@ Examples:
     )
     _add_build_sanitized_args(build_sanitized_parser)
     
+    # Extract-fuzz-context command (Stage 6: fuzz)
+    extract_fuzz_parser = subparsers.add_parser(
+        "extract-fuzz-context",
+        help="Extract fuzz context CSVs (function_signatures, includes) from C/C++ databases",
+    )
+    _add_extract_fuzz_context_args(extract_fuzz_parser)
+    
     # Verify command
     verify_parser = subparsers.add_parser(
         "verify",
@@ -136,6 +143,14 @@ def _add_build_sanitized_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--lang", choices=["c", "cpp"], help="Only this language")
     parser.add_argument("--repo", help="Only this repository")
     parser.add_argument("-f", "--force", action="store_true", help="Force rebuild even if manifest exists")
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only")
+
+
+def _add_extract_fuzz_context_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for extract-fuzz-context command."""
+    parser.add_argument("--config", type=Path, help="Path to config YAML (for paths)")
+    parser.add_argument("--lang", choices=["c", "cpp"], help="Only this language")
+    parser.add_argument("--repo", help="Only this repository")
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
 
 
@@ -589,6 +604,55 @@ def cmd_build_sanitized(args: argparse.Namespace) -> int:
     return 0 if ok_count == len(repos) else 1
 
 
+def cmd_extract_fuzz_context(args: argparse.Namespace) -> int:
+    """Execute extract-fuzz-context command (Stage 6: fuzz)."""
+    from codeql_llm.fuzz.extract_fuzz_context import extract_fuzz_context_all
+
+    base_path = Path.cwd()
+    config_path = args.config or base_path / "config" / "confirm_findings.yaml"
+    if config_path.exists():
+        config = load_config(config_path, base_path)
+        context_dir = config.paths.context_dir
+        queries_dir = config.paths.queries_dir / "tools"
+        databases_dir = config.paths.databases_dir
+    else:
+        context_dir = base_path / "output" / "context"
+        queries_dir = base_path / "config" / "queries" / "tools"
+        databases_dir = base_path / "databases"
+
+    if not databases_dir.is_dir():
+        print(f"Databases dir not found: {databases_dir}", file=sys.stderr)
+        return 1
+
+    codeql_path = os.environ.get("CODEQL_PATH", "codeql")
+    results = extract_fuzz_context_all(
+        databases_dir=databases_dir,
+        context_output_dir=context_dir,
+        queries_dir=queries_dir,
+        codeql_path=codeql_path,
+        lang_filter=args.lang,
+        repo_filter=args.repo,
+        dry_run=args.dry_run,
+    )
+
+    if not results:
+        print("No C/C++ databases found.")
+        return 0
+
+    print("Extract fuzz context (C/C++)\n")
+    ok_count = 0
+    for repo_name, lang, res in results:
+        all_ok = all(v[0] for v in res.values())
+        status = "OK" if all_ok else "FAIL"
+        print(f"[{repo_name}] [{lang}] [{status}]")
+        for q, (ok, msg) in res.items():
+            print(f"  {q}: {msg}")
+        if all_ok:
+            ok_count += 1
+    print(f"\nDone. {ok_count}/{len(results)} repos succeeded.")
+    return 0 if ok_count == len(results) else 1
+
+
 def cmd_info(args: argparse.Namespace) -> int:
     """Execute the info command."""
     print(f"CodeQL + LLM Bug Verification v{__version__}")
@@ -647,6 +711,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_extract_context(args)
     elif args.command == "build-sanitized":
         return cmd_build_sanitized(args)
+    elif args.command == "extract-fuzz-context":
+        return cmd_extract_fuzz_context(args)
     elif args.command == "verify":
         return cmd_verify(args)
     elif args.command == "info":

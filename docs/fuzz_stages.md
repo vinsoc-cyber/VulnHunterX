@@ -33,4 +33,29 @@ codeql-llm build-sanitized --dry-run       # Preview
 
 ---
 
-Stages 6–8 are documented as they are implemented.
+## Stage 6: Extract fuzz context
+
+Runs CodeQL queries to produce CSVs used when generating fuzz harnesses: function signatures (name, file, line range, parameters) and includes per file.
+
+### Sub-stages
+
+- **6.1 CodeQL queries**: `config/queries/tools/cpp/function_signatures.ql` (one row per parameter), `config/queries/tools/cpp/includes.ql`.
+- **6.2 Run extraction**: For each C/C++ database, run these queries via CodeQL CLI and decode BQRS to CSV.
+- **6.3 Emit CSVs**: Write `output/context/<repo>/function_signatures.csv` and `output/context/<repo>/includes.csv`.
+
+### CLI
+
+```bash
+codeql-llm extract-fuzz-context              # All C/C++ databases
+codeql-llm extract-fuzz-context --repo libucl
+codeql-llm extract-fuzz-context --lang cpp --dry-run
+```
+
+### Prerequisites
+
+- CodeQL databases for C/C++ repos (run `codeql-llm clone` and create DBs first).
+- `CODEQL_PATH` in env or `codeql` on PATH.
+
+---
+
+Stages 7–8 are documented as they are implemented.
