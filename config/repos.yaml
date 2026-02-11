@@ -1,7 +1,9 @@
 # Phase 2: Repos to clone and CodeQL DBs to create.
-# Format: list of { name, url, language, build_command? }
+# Format: list of { name, url, language, build_command?, sanitized_build_command?, sanitizer_flags? }
 # name: used for dirs repos/<lang>/<name>/ and databases/<lang>/<name>/
 # build_command: required for c/cpp; omit for python/javascript.
+# sanitized_build_command: optional; for fuzz Stage 5. If omitted, build_command is used with CC/CXX/CFLAGS/LDFLAGS set for sanitizers.
+# sanitizer_flags: optional; e.g. { cflags: "-fsanitize=address,undefined -g", ldflags: "-fsanitize=address,undefined" }
 # Demo subset (small/fast for testing) is listed first.
 
 repos:

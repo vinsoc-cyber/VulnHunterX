@@ -52,6 +52,10 @@ class PathsConfig:
     context_dir: Path = field(default_factory=lambda: Path("output/context"))  # Generated CSV data
     prompts_dir: Path = field(default_factory=lambda: Path("config/prompts"))
     queries_dir: Path = field(default_factory=lambda: Path("config/queries"))
+    # Fuzz-based confirmation (Stage 5–8)
+    builds_dir: Path = field(default_factory=lambda: Path("builds"))  # Sanitized builds
+    fuzz_targets_dir: Path = field(default_factory=lambda: Path("output/fuzz_targets"))  # Generated harnesses
+    fuzz_results_dir: Path = field(default_factory=lambda: Path("output/fuzz_results"))  # Crash reports
     
     def resolve(self, base_path: Path) -> PathsConfig:
         """Resolve all paths relative to a base path."""
@@ -62,6 +66,9 @@ class PathsConfig:
             context_dir=base_path / self.context_dir,
             prompts_dir=base_path / self.prompts_dir,
             queries_dir=base_path / self.queries_dir,
+            builds_dir=base_path / self.builds_dir,
+            fuzz_targets_dir=base_path / self.fuzz_targets_dir,
+            fuzz_results_dir=base_path / self.fuzz_results_dir,
         )
 
 
@@ -115,13 +122,20 @@ class Config:
             max_iterations=data.get("max_iterations", 3),
         )
         
+        # Paths: support both top-level keys and paths.* for backward compatibility
+        def _path(key: str, default: str) -> Path:
+            p = (data.get("paths") or {}).get(key) or data.get(key)
+            return Path(p if p is not None else default)
         paths = PathsConfig(
-            repos_dir=Path(data.get("repos_dir", "repos")),
-            databases_dir=Path(data.get("databases_dir", "databases")),
-            output_dir=Path(data.get("output_dir", "output")),
-            context_dir=Path(data.get("context_dir", "output/context")),
-            prompts_dir=Path(data.get("prompts_dir", "config/prompts")),
-            queries_dir=Path(data.get("queries_dir", "config/queries")),
+            repos_dir=_path("repos_dir", "repos"),
+            databases_dir=_path("databases_dir", "databases"),
+            output_dir=_path("output_dir", "output"),
+            context_dir=_path("context_dir", "output/context"),
+            prompts_dir=_path("prompts_dir", "config/prompts"),
+            queries_dir=_path("queries_dir", "config/queries"),
+            builds_dir=_path("builds_dir", "builds"),
+            fuzz_targets_dir=_path("fuzz_targets_dir", "output/fuzz_targets"),
+            fuzz_results_dir=_path("fuzz_results_dir", "output/fuzz_results"),
         )
         
         if base_path:

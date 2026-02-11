@@ -77,6 +77,13 @@ Examples:
     )
     _add_extract_args(extract_parser)
     
+    # Build-sanitized command (Stage 5: fuzz)
+    build_sanitized_parser = subparsers.add_parser(
+        "build-sanitized",
+        help="Build repo with sanitizers for fuzz harness linking (C/C++ only)",
+    )
+    _add_build_sanitized_args(build_sanitized_parser)
+    
     # Verify command
     verify_parser = subparsers.add_parser(
         "verify",
@@ -120,6 +127,15 @@ def _add_extract_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
     parser.add_argument("--repo", help="Only this repository")
     parser.add_argument("-f", "--force", action="store_true", help="Force re-extraction even if context CSVs exist")
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only")
+
+
+def _add_build_sanitized_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for build-sanitized command."""
+    parser.add_argument("--config", type=Path, help="Path to repos.yaml")
+    parser.add_argument("--lang", choices=["c", "cpp"], help="Only this language")
+    parser.add_argument("--repo", help="Only this repository")
+    parser.add_argument("-f", "--force", action="store_true", help="Force rebuild even if manifest exists")
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
 
 
@@ -512,6 +528,67 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_build_sanitized(args: argparse.Namespace) -> int:
+    """Execute build-sanitized command (Stage 5: fuzz)."""
+    from codeql_llm.codeql.repository import load_repos_config
+    from codeql_llm.fuzz.build_sanitized import build_sanitized
+
+    base_path = Path.cwd()
+    config_path = args.config or base_path / "config" / "repos.yaml"
+    if not config_path.exists():
+        print(f"Config not found: {config_path}", file=sys.stderr)
+        return 1
+
+    repos = load_repos_config(config_path)
+    if args.lang:
+        repos = [r for r in repos if (r.get("language") or "").lower() == args.lang]
+    if args.repo:
+        repos = [r for r in repos if (r.get("name") or "").lower() == args.repo.lower()]
+
+    if not repos:
+        print("No C/C++ repositories to build.", file=sys.stderr)
+        return 1
+
+    # Paths: use config or defaults
+    default_builds = base_path / "builds"
+    default_repos = base_path / "repos"
+    builds_dir = getattr(args, "builds_dir", None) or default_builds
+    repos_dir = getattr(args, "repos_dir", None) or default_repos
+    if not isinstance(builds_dir, Path):
+        builds_dir = Path(builds_dir)
+    if not isinstance(repos_dir, Path):
+        repos_dir = Path(repos_dir)
+
+    print("Build sanitized (C/C++)\n")
+    ok_count = 0
+    for repo in repos:
+        name = repo.get("name", "unknown")
+        lang = (repo.get("language") or "c").lower()
+        if lang not in ("c", "cpp"):
+            print(f"[{name}] SKIP (not C/C++)")
+            continue
+        if args.dry_run:
+            print(f"[{name}] [dry-run] Would run sanitized build")
+            ok_count += 1
+            continue
+        ok, msg, manifest_path = build_sanitized(
+            name=name,
+            lang=lang,
+            repo_config=repo,
+            repos_dir=repos_dir,
+            builds_dir=builds_dir,
+            force=args.force,
+        )
+        status = "OK" if ok else "FAIL"
+        print(f"[{name}] [{status}] {msg[:80]}")
+        if ok and manifest_path:
+            print(f"  -> {manifest_path}")
+        if ok:
+            ok_count += 1
+    print(f"\nDone. {ok_count}/{len(repos)} succeeded.")
+    return 0 if ok_count == len(repos) else 1
+
+
 def cmd_info(args: argparse.Namespace) -> int:
     """Execute the info command."""
     print(f"CodeQL + LLM Bug Verification v{__version__}")
@@ -568,6 +645,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_analyze(args)
     elif args.command == "extract-context":
         return cmd_extract_context(args)
+    elif args.command == "build-sanitized":
+        return cmd_build_sanitized(args)
     elif args.command == "verify":
         return cmd_verify(args)
     elif args.command == "info":

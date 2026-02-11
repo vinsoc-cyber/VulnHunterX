@@ -403,6 +403,24 @@ codeql-llm extract-context --repo libucl
 
 ---
 
+### build-sanitized (Stage 5: fuzz, C/C++ only)
+
+Build repository with sanitizers (ASan/UBSan) in a separate directory for fuzz harness linking. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
+
+```bash
+codeql-llm build-sanitized --repo libucl
+codeql-llm build-sanitized --lang cpp -f   # Force rebuild
+```
+
+| Option | Description |
+|--------|-------------|
+| `--repo NAME` | Build specific repository |
+| `--lang {c,cpp}` | Only C or C++ repos |
+| `-f, --force` | Rebuild even if manifest exists |
+| `--dry-run` | Preview only |
+
+---
+
 ### verify
 
 Verify CodeQL findings using LLM analysis.
