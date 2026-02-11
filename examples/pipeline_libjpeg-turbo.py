@@ -24,9 +24,9 @@ from pathlib import Path
 # Configuration
 # =============================================================================
 
-REPO_NAME = "libucl"
+REPO_NAME = "libjpeg-turbo"
 LANGUAGE = "c"
-MAX_FINDINGS = 5  # Limit findings to process for demo
+MAX_FINDINGS = 50  # Limit findings to process for demo
 
 # =============================================================================
 # Pipeline Stages
@@ -176,7 +176,7 @@ def stage_verify(dry_run: bool = False, mode: str = "vulnhalla") -> bool:
     ]
     
     if mode == "vulnhalla":
-        cmd.extend(["--max-iterations", "5", "-v"])
+        cmd.extend(["--max-iterations", "10", "-v"])
     
     success, error = run_command(cmd, dry_run)
     

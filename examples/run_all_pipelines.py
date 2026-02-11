@@ -450,7 +450,7 @@ def stage_generate_fuzz_drivers(
     Stage 7 (fuzz): Generate fuzz drivers and optionally build.
     C/C++ only.
     """
-    cmd = ["codeql-llm", "generate-fuzz-drivers", "--repo", repo_name]
+    cmd = ["codeql-llm", "generate-fuzz-drivers", "--repo", repo_name, "--verdict", "tp,nmd"]
     if build:
         cmd.append("--build")
     if dry_run:
