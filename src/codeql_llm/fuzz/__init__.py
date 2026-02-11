@@ -18,7 +18,9 @@ from codeql_llm.fuzz.target_selection import (
 )
 from codeql_llm.fuzz.fuzz_context import get_target_context, load_function_signatures, load_includes
 from codeql_llm.fuzz.driver_generator import generate_harness
-from codeql_llm.fuzz.generate_drivers import generate_fuzz_drivers
+from codeql_llm.fuzz.generate_drivers import generate_fuzz_drivers, build_and_record
+from codeql_llm.fuzz.driver_builder import build_harness, find_manifest_for_repo, write_harness_status
+from codeql_llm.fuzz.driver_fix_loop import fix_harness_with_llm, make_llm_fix_fn
 
 __all__ = [
     "build_sanitized_env",
@@ -36,4 +38,10 @@ __all__ = [
     "load_includes",
     "generate_harness",
     "generate_fuzz_drivers",
+    "build_and_record",
+    "build_harness",
+    "find_manifest_for_repo",
+    "write_harness_status",
+    "fix_harness_with_llm",
+    "make_llm_fix_fn",
 ]

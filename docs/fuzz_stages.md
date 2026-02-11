@@ -85,8 +85,23 @@ codeql-llm generate-fuzz-drivers --dry-run
 
 ### Sub-stages 7.4–7.6 (compile, LLM fix, status)
 
-Documented when implemented: compile/link harness with Stage 5 manifest, optional LLM fix loop, per-harness status.
+- **7.4 Compile and link**: For each harness, run `clang++ -c -fsanitize=fuzzer,address -g -O2 -I... harness.cc` then link with Stage 5 manifest (objects/libs from `build_sanitized`). Capture stderr and normalize for LLM.
+- **7.5 LLM fix loop (optional)**: If `--llm-fix` and build failed, send harness source + command + errors to LLM; replace source; re-run 7.4; repeat up to `--max-fix-iterations`. Response must contain `LLVMFuzzerTestOneInput`.
+- **7.6 Record status**: Per harness: `compiled`, `compile_failed`, `link_failed`, `llm_fix_failed`, or `manifest_missing`. Write `output/fuzz_targets/<repo>/status.json`.
+
+### CLI (with build)
+
+```bash
+codeql-llm generate-fuzz-drivers --repo libucl --build
+codeql-llm generate-fuzz-drivers --build --llm-fix --max-fix-iterations 5
+```
+
+| Option | Description |
+|--------|-------------|
+| `--build` | Compile and link after generating; write status.json |
+| `--llm-fix` | Use LLM to fix compile/link errors (Stage 7.5) |
+| `--max-fix-iterations N` | Max LLM fix attempts (default 3) |
 
 ---
 
-Stages 7.4–7.6 and Stage 8 are documented as they are implemented.
+Stage 8 is documented when implemented.

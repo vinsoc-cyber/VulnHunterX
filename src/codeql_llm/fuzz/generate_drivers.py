@@ -1,18 +1,24 @@
 """
 Stage 7.1–7.3: Select targets, gather context, generate harness sources.
-
-Orchestrates target_selection, fuzz_context, and driver_generator.
+Stage 7.4–7.6: Optionally build, LLM fix loop, write status.
 """
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Callable
 
 from codeql_llm.core.types import Finding
 from codeql_llm.fuzz.target_selection import select_targets
 from codeql_llm.fuzz.fuzz_context import get_target_context
 from codeql_llm.fuzz.driver_generator import generate_harness
+from codeql_llm.fuzz.driver_builder import (
+    build_harness,
+    find_manifest_for_repo,
+    write_harness_status,
+)
+from codeql_llm.fuzz.driver_fix_loop import fix_harness_with_llm, make_llm_fix_fn
 
 
 def _harness_basename(finding: Finding) -> str:
@@ -66,4 +72,62 @@ def generate_fuzz_drivers(
             repo_name=finding.repo_name,
         )
         out.append((finding, target_info, path))
+    return out
+
+
+def build_and_record(
+    results: list[tuple[Finding, dict, Path | None]],
+    builds_dir: Path,
+    fuzz_targets_dir: Path,
+    llm_fix: bool = False,
+    max_fix_iterations: int = 3,
+    llm_provider: str = "openai",
+    llm_model: str = "gpt-4o",
+    llm_max_tokens: int = 4000,
+) -> list[tuple[str, list[dict]]]:
+    """
+    Stage 7.4–7.6: Build each harness, optionally run LLM fix loop, write status.json per repo.
+
+    results: from generate_fuzz_drivers (finding, target_info, cc_path).
+    Returns list of (repo_name, status_entries).
+    """
+    by_repo: dict[str, list[tuple[Finding, dict, Path | None]]] = {}
+    for finding, info, path in results:
+        if path is None:
+            continue
+        by_repo.setdefault(finding.repo_name, []).append((finding, info, path))
+
+    llm_fn: Callable[[str, str, str], str] | None = None
+    if llm_fix:
+        llm_fn = make_llm_fix_fn(llm_provider, llm_model, llm_max_tokens)
+
+    out: list[tuple[str, list[dict]]] = []
+    for repo_name, items in by_repo.items():
+        manifest_path = find_manifest_for_repo(builds_dir, repo_name)
+        if not manifest_path:
+            entries = [{"harness": str(p), "status": "manifest_missing", "errors": "No manifest.json"} for _, _, p in items if p]
+            write_harness_status(repo_name, entries, fuzz_targets_dir)
+            out.append((repo_name, entries))
+            continue
+        entries = []
+        for _finding, _info, cc_path in items:
+            if cc_path is None:
+                continue
+            harness_name = cc_path.name
+            binary_path = cc_path.with_suffix("")
+
+            def build_fn(_cc=cc_path, _m=manifest_path, _out=binary_path):
+                return build_harness(_cc, _m, _out)
+
+            if llm_fn is not None:
+                status, _iterations, last_errors = fix_harness_with_llm(
+                    cc_path, build_fn, llm_fn, max_iterations=max_fix_iterations
+                )
+                entries.append({"harness": harness_name, "status": status, "errors": last_errors})
+            else:
+                ok, err, _cmd = build_harness(cc_path, manifest_path, binary_path)
+                status = "compiled" if ok else ("link_failed" if "undefined reference" in err or "ld returned" in err.lower() else "compile_failed")
+                entries.append({"harness": harness_name, "status": status, "errors": err})
+        write_harness_status(repo_name, entries, fuzz_targets_dir)
+        out.append((repo_name, entries))
     return out
