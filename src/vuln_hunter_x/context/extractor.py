@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from codeql_llm.core.types import CodeContext
+from vuln_hunter_x.core.types import CodeContext
 
 
 class ContextExtractor:

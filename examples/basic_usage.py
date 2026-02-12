@@ -11,9 +11,9 @@ import sys
 # Add src to path for development usage
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from codeql_llm import VerificationEngine, __version__
-from codeql_llm.core.config import Config
-from codeql_llm.core.types import Finding, Verdict
+from vuln_hunter_x import VerificationEngine, __version__
+from vuln_hunter_x.core.config import Config
+from vuln_hunter_x.core.types import Finding, Verdict
 
 
 def example_1_basic_verification():
@@ -85,9 +85,9 @@ def example_4_manual_components():
     print("Example 4: Manual component usage")
     print("=" * 60)
     
-    from codeql_llm.sarif.parser import parse_sarif_file, discover_sarif_files
-    from codeql_llm.questions.loader import QuestionsLoader
-    from codeql_llm.context.extractor import ContextExtractor
+    from vuln_hunter_x.sarif.parser import parse_sarif_file, discover_sarif_files
+    from vuln_hunter_x.questions.loader import QuestionsLoader
+    from vuln_hunter_x.context.extractor import ContextExtractor
     
     # Discover SARIF files
     sarif_files = discover_sarif_files(Path("output"))
@@ -114,7 +114,7 @@ def example_5_result_handling():
     print("Example 5: Result handling")
     print("=" * 60)
     
-    from codeql_llm.core.types import VerificationResult
+    from vuln_hunter_x.core.types import VerificationResult
     
     # Create mock results
     finding = Finding(

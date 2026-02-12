@@ -5,7 +5,7 @@ A framework for combining CodeQL static analysis with LLM-based
 bug verification using guided questions (Vulnhalla methodology).
 
 Example usage:
-    from codeql_llm import VerificationEngine
+    from vuln_hunter_x import VerificationEngine
     
     engine = VerificationEngine.from_config("config/confirm_findings.yaml")
     results = engine.verify_findings("output/sarif/c/repo.sarif")
@@ -15,10 +15,10 @@ Example usage:
 """
 
 __version__ = "0.1.0"
-__author__ = "CodeQLxLLM Team"
+__author__ = "VulnHunterX Team"
 
-from codeql_llm.core.types import Finding, GuidedQuestions, Verdict
-from codeql_llm.verification.engine import VerificationEngine
+from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
+from vuln_hunter_x.verification.engine import VerificationEngine
 
 __all__ = [
     "Finding",

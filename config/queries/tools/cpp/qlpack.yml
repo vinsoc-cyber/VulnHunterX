@@ -1,4 +1,4 @@
-name: codeql-llm/cpp-tools
+name: vulnhunterx/cpp-tools
 version: 0.0.1
 dependencies:
   codeql/cpp-all: "*"

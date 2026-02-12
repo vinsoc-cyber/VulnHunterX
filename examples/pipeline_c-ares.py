@@ -89,7 +89,7 @@ def stage_clone(dry_run: bool = False, skip: bool = False) -> bool:
     print()
     
     success, error = run_command([
-        "codeql-llm", "clone",
+        "vuln-hunter-x", "clone",
         "--repo", REPO_NAME,
     ], dry_run)
     
@@ -115,7 +115,7 @@ def stage_analyze(dry_run: bool = False) -> bool:
     print()
     
     success, error = run_command([
-        "codeql-llm", "analyze",
+        "vuln-hunter-x", "analyze",
         "--repo", REPO_NAME,
         "-v",  # Verbose output
     ], dry_run)
@@ -141,7 +141,7 @@ def stage_extract_context(dry_run: bool = False) -> bool:
     print()
     
     success, error = run_command([
-        "codeql-llm", "extract-context",
+        "vuln-hunter-x", "extract-context",
         "--repo", REPO_NAME,
     ], dry_run)
     
@@ -169,7 +169,7 @@ def stage_verify(dry_run: bool = False, mode: str = "vulnhalla") -> bool:
     print()
     
     cmd = [
-        "codeql-llm", "verify",
+        "vuln-hunter-x", "verify",
         "--repo", REPO_NAME,
         "--mode", mode,
         "--limit", str(MAX_FINDINGS),
@@ -194,7 +194,7 @@ def stage_build_sanitized(dry_run: bool = False) -> bool:
     print("Building with ASan/UBSan for fuzz harness linking...")
     print()
     success, error = run_command(
-        ["codeql-llm", "build-sanitized", "--repo", REPO_NAME],
+        ["vuln-hunter-x", "build-sanitized", "--repo", REPO_NAME],
         dry_run,
         timeout=2400,
     )
@@ -211,7 +211,7 @@ def stage_extract_fuzz_context(dry_run: bool = False) -> bool:
     print("Extracting function signatures and includes for harness generation...")
     print()
     success, error = run_command(
-        ["codeql-llm", "extract-fuzz-context", "--repo", REPO_NAME],
+        ["vuln-hunter-x", "extract-fuzz-context", "--repo", REPO_NAME],
         dry_run,
     )
     if success:
@@ -227,7 +227,7 @@ def stage_generate_fuzz_drivers(dry_run: bool = False) -> bool:
     print("Generating libFuzzer harnesses from verified findings and building...")
     print()
     success, error = run_command(
-        ["codeql-llm", "generate-fuzz-drivers", "--repo", REPO_NAME, "--verdict", "tp,nmd", "--build"],
+        ["vuln-hunter-x", "generate-fuzz-drivers", "--repo", REPO_NAME, "--verdict", "tp,nmd", "--build"],
         dry_run,
         timeout=600,
     )
@@ -249,7 +249,7 @@ def stage_fuzz_run(
     print()
     success, error = run_command(
         [
-            "codeql-llm", "fuzz-run",
+            "vuln-hunter-x", "fuzz-run",
             "--repo", REPO_NAME,
             "--timeout", str(timeout),
             "--max-fuzz-time", str(max_fuzz_time),
@@ -309,8 +309,8 @@ def run_with_api(mode: str = "vulnhalla") -> None:
     # Add src to path for development
     sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
     
-    from codeql_llm import VerificationEngine
-    from codeql_llm.core.types import Finding, Verdict
+    from vuln_hunter_x import VerificationEngine
+    from vuln_hunter_x.core.types import Finding, Verdict
     
     # Create engine
     engine = VerificationEngine.from_config(

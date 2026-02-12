@@ -9,14 +9,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Import framework modules
-from codeql_llm.core.types import Finding, Verdict, GuidedQuestions, VerificationResult
-from codeql_llm.core.config import Config, load_config
-from codeql_llm.sarif.parser import SarifParser, parse_sarif_file
-from codeql_llm.context.extractor import ContextExtractor
-from codeql_llm.context.provider import ContextProvider
-from codeql_llm.questions.loader import QuestionsLoader
-from codeql_llm.llm.prompts import PromptBuilder
-from codeql_llm.llm.client import LLMClient
+from vuln_hunter_x.core.types import Finding, Verdict, GuidedQuestions, VerificationResult
+from vuln_hunter_x.core.config import Config, load_config
+from vuln_hunter_x.sarif.parser import SarifParser, parse_sarif_file
+from vuln_hunter_x.context.extractor import ContextExtractor
+from vuln_hunter_x.context.provider import ContextProvider
+from vuln_hunter_x.questions.loader import QuestionsLoader
+from vuln_hunter_x.llm.prompts import PromptBuilder
+from vuln_hunter_x.llm.client import LLMClient
 
 
 class TestFinding:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeql_llm.verification.engine import _is_test_path
+from vuln_hunter_x.verification.engine import _is_test_path
 
 
 class TestIsTestPath:

@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from codeql_llm.core.types import Finding
+from vuln_hunter_x.core.types import Finding
 
 
 class SarifParser:

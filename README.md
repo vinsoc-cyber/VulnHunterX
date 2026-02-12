@@ -1,6 +1,6 @@
-# CodeQLxLLM
+# VulnHunterX
 
-**CodeQL + LLM Bug Verification Framework**
+**SAST (CodeQL, Semgrep) + fuzzing + LLM vulnerability hunting and verification**
 
 A Python framework that combines CodeQL static analysis with Large Language Model (LLM) verification to reduce false positives in security findings. Implements the Vulnhalla methodology for intelligent, multi-turn bug confirmation.
 
@@ -237,8 +237,8 @@ See [Fuzz-based confirmation](docs/fuzz_stages.md) for stages 5–8.
 ### 1. Installation
 
 ```bash
-git clone https://github.com/your-org/CodeQLxLLM.git
-cd CodeQLxLLM
+git clone https://github.com/your-org/VulnHunterX.git
+cd VulnHunterX
 
 uv venv --python python3.12 .venv
 source .venv/bin/activate
@@ -259,9 +259,9 @@ cp env.example .env
 python examples/pipeline_python.py
 
 # Or run individual commands:
-codeql-llm clone --repo pyyaml
-codeql-llm analyze --repo pyyaml
-codeql-llm verify --repo pyyaml --limit 5
+vuln-hunter-x clone --repo pyyaml
+vuln-hunter-x analyze --repo pyyaml
+vuln-hunter-x verify --repo pyyaml --limit 5
 ```
 
 ### 4. View Results
@@ -277,7 +277,7 @@ cat output/results/summary_*.json
 ## CLI Reference
 
 ```
-codeql-llm <command> [options]
+vuln-hunter-x <command> [options]
 ```
 
 ### Global Options
@@ -292,7 +292,7 @@ codeql-llm <command> [options]
 Check that all prerequisites are properly configured.
 
 ```bash
-codeql-llm check-env
+vuln-hunter-x check-env
 ```
 
 **What it checks:**
@@ -307,7 +307,7 @@ codeql-llm check-env
 Clone repositories and create CodeQL databases.
 
 ```bash
-codeql-llm clone [options]
+vuln-hunter-x clone [options]
 ```
 
 | Option | Description | Default |
@@ -322,16 +322,16 @@ codeql-llm clone [options]
 
 ```bash
 # Clone all repositories
-codeql-llm clone
+vuln-hunter-x clone
 
 # Clone specific repository
-codeql-llm clone --repo libucl
+vuln-hunter-x clone --repo libucl
 
 # Clone all C repositories
-codeql-llm clone --lang c
+vuln-hunter-x clone --lang c
 
 # Clone without building database
-codeql-llm clone --repo libucl --skip-db
+vuln-hunter-x clone --repo libucl --skip-db
 ```
 
 ---
@@ -341,7 +341,7 @@ codeql-llm clone --repo libucl --skip-db
 Run CodeQL security analysis on databases.
 
 ```bash
-codeql-llm analyze [options]
+vuln-hunter-x analyze [options]
 ```
 
 | Option | Description | Default |
@@ -356,13 +356,13 @@ codeql-llm analyze [options]
 
 ```bash
 # Analyze all databases
-codeql-llm analyze
+vuln-hunter-x analyze
 
 # Analyze specific repository with verbose output
-codeql-llm analyze --repo libucl -v
+vuln-hunter-x analyze --repo libucl -v
 
 # Analyze all C++ databases
-codeql-llm analyze --lang cpp
+vuln-hunter-x analyze --lang cpp
 ```
 
 **Verbose output includes:**
@@ -378,7 +378,7 @@ codeql-llm analyze --lang cpp
 Extract context CSVs for multi-turn verification.
 
 ```bash
-codeql-llm extract-context [options]
+vuln-hunter-x extract-context [options]
 ```
 
 | Option | Description | Default |
@@ -391,10 +391,10 @@ codeql-llm extract-context [options]
 
 ```bash
 # Extract context for all databases
-codeql-llm extract-context
+vuln-hunter-x extract-context
 
 # Extract for specific repository
-codeql-llm extract-context --repo libucl
+vuln-hunter-x extract-context --repo libucl
 ```
 
 **Output files:**
@@ -414,8 +414,8 @@ codeql-llm extract-context --repo libucl
 Build repository with sanitizers (ASan/UBSan) in a separate directory for fuzz harness linking. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
 
 ```bash
-codeql-llm build-sanitized --repo libucl
-codeql-llm build-sanitized --lang cpp -f   # Force rebuild
+vuln-hunter-x build-sanitized --repo libucl
+vuln-hunter-x build-sanitized --lang cpp -f   # Force rebuild
 ```
 
 | Option | Description |
@@ -432,9 +432,9 @@ codeql-llm build-sanitized --lang cpp -f   # Force rebuild
 Extract fuzz-oriented context (function signatures and includes) from C/C++ CodeQL databases. Writes `output/context/<repo>/function_signatures.csv` and `includes.csv` for harness generation. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
 
 ```bash
-codeql-llm extract-fuzz-context
-codeql-llm extract-fuzz-context --repo libucl
-codeql-llm extract-fuzz-context --lang cpp --dry-run
+vuln-hunter-x extract-fuzz-context
+vuln-hunter-x extract-fuzz-context --repo libucl
+vuln-hunter-x extract-fuzz-context --lang cpp --dry-run
 ```
 
 | Option | Description |
@@ -450,10 +450,10 @@ codeql-llm extract-fuzz-context --lang cpp --dry-run
 Generate libFuzzer harness `.cc` files from verified findings (True Positive / Needs More Data by default). Resolves enclosing function from context CSVs and writes one harness per target. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
 
 ```bash
-codeql-llm generate-fuzz-drivers --repo libucl
-codeql-llm generate-fuzz-drivers --verdict tp,nmd   # default
-codeql-llm generate-fuzz-drivers --verdict all      # all SARIF findings (no verification filter)
-codeql-llm generate-fuzz-drivers --dry-run
+vuln-hunter-x generate-fuzz-drivers --repo libucl
+vuln-hunter-x generate-fuzz-drivers --verdict tp,nmd   # default
+vuln-hunter-x generate-fuzz-drivers --verdict all      # all SARIF findings (no verification filter)
+vuln-hunter-x generate-fuzz-drivers --dry-run
 ```
 
 | Option | Description |
@@ -473,9 +473,9 @@ codeql-llm generate-fuzz-drivers --dry-run
 Run libFuzzer for each compiled harness; collect crashes and write `output/fuzz_results/<repo>/summary.json`. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
 
 ```bash
-codeql-llm fuzz-run
-codeql-llm fuzz-run --repo libucl --timeout 120 --max-fuzz-time 60
-codeql-llm fuzz-run --dry-run
+vuln-hunter-x fuzz-run
+vuln-hunter-x fuzz-run --repo libucl --timeout 120 --max-fuzz-time 60
+vuln-hunter-x fuzz-run --dry-run
 ```
 
 | Option | Description |
@@ -492,7 +492,7 @@ codeql-llm fuzz-run --dry-run
 Verify CodeQL findings using LLM analysis.
 
 ```bash
-codeql-llm verify [options]
+vuln-hunter-x verify [options]
 ```
 
 | Option | Description | Default |
@@ -512,28 +512,28 @@ codeql-llm verify [options]
 
 ```bash
 # Verify all findings
-codeql-llm verify
+vuln-hunter-x verify
 
 # Verify specific repository
-codeql-llm verify --repo libucl
+vuln-hunter-x verify --repo libucl
 
 # Use simple mode (faster)
-codeql-llm verify --mode simple
+vuln-hunter-x verify --mode simple
 
 # Use Vulnhalla mode with more iterations
-codeql-llm verify --mode vulnhalla --max-iterations 7
+vuln-hunter-x verify --mode vulnhalla --max-iterations 7
 
 # Limit to first 5 findings
-codeql-llm verify --limit 5
+vuln-hunter-x verify --limit 5
 
 # Use Ollama instead of OpenAI
-codeql-llm verify --provider ollama --model ollama/llama3.2
+vuln-hunter-x verify --provider ollama --model ollama/llama3.2
 
 # Verbose output to see LLM interaction
-codeql-llm verify -v
+vuln-hunter-x verify -v
 
 # Save conversations for review
-codeql-llm verify --log-file output/conversations.md
+vuln-hunter-x verify --log-file output/conversations.md
 ```
 
 ---
@@ -543,7 +543,7 @@ codeql-llm verify --log-file output/conversations.md
 Show current configuration and environment info.
 
 ```bash
-codeql-llm info
+vuln-hunter-x info
 ```
 
 ---
@@ -722,7 +722,7 @@ python examples/pipeline_python.py --api --simple
 ## Python API
 
 ```python
-from codeql_llm import VerificationEngine
+from vuln_hunter_x import VerificationEngine
 
 # Create engine from config
 engine = VerificationEngine.from_config("config/confirm_findings.yaml")
@@ -747,8 +747,8 @@ engine.save_results(result)
 ### With Progress Callbacks
 
 ```python
-from codeql_llm import VerificationEngine
-from codeql_llm.core.types import Finding, Verdict
+from vuln_hunter_x import VerificationEngine
+from vuln_hunter_x.core.types import Finding, Verdict
 
 engine = VerificationEngine.from_config("config/confirm_findings.yaml")
 
@@ -914,8 +914,8 @@ parse_input,src/parser.c,process_file,src/utils.c,78,95
 ## Project Structure
 
 ```
-CodeQLxLLM/
-├── src/codeql_llm/           # Framework source code
+VulnHunterX/
+├── src/vuln_hunter_x/           # Framework source code
 │   ├── cli/                  # CLI commands
 │   ├── codeql/               # CodeQL operations
 │   ├── context/              # Context extraction

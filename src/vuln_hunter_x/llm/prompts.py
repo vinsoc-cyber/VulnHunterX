@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from codeql_llm.core.types import Finding, GuidedQuestions
+from vuln_hunter_x.core.types import Finding, GuidedQuestions
 
 # Simple mode: Original single-shot prompt
 SIMPLE_SYSTEM_PROMPT = """You are a security static-analysis assistant. Your task is to analyze CodeQL findings and determine if they are real vulnerabilities.

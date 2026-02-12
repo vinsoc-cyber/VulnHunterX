@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from codeql_llm.core.types import GuidedQuestions
+from vuln_hunter_x.core.types import GuidedQuestions
 
 
 class QuestionsLoader:

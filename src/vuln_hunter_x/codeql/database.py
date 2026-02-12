@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from codeql_llm.core.types import RepositoryInfo
+from vuln_hunter_x.core.types import RepositoryInfo
 
 
 class DatabaseManager:

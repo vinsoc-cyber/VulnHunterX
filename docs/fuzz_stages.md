@@ -15,10 +15,10 @@ Builds the repository with AddressSanitizer and UBSan in a **separate** director
 ### CLI
 
 ```bash
-codeql-llm build-sanitized --repo <name>   # Build one repo
-codeql-llm build-sanitized --lang cpp      # All C++ repos
-codeql-llm build-sanitized --repo libucl -f  # Force rebuild
-codeql-llm build-sanitized --dry-run       # Preview
+vuln-hunter-x build-sanitized --repo <name>   # Build one repo
+vuln-hunter-x build-sanitized --lang cpp      # All C++ repos
+vuln-hunter-x build-sanitized --repo libucl -f  # Force rebuild
+vuln-hunter-x build-sanitized --dry-run       # Preview
 ```
 
 ### Config
@@ -29,7 +29,7 @@ codeql-llm build-sanitized --dry-run       # Preview
 ### Prerequisites
 
 - Clang with AddressSanitizer and UBSan (typical on Linux with clang).
-- Repository already cloned (run `codeql-llm clone --repo <name>` first).
+- Repository already cloned (run `vuln-hunter-x clone --repo <name>` first).
 
 ---
 
@@ -46,14 +46,14 @@ Runs CodeQL queries to produce CSVs used when generating fuzz harnesses: functio
 ### CLI
 
 ```bash
-codeql-llm extract-fuzz-context              # All C/C++ databases
-codeql-llm extract-fuzz-context --repo libucl
-codeql-llm extract-fuzz-context --lang cpp --dry-run
+vuln-hunter-x extract-fuzz-context              # All C/C++ databases
+vuln-hunter-x extract-fuzz-context --repo libucl
+vuln-hunter-x extract-fuzz-context --lang cpp --dry-run
 ```
 
 ### Prerequisites
 
-- CodeQL databases for C/C++ repos (run `codeql-llm clone` and create DBs first).
+- CodeQL databases for C/C++ repos (run `vuln-hunter-x clone` and create DBs first).
 - `CODEQL_PATH` in env or `codeql` on PATH.
 
 ---
@@ -71,10 +71,10 @@ Generate libFuzzer harness source (`.cc`) from verified findings, then compile/l
 ### CLI (generation only)
 
 ```bash
-codeql-llm generate-fuzz-drivers --repo libucl
-codeql-llm generate-fuzz-drivers --verdict tp,nmd   # default
-codeql-llm generate-fuzz-drivers --verdict all      # use SARIF only (no verification filter)
-codeql-llm generate-fuzz-drivers --dry-run
+vuln-hunter-x generate-fuzz-drivers --repo libucl
+vuln-hunter-x generate-fuzz-drivers --verdict tp,nmd   # default
+vuln-hunter-x generate-fuzz-drivers --verdict all      # use SARIF only (no verification filter)
+vuln-hunter-x generate-fuzz-drivers --dry-run
 ```
 
 ### Prerequisites
@@ -92,8 +92,8 @@ codeql-llm generate-fuzz-drivers --dry-run
 ### CLI (with build)
 
 ```bash
-codeql-llm generate-fuzz-drivers --repo libucl --build
-codeql-llm generate-fuzz-drivers --build --llm-fix --max-fix-iterations 5
+vuln-hunter-x generate-fuzz-drivers --repo libucl --build
+vuln-hunter-x generate-fuzz-drivers --build --llm-fix --max-fix-iterations 5
 ```
 
 | Option | Description |
@@ -117,10 +117,10 @@ Run libFuzzer for each harness that reached `compiled` in Stage 7; collect crash
 ### CLI
 
 ```bash
-codeql-llm fuzz-run
-codeql-llm fuzz-run --repo libucl
-codeql-llm fuzz-run --timeout 120 --max-fuzz-time 60
-codeql-llm fuzz-run --dry-run
+vuln-hunter-x fuzz-run
+vuln-hunter-x fuzz-run --repo libucl
+vuln-hunter-x fuzz-run --timeout 120 --max-fuzz-time 60
+vuln-hunter-x fuzz-run --dry-run
 ```
 
 | Option | Description |
