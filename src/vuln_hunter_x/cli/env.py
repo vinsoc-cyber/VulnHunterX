@@ -153,7 +153,7 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
     """
     Run all environment checks.
     
-    Loads model/provider settings from config/confirm_findings.yaml.
+    Loads model/provider from env (LLM_PROVIDER, LLM_MODEL) or config file.
     Loads secrets (API keys, URLs) from environment variables.
     
     Args:
@@ -164,16 +164,16 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
     """
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
     
-    # Load config for model/provider settings
+    # Load config for model/provider (env overrides config file)
     config = load_config_for_check()
-    provider = config.get("provider", "openai")
-    model = config.get("model", "gpt-4o")
+    provider = os.environ.get("LLM_PROVIDER") or config.get("provider", "openai")
+    model = os.environ.get("LLM_MODEL") or config.get("model", "gpt-4o")
     
     results: dict[str, tuple[bool, str]] = {}
     
     if not quiet:
         print("Environment Check (CodeQL + LLM)\n")
-        print(f"  Config: provider={provider}, model={model}\n")
+        print(f"  Provider/Model: {provider}, {model}\n")
     
     # CodeQL
     ok, msg = check_codeql(codeql_path)
