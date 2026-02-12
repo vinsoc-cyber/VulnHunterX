@@ -1,54 +1,23 @@
 ---
-description: Security rules for mcp-offsec (OWASP-aligned; MCP and offensive-tool specifics)
+description: Security rules for CodeQLxLLM (secrets, subprocess, paths)
 alwaysApply: true
 ---
 
-# Security Rules (mcp-offsec)
+# Security Rules (CodeQLxLLM)
 
-This project builds tools that test other systems; our own MCP server and database must still follow secure coding practices. ~45% of AI-generated code contains security vulnerabilities. Every rule here is mandatory.
+## Secrets
 
-## Secrets Management
+- Never hardcode API keys or tokens. Use `.env` and `load_dotenv()`; read via `os.environ.get("OPENAI_API_KEY")`, `OLLAMA_API_BASE`, `CODEQL_PATH`, etc. Document in [env.example](env.example).
 
-Never hardcode secrets. Load from environment via `pydantic-settings` or similar.
+## Subprocess
 
-```python
-# BAD -- hardcoded secret
-API_KEY = "sk-abc123def456"
+- Use **list argv** only: `subprocess.run([codeql_path, "database", "analyze", str(db_path), ...], capture_output=True, text=True, timeout=...)`. Never `shell=True` or string interpolation into a shell command.
+- Set explicit **timeouts** for every subprocess call.
 
-# GOOD -- loaded from environment
-from pydantic_settings import BaseSettings
-class Settings(BaseSettings):
-    api_key: str = ""
-settings = Settings()
-```
+## Paths
 
-Never commit `.env` files. Use `.env.example` with placeholder values.
+- Resolve paths when needed (e.g. `Path(work_dir).resolve()`). Read/write only under configured output and repos; avoid path traversal from unsanitized input.
 
-## Input Validation
+## Logging
 
-Validate all external input with Pydantic models. Use allowlisting over denylisting. For MCP tool parameters (e.g. target URL, request payload), validate and constrain before use.
-
-## Target and Request Input (offensive tools)
-
-User-supplied target URLs and request payloads are **untrusted**.
-
-- Allowlist schemes (e.g. `http`, `https`); block `file://` and optionally private/internal ranges.
-- Enforce max URL length and request body size.
-- **Never** pass target or request input to shell commands, `eval()`, or similar.
-
-## Our Database
-
-All access to SQLite (or any DB) must be **parameterized** or via an ORM. Never concatenate user- or target-derived strings into SQL.
-
-## Outbound Requests to Targets
-
-- Prefer **configurable TLS verify** (e.g. for testing against self-signed certs in lab).
-- Do **not** log credentials or sensitive tokens in request/response logs.
-
-## Core Rules
-
-- **SQL injection** — always use ORM or parameterized queries; never concatenate SQL strings.
-- **Tokens** — use `secrets` module (not `random`) for generating tokens; minimum 32 bytes of randomness.
-- **Deserialization** — never use `pickle.loads()` on untrusted data; prefer JSON.
-- **TLS** — outbound HTTP to targets should use HTTPS; verify SSL when not explicitly disabled for lab use.
-- **Logging** — never log secrets, passwords, API keys, tokens, or PII.
+- Do not log API keys, tokens, or full LLM responses. Optional conversation log is user-controlled (e.g. `--log-file`).

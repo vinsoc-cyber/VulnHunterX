@@ -1,5 +1,5 @@
 ---
-description: AI code generation guardrails and dependency management
+description: AI code generation guardrails and dependency management (CodeQLxLLM)
 alwaysApply: true
 ---
 
@@ -17,32 +17,32 @@ alwaysApply: true
 
 ### Post-Generation Checklist
 
-After generating any MCP tool, scan step, or data handler, verify:
+After generating any CLI command, analyzer, or verification step, verify:
 
-1. Input validated with Pydantic?
-2. Authentication/authorization or scope check (if applicable)?
-3. Errors caught and logged (not silenced)?
-4. Secrets loaded from environment (not hardcoded)?
-5. Output sanitized (tool response, stored results)?
+1. Secrets from environment (not hardcoded)?
+2. Subprocess with list argv and timeout (no shell)?
+3. Paths resolved when needed?
+4. Errors caught and logged (not silenced)?
+5. Output sanitized (no secrets in logs)?
 
 ## Dependency Management
 
 ### Adding Dependencies
 
 ```toml
-# GOOD -- pinned major, allows minor updates
+# GOOD -- pinned major, allows minor updates (CodeQLxLLM)
 [project]
 dependencies = [
-    "fastmcp>=3.0,<4.0",
-    "httpx>=0.27,<1.0",
-    "pydantic-settings>=2.0,<3.0",
+    "litellm>=1.50,<2.0",
+    "python-dotenv>=1.0,<2.0",
+    "pyyaml>=6.0,<7.0",
 ]
 
 # BAD -- unpinned or overly broad
 [project]
 dependencies = [
-    "fastmcp",
-    "httpx>=0.1",
+    "litellm",
+    "pyyaml>=0.1",
 ]
 ```
 
@@ -52,7 +52,7 @@ dependencies = [
 - Pin major versions, allow minor updates (e.g., `>=X.Y,<X+1.0`)
 - **Supply chain safety** -- before adding any dependency, verify it exists on PyPI, check its download count and last publish date
 - **No hallucinated packages** -- if unsure whether a package exists, say so explicitly rather than inventing a name
-- Virtual environment required (`uv venv` or `python -m venv`)
+- Virtual environment required (`python -m venv` or `uv venv`)
 - Separate `[project.optional-dependencies] dev = [...]` from production deps
 - Never copy-paste or vendor library source code; always install via package manager
 - If using `requirements.txt`, pin versions and keep it in sync with `pyproject.toml` or document why not
