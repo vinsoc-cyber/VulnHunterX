@@ -1,0 +1,25 @@
+---
+description: Project context for mcp-offsec - Python Fast-MCP servers, SQLite, web security testing
+alwaysApply: true
+---
+
+# Project context (mcp-offsec)
+
+This repo contains **MCP servers for web security testing** (red teaming, pentesting). Main language: **Python**. MCP stack: **Fast-MCP** (Python SDK).
+
+## Results and persistence
+
+Results may be persisted in a database such as **SQLite**. Use parameterized queries or an ORM only; never concatenate user or target-derived strings into SQL.
+
+## Data model
+
+Requests and insertion points follow the model in [docs/WebEndpoint_and_insertion_points_report.md](../docs/WebEndpoint_and_insertion_points_report.md). When adding or changing tools that accept "target" or "request" input, align with that report (Request, InsertionPoint, Discovery, body types).
+
+## Structure and isolation
+
+- **Servers:** One folder per MCP server under `servers/`: **webrecon**, **sqli**, **xss**. Each is a standalone runnable (own FastMCP app and entrypoint).
+- **Shared code:** Only in the **shared/** package (Request/InsertionPoint models, HTTP client helpers, optional DB access, validation utilities).
+- **Isolation rule:** No server imports from another server. Servers may only depend on `shared/` and the Fast-MCP SDK (and stdlib/installed deps). Do not use `from servers.sqli import ...` inside webrecon or xss, etc.
+- **Entrypoints and config:** `pyproject.toml` and entrypoints at repo root.
+
+See docs and the plan for the full architecture diagram and placeholder layout.

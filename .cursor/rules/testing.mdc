@@ -1,0 +1,69 @@
+---
+description: Testing standards for mcp-offsec (pytest, mocking, coverage)
+globs: "**/test_*.py, **/tests/**"
+---
+
+# Testing Standards
+
+## Framework
+
+Use **pytest** only. Do not subclass `unittest.TestCase`.
+
+## Naming
+
+Follow `test_<what>_<condition>_<expected>`:
+
+```python
+# GOOD
+def test_webrecon_tool_invalid_url_raises_validation_error():
+    ...
+
+def test_sqli_detector_empty_response_returns_no_findings():
+    ...
+
+# BAD
+def test_1():
+    ...
+
+def test_stuff():
+    ...
+```
+
+## Fixtures and Setup
+
+Use fixtures and `conftest.py` for shared setup. No `setUp`/`tearDown` methods.
+
+```python
+# conftest.py
+import pytest
+from unittest.mock import Mock, patch
+import respx
+
+@pytest.fixture
+def mock_httpx_client():
+    """Mock outbound HTTP to target URLs; no real requests in unit tests."""
+    with respx.mock() as respx_mock:
+        respx_mock.get("https://example.com/").mock(return_value=Mock(status_code=200, text="<html>"))
+        yield respx_mock
+
+@pytest.fixture
+def sample_request_and_insertion_points():
+    """Minimal Request/InsertionPoint structure for tool tests (align with WebEndpoint report)."""
+    return {
+        "request": {"method": "GET", "url": {"path": "/search"}, "queryParams": [{"name": "q", "value": "test"}]},
+        "insertionPoints": [{"id": "query:q", "location": "query", "name": "q", "value": "test"}],
+    }
+```
+
+## Mocking Rules
+
+- Mock **all** outbound HTTP to target URLs (e.g. `respx` for `httpx`, or `unittest.mock` for requests).
+- Mock the DB layer (in-memory SQLite or faked repository) in unit tests so they do not depend on a real DB file.
+- Mock MCP tool inputs (e.g. Request/InsertionPoint dicts or Pydantic models) when testing tool logic.
+- Use `respx` for mocking `httpx` calls; `pytest-mock` or `unittest.mock` for others.
+- **No network calls** in unit tests; place integration tests in `tests/integration/`.
+
+## Coverage
+
+- Target **80%+** coverage on MCP tool implementations, scan/request logic, and DB access layer (e.g. `servers/**/*.py`, `shared/**/*.py` as the layout evolves).
+- Test data via fixtures or factories; never hardcode real API keys or target URLs in tests.
