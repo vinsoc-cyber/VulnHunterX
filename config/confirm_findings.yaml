@@ -7,29 +7,17 @@
 #
 # Configuration Priority (highest to lowest):
 #   1. Command-line arguments (--provider, --model, etc.)
-#   2. Environment variables (OLLAMA_API_BASE, CODEQL_PATH)
+#   2. Environment variables (LLM_PROVIDER, LLM_MODEL, OLLAMA_API_BASE, CODEQL_PATH)
 #   3. This config file
 #   4. Built-in defaults
 #
 # =============================================================================
 
 # =============================================================================
-# LLM Provider Settings
+# LLM Provider / Model
 # =============================================================================
-
-# LLM provider: "openai" or "ollama"
-provider: openai
-# provider: ollama
-
-# LLM model name
-# For OpenAI: gpt-4o, gpt-4-turbo, gpt-3.5-turbo
-# For Ollama: ollama/llama3.2, ollama/codellama, ollama/mistral
-model: gpt-5.1
-# model: glm-4.7
-# model: ollama/qwen3:latest
-
-# Note: Ollama server URL is set via OLLAMA_API_BASE environment variable
-# in .env file (default: http://localhost:11434)
+# Provider and model are set via .env (LLM_PROVIDER, LLM_MODEL). Env overrides
+# this file. See env.example for examples.
 
 # =============================================================================
 # Analysis Mode Settings

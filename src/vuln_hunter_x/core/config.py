@@ -227,6 +227,8 @@ def load_config(
     
     Environment variables:
     - OPENAI_API_KEY: OpenAI API key (secret)
+    - LLM_PROVIDER: LLM provider (openai or ollama)
+    - LLM_MODEL: LLM model name
     - OLLAMA_API_BASE: Ollama server URL (environment-specific)
     - CODEQL_PATH: CodeQL CLI path (environment-specific)
     """
@@ -240,10 +242,16 @@ def load_config(
     # Override with environment variables (environment-specific settings)
     env_codeql = os.environ.get("CODEQL_PATH")
     env_ollama = os.environ.get("OLLAMA_API_BASE")
+    env_provider = os.environ.get("LLM_PROVIDER")
+    env_model = os.environ.get("LLM_MODEL")
     
     if env_codeql:
         config.codeql_path = env_codeql
     if env_ollama:
         config.llm.ollama_base_url = env_ollama
+    if env_provider:
+        config.llm.provider = env_provider
+    if env_model:
+        config.llm.model = env_model
     
     return config
