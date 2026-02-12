@@ -1,6 +1,6 @@
-# Guided Questions Templates for CodeQL Rules (Vulnhalla-Style)
+# Guided Questions Templates for CodeQL Rules (LLM verification style)
 #
-# Based on the Vulnhalla methodology: questions MUST force the LLM to trace:
+# Questions MUST force the LLM to trace:
 #   1. WHERE variables are declared
 #   2. What their exact SIZES/VALUES are
 #   3. Whether sizes/values CHANGE through assignment or reallocation

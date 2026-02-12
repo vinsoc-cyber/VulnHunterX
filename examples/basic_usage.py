@@ -28,7 +28,6 @@ def example_1_basic_verification():
     )
     
     print(f"Loaded {engine.questions_loader.rule_count} question templates")
-    print(f"Mode: {engine.config.verification.mode}")
     print(f"Model: {engine.config.llm.model}")
 
 
@@ -38,18 +37,16 @@ def example_2_custom_config():
     print("Example 2: Custom configuration")
     print("=" * 60)
     
-    # Create custom config
+    # Create custom config (LLM mode: multi-turn with context expansion)
     config = Config.from_dict({
         "provider": "openai",
         "model": "gpt-4o-mini",  # Use cheaper model
-        "mode": "simple",  # Single-shot analysis
-        "max_iterations": 1,
+        "max_iterations": 5,
         "temperature": 0.1,  # More deterministic
     })
     
     engine = VerificationEngine(config)
     
-    print(f"Mode: {config.verification.mode}")
     print(f"Model: {config.llm.model}")
     print(f"Temperature: {config.llm.temperature}")
 
@@ -140,7 +137,6 @@ def example_5_result_handling():
     result = VerificationResult(
         verdicts=[verdict],
         stats={"True Positive": 1},
-        mode="vulnhalla",
         model="gpt-4o",
         provider="openai",
     )

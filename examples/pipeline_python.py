@@ -10,8 +10,6 @@ Usage:
     python examples/pipeline_python.py              # Run full pipeline
     python examples/pipeline_python.py --dry-run    # Preview without executing
     python examples/pipeline_python.py --skip-clone # Skip clone if already exists
-    python examples/pipeline_python.py --simple     # Use simple mode (faster)
-    python examples/pipeline_python.py --compare    # Compare simple vs vulnhalla
     python examples/pipeline_python.py --api        # Use Python API instead of CLI
 """
 
@@ -143,30 +141,21 @@ def stage_extract_context(dry_run: bool = False) -> bool:
     return success
 
 
-def stage_verify(dry_run: bool = False, mode: str = "vulnhalla") -> bool:
-    """Stage 4: Verify findings with LLM."""
-    print_header(f"Stage 4: LLM Bug Verification ({mode} mode)")
+def stage_verify(dry_run: bool = False) -> bool:
+    """Stage 4: Verify findings with LLM (LLM mode)."""
+    print_header("Stage 4: LLM Bug Verification (LLM mode)")
     
-    print(f"Mode: {mode}")
-    if mode == "vulnhalla":
-        print("  - Multi-turn conversation with context expansion")
-        print("  - LLM can request callers, classes, functions")
-        print("  - Higher accuracy for complex data-flow issues")
-    else:
-        print("  - Single-shot analysis (faster)")
-        print("  - No context expansion")
+    print("LLM mode: multi-turn with context expansion")
     print(f"Max findings: {MAX_FINDINGS}")
     print()
     
     cmd = _CLI + [
         "verify",
         "--repo", REPO_NAME,
-        "--mode", mode,
         "--limit", str(MAX_FINDINGS),
+        "--max-iterations", "5",
+        "-v",
     ]
-    
-    if mode == "vulnhalla":
-        cmd.extend(["--max-iterations", "5", "-v"])
     
     success, error = run_command(cmd, dry_run)
     
@@ -178,45 +167,7 @@ def stage_verify(dry_run: bool = False, mode: str = "vulnhalla") -> bool:
     return success
 
 
-def compare_modes(dry_run: bool = False) -> None:
-    """Compare simple vs vulnhalla verification modes."""
-    print_header("Mode Comparison: Simple vs Vulnhalla")
-    
-    print("This will run verification twice with different modes")
-    print("to demonstrate the difference in accuracy and time.\n")
-    
-    # Simple mode
-    print("=" * 50)
-    print("Running SIMPLE mode (single-shot)...")
-    print("=" * 50)
-    start_simple = time.time()
-    stage_verify(dry_run, mode="simple")
-    time_simple = time.time() - start_simple
-    
-    print()
-    
-    # Vulnhalla mode
-    print("=" * 50)
-    print("Running VULNHALLA mode (multi-turn)...")
-    print("=" * 50)
-    start_vuln = time.time()
-    stage_verify(dry_run, mode="vulnhalla")
-    time_vuln = time.time() - start_vuln
-    
-    # Summary
-    print_header("Mode Comparison Summary")
-    print(f"Simple mode time:    {time_simple:.1f}s")
-    print(f"Vulnhalla mode time: {time_vuln:.1f}s")
-    print(f"Time difference:     {time_vuln - time_simple:.1f}s")
-    print()
-    print("Review the output above to compare:")
-    print("  - Verdict accuracy")
-    print("  - Confidence levels")
-    print("  - Reasoning depth")
-    print("  - Context requested (vulnhalla only)")
-
-
-def run_with_api(mode: str = "vulnhalla") -> None:
+def run_with_api() -> None:
     """Run pipeline using Python API instead of CLI."""
     print_header("Running Pipeline with Python API")
     
@@ -229,11 +180,10 @@ def run_with_api(mode: str = "vulnhalla") -> None:
     # Create engine
     engine = VerificationEngine.from_config(
         Path("config/confirm_findings.yaml"),
-        mode=mode,
         limit=MAX_FINDINGS,
     )
     
-    print(f"Engine created with mode: {engine.config.verification.mode}")
+    print(f"Engine created (LLM mode)")
     print(f"Model: {engine.config.llm.model}")
     print()
     
@@ -309,8 +259,6 @@ def main():
     # Parse arguments
     dry_run = "--dry-run" in sys.argv
     skip_clone = "--skip-clone" in sys.argv
-    simple_mode = "--simple" in sys.argv
-    compare = "--compare" in sys.argv
     use_api = "--api" in sys.argv
     
     print(f"""
@@ -322,8 +270,7 @@ def main():
     
     # API mode runs only verification
     if use_api:
-        mode = "simple" if simple_mode else "vulnhalla"
-        run_with_api(mode)
+        run_with_api()
         return
     
     if dry_run:
@@ -341,23 +288,15 @@ def main():
     else:
         results["CodeQL Analysis"] = False
     
-    # Stage 3: Extract Context (skip if simple mode)
-    if results["CodeQL Analysis"] and not simple_mode:
+    # Stage 3: Extract Context
+    if results["CodeQL Analysis"]:
         results["Extract Context"] = stage_extract_context(dry_run)
-    elif simple_mode:
-        print("\n[SKIP] Skipping context extraction (simple mode)\n")
-        results["Extract Context"] = True
     else:
         results["Extract Context"] = False
     
-    # Stage 4: Verify (or compare modes)
+    # Stage 4: Verify
     if results["CodeQL Analysis"]:
-        if compare:
-            compare_modes(dry_run)
-            results["LLM Verification"] = True
-        else:
-            mode = "simple" if simple_mode else "vulnhalla"
-            results["LLM Verification"] = stage_verify(dry_run, mode)
+        results["LLM Verification"] = stage_verify(dry_run)
     else:
         results["LLM Verification"] = False
     

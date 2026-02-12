@@ -2,7 +2,7 @@
 CodeQL + LLM Bug Verification Framework
 
 A framework for combining CodeQL static analysis with LLM-based
-bug verification using guided questions (Vulnhalla methodology).
+bug verification using guided questions (LLM verification).
 
 Example usage:
     from vuln_hunter_x import VerificationEngine

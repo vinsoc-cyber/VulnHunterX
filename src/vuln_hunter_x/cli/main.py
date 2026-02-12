@@ -37,8 +37,8 @@ Examples:
   # Verify findings with LLM
   vuln-hunter-x verify --repo c-ares --lang c
 
-  # Quick scan with simple mode
-  vuln-hunter-x verify --mode simple -q --limit 10
+  # Quick scan (limit 10 findings)
+  vuln-hunter-x verify -q --limit 10
 """,
     )
     
@@ -207,8 +207,7 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     
     # Verification settings
     verify_group = parser.add_argument_group("Verification Settings")
-    verify_group.add_argument("--mode", choices=["simple", "vulnhalla"], help="Verification mode")
-    verify_group.add_argument("--max-iterations", type=int, help="Max LLM rounds (vulnhalla mode)")
+    verify_group.add_argument("--max-iterations", type=int, help="Max LLM rounds")
     
     # Filters
     filter_group = parser.add_argument_group("Filters")
@@ -471,8 +470,6 @@ def cmd_verify(args: argparse.Namespace) -> int:
         overrides["provider"] = args.provider
     if args.model:
         overrides["model"] = args.model
-    if args.mode:
-        overrides["mode"] = args.mode
     if args.max_iterations:
         overrides["max_iterations"] = args.max_iterations
     if args.temperature:
@@ -496,7 +493,6 @@ def cmd_verify(args: argparse.Namespace) -> int:
     # Print header
     if not quiet:
         print(f"CodeQL + LLM Bug Verification v{__version__}")
-        print(f"Mode: {config.verification.mode}")
         print(f"Provider: {config.llm.provider}, Model: {config.llm.model}")
         print()
     
@@ -836,7 +832,7 @@ def cmd_info(args: argparse.Namespace) -> int:
     
     print()
     print("Verification Settings:")
-    print(f"  Mode: {config.verification.mode}")
+    print(f"  Verification: LLM (multi-turn)")
     print(f"  Max iterations: {config.verification.max_iterations}")
     
     print()

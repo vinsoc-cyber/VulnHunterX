@@ -10,7 +10,7 @@ Stages:
 1. Clone: Clone repository and create CodeQL database
 2. Analyze: Run CodeQL security analysis (generates SARIF)
 3. Extract: Extract context CSVs for multi-turn verification
-4. Verify: Verify findings with LLM (vulnhalla or simple mode)
+4. Verify: Verify findings with LLM (LLM mode)
 5. [optional] Build with sanitizers for fuzz harness linking (C/C++ only)
 6. [optional] Extract fuzz context CSVs (function_signatures, includes) from C/C++ databases (C/C++ only)
 7. [optional] Generate libFuzzer harness .cc from verified findings (C/C++ only)
@@ -28,7 +28,7 @@ Usage:
     python examples/run_all_pipelines.py --repo libucl # Only specific repo
     python examples/run_all_pipelines.py --dry-run    # Preview without executing
     python examples/run_all_pipelines.py --no-verify  # Skip verification stage
-    python examples/run_all_pipelines.py --verify-mode simple --verify-limit 5
+    python examples/run_all_pipelines.py --verify-limit 5
     python examples/run_all_pipelines.py --fuzz --repo libucl   # Include fuzz stages 5-8 (C/C++)
 """
 
@@ -334,14 +334,13 @@ def stage_extract_context(
 def stage_verify(
     repo_name: str,
     lang: str,
-    mode: str = "vulnhalla",
     limit: int = 10,
     force: bool = False,
     dry_run: bool = False,
     base_path: Path | None = None,
 ) -> tuple[str, str]:
     """
-    Stage 4: Verify findings with LLM.
+    Stage 4: Verify findings with LLM (LLM mode).
     
     Returns:
         Tuple of (status, message) where status is OK/SKIP/FAIL
@@ -375,16 +374,13 @@ def stage_verify(
     cmd = _CLI + [
         "verify",
         "--repo", repo_name,
-        "--mode", mode,
         "--limit", str(limit),
+        "--max-iterations", "5",
         "-q",  # Quiet mode for batch processing
     ]
     
-    if mode == "vulnhalla":
-        cmd.extend(["--max-iterations", "5"])
-    
     if dry_run:
-        return "DRY-RUN", f"Would verify with {mode} mode (limit={limit})"
+        return "DRY-RUN", f"Would verify (LLM mode, limit={limit})"
     
     success, output = run_command(cmd, timeout=3600)  # 1 hour timeout for verification
     
@@ -500,7 +496,6 @@ def run_pipeline(
     force_extract: bool = False,
     force_verify: bool = False,
     run_verify: bool = True,
-    verify_mode: str = "vulnhalla",
     verify_limit: int = 10,
     dry_run: bool = False,
     base_path: Path | None = None,
@@ -598,7 +593,6 @@ def run_pipeline(
             status, msg = stage_verify(
                 name,
                 lang=lang,
-                mode=verify_mode,
                 limit=verify_limit,
                 force=force or force_verify,
                 dry_run=dry_run,
@@ -926,12 +920,6 @@ def main():
         help="Skip verification stage (only clone, analyze, extract)",
     )
     parser.add_argument(
-        "--verify-mode",
-        choices=["simple", "vulnhalla"],
-        default="vulnhalla",
-        help="LLM verification mode (default: vulnhalla)",
-    )
-    parser.add_argument(
         "--verify-limit",
         type=int,
         default=10,
@@ -1033,7 +1021,7 @@ def main():
             else:
                 print("  Mode: Skip existing results")
             if not args.no_verify:
-                print(f"  Verify: {args.verify_mode} mode, limit={args.verify_limit}")
+                print(f"  Verify: LLM mode, limit={args.verify_limit}")
             else:
                 print("  Verify: DISABLED (--no-verify)")
             if args.fuzz:
@@ -1050,7 +1038,6 @@ def main():
                 force_extract=args.force_extract,
                 force_verify=args.force_verify,
                 run_verify=not args.no_verify,
-                verify_mode=args.verify_mode,
                 verify_limit=args.verify_limit,
                 dry_run=args.dry_run,
                 base_path=base_path,

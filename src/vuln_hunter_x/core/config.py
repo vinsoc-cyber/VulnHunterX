@@ -30,17 +30,8 @@ class LLMConfig:
 
 @dataclass
 class VerificationConfig:
-    """Verification mode configuration."""
-    mode: str = "vulnhalla"
+    """Verification configuration (LLM multi-turn only)."""
     max_iterations: int = 3
-    
-    @property
-    def is_vulnhalla(self) -> bool:
-        return self.mode == "vulnhalla"
-    
-    @property
-    def is_simple(self) -> bool:
-        return self.mode == "simple"
 
 
 @dataclass
@@ -118,7 +109,6 @@ class Config:
         )
         
         verification = VerificationConfig(
-            mode=data.get("mode", "vulnhalla"),
             max_iterations=data.get("max_iterations", 3),
         )
         
@@ -192,7 +182,6 @@ class Config:
         )
         
         verification = VerificationConfig(
-            mode=kwargs.get("mode", self.verification.mode),
             max_iterations=kwargs.get("max_iterations", self.verification.max_iterations),
         )
         

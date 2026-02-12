@@ -61,19 +61,14 @@ class VerificationEngine:
         self.questions_loader = questions_loader or QuestionsLoader(config.paths.prompts_dir)
         self.context_extractor = context_extractor or ContextExtractor(config.paths.repos_dir)
         
-        self.context_provider: ContextProvider | None
-        if config.verification.is_vulnhalla:
-            self.context_provider = context_provider or ContextProvider(
-                config.paths.context_dir,
-                config.paths.repos_dir,
-            )
-        else:
-            self.context_provider = None
+        self.context_provider: ContextProvider | None = context_provider or ContextProvider(
+            config.paths.context_dir,
+            config.paths.repos_dir,
+        )
         
         self.llm_client = llm_client or LLMClient(
             provider=config.llm.provider,
             model=config.llm.model,
-            mode=config.verification.mode,
             temperature=config.llm.temperature,
             max_tokens=config.llm.max_tokens,
         )
@@ -226,7 +221,6 @@ class VerificationEngine:
         return VerificationResult(
             verdicts=verdicts,
             stats=stats,
-            mode=self.config.verification.mode,
             model=self.config.llm.model,
             provider=self.config.llm.provider,
             total_time_seconds=total_time,
@@ -329,7 +323,7 @@ class VerificationEngine:
         if len(repo_part) > 50:
             repo_part = repo_part[:47] + "..."
         
-        summary_file = results_dir / f"summary_{repo_part}_{result.mode}_{timestamp}.json"
+        summary_file = results_dir / f"summary_{repo_part}_{timestamp}.json"
         summary_file.write_text(json.dumps(result.to_dict(), indent=2))
         
         return summary_file, results_dir
