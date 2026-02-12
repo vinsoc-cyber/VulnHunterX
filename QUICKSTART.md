@@ -13,8 +13,8 @@ Get CodeQL + LLM bug verification running in 5 minutes.
 
 ```bash
 # Clone and install
-git clone https://github.com/your-org/CodeQLxLLM.git
-cd CodeQLxLLM
+git clone https://github.com/your-org/VulnHunterX.git
+cd VulnHunterX
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -24,7 +24,7 @@ cp env.example .env
 # Edit .env and add: OPENAI_API_KEY=sk-your-key-here
 
 # Verify
-codeql-llm check-env
+vuln-hunter-x check-env
 ```
 
 ## Run Your First Analysis
@@ -40,9 +40,9 @@ This clones `pyyaml`, runs CodeQL analysis, and verifies findings with LLM.
 **Option B: Run commands individually**
 
 ```bash
-codeql-llm clone --repo pyyaml
-codeql-llm analyze --repo pyyaml
-codeql-llm verify --repo pyyaml --limit 5
+vuln-hunter-x clone --repo pyyaml
+vuln-hunter-x analyze --repo pyyaml
+vuln-hunter-x verify --repo pyyaml --limit 5
 ```
 
 ## View Results
@@ -88,9 +88,9 @@ repos:
 Then run:
 
 ```bash
-codeql-llm clone --repo my-app
-codeql-llm analyze --repo my-app
-codeql-llm verify --repo my-app
+vuln-hunter-x clone --repo my-app
+vuln-hunter-x analyze --repo my-app
+vuln-hunter-x verify --repo my-app
 ```
 
 ## Common Issues
@@ -107,10 +107,10 @@ codeql-llm verify --repo my-app
 Optional stages 5–8 build with sanitizers, extract fuzz context, generate libFuzzer harnesses from verified findings, and run fuzzers to collect crashes. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
 
 ```bash
-codeql-llm build-sanitized --repo libucl
-codeql-llm extract-fuzz-context --repo libucl
-codeql-llm generate-fuzz-drivers --repo libucl --build
-codeql-llm fuzz-run --repo libucl
+vuln-hunter-x build-sanitized --repo libucl
+vuln-hunter-x extract-fuzz-context --repo libucl
+vuln-hunter-x generate-fuzz-drivers --repo libucl --build
+vuln-hunter-x fuzz-run --repo libucl
 ```
 
 Or run the full pipeline including fuzz stages:

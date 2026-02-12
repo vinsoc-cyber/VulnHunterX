@@ -10,7 +10,7 @@ import csv
 import json
 from pathlib import Path
 
-from codeql_llm.core.types import Finding, Verdict
+from vuln_hunter_x.core.types import Finding, Verdict
 
 # Verdict values we use for filtering
 VERDICT_TP = "True Positive"
@@ -86,7 +86,7 @@ def get_findings_from_sarif(
     lang_filter: str | None = None,
 ) -> list[Finding]:
     """Discover SARIF files and parse all findings (for --verdict all)."""
-    from codeql_llm.sarif.parser import discover_sarif_files, parse_sarif_file
+    from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
 
     output_dir = Path(output_dir)
     tuples = discover_sarif_files(output_dir)

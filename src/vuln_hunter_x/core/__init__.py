@@ -1,7 +1,7 @@
 """Core types, configuration, and utilities."""
 
-from codeql_llm.core.config import Config, load_config
-from codeql_llm.core.types import Finding, GuidedQuestions, Verdict, VerificationResult
+from vuln_hunter_x.core.config import Config, load_config
+from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict, VerificationResult
 
 __all__ = [
     "Finding",

@@ -1,4 +1,4 @@
-name: codeql-llm/python-tools
+name: vulnhunterx/python-tools
 version: 0.0.1
 dependencies:
   codeql/python-all: "*"

@@ -1,4 +1,4 @@
-name: codeql-llm/javascript-tools
+name: vulnhunterx/javascript-tools
 version: 0.0.1
 dependencies:
   codeql/javascript-all: "*"

@@ -9,36 +9,36 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from codeql_llm import __version__
-from codeql_llm.core.config import Config, load_config
-from codeql_llm.core.types import Finding, Verdict
+from vuln_hunter_x import __version__
+from vuln_hunter_x.core.config import Config, load_config
+from vuln_hunter_x.core.types import Finding, Verdict
 
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
-        prog="codeql-llm",
+        prog="vuln-hunter-x",
         description="CodeQL + LLM Bug Verification Framework",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Check environment
-  codeql-llm check-env
+  vuln-hunter-x check-env
 
   # Clone repos and create databases
-  codeql-llm clone --lang c
+  vuln-hunter-x clone --lang c
 
   # Run CodeQL analysis
-  codeql-llm analyze --repo c-ares
+  vuln-hunter-x analyze --repo c-ares
 
   # Extract context CSVs
-  codeql-llm extract-context
+  vuln-hunter-x extract-context
 
   # Verify findings with LLM
-  codeql-llm verify --repo c-ares --lang c
+  vuln-hunter-x verify --repo c-ares --lang c
 
   # Quick scan with simple mode
-  codeql-llm verify --mode simple -q --limit 10
+  vuln-hunter-x verify --mode simple -q --limit 10
 """,
     )
     
@@ -228,7 +228,7 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
 
 def cmd_check_env(args: argparse.Namespace) -> int:
     """Execute check-env command."""
-    from codeql_llm.cli.env import run_env_check
+    from vuln_hunter_x.cli.env import run_env_check
     
     results = run_env_check()
     
@@ -245,7 +245,7 @@ def cmd_check_env(args: argparse.Namespace) -> int:
 
 def cmd_clone(args: argparse.Namespace) -> int:
     """Execute clone command."""
-    from codeql_llm.codeql.repository import RepositoryManager
+    from vuln_hunter_x.codeql.repository import RepositoryManager
     
     base_path = Path.cwd()
     config_path = args.config or base_path / "config" / "repos.yaml"
@@ -286,8 +286,8 @@ def cmd_clone(args: argparse.Namespace) -> int:
 
 def cmd_analyze(args: argparse.Namespace) -> int:
     """Execute analyze command."""
-    from codeql_llm.codeql.analysis import CodeQLAnalyzer
-    from codeql_llm.codeql.context_extractor import discover_databases
+    from vuln_hunter_x.codeql.analysis import CodeQLAnalyzer
+    from vuln_hunter_x.codeql.context_extractor import discover_databases
     
     base_path = Path.cwd()
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
@@ -375,7 +375,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
 def cmd_extract_context(args: argparse.Namespace) -> int:
     """Execute extract-context command."""
-    from codeql_llm.codeql.context_extractor import ContextExtractorDB, discover_databases
+    from vuln_hunter_x.codeql.context_extractor import ContextExtractorDB, discover_databases
     
     base_path = Path.cwd()
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
@@ -454,7 +454,7 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
 
 def cmd_verify(args: argparse.Namespace) -> int:
     """Execute the verify command."""
-    from codeql_llm.verification.engine import VerificationEngine
+    from vuln_hunter_x.verification.engine import VerificationEngine
     
     base_path = Path.cwd()
     
@@ -502,8 +502,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
     
     # Handle dry-run
     if args.dry_run:
-        from codeql_llm.sarif.parser import discover_sarif_files, parse_sarif_file
-        from codeql_llm.verification.engine import _is_test_path
+        from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
+        from vuln_hunter_x.verification.engine import _is_test_path
         
         sarif_files = discover_sarif_files(config.paths.output_dir)
         if args.lang:
@@ -591,8 +591,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 def cmd_build_sanitized(args: argparse.Namespace) -> int:
     """Execute build-sanitized command (Stage 5: fuzz)."""
-    from codeql_llm.codeql.repository import load_repos_config
-    from codeql_llm.fuzz.build_sanitized import build_sanitized
+    from vuln_hunter_x.codeql.repository import load_repos_config
+    from vuln_hunter_x.fuzz.build_sanitized import build_sanitized
 
     base_path = Path.cwd()
     config_path = args.config or base_path / "config" / "repos.yaml"
@@ -652,7 +652,7 @@ def cmd_build_sanitized(args: argparse.Namespace) -> int:
 
 def cmd_extract_fuzz_context(args: argparse.Namespace) -> int:
     """Execute extract-fuzz-context command (Stage 6: fuzz)."""
-    from codeql_llm.fuzz.extract_fuzz_context import extract_fuzz_context_all
+    from vuln_hunter_x.fuzz.extract_fuzz_context import extract_fuzz_context_all
 
     base_path = Path.cwd()
     config_path = args.config or base_path / "config" / "confirm_findings.yaml"
@@ -701,7 +701,7 @@ def cmd_extract_fuzz_context(args: argparse.Namespace) -> int:
 
 def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
     """Execute generate-fuzz-drivers command (Stage 7.1–7.6: fuzz)."""
-    from codeql_llm.fuzz.generate_drivers import generate_fuzz_drivers, build_and_record
+    from vuln_hunter_x.fuzz.generate_drivers import generate_fuzz_drivers, build_and_record
 
     base_path = Path.cwd()
     config_path = args.config or base_path / "config" / "confirm_findings.yaml"
@@ -767,7 +767,7 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
 
 def cmd_fuzz_run(args: argparse.Namespace) -> int:
     """Execute fuzz-run command (Stage 8: run libFuzzer, collect crashes)."""
-    from codeql_llm.fuzz.runner import run_all_fuzzers
+    from vuln_hunter_x.fuzz.runner import run_all_fuzzers
 
     base_path = Path.cwd()
     config_path = args.config or base_path / "config" / "confirm_findings.yaml"
