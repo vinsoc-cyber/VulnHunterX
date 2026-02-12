@@ -70,35 +70,29 @@ def cmd_clone(args: argparse.Namespace) -> int:
     return 0 if ok_count == len(results) else 1
 
 
-def cmd_analyze(args: argparse.Namespace) -> int:
-    """Execute analyze command."""
+def _run_codeql_analyze(
+    args: argparse.Namespace,
+    base_path: Path,
+    output_dir: Path,
+    verbose: bool,
+    force: bool,
+) -> int:
+    """Run CodeQL analysis on discovered databases. Returns exit code."""
     from vuln_hunter_x.codeql.analysis import CodeQLAnalyzer
     from vuln_hunter_x.codeql.context_extractor import discover_databases
 
-    base_path = Path.cwd()
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
-    verbose = getattr(args, "verbose", False)
-    force = getattr(args, "force", False)
+    suite = getattr(args, "codeql_suite", None)
 
     analyzer = CodeQLAnalyzer(
         codeql_path=codeql_path,
-        output_dir=base_path / "output",
+        output_dir=output_dir,
         verbose=verbose,
     )
-
-    # Set up verbose logging
     if verbose:
         analyzer.set_logger(lambda msg: print(msg))
 
-    output_dir = base_path / "output"
     dbs = discover_databases(output_dir)
-
-    if verbose:
-        print(f"Found {len(dbs)} database(s) under {output_dir}")
-        for db_path, lang, name in dbs:
-            print(f"  - {lang}/{name}: {db_path}")
-        print()
-
     if args.lang:
         dbs = [(p, lang, n) for p, lang, n in dbs if lang == args.lang]
     if args.repo:
@@ -110,20 +104,21 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             print(f"  Filter: lang={args.lang}, repo={args.repo}", file=sys.stderr)
         return 1
 
-    print(f"Running CodeQL analysis on {len(dbs)} database(s)\n")
+    if verbose:
+        print(f"Found {len(dbs)} database(s) under {output_dir}")
+        for db_path, lang, name in dbs:
+            print(f"  - {lang}/{name}: {db_path}")
+        print()
 
+    print(f"Running CodeQL analysis on {len(dbs)} database(s)\n")
     ok_count = 0
     skip_count = 0
     for db_path, lang, name in dbs:
         print(f"[{name}] {lang}")
-
-        # Check if SARIF already exists (skip unless --force)
-        sarif_path = base_path / "output" / lang / name / f"{name}.sarif"
+        sarif_path = output_dir / lang / name / f"{name}.sarif"
         if sarif_path.exists() and not force:
-            # Count findings in existing SARIF
             try:
                 import json
-
                 with open(sarif_path) as f:
                     sarif_data = json.load(f)
                 findings_count = sum(
@@ -136,26 +131,22 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             skip_count += 1
             ok_count += 1
             continue
-
-        if args.dry_run:
-            suite = analyzer.DEFAULT_SUITES.get(
+        if getattr(args, "dry_run", False):
+            default_suite = analyzer.DEFAULT_SUITES.get(
                 "cpp" if lang in ("c", "cpp") else lang
             )
             print(f"  [dry-run] Would analyze {db_path}")
-            print(f"  [dry-run] Suite: {suite}")
+            print(f"  [dry-run] Suite: {suite or default_suite}")
             print(f"  [dry-run] Output: {sarif_path}")
             ok_count += 1
             continue
-
-        ok, result_path, msg = analyzer.run_analysis(db_path, lang, name)
-
+        ok, result_path, msg = analyzer.run_analysis(db_path, lang, name, suite=suite)
         if ok:
             ok_count += 1
             print(f"  -> {result_path}")
             print(f"  {msg}")
         else:
             print(f"  FAILED: {msg}", file=sys.stderr)
-
     if skip_count > 0:
         print(
             f"\nDone. {ok_count}/{len(dbs)} succeeded ({skip_count} skipped, use --force to re-analyze)."
@@ -163,6 +154,127 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     else:
         print(f"\nDone. {ok_count}/{len(dbs)} succeeded.")
     return 0 if ok_count == len(dbs) else 1
+
+
+def _run_semgrep_analyze(
+    args: argparse.Namespace,
+    base_path: Path,
+    output_dir: Path,
+    repos_dir: Path,
+    verbose: bool,
+    force: bool,
+) -> int:
+    """Run Semgrep analysis on repos from config. Returns exit code."""
+    from vuln_hunter_x.codeql.repository import load_repos_config
+    from vuln_hunter_x.semgrep.analyzer import SemgrepAnalyzer
+
+    config_path = getattr(args, "config", None) or base_path / "config" / "repos.yaml"
+    if not config_path.is_file():
+        print(f"Config not found: {config_path}", file=sys.stderr)
+        return 1
+
+    repos = load_repos_config(Path(config_path))
+    supported_langs = {"c", "cpp", "python", "javascript"}
+    # Build (lang, name) list; normalize language key
+    repo_list: list[tuple[str, str]] = []
+    for r in repos:
+        name = r.get("name")
+        if not name:
+            continue
+        raw_lang = (r.get("language") or "c").lower()
+        lang = "cpp" if raw_lang == "cpp" else raw_lang
+        if lang not in supported_langs:
+            continue
+        repo_list.append((lang, name))
+
+    if args.lang:
+        repo_list = [(lang, name) for lang, name in repo_list if lang == args.lang]
+    if args.repo:
+        repo_list = [(lang, name) for lang, name in repo_list if name.lower() == args.repo.lower()]
+
+    if not repo_list:
+        print("No repositories found for Semgrep (check config and --lang/--repo).", file=sys.stderr)
+        return 1
+
+    configs = getattr(args, "semgrep_configs", None) or ["auto"]
+    semgrep_path = os.environ.get("SEMGREP_PATH", "semgrep")
+    analyzer = SemgrepAnalyzer(
+        semgrep_path=semgrep_path,
+        output_dir=output_dir,
+        verbose=verbose,
+    )
+    if verbose:
+        analyzer.set_logger(lambda msg: print(msg))
+
+    print(f"Running Semgrep analysis on {len(repo_list)} repo(s)\n")
+    ok_count = 0
+    skip_count = 0
+    for lang, name in repo_list:
+        repo_path = repos_dir / lang / name
+        if not repo_path.is_dir():
+            print(f"[{name}] {lang} - [SKIP] repo dir not found: {repo_path}")
+            continue
+        semgrep_sarif = output_dir / lang / name / f"{name}_semgrep.sarif"
+        if semgrep_sarif.exists() and not force:
+            try:
+                import json
+                with open(semgrep_sarif) as f:
+                    data = json.load(f)
+                findings_count = sum(
+                    len(run.get("results", []))
+                    for run in data.get("runs", [])
+                )
+                print(f"[{name}] {lang}")
+                print(f"  [SKIP] Semgrep SARIF already exists ({findings_count} findings)")
+            except Exception:
+                print(f"[{name}] {lang}")
+                print(f"  [SKIP] Semgrep SARIF already exists")
+            skip_count += 1
+            ok_count += 1
+            continue
+        print(f"[{name}] {lang}")
+        if getattr(args, "dry_run", False):
+            print(f"  [dry-run] Would run Semgrep on {repo_path}")
+            print(f"  [dry-run] Output: {semgrep_sarif}")
+            ok_count += 1
+            continue
+        ok, result_path, msg = analyzer.run_analysis(
+            repo_path, lang, name, output_dir, configs=configs
+        )
+        if ok:
+            ok_count += 1
+            print(f"  -> {result_path}")
+            print(f"  {msg}")
+        else:
+            print(f"  FAILED: {msg}", file=sys.stderr)
+    if skip_count > 0:
+        print(
+            f"\nDone. {ok_count}/{len(repo_list)} succeeded ({skip_count} skipped, use --force to re-analyze)."
+        )
+    else:
+        print(f"\nDone. {ok_count}/{len(repo_list)} succeeded.")
+    return 0 if ok_count == len(repo_list) else 1
+
+
+def cmd_analyze(args: argparse.Namespace) -> int:
+    """Execute analyze command (CodeQL and/or Semgrep by --tool)."""
+    base_path = Path.cwd()
+    output_dir = base_path / "output"
+    repos_dir = base_path / "repos"
+    verbose = getattr(args, "verbose", False)
+    force = getattr(args, "force", False)
+    tool = getattr(args, "tool", "codeql")
+
+    if tool == "codeql":
+        return _run_codeql_analyze(args, base_path, output_dir, verbose, force)
+    if tool == "semgrep":
+        return _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
+    if tool == "both":
+        code = _run_codeql_analyze(args, base_path, output_dir, verbose, force)
+        if code != 0:
+            return code
+        return _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
+    return 1
 
 
 def cmd_extract_context(args: argparse.Namespace) -> int:
