@@ -29,10 +29,7 @@ def _harness_basename(finding: Finding) -> str:
 
 
 def generate_fuzz_drivers(
-    results_dir: Path,
-    context_dir: Path,
     output_dir: Path,
-    fuzz_targets_dir: Path,
     repo_filter: str | None = None,
     lang_filter: str | None = None,
     verdict_filter: str = "tp,nmd",
@@ -41,12 +38,11 @@ def generate_fuzz_drivers(
 ) -> list[tuple[Finding, dict, Path | None]]:
     """
     Run sub-stages 7.1–7.3: select targets, gather context, write .cc files.
+    Uses output_dir/<lang>/<repo>/verification_results, context, fuzz_targets.
 
     Returns list of (finding, target_info, output_path or None if dry_run/skip).
     """
     targets = select_targets(
-        results_dir=results_dir,
-        context_dir=context_dir,
         output_dir=output_dir,
         repo_filter=repo_filter,
         lang_filter=lang_filter,
@@ -56,8 +52,9 @@ def generate_fuzz_drivers(
 
     out: list[tuple[Finding, dict, Path | None]] = []
     for finding, _verdict, target_info in targets:
-        ctx = get_target_context(target_info, finding.repo_name, context_dir)
-        repo_targets = fuzz_targets_dir / finding.repo_name
+        repo_context_dir = output_dir / finding.lang / finding.repo_name / "context"
+        ctx = get_target_context(target_info, repo_context_dir)
+        repo_targets = output_dir / finding.lang / finding.repo_name / "fuzz_targets"
         basename = _harness_basename(finding)
         cc_path = repo_targets / f"{basename}.cc"
         if dry_run:
@@ -77,8 +74,7 @@ def generate_fuzz_drivers(
 
 def build_and_record(
     results: list[tuple[Finding, dict, Path | None]],
-    builds_dir: Path,
-    fuzz_targets_dir: Path,
+    output_dir: Path,
     llm_fix: bool = False,
     max_fix_iterations: int = 3,
     llm_provider: str = "openai",
@@ -87,26 +83,29 @@ def build_and_record(
 ) -> list[tuple[str, list[dict]]]:
     """
     Stage 7.4–7.6: Build each harness, optionally run LLM fix loop, write status.json per repo.
+    Uses output_dir/<lang>/<repo>/sanitized_build and output_dir/<lang>/<repo>/fuzz_targets.
 
     results: from generate_fuzz_drivers (finding, target_info, cc_path).
     Returns list of (repo_name, status_entries).
     """
-    by_repo: dict[str, list[tuple[Finding, dict, Path | None]]] = {}
+    by_repo: dict[tuple[str, str], list[tuple[Finding, dict, Path | None]]] = {}
     for finding, info, path in results:
         if path is None:
             continue
-        by_repo.setdefault(finding.repo_name, []).append((finding, info, path))
+        key = (finding.lang, finding.repo_name)
+        by_repo.setdefault(key, []).append((finding, info, path))
 
     llm_fn: Callable[[str, str, str], str] | None = None
     if llm_fix:
         llm_fn = make_llm_fix_fn(llm_provider, llm_model, llm_max_tokens)
 
     out: list[tuple[str, list[dict]]] = []
-    for repo_name, items in by_repo.items():
-        manifest_path = find_manifest_for_repo(builds_dir, repo_name)
+    for (lang, repo_name), items in by_repo.items():
+        manifest_path = find_manifest_for_repo(output_dir, lang, repo_name)
+        repo_fuzz_targets = output_dir / lang / repo_name / "fuzz_targets"
         if not manifest_path:
             entries = [{"harness": str(p), "status": "manifest_missing", "errors": "No manifest.json"} for _, _, p in items if p]
-            write_harness_status(repo_name, entries, fuzz_targets_dir)
+            write_harness_status(repo_name, entries, repo_fuzz_targets)
             out.append((repo_name, entries))
             continue
         entries = []
@@ -128,6 +127,6 @@ def build_and_record(
                 ok, err, _cmd = build_harness(cc_path, manifest_path, binary_path)
                 status = "compiled" if ok else ("link_failed" if "undefined reference" in err or "ld returned" in err.lower() else "compile_failed")
                 entries.append({"harness": harness_name, "status": status, "errors": err})
-        write_harness_status(repo_name, entries, fuzz_targets_dir)
+        write_harness_status(repo_name, entries, repo_fuzz_targets)
         out.append((repo_name, entries))
     return out

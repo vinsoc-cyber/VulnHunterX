@@ -14,13 +14,13 @@ def _normalize_path(p: str) -> str:
     return p.replace("\\", "/").strip()
 
 
-def load_function_signatures(context_dir: Path, repo_name: str) -> list[dict]:
+def load_function_signatures(repo_context_dir: Path) -> list[dict]:
     """
     Load function_signatures.csv and return list of function dicts.
-
+    repo_context_dir: output/<lang>/<repo_name>/context.
     Each dict: name, file, start_line, end_line, params (list of {type, name}).
     """
-    path = Path(context_dir) / repo_name / "function_signatures.csv"
+    path = Path(repo_context_dir) / "function_signatures.csv"
     if not path.is_file():
         return []
 
@@ -57,11 +57,12 @@ def load_function_signatures(context_dir: Path, repo_name: str) -> list[dict]:
     return out
 
 
-def load_includes(context_dir: Path, repo_name: str) -> dict[str, list[str]]:
+def load_includes(repo_context_dir: Path) -> dict[str, list[str]]:
     """
     Load includes.csv; return dict mapping file path -> list of include literal strings.
+    repo_context_dir: output/<lang>/<repo_name>/context.
     """
-    path = Path(context_dir) / repo_name / "includes.csv"
+    path = Path(repo_context_dir) / "includes.csv"
     if not path.is_file():
         return {}
 
@@ -83,17 +84,17 @@ def load_includes(context_dir: Path, repo_name: str) -> dict[str, list[str]]:
 
 def get_target_context(
     target_function_info: dict,
-    repo_name: str,
-    context_dir: Path,
+    repo_context_dir: Path,
 ) -> dict:
     """
     Gather full context for one target: signature (params) and includes for the target file.
+    repo_context_dir: output/<lang>/<repo_name>/context.
 
     target_function_info: from select_targets (name, file, start_line, end_line).
     Returns dict with: name, file, start_line, end_line, params, includes (list of "#include ..." strings).
     """
-    sigs = load_function_signatures(context_dir, repo_name)
-    includes_map = load_includes(context_dir, repo_name)
+    sigs = load_function_signatures(repo_context_dir)
+    includes_map = load_includes(repo_context_dir)
 
     name = target_function_info.get("name", "")
     file = _normalize_path(target_function_info.get("file", ""))

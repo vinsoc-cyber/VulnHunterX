@@ -41,7 +41,7 @@ class VerificationEngine:
     
     Example:
         engine = VerificationEngine.from_config("config/confirm_findings.yaml")
-        results = engine.verify_sarif("output/sarif/c/repo.sarif", lang="c", repo="repo")
+        results = engine.verify_sarif("output/c/repo/repo.sarif", lang="c", repo_name="repo")
         
         for verdict in results.verdicts:
             print(f"{verdict.finding.rule_id}: {verdict.verdict}")
@@ -62,7 +62,7 @@ class VerificationEngine:
         self.context_extractor = context_extractor or ContextExtractor(config.paths.repos_dir)
         
         self.context_provider: ContextProvider | None = context_provider or ContextProvider(
-            config.paths.context_dir,
+            config.paths.output_dir,
             config.paths.repos_dir,
         )
         
@@ -300,29 +300,25 @@ class VerificationEngine:
             Tuple of (summary_path, results_dir)
         """
         output_dir = output_dir or self.config.paths.output_dir
-        results_dir = output_dir / "results"
-        results_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save individual results
+        # Save per-repo under output/<lang>/<repo_name>/verification_results/
         for verdict in result.verdicts:
             finding = verdict.finding
-            result_file = (
-                results_dir / finding.lang / finding.repo_name /
-                f"{finding.rule_id.replace('/', '_')}_{finding.start_line}.json"
-            )
-            result_file.parent.mkdir(parents=True, exist_ok=True)
+            repo_results_dir = output_dir / finding.lang / finding.repo_name / "verification_results"
+            repo_results_dir.mkdir(parents=True, exist_ok=True)
+            result_file = repo_results_dir / f"{finding.rule_id.replace('/', '_')}_{finding.start_line}.json"
             result_file.write_text(json.dumps(verdict.to_dict(), indent=2))
         
-        # Save summary with descriptive name: summary_{repos}_{mode}_{timestamp}.json
+        # Summary: write to first repo's verification_results dir
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        
-        # Extract unique repo names from verdicts
         repo_names = sorted(set(v.finding.repo_name for v in result.verdicts))
         repo_part = "_".join(repo_names) if repo_names else "unknown"
-        # Truncate if too long (max 50 chars for repo part)
         if len(repo_part) > 50:
             repo_part = repo_part[:47] + "..."
         
+        first_lang = result.verdicts[0].finding.lang if result.verdicts else "unknown"
+        first_repo = result.verdicts[0].finding.repo_name if result.verdicts else "unknown"
+        results_dir = output_dir / first_lang / first_repo / "verification_results"
+        results_dir.mkdir(parents=True, exist_ok=True)
         summary_file = results_dir / f"summary_{repo_part}_{timestamp}.json"
         summary_file.write_text(json.dumps(result.to_dict(), indent=2))
         

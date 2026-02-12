@@ -66,15 +66,12 @@ repositories: []
 # Paths (relative to repo root)
 # =============================================================================
 
-# Output directory for results
-output_dir: output
-
-# Repositories directory for context extraction
+# Repositories directory (cloned source repos)
 repos_dir: repos
 
-# Context CSV directory (for multi-turn context expansion)
-# Note: This is generated data from extract-context, stored in output/
-context_dir: output/context
+# Output directory: all stage outputs live under output/<lang>/<repo_name>/
+# (database, SARIF, context, verification_results, sanitized_build, fuzz_targets, fuzz_results)
+output_dir: output
 
 # Guided questions file
 questions_file: config/prompts/guided_questions.yaml

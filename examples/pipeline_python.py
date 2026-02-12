@@ -201,7 +201,7 @@ def run_with_api() -> None:
     engine.on_finding_complete(on_complete)
     
     # Find SARIF file
-    sarif_path = Path(f"output/sarif/{LANGUAGE}/{REPO_NAME}.sarif")
+    sarif_path = Path(f"output/{LANGUAGE}/{REPO_NAME}/{REPO_NAME}.sarif")
     if not sarif_path.exists():
         print(f"[ERROR] SARIF file not found: {sarif_path}")
         print("Run the analysis stage first.")
@@ -245,9 +245,9 @@ def print_summary(results: dict[str, bool], elapsed: float) -> None:
         print("Pipeline completed successfully!")
         print()
         print("Output files:")
-        print(f"  - SARIF: output/sarif/{LANGUAGE}/{REPO_NAME}.sarif")
-        print(f"  - Results: output/results/")
-        print(f"  - Context: output/context/{REPO_NAME}/")
+        print(f"  - SARIF: output/{LANGUAGE}/{REPO_NAME}/{REPO_NAME}.sarif")
+        print(f"  - Results: output/{LANGUAGE}/{REPO_NAME}/verification_results/")
+        print(f"  - Context: output/{LANGUAGE}/{REPO_NAME}/context/")
 
 
 # =============================================================================

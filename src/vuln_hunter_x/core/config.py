@@ -35,31 +35,47 @@ class VerificationConfig:
 
 
 @dataclass
+class RepoPaths:
+    """Paths for a single repo under output/<lang>/<repo_name>/."""
+    root: Path
+    database: Path
+    sarif_file: Path
+    context: Path
+    verification_results: Path
+    sanitized_build: Path
+    fuzz_targets: Path
+    fuzz_results: Path
+
+
+@dataclass
 class PathsConfig:
     """Path configuration for project directories."""
     repos_dir: Path = field(default_factory=lambda: Path("repos"))
-    databases_dir: Path = field(default_factory=lambda: Path("databases"))
     output_dir: Path = field(default_factory=lambda: Path("output"))
-    context_dir: Path = field(default_factory=lambda: Path("output/context"))  # Generated CSV data
     prompts_dir: Path = field(default_factory=lambda: Path("config/prompts"))
     queries_dir: Path = field(default_factory=lambda: Path("config/queries"))
-    # Fuzz-based confirmation (Stage 5–8)
-    builds_dir: Path = field(default_factory=lambda: Path("builds"))  # Sanitized builds
-    fuzz_targets_dir: Path = field(default_factory=lambda: Path("output/fuzz_targets"))  # Generated harnesses
-    fuzz_results_dir: Path = field(default_factory=lambda: Path("output/fuzz_results"))  # Crash reports
     
     def resolve(self, base_path: Path) -> PathsConfig:
         """Resolve all paths relative to a base path."""
         return PathsConfig(
             repos_dir=base_path / self.repos_dir,
-            databases_dir=base_path / self.databases_dir,
             output_dir=base_path / self.output_dir,
-            context_dir=base_path / self.context_dir,
             prompts_dir=base_path / self.prompts_dir,
             queries_dir=base_path / self.queries_dir,
-            builds_dir=base_path / self.builds_dir,
-            fuzz_targets_dir=base_path / self.fuzz_targets_dir,
-            fuzz_results_dir=base_path / self.fuzz_results_dir,
+        )
+    
+    def repo_paths(self, lang: str, repo_name: str) -> RepoPaths:
+        """Return paths for a single repo under output/<lang>/<repo_name>/."""
+        root = self.output_dir / lang / repo_name
+        return RepoPaths(
+            root=root,
+            database=root / "database",
+            sarif_file=root / f"{repo_name}.sarif",
+            context=root / "context",
+            verification_results=root / "verification_results",
+            sanitized_build=root / "sanitized_build",
+            fuzz_targets=root / "fuzz_targets",
+            fuzz_results=root / "fuzz_results",
         )
 
 
@@ -118,14 +134,9 @@ class Config:
             return Path(p if p is not None else default)
         paths = PathsConfig(
             repos_dir=_path("repos_dir", "repos"),
-            databases_dir=_path("databases_dir", "databases"),
             output_dir=_path("output_dir", "output"),
-            context_dir=_path("context_dir", "output/context"),
             prompts_dir=_path("prompts_dir", "config/prompts"),
             queries_dir=_path("queries_dir", "config/queries"),
-            builds_dir=_path("builds_dir", "builds"),
-            fuzz_targets_dir=_path("fuzz_targets_dir", "output/fuzz_targets"),
-            fuzz_results_dir=_path("fuzz_results_dir", "output/fuzz_results"),
         )
         
         if base_path:

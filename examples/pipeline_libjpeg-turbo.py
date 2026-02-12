@@ -145,7 +145,7 @@ def stage_extract_context(dry_run: bool = False) -> bool:
     )
     
     if success:
-        print(f"\n[OK] Context CSVs extracted to output/context/{REPO_NAME}/")
+        print(f"\n[OK] Context CSVs extracted to output/{LANGUAGE}/{REPO_NAME}/context/")
     else:
         print(f"\n[FAIL] Context extraction failed: {error}")
     
@@ -288,7 +288,7 @@ def run_with_api() -> None:
     engine.on_finding_complete(on_complete)
     
     # Find SARIF file
-    sarif_path = Path(f"output/sarif/{LANGUAGE}/{REPO_NAME}.sarif")
+    sarif_path = Path(f"output/{LANGUAGE}/{REPO_NAME}/{REPO_NAME}.sarif")
     if not sarif_path.exists():
         print(f"[ERROR] SARIF file not found: {sarif_path}")
         print("Run the analysis stage first.")
@@ -332,12 +332,12 @@ def print_summary(results: dict[str, bool], elapsed: float, run_fuzz: bool = Fal
         print("Pipeline completed successfully!")
         print()
         print("Next steps:")
-        print(f"  - View SARIF: output/sarif/{LANGUAGE}/{REPO_NAME}.sarif")
-        print("  - View results: output/results/")
-        print(f"  - View context: output/context/{REPO_NAME}/")
+        print(f"  - View SARIF: output/{LANGUAGE}/{REPO_NAME}/{REPO_NAME}.sarif")
+        print(f"  - View results: output/{LANGUAGE}/{REPO_NAME}/verification_results/")
+        print(f"  - View context: output/{LANGUAGE}/{REPO_NAME}/context/")
         if run_fuzz:
-            print(f"  - View fuzz targets: output/fuzz_targets/{REPO_NAME}/")
-            print(f"  - View fuzz results: output/fuzz_results/{REPO_NAME}/")
+            print(f"  - View fuzz targets: output/{LANGUAGE}/{REPO_NAME}/fuzz_targets/")
+            print(f"  - View fuzz results: output/{LANGUAGE}/{REPO_NAME}/fuzz_results/")
     else:
         print("Pipeline completed with errors. Check the logs above.")
 
