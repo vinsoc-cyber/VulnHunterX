@@ -1,5 +1,5 @@
 ---
-description: Project context for VulnHunterX - CodeQL + LLM bug verification (Vulnhalla-style)
+description: Project context for VulnHunterX - CodeQL + LLM bug verification
 alwaysApply: true
 ---
 

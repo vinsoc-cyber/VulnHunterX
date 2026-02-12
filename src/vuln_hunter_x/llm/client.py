@@ -19,23 +19,21 @@ class LLMClient:
     """
     Unified LLM client using LiteLLM for OpenAI and Ollama.
     
-    Supports both simple (single-shot) and vulnhalla (multi-turn) modes.
+    Uses LLM mode only (multi-turn with context expansion).
     """
     
     def __init__(
         self,
         provider: str = "openai",
         model: str = "gpt-4o",
-        mode: str = "vulnhalla",
         temperature: float = 0.2,
         max_tokens: int = 1500,
     ):
         self.provider = provider
         self.model = model
-        self.mode = mode
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.prompt_builder = PromptBuilder(mode)
+        self.prompt_builder = PromptBuilder()
         
         # Configure Ollama base URL if provided
         if provider == "ollama":
@@ -57,8 +55,7 @@ class LLMClient:
         """
         Analyze a finding and return a verdict.
         
-        In vulnhalla mode, supports multi-turn conversation with context expansion.
-        In simple mode, uses single-shot analysis.
+        Uses multi-turn conversation with context expansion (LLM mode).
         
         Args:
             finding: The CodeQL finding to analyze
@@ -66,7 +63,7 @@ class LLMClient:
             questions: Guided questions for the rule
             func_name: Name of the function containing the finding
             context_provider: Provider for additional context (multi-turn)
-            max_iterations: Maximum conversation rounds (vulnhalla mode)
+            max_iterations: Maximum conversation rounds
             verbose: Show detailed output
             log_file: Optional file to log conversations
             quiet: Suppress output
@@ -101,11 +98,6 @@ class LLMClient:
             log_file.write(f"- **Function**: `{func_name}`\n\n")
             log_file.write(f"### System Prompt\n\n```\n{self.prompt_builder.system_prompt}\n```\n\n")
             log_file.write(f"### User Prompt\n\n```\n{user_prompt}\n```\n\n")
-        
-        # Simple mode: single-shot
-        if self.mode == "simple":
-            max_iterations = 1
-            context_provider = None
         
         start_time = time.time()
         iterations = 0
@@ -188,7 +180,6 @@ class LLMClient:
                         elapsed_seconds=elapsed,
                         context_needed=context_needed,
                         iterations=iterations,
-                        mode=self.mode,
                     )
                 
                 # Fetch additional context
@@ -214,7 +205,6 @@ class LLMClient:
                         elapsed_seconds=elapsed,
                         context_needed=context_needed,
                         iterations=iterations,
-                        mode=self.mode,
                     )
                 
                 # Build follow-up
@@ -241,7 +231,6 @@ class LLMClient:
                     model=self.model,
                     elapsed_seconds=elapsed,
                     iterations=iterations,
-                    mode=self.mode,
                 )
         
         # Max iterations reached
@@ -256,7 +245,6 @@ class LLMClient:
             model=self.model,
             elapsed_seconds=elapsed,
             iterations=iterations,
-            mode=self.mode,
         )
     
     def _parse_response(self, raw: str) -> dict[str, Any]:

@@ -4,31 +4,8 @@ from __future__ import annotations
 
 from vuln_hunter_x.core.types import Finding, GuidedQuestions
 
-# Simple mode: Original single-shot prompt
-SIMPLE_SYSTEM_PROMPT = """You are a security static-analysis assistant. Your task is to analyze CodeQL findings and determine if they are real vulnerabilities.
-
-Given:
-1. A CodeQL alert (rule, message, file, line)
-2. The code context (the function or scope containing the alert)
-3. Guided questions to help you reason about the finding
-
-Instructions:
-- First, answer each guided question based on the code context
-- Then, provide your verdict: "True Positive", "False Positive", or "Needs More Data"
-- Explain your reasoning in 1-2 sentences
-- Be conservative: if unsure, say "Needs More Data"
-
-Response format (JSON):
-{
-  "answers": ["answer to Q1", "answer to Q2", ...],
-  "verdict": "True Positive" | "False Positive" | "Needs More Data",
-  "confidence": "High" | "Medium" | "Low",
-  "reasoning": "Brief explanation of your verdict"
-}"""
-
-
-# Vulnhalla mode: Enhanced prompt forcing step-by-step reasoning
-VULNHALLA_SYSTEM_PROMPT = """You are a security static-analysis assistant.
+# LLM mode: Multi-turn prompt with step-by-step reasoning and context expansion
+SYSTEM_PROMPT = """You are a security static-analysis assistant.
 
 Your task is to determine if a CodeQL finding is a real vulnerability or a false positive.
 
@@ -67,17 +44,12 @@ Response format (JSON):
 
 
 class PromptBuilder:
-    """Builds prompts for LLM bug verification."""
-    
-    def __init__(self, mode: str = "vulnhalla"):
-        self.mode = mode
+    """Builds prompts for LLM bug verification (LLM mode only)."""
     
     @property
     def system_prompt(self) -> str:
-        """Get the system prompt based on mode."""
-        if self.mode == "simple":
-            return SIMPLE_SYSTEM_PROMPT
-        return VULNHALLA_SYSTEM_PROMPT
+        """Get the system prompt."""
+        return SYSTEM_PROMPT
     
     def build_user_prompt(
         self,
@@ -90,13 +62,9 @@ class PromptBuilder:
         questions_text = "\n".join(
             f"{i+1}. {q}" for i, q in enumerate(questions.questions)
         )
-        
-        if self.mode == "simple":
-            return self._build_simple_prompt(finding, context, questions, func_name, questions_text)
-        else:
-            return self._build_vulnhalla_prompt(finding, context, questions, func_name, questions_text)
+        return self._build_prompt(finding, context, questions, func_name, questions_text)
     
-    def _build_simple_prompt(
+    def _build_prompt(
         self,
         finding: Finding,
         context: str,
@@ -104,38 +72,7 @@ class PromptBuilder:
         func_name: str,
         questions_text: str,
     ) -> str:
-        """Build simple mode prompt."""
-        return f"""## CodeQL Finding
-
-**Rule**: {finding.rule_id}
-**Description**: {questions.short_description}
-**Message**: {finding.message}
-**File**: {finding.file}
-**Line**: {finding.start_line}
-
-## Code Context
-
-Function: `{func_name}`
-
-```
-{context}
-```
-
-## Guided Questions
-
-{questions_text}
-
-Please analyze this finding. Answer each question, then provide your verdict."""
-    
-    def _build_vulnhalla_prompt(
-        self,
-        finding: Finding,
-        context: str,
-        questions: GuidedQuestions,
-        func_name: str,
-        questions_text: str,
-    ) -> str:
-        """Build Vulnhalla mode prompt."""
+        """Build LLM mode prompt."""
         return f"""## CodeQL Finding
 
 **Rule**: {finding.rule_id}

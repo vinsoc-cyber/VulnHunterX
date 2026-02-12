@@ -22,13 +22,9 @@
 # =============================================================================
 # Analysis Mode Settings
 # =============================================================================
+# Verification: LLM only (multi-turn with context expansion).
 
-# Confirmation mode: "simple" or "vulnhalla"
-# - simple: Single-shot LLM call with basic prompts
-# - vulnhalla: Multi-turn with enhanced data-flow prompts
-mode: vulnhalla
-
-# Maximum LLM conversation rounds for context expansion (vulnhalla mode only)
+# Maximum LLM conversation rounds for context expansion
 # Set to 1 to disable multi-turn
 max_iterations: 10
 

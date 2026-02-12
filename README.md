@@ -16,7 +16,7 @@ A Python framework that combines CodeQL static analysis with Large Language Mode
 - [Pipeline Stages](#pipeline-stages)
 - [Quick Start](#quick-start)
 - [CLI Reference](#cli-reference)
-- [Verification Modes](#verification-modes)
+- [Verification Mode](#verification-mode)
 - [Python API](#python-api)
 - [Configuration](#configuration)
 - [Project Structure](#project-structure)
@@ -44,7 +44,7 @@ This framework automates the triage process by using LLMs to:
 | Feature | Description |
 |---------|-------------|
 | **Multi-language Support** | C, C++, Python, JavaScript |
-| **Two Verification Modes** | Simple (fast) and Vulnhalla (accurate) |
+| **LLM verification** | Multi-turn with context expansion |
 | **Guided Questions** | Rule-specific questions for structured analysis |
 | **Context Expansion** | LLM can request callers, structs, globals |
 | **Multiple LLM Providers** | OpenAI (GPT-4) and Ollama (local models) |
@@ -87,7 +87,7 @@ This framework automates the triage process by using LLMs to:
                          │   │   4. Send to LLM           │   │
                          │   │   5. Parse verdict         │   │
                          │   │                            │   │
-                         │   │   [Vulnhalla mode only]    │   │
+                         │   │   [LLM mode only]          │   │
                          │   │   6. If needs more data:   │   │
                          │   │      - Fetch context       │   │
                          │   │      - Continue iteration  │   │
@@ -123,10 +123,10 @@ CodeQL Finding -> Guided Questions -> LLM Analysis -> Verdict
                                       (automated)
 ```
 
-The **Vulnhalla methodology** (from CyberArk research) enhances this by:
-- Using **rule-specific questions** instead of generic prompts
-- Allowing **multi-turn conversation** for complex findings
-- Enabling **dynamic context expansion** based on LLM requests
+The framework follows the **Vulnhalla methodology** (CyberArk research), which improves accuracy by:
+- **Rule-specific questions** — each finding type gets tailored questions instead of a single generic prompt
+- **Multi-turn conversation** — the LLM can take several steps to reason about complex data flow
+- **Dynamic context expansion** — the LLM can request extra code (callers, structs, globals) before giving a verdict
 
 ---
 
@@ -177,8 +177,8 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ STAGE 3: extract-context (Optional, recommended for Vulnhalla mode)         │
-│ ────────────────────────                                                    │
+│ STAGE 3: extract-context (Optional, recommended for LLM mode)               │
+│ ─────────────────────────────────────────────────────────────────────────── │
 │ Purpose: Pre-extract structured context for multi-turn verification         │
 │ Input:   databases/<lang>/<name>/                                           │
 │ Output:  output/context/<name>/*.csv                                        │
@@ -201,7 +201,7 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 │ ───────────────                                                             │
 │ Purpose: Verify each finding using LLM analysis                             │
 │ Input:   output/sarif/<lang>/<name>.sarif                                   │
-│          output/context/<name>/*.csv (for Vulnhalla mode)                   │
+│          output/context/<name>/*.csv (for LLM mode)                         │
 │ Output:  output/results/summary_*.json                                      │
 │          output/results/details_*.json                                      │
 │                                                                             │
@@ -210,7 +210,7 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 │   2. Load guided questions for the rule type                                │
 │   3. Build prompt with context and questions                                │
 │   4. Send to LLM and parse response                                         │
-│   5. [Vulnhalla] If LLM requests more context, fetch and continue           │
+│   5. [LLM mode] If LLM requests more context, fetch and continue            │
 │   6. Record verdict with confidence and reasoning                           │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -499,10 +499,9 @@ vuln-hunter-x verify [options]
 |--------|-------------|---------|
 | `--repo NAME` | Verify specific repository | All SARIF files |
 | `--lang LANG` | Filter by language | All |
-| `--mode MODE` | Verification mode: `simple` or `vulnhalla` | vulnhalla |
 | `--provider PROV` | LLM provider: `openai` or `ollama` | From config |
 | `--model MODEL` | Model name (e.g., gpt-4o, ollama/llama3.2) | From config |
-| `--max-iterations N` | Max conversation rounds (vulnhalla) | 3 |
+| `--max-iterations N` | Max conversation rounds (LLM mode) | 3 |
 | `--limit N` | Max findings to process | Unlimited |
 | `-v, --verbose` | Show LLM requests and responses | false |
 | `-q, --quiet` | Minimal output | false |
@@ -517,11 +516,8 @@ vuln-hunter-x verify
 # Verify specific repository
 vuln-hunter-x verify --repo libucl
 
-# Use simple mode (faster)
-vuln-hunter-x verify --mode simple
-
-# Use Vulnhalla mode with more iterations
-vuln-hunter-x verify --mode vulnhalla --max-iterations 7
+# More conversation rounds (LLM mode)
+vuln-hunter-x verify --max-iterations 7
 
 # Limit to first 5 findings
 vuln-hunter-x verify --limit 5
@@ -548,49 +544,9 @@ vuln-hunter-x info
 
 ---
 
-## Verification Modes
+## Verification Mode
 
-### Simple Mode (`--mode simple`)
-
-Single-shot LLM analysis. Fast but less accurate for complex findings.
-
-```
-Finding + Context + Questions  ──>  LLM  ──>  Verdict
-         (one request)
-```
-
-**Characteristics:**
-- 1 API call per finding
-- No context expansion
-- Best for: Simple, localized issues
-
-### Vulnhalla Mode (`--mode vulnhalla`)
-
-Multi-turn LLM analysis with dynamic context expansion.
-
-```
-Finding + Context + Questions  ──>  LLM  ──>  "Need more data"
-                                              │
-Additional Context (callers, structs)  <──────┘
-                                              │
-                               LLM  ──>  Final Verdict
-```
-
-**Characteristics:**
-- Up to N API calls per finding (configurable)
-- LLM can request: callers, structs, globals, functions
-- Higher accuracy for complex data-flow issues
-
-### Mode Comparison
-
-| Aspect | Simple | Vulnhalla |
-|--------|--------|-----------|
-| API calls per finding | 1 | 1-7 |
-| Context expansion | No | Yes |
-| Accuracy | Lower | Higher |
-| Speed | Fast | Slower |
-| Cost | Low | Higher |
-| Best for | Simple issues | Complex data-flow |
+The framework uses **LLM mode** only: multi-turn LLM analysis with dynamic context expansion. The LLM can request additional context (callers, structs, globals, functions) before giving a verdict, which improves accuracy for complex data-flow issues. The number of conversation rounds per finding is configurable via `--max-iterations` or `max_iterations` in config.
 
 ---
 
@@ -677,7 +633,7 @@ Additional Context (callers, structs)  <──────┘
 
 ### Context Request Types
 
-When using Vulnhalla mode, the LLM can request additional context:
+When using LLM mode, the LLM can request additional context:
 
 | Request | Format | Description |
 |---------|--------|-------------|
@@ -705,16 +661,11 @@ All scripts support:
 |--------|-------------|
 | `--dry-run` | Preview without executing |
 | `--skip-clone` | Skip clone if exists |
-| `--simple` | Use simple mode |
-| `--compare` | Compare simple vs vulnhalla |
 | `--api` | Use Python API instead of CLI |
 
 ```bash
-# Example: Compare modes
-python examples/pipeline_c.py --compare
-
-# Example: Use API with simple mode
-python examples/pipeline_python.py --api --simple
+# Example: Use Python API
+python examples/pipeline_python.py --api
 ```
 
 ---
@@ -785,9 +736,8 @@ model: gpt-4o             # Model name
 temperature: 0.2          # 0.0-1.0 (lower = more deterministic)
 max_tokens: 1500          # Max response length
 
-# Verification Settings
-mode: vulnhalla           # simple or vulnhalla
-max_iterations: 3         # Max rounds for vulnhalla
+# Verification Settings (LLM mode: multi-turn with context expansion)
+max_iterations: 3         # Max conversation rounds per finding
 
 # Output Settings
 verbosity: normal         # quiet, normal, verbose
@@ -848,7 +798,7 @@ repos:
 
 ### Guided Questions (`config/prompts/guided_questions.yaml`)
 
-Rule-specific questions that force the LLM to reason step-by-step before giving a verdict. Based on the Vulnhalla methodology.
+Rule-specific questions that force the LLM to reason step-by-step before giving a verdict. Based on the Vulnhalla methodology (see [References](#references)).
 
 ```yaml
 cpp/use-after-free:

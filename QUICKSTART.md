@@ -62,14 +62,14 @@ Output shows verdicts (True Positive, False Positive, Needs More Data) with conf
 | `examples/pipeline_c.py` | C | Requires build tools |
 | `examples/pipeline_cpp.py` | C++ | Requires CMake |
 
-All scripts support: `--dry-run`, `--skip-clone`, `--simple`, `--compare`, `--api`
+All scripts support: `--dry-run`, `--skip-clone`, `--api`
 
 ## Configuration Files
 
 | File | Purpose |
 |------|---------|
 | `.env` | API keys and paths |
-| `config/confirm_findings.yaml` | LLM settings (model, mode, iterations) |
+| `config/confirm_findings.yaml` | LLM settings (model, iterations) |
 | `config/repos.yaml` | Repositories to analyze |
 | `config/prompts/guided_questions.yaml` | Rule-specific questions |
 

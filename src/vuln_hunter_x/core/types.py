@@ -22,12 +22,6 @@ class ConfidenceLevel(Enum):
     LOW = "Low"
 
 
-class VerificationMode(Enum):
-    """Verification mode for LLM analysis."""
-    SIMPLE = "simple"
-    VULNHALLA = "vulnhalla"
-
-
 @dataclass
 class Finding:
     """A CodeQL finding from SARIF analysis."""
@@ -108,7 +102,6 @@ class Verdict:
     elapsed_seconds: float = 0.0
     context_needed: list[str] = field(default_factory=list)
     iterations: int = 1
-    mode: str = "vulnhalla"
     
     @property
     def is_true_positive(self) -> bool:
@@ -135,7 +128,6 @@ class Verdict:
             "answers": self.answers,
             "context_needed": self.context_needed,
             "iterations": self.iterations,
-            "mode": self.mode,
             "model": self.model,
             "timestamp": self.timestamp,
             "elapsed_seconds": self.elapsed_seconds,
@@ -147,7 +139,6 @@ class VerificationResult:
     """Complete result of a verification run."""
     verdicts: list[Verdict]
     stats: dict[str, int]
-    mode: str
     model: str
     provider: str
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -179,7 +170,6 @@ class VerificationResult:
         """Convert to dictionary for serialization."""
         return {
             "timestamp": self.timestamp,
-            "mode": self.mode,
             "provider": self.provider,
             "model": self.model,
             "total_findings": self.total_findings,

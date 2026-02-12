@@ -76,13 +76,11 @@ class TestConfig:
         
         assert config.llm.provider == "openai"
         assert config.llm.model == "gpt-4o"
-        assert config.verification.mode == "vulnhalla"
     
     def test_config_from_dict(self):
         data = {
             "provider": "ollama",
             "model": "ollama/llama3.2",
-            "mode": "simple",
             "max_iterations": 5,
         }
         
@@ -90,15 +88,14 @@ class TestConfig:
         
         assert config.llm.provider == "ollama"
         assert config.llm.model == "ollama/llama3.2"
-        assert config.verification.mode == "simple"
         assert config.verification.max_iterations == 5
     
     def test_config_merge(self):
         config = Config()
-        merged = config.merge_with_args(provider="ollama", mode="simple")
+        merged = config.merge_with_args(provider="ollama", max_iterations=7)
         
         assert merged.llm.provider == "ollama"
-        assert merged.verification.mode == "simple"
+        assert merged.verification.max_iterations == 7
         # Original unchanged
         assert config.llm.provider == "openai"
 
@@ -130,22 +127,17 @@ class TestQuestionsLoader:
 
 
 class TestPromptBuilder:
-    """Tests for PromptBuilder."""
+    """Tests for PromptBuilder (LLM mode only)."""
     
-    def test_simple_mode_prompt(self):
-        builder = PromptBuilder(mode="simple")
-        
-        assert "single interface" not in builder.system_prompt.lower()
-        assert "security static-analysis" in builder.system_prompt.lower()
-    
-    def test_vulnhalla_mode_prompt(self):
-        builder = PromptBuilder(mode="vulnhalla")
+    def test_system_prompt(self):
+        builder = PromptBuilder()
         
         assert "CRITICAL INSTRUCTIONS" in builder.system_prompt
         assert "context_needed" in builder.system_prompt
+        assert "security static-analysis" in builder.system_prompt.lower()
     
     def test_build_user_prompt(self):
-        builder = PromptBuilder(mode="simple")
+        builder = PromptBuilder()
         
         finding = Finding(
             rule_id="cpp/buffer-overflow",
@@ -237,7 +229,6 @@ class TestVerificationResult:
         result = VerificationResult(
             verdicts=verdicts,
             stats={"True Positive": 1, "False Positive": 1},
-            mode="vulnhalla",
             model="gpt-4o",
             provider="openai",
         )
