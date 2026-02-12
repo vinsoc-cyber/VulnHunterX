@@ -48,6 +48,9 @@ import yaml
 # Configuration
 # =============================================================================
 
+_CLI = [sys.executable, "-m", "vuln_hunter_x.cli.main"]
+
+
 class TeeOutput:
     """Write to both stdout and a log file."""
     
@@ -240,7 +243,7 @@ def stage_clone(
     Returns:
         Tuple of (status, message) where status is OK/SKIP/FAIL
     """
-    cmd = ["vuln-hunter-x", "clone", "--repo", repo_name]
+    cmd = _CLI + ["clone", "--repo", repo_name]
     
     if dry_run:
         return "DRY-RUN", "Would clone and create database"
@@ -268,7 +271,7 @@ def stage_analyze(
     Returns:
         Tuple of (status, message) where status is OK/SKIP/FAIL
     """
-    cmd = ["vuln-hunter-x", "analyze", "--repo", repo_name]
+    cmd = _CLI + ["analyze", "--repo", repo_name]
     if force:
         cmd.append("--force")
     
@@ -306,7 +309,7 @@ def stage_extract_context(
     Returns:
         Tuple of (status, message) where status is OK/SKIP/FAIL
     """
-    cmd = ["vuln-hunter-x", "extract-context", "--repo", repo_name]
+    cmd = _CLI + ["extract-context", "--repo", repo_name]
     if force:
         cmd.append("--force")
     
@@ -369,8 +372,8 @@ def stage_verify(
                 pass
         return "SKIP", f"Already verified ({len(existing_results)} findings: TP={tp_count}, FP={fp_count})"
     
-    cmd = [
-        "vuln-hunter-x", "verify",
+    cmd = _CLI + [
+        "verify",
         "--repo", repo_name,
         "--mode", mode,
         "--limit", str(limit),
@@ -411,7 +414,7 @@ def stage_build_sanitized(
     Stage 5 (fuzz): Build repo with sanitizers for fuzz harness linking.
     C/C++ only.
     """
-    cmd = ["vuln-hunter-x", "build-sanitized", "--repo", repo_name]
+    cmd = _CLI + ["build-sanitized", "--repo", repo_name]
     if force:
         cmd.append("--force")
     if dry_run:
@@ -432,7 +435,7 @@ def stage_extract_fuzz_context(
     Stage 6 (fuzz): Extract fuzz context CSVs (function_signatures, includes).
     C/C++ only.
     """
-    cmd = ["vuln-hunter-x", "extract-fuzz-context", "--repo", repo_name]
+    cmd = _CLI + ["extract-fuzz-context", "--repo", repo_name]
     if dry_run:
         return "DRY-RUN", "Would extract fuzz context"
     success, output = run_command(cmd)
@@ -450,7 +453,7 @@ def stage_generate_fuzz_drivers(
     Stage 7 (fuzz): Generate fuzz drivers and optionally build.
     C/C++ only.
     """
-    cmd = ["vuln-hunter-x", "generate-fuzz-drivers", "--repo", repo_name, "--verdict", "tp,nmd"]
+    cmd = _CLI + ["generate-fuzz-drivers", "--repo", repo_name, "--verdict", "tp,nmd"]
     if build:
         cmd.append("--build")
     if dry_run:
@@ -472,8 +475,8 @@ def stage_fuzz_run(
     Stage 8 (fuzz): Run libFuzzer for compiled harnesses, collect crashes.
     C/C++ only.
     """
-    cmd = [
-        "vuln-hunter-x", "fuzz-run",
+    cmd = _CLI + [
+        "fuzz-run",
         "--repo", repo_name,
         "--timeout", str(timeout),
         "--max-fuzz-time", str(max_fuzz_time),
