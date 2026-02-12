@@ -1,9 +1,9 @@
 ---
-description: Security rules for CodeQLxLLM (secrets, subprocess, paths)
+description: Security rules for VulnHunterX (secrets, subprocess, paths)
 alwaysApply: true
 ---
 
-# Security Rules (CodeQLxLLM)
+# Security Rules (VulnHunterX)
 
 ## Secrets
 

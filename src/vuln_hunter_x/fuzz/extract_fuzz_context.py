@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeql_llm.codeql.context_extractor import (
+from vuln_hunter_x.codeql.context_extractor import (
     ContextExtractorDB,
     discover_databases,
 )

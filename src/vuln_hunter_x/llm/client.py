@@ -10,9 +10,9 @@ from typing import Any
 
 import litellm
 
-from codeql_llm.context.provider import ContextProvider
-from codeql_llm.core.types import Finding, GuidedQuestions, Verdict
-from codeql_llm.llm.prompts import PromptBuilder
+from vuln_hunter_x.context.provider import ContextProvider
+from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
+from vuln_hunter_x.llm.prompts import PromptBuilder
 
 
 class LLMClient:

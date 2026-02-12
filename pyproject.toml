@@ -3,14 +3,14 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "codeql-llm"
+name = "vulnhunterx"
 version = "0.1.0"
-description = "CodeQL + LLM Bug Verification Framework - Vulnhalla-style guided analysis"
+description = "SAST (CodeQL, Semgrep) + fuzzing + LLM vulnerability hunting and verification"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = { text = "MIT" }
 authors = [
-    { name = "CodeQLxLLM Team" }
+    { name = "VulnHunterX Team" }
 ]
 keywords = ["codeql", "llm", "security", "static-analysis", "vulnerability"]
 classifiers = [
@@ -38,20 +38,20 @@ dev = [
 ]
 
 [project.scripts]
-codeql-llm = "codeql_llm.cli.main:main"
+vuln-hunter-x = "vuln_hunter_x.cli.main:main"
 
 # [project.urls]
 # Update these URLs when publishing to a repository
-# Homepage = "https://github.com/vinsoc-cyber/CodeQLxLLM"
-# Documentation = "https://github.com/vinsoc-cyber/CodeQLxLLM#readme"
-# Repository = "https://github.com/vinsoc-cyber/CodeQLxLLM"
+# Homepage = "https://github.com/vinsoc-cyber/VulnHunterX"
+# Documentation = "https://github.com/vinsoc-cyber/VulnHunterX#readme"
+# Repository = "https://github.com/vinsoc-cyber/VulnHunterX"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["codeql_llm*"]
+include = ["vuln_hunter_x*"]
 
 [tool.ruff]
 line-length = 100

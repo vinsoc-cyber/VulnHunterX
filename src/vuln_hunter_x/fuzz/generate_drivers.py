@@ -9,16 +9,16 @@ import re
 from pathlib import Path
 from typing import Callable
 
-from codeql_llm.core.types import Finding
-from codeql_llm.fuzz.target_selection import select_targets
-from codeql_llm.fuzz.fuzz_context import get_target_context
-from codeql_llm.fuzz.driver_generator import generate_harness
-from codeql_llm.fuzz.driver_builder import (
+from vuln_hunter_x.core.types import Finding
+from vuln_hunter_x.fuzz.target_selection import select_targets
+from vuln_hunter_x.fuzz.fuzz_context import get_target_context
+from vuln_hunter_x.fuzz.driver_generator import generate_harness
+from vuln_hunter_x.fuzz.driver_builder import (
     build_harness,
     find_manifest_for_repo,
     write_harness_status,
 )
-from codeql_llm.fuzz.driver_fix_loop import fix_harness_with_llm, make_llm_fix_fn
+from vuln_hunter_x.fuzz.driver_fix_loop import fix_harness_with_llm, make_llm_fix_fn
 
 
 def _harness_basename(finding: Finding) -> str:

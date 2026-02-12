@@ -1,5 +1,5 @@
 ---
-description: Testing standards for CodeQLxLLM (pytest, mocking)
+description: Testing standards for VulnHunterX (pytest, mocking)
 globs: "**/test_*.py, **/tests/**"
 ---
 

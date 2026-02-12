@@ -1,6 +1,6 @@
 """Guided questions loading and management."""
 
-from codeql_llm.questions.loader import QuestionsLoader
+from vuln_hunter_x.questions.loader import QuestionsLoader
 
 __all__ = [
     "QuestionsLoader",

@@ -1,5 +1,5 @@
 ---
-description: AI code generation guardrails and dependency management (CodeQLxLLM)
+description: AI code generation guardrails and dependency management (VulnHunterX)
 alwaysApply: true
 ---
 
@@ -30,7 +30,7 @@ After generating any CLI command, analyzer, or verification step, verify:
 ### Adding Dependencies
 
 ```toml
-# GOOD -- pinned major, allows minor updates (CodeQLxLLM)
+# GOOD -- pinned major, allows minor updates (VulnHunterX)
 [project]
 dependencies = [
     "litellm>=1.50,<2.0",
