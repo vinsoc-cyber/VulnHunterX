@@ -338,7 +338,7 @@ vuln-hunter-x clone --repo libucl --skip-db
 
 ### analyze
 
-Run CodeQL security analysis on databases.
+Run CodeQL and/or Semgrep security analysis. Use `--tool` to choose which analyzer(s) run. Both produce SARIF under `output/<lang>/<repo_name>/`; the verify stage reads all SARIF files (CodeQL and Semgrep).
 
 ```bash
 vuln-hunter-x analyze [options]
@@ -346,29 +346,45 @@ vuln-hunter-x analyze [options]
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--repo NAME` | Analyze specific repository | All databases |
+| `--tool {codeql,semgrep,both}` | Analyzer(s) to run | codeql |
+| `--semgrep-config CONFIG` | Semgrep config (repeatable); e.g. auto, p/security-audit | auto |
+| `--codeql-suite SUITE` | CodeQL query suite (built-in ref or path to .qls) | language default |
+| `--config PATH` | Path to repos.yaml (for Semgrep repo list) | config/repos.yaml |
+| `--repo NAME` | Analyze specific repository | All |
 | `--lang LANG` | Filter by language | All |
 | `-v, --verbose` | Show detailed output | false |
 | `--json` | Also output findings as JSON | false |
+| `-f, --force` | Re-run even if SARIF exists | false |
 | `--dry-run` | Preview without executing | false |
 
 **Examples:**
 
 ```bash
-# Analyze all databases
+# CodeQL only (default; requires CodeQL DBs from clone)
 vuln-hunter-x analyze
-
-# Analyze specific repository with verbose output
 vuln-hunter-x analyze --repo libucl -v
 
-# Analyze all C++ databases
-vuln-hunter-x analyze --lang cpp
+# Semgrep only (runs on source in repos/; no CodeQL DB required)
+vuln-hunter-x analyze --tool semgrep --repo pyyaml
+vuln-hunter-x analyze --tool semgrep --semgrep-config auto --semgrep-config p/security-audit
+
+# Both: CodeQL then Semgrep (both SARIF files per repo)
+vuln-hunter-x analyze --tool both --repo c-ares
+
+# Custom CodeQL suite
+vuln-hunter-x analyze --codeql-suite path/to/custom.qls
 ```
 
+**Semgrep integration:** Semgrep runs on the cloned source in `repos/<lang>/<name>/` and writes `output/<lang>/<name>/<name>_semgrep.sarif`. Verify reads all `*.sarif` in each repo directory (CodeQL and Semgrep). Semgrep does not require a CodeQL database.
+
+**Adding more security rules**
+
+- **CodeQL:** Use `--codeql-suite` with a custom `.qls` file that references the standard security-extended suite and adds extra queries or packs. You can also set `codeql_suite` in `config/confirm_findings.yaml`.
+- **Semgrep:** Pass multiple `--semgrep-config` (e.g. `auto`, `p/security-audit`, or paths to YAML rule files). Comma-separated in one flag is supported: `--semgrep-config "auto,p/security-audit"`. Optional defaults: `semgrep_configs` or `semgrep_config` in `config/confirm_findings.yaml`.
+
 **Verbose output includes:**
-- Database path and status
-- Query suite being used
-- Full CodeQL command
+- Database path and status (CodeQL) or repo path (Semgrep)
+- Query suite or Semgrep configs
 - Number of findings detected
 
 ---
@@ -489,7 +505,7 @@ vuln-hunter-x fuzz-run --dry-run
 
 ### verify
 
-Verify CodeQL findings using LLM analysis.
+Verify findings from SARIF using LLM analysis. Discovers all `*.sarif` under `output/<lang>/<repo_name>/` (CodeQL and Semgrep).
 
 ```bash
 vuln-hunter-x verify [options]
