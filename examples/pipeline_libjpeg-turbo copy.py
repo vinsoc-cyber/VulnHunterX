@@ -28,6 +28,8 @@ REPO_NAME = "libjpeg-turbo"
 LANGUAGE = "c"
 MAX_FINDINGS = 50  # Limit findings to process for demo
 
+_CLI = [sys.executable, "-m", "vuln_hunter_x.cli.main"]
+
 # =============================================================================
 # Pipeline Stages
 # =============================================================================
@@ -88,10 +90,10 @@ def stage_clone(dry_run: bool = False, skip: bool = False) -> bool:
     print(f"Build: CMake-based build system")
     print()
     
-    success, error = run_command([
-        "vuln-hunter-x", "clone",
-        "--repo", REPO_NAME,
-    ], dry_run)
+    success, error = run_command(
+        _CLI + ["clone", "--repo", REPO_NAME],
+        dry_run,
+    )
     
     if success:
         print(f"\n[OK] Repository cloned and database created")
@@ -114,11 +116,10 @@ def stage_analyze(dry_run: bool = False) -> bool:
     print("  - Format string vulnerabilities")
     print()
     
-    success, error = run_command([
-        "vuln-hunter-x", "analyze",
-        "--repo", REPO_NAME,
-        "-v",  # Verbose output
-    ], dry_run)
+    success, error = run_command(
+        _CLI + ["analyze", "--repo", REPO_NAME, "-v"],
+        dry_run,
+    )
     
     if success:
         print(f"\n[OK] Analysis complete - SARIF file generated")
@@ -140,10 +141,10 @@ def stage_extract_context(dry_run: bool = False) -> bool:
     print("  - macros.csv: Macro definitions")
     print()
     
-    success, error = run_command([
-        "vuln-hunter-x", "extract-context",
-        "--repo", REPO_NAME,
-    ], dry_run)
+    success, error = run_command(
+        _CLI + ["extract-context", "--repo", REPO_NAME],
+        dry_run,
+    )
     
     if success:
         print(f"\n[OK] Context CSVs extracted to output/context/{REPO_NAME}/")
@@ -168,8 +169,8 @@ def stage_verify(dry_run: bool = False, mode: str = "vulnhalla") -> bool:
     print(f"Max findings: {MAX_FINDINGS}")
     print()
     
-    cmd = [
-        "vuln-hunter-x", "verify",
+    cmd = _CLI + [
+        "verify",
         "--repo", REPO_NAME,
         "--mode", mode,
         "--limit", str(MAX_FINDINGS),
@@ -194,7 +195,7 @@ def stage_build_sanitized(dry_run: bool = False) -> bool:
     print("Building with ASan/UBSan for fuzz harness linking...")
     print()
     success, error = run_command(
-        ["vuln-hunter-x", "build-sanitized", "--repo", REPO_NAME],
+        _CLI + ["build-sanitized", "--repo", REPO_NAME],
         dry_run,
         timeout=2400,
     )
@@ -211,7 +212,7 @@ def stage_extract_fuzz_context(dry_run: bool = False) -> bool:
     print("Extracting function signatures and includes for harness generation...")
     print()
     success, error = run_command(
-        ["vuln-hunter-x", "extract-fuzz-context", "--repo", REPO_NAME],
+        _CLI + ["extract-fuzz-context", "--repo", REPO_NAME],
         dry_run,
     )
     if success:
@@ -227,7 +228,7 @@ def stage_generate_fuzz_drivers(dry_run: bool = False) -> bool:
     print("Generating libFuzzer harnesses from verified findings and building...")
     print()
     success, error = run_command(
-        ["vuln-hunter-x", "generate-fuzz-drivers", "--repo", REPO_NAME, "--verdict", "tp,nmd", "--build"],
+        _CLI + ["generate-fuzz-drivers", "--repo", REPO_NAME, "--verdict", "tp,nmd", "--build"],
         dry_run,
         timeout=600,
     )
@@ -248,8 +249,8 @@ def stage_fuzz_run(
     print(f"Running libFuzzer (timeout={timeout}s per harness, max_fuzz_time={max_fuzz_time}s)...")
     print()
     success, error = run_command(
-        [
-            "vuln-hunter-x", "fuzz-run",
+        _CLI + [
+            "fuzz-run",
             "--repo", REPO_NAME,
             "--timeout", str(timeout),
             "--max-fuzz-time", str(max_fuzz_time),

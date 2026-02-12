@@ -28,6 +28,8 @@ REPO_NAME = "dvpwa"
 LANGUAGE = "python"
 MAX_FINDINGS = 5  # Limit findings to process for demo
 
+_CLI = [sys.executable, "-m", "vuln_hunter_x.cli.main"]
+
 # =============================================================================
 # Pipeline Stages
 # =============================================================================
@@ -78,10 +80,10 @@ def stage_clone(dry_run: bool = False, skip: bool = False) -> bool:
     print(f"Build: No compilation required (interpreted language)")
     print()
     
-    success, error = run_command([
-        "vuln-hunter-x", "clone",
-        "--repo", REPO_NAME,
-    ], dry_run)
+    success, error = run_command(
+        _CLI + ["clone", "--repo", REPO_NAME],
+        dry_run,
+    )
     
     if success:
         print(f"\n[OK] Repository cloned and database created")
@@ -105,11 +107,10 @@ def stage_analyze(dry_run: bool = False) -> bool:
     print("  - XSS (Cross-Site Scripting)")
     print()
     
-    success, error = run_command([
-        "vuln-hunter-x", "analyze",
-        "--repo", REPO_NAME,
-        "-v",
-    ], dry_run)
+    success, error = run_command(
+        _CLI + ["analyze", "--repo", REPO_NAME, "-v"],
+        dry_run,
+    )
     
     if success:
         print(f"\n[OK] Analysis complete")
@@ -129,10 +130,10 @@ def stage_extract_context(dry_run: bool = False) -> bool:
     print("  - classes.csv: Class definitions and inheritance")
     print()
     
-    success, error = run_command([
-        "vuln-hunter-x", "extract-context",
-        "--repo", REPO_NAME,
-    ], dry_run)
+    success, error = run_command(
+        _CLI + ["extract-context", "--repo", REPO_NAME],
+        dry_run,
+    )
     
     if success:
         print(f"\n[OK] Context extracted")
@@ -157,8 +158,8 @@ def stage_verify(dry_run: bool = False, mode: str = "vulnhalla") -> bool:
     print(f"Max findings: {MAX_FINDINGS}")
     print()
     
-    cmd = [
-        "vuln-hunter-x", "verify",
+    cmd = _CLI + [
+        "verify",
         "--repo", REPO_NAME,
         "--mode", mode,
         "--limit", str(MAX_FINDINGS),
