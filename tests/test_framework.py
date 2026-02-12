@@ -11,7 +11,7 @@ import pytest
 # Import framework modules
 from vuln_hunter_x.core.types import Finding, Verdict, GuidedQuestions, VerificationResult
 from vuln_hunter_x.core.config import Config, load_config
-from vuln_hunter_x.sarif.parser import SarifParser, parse_sarif_file
+from vuln_hunter_x.sarif.parser import SarifParser, discover_sarif_files, parse_sarif_file
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.questions.loader import QuestionsLoader
@@ -191,6 +191,22 @@ class TestSarifParser:
         assert len(findings) == 1
         assert findings[0].rule_id == "test/rule"
         assert findings[0].start_line == 10
+
+    def test_discover_sarif_files_codeql_and_semgrep(self, tmp_path):
+        """Discover returns both CodeQL and Semgrep SARIF with correct repo_name."""
+        output_dir = tmp_path / "output"
+        lang_dir = output_dir / "c"
+        repo_dir = lang_dir / "myrepo"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "myrepo.sarif").write_text("{}")
+        (repo_dir / "myrepo_semgrep.sarif").write_text("{}")
+        results = discover_sarif_files(output_dir)
+        assert len(results) == 2
+        paths = {r[0].name for r in results}
+        assert paths == {"myrepo.sarif", "myrepo_semgrep.sarif"}
+        for _path, lang, repo_name in results:
+            assert lang == "c"
+            assert repo_name == "myrepo"
 
 
 class TestContextExtractor:
