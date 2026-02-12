@@ -143,6 +143,27 @@ def _add_clone_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for analyze command."""
+    parser.add_argument(
+        "--tool",
+        choices=["codeql", "semgrep", "both"],
+        default="codeql",
+        help="Analyzer(s) to run (default: codeql)",
+    )
+    parser.add_argument(
+        "--semgrep-config",
+        action="append",
+        dest="semgrep_configs",
+        help="Semgrep config, repeatable (default: auto)",
+    )
+    parser.add_argument(
+        "--codeql-suite",
+        help="CodeQL query suite (built-in ref or path to .qls)",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Path to repos.yaml (for Semgrep repo list)",
+    )
     parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
     parser.add_argument("--repo", help="Only this repository")
     parser.add_argument("--json", action="store_true", help="Also output findings JSON")
