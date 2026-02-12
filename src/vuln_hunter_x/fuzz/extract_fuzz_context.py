@@ -22,7 +22,7 @@ def extract_fuzz_context_for_db(
     db_path: Path,
     lang: str,
     repo_name: str,
-    context_output_dir: Path,
+    repo_context_dir: Path,
     queries_dir: Path,
     codeql_path: str = "codeql",
     dry_run: bool = False,
@@ -34,7 +34,7 @@ def extract_fuzz_context_for_db(
         db_path: CodeQL database path
         lang: Language (c or cpp)
         repo_name: Repository name
-        context_output_dir: Base context output dir (e.g. output/context)
+        repo_context_dir: Repo context dir (e.g. output/<lang>/<repo_name>/context)
         queries_dir: Queries base (e.g. config/queries/tools); cpp/*.ql live under it
         codeql_path: CodeQL CLI path
         dry_run: Only print actions
@@ -48,9 +48,9 @@ def extract_fuzz_context_for_db(
     extractor = ContextExtractorDB(
         codeql_path=codeql_path,
         queries_dir=queries_dir,
-        output_dir=context_output_dir,
+        output_dir=repo_context_dir.parent.parent.parent,  # output_dir for discover; we write to repo_context_dir
     )
-    repo_output = context_output_dir / repo_name
+    repo_output = repo_context_dir
     repo_output.mkdir(parents=True, exist_ok=True)
     ql_dir = queries_dir / "cpp"
     results: dict[str, tuple[bool, str]] = {}
@@ -68,8 +68,7 @@ def extract_fuzz_context_for_db(
 
 
 def extract_fuzz_context_all(
-    databases_dir: Path,
-    context_output_dir: Path,
+    output_dir: Path,
     queries_dir: Path,
     codeql_path: str = "codeql",
     lang_filter: str | None = None,
@@ -77,12 +76,13 @@ def extract_fuzz_context_all(
     dry_run: bool = False,
 ) -> list[tuple[str, str, dict[str, tuple[bool, str]]]]:
     """
-    Extract fuzz context for all C/C++ databases.
+    Extract fuzz context for all C/C++ databases under output_dir.
+    Writes to output_dir/<lang>/<repo_name>/context/.
 
     Returns:
         List of (repo_name, lang, results_dict)
     """
-    dbs = discover_databases(databases_dir)
+    dbs = discover_databases(output_dir)
     dbs = [(p, lang, n) for p, lang, n in dbs if lang in ("c", "cpp")]
     if lang_filter:
         dbs = [(p, lang, n) for p, lang, n in dbs if lang == lang_filter]
@@ -91,11 +91,12 @@ def extract_fuzz_context_all(
 
     out: list[tuple[str, str, dict[str, tuple[bool, str]]]] = []
     for db_path, lang, repo_name in dbs:
+        repo_context_dir = output_dir / lang / repo_name / "context"
         res = extract_fuzz_context_for_db(
             db_path,
             lang,
             repo_name,
-            context_output_dir,
+            repo_context_dir,
             queries_dir,
             codeql_path,
             dry_run,

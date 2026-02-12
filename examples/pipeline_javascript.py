@@ -208,7 +208,7 @@ def run_with_api() -> None:
     engine.on_finding_complete(on_complete)
     
     # Find SARIF file
-    sarif_path = Path(f"output/sarif/{LANGUAGE}/{REPO_NAME}.sarif")
+    sarif_path = Path(f"output/{LANGUAGE}/{REPO_NAME}/{REPO_NAME}.sarif")
     if not sarif_path.exists():
         print(f"[ERROR] SARIF file not found: {sarif_path}")
         print("Run the analysis stage first.")
@@ -253,7 +253,7 @@ def print_summary(results: dict[str, bool], elapsed: float) -> None:
         print()
         print("JavaScript Security Notes:")
         print("  - Prototype pollution is a common JS vulnerability")
-        print("  - Check output/results/ for detailed verdicts")
+        print(f"  - Check output/{LANGUAGE}/{REPO_NAME}/verification_results/ for detailed verdicts")
         print("  - Review the guided questions used for JS rules")
 
 

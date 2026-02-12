@@ -58,9 +58,10 @@ class CodeQLAnalyzer:
         """
         codeql_lang = "cpp" if lang in ("c", "cpp") else lang
         suite = suite or self.DEFAULT_SUITES.get(codeql_lang, self.DEFAULT_SUITES["cpp"])
-        output_name = output_name or db_path.name
+        # output_name is repo name; SARIF goes to output_dir/<lang>/<repo_name>/<repo_name>.sarif
+        output_name = output_name or db_path.parent.name if db_path.name == "database" else db_path.name
         
-        sarif_dir = self.output_dir / "sarif" / lang
+        sarif_dir = self.output_dir / lang / output_name
         sarif_dir.mkdir(parents=True, exist_ok=True)
         sarif_path = sarif_dir / f"{output_name}.sarif"
         
@@ -77,7 +78,19 @@ class CodeQLAnalyzer:
             self._log("  Finalizing database...")
             success, msg = self._finalize(db_path)
             if not success:
-                return False, None, f"Finalization failed: {msg}"
+                err = f"Finalization failed: {msg}"
+                msg_lower = msg.lower()
+                if (
+                    "could not process" in msg_lower
+                    or "no source code" in msg_lower
+                    or "no-source-code-seen" in msg_lower
+                ):
+                    err += (
+                        "\n\nTo fix: remove the database and re-run clone so it is recreated with a proper build:\n"
+                        f"  rm -rf {db_path}\n"
+                        f"  vuln-hunter-x clone --repo {output_name}"
+                    )
+                return False, None, err
             self._log(f"  Finalization: {msg}")
         
         # Run analysis

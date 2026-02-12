@@ -150,7 +150,7 @@ def parse_sarif_file(
 
 def discover_sarif_files(output_dir: Path) -> list[tuple[Path, str, str]]:
     """
-    Discover SARIF files under output/sarif/<lang>/<name>.sarif.
+    Discover SARIF files under output/<lang>/<repo_name>/<repo_name>.sarif.
     
     Args:
         output_dir: Base output directory
@@ -158,19 +158,22 @@ def discover_sarif_files(output_dir: Path) -> list[tuple[Path, str, str]]:
     Returns:
         List of (sarif_path, lang, repo_name) tuples
     """
-    sarif_dir = output_dir / "sarif"
-    if not sarif_dir.is_dir():
+    if not output_dir.is_dir():
         return []
     
     results: list[tuple[Path, str, str]] = []
     
-    for lang_dir in sarif_dir.iterdir():
+    for lang_dir in output_dir.iterdir():
         if not lang_dir.is_dir():
             continue
         lang = lang_dir.name
         
-        for sarif_file in lang_dir.glob("*.sarif"):
-            repo_name = sarif_file.stem
-            results.append((sarif_file, lang, repo_name))
+        for repo_dir in lang_dir.iterdir():
+            if not repo_dir.is_dir():
+                continue
+            repo_name = repo_dir.name
+            sarif_file = repo_dir / f"{repo_name}.sarif"
+            if sarif_file.is_file():
+                results.append((sarif_file, lang, repo_name))
     
     return results

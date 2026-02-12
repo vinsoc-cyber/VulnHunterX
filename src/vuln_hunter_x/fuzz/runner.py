@@ -69,24 +69,24 @@ def run_fuzzer(
 
 
 def run_fuzzers_for_repo(
-    repo_name: str,
-    fuzz_targets_dir: Path,
-    fuzz_results_dir: Path,
+    targets_dir: Path,
+    results_dir: Path,
+    repo_name: str | None = None,
     timeout_per_harness: int = 60,
     max_total_time: int = 30,
     dry_run: bool = False,
 ) -> tuple[list[dict], Path]:
     """
     Run all compiled harnesses for a repo (8.1–8.3).
-
-    Loads status.json; for each harness with status "compiled", runs the binary,
-    collects crashes, writes summary.json and crash artifacts under fuzz_results_dir/repo_name/.
+    targets_dir: output/<lang>/<repo>/fuzz_targets (contains status.json and .cc).
+    results_dir: output/<lang>/<repo>/fuzz_results.
 
     Returns:
         (list of result dicts, summary_path)
     """
-    targets_dir = Path(fuzz_targets_dir) / repo_name
-    results_dir = Path(fuzz_results_dir) / repo_name
+    targets_dir = Path(targets_dir)
+    results_dir = Path(results_dir)
+    repo_name = repo_name or targets_dir.parent.name
     status_path = targets_dir / "status.json"
     if not status_path.is_file():
         return [], results_dir / "summary.json"
@@ -164,39 +164,43 @@ def run_fuzzers_for_repo(
 
 
 def run_all_fuzzers(
-    fuzz_targets_dir: Path,
-    fuzz_results_dir: Path,
+    output_dir: Path,
     repo_filter: str | None = None,
     timeout_per_harness: int = 60,
     max_total_time: int = 30,
     dry_run: bool = False,
 ) -> list[tuple[str, list[dict], Path]]:
     """
-    Run fuzzers for all repos that have status.json with at least one "compiled" harness.
+    Run fuzzers for all repos under output_dir/<lang>/<repo>/fuzz_targets that have status.json.
 
     Returns:
         List of (repo_name, results, summary_path)
     """
-    targets_dir = Path(fuzz_targets_dir)
-    if not targets_dir.is_dir():
+    output_dir = Path(output_dir)
+    if not output_dir.is_dir():
         return []
     out: list[tuple[str, list[dict], Path]] = []
-    for repo_dir in targets_dir.iterdir():
-        if not repo_dir.is_dir():
+    for lang_dir in output_dir.iterdir():
+        if not lang_dir.is_dir():
             continue
-        repo_name = repo_dir.name
-        if repo_filter and repo_name.lower() != repo_filter.lower():
-            continue
-        status_path = repo_dir / "status.json"
-        if not status_path.is_file():
-            continue
-        results, summary_path = run_fuzzers_for_repo(
-            repo_name,
-            fuzz_targets_dir=fuzz_targets_dir,
-            fuzz_results_dir=fuzz_results_dir,
-            timeout_per_harness=timeout_per_harness,
-            max_total_time=max_total_time,
-            dry_run=dry_run,
-        )
-        out.append((repo_name, results, summary_path))
+        for repo_dir in lang_dir.iterdir():
+            if not repo_dir.is_dir():
+                continue
+            repo_name = repo_dir.name
+            if repo_filter and repo_name.lower() != repo_filter.lower():
+                continue
+            targets_dir = repo_dir / "fuzz_targets"
+            results_dir = repo_dir / "fuzz_results"
+            status_path = targets_dir / "status.json"
+            if not status_path.is_file():
+                continue
+            results, summary_path = run_fuzzers_for_repo(
+                targets_dir=targets_dir,
+                results_dir=results_dir,
+                repo_name=repo_name,
+                timeout_per_harness=timeout_per_harness,
+                max_total_time=max_total_time,
+                dry_run=dry_run,
+            )
+            out.append((repo_name, results, summary_path))
     return out

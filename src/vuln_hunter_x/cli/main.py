@@ -257,7 +257,7 @@ def cmd_clone(args: argparse.Namespace) -> int:
     
     manager = RepositoryManager(
         repos_dir=base_path / "repos",
-        databases_dir=base_path / "databases",
+        output_dir=base_path / "output",
         codeql_path=codeql_path,
     )
     
@@ -303,10 +303,11 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     if verbose:
         analyzer.set_logger(lambda msg: print(msg))
     
-    dbs = discover_databases(base_path / "databases")
+    output_dir = base_path / "output"
+    dbs = discover_databases(output_dir)
     
     if verbose:
-        print(f"Found {len(dbs)} database(s) in {base_path / 'databases'}")
+        print(f"Found {len(dbs)} database(s) under {output_dir}")
         for db_path, lang, name in dbs:
             print(f"  - {lang}/{name}: {db_path}")
         print()
@@ -330,7 +331,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print(f"[{name}] {lang}")
         
         # Check if SARIF already exists (skip unless --force)
-        sarif_path = base_path / "output" / "sarif" / lang / f"{name}.sarif"
+        sarif_path = base_path / "output" / lang / name / f"{name}.sarif"
         if sarif_path.exists() and not force:
             # Count findings in existing SARIF
             try:
@@ -379,10 +380,10 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
     base_path = Path.cwd()
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
     force = getattr(args, 'force', False)
-    context_dir = base_path / "output" / "context"
+    output_dir = base_path / "output"
     
     # Discover databases first to check for existing context
-    dbs = discover_databases(base_path / "databases")
+    dbs = discover_databases(output_dir)
     
     if args.lang:
         dbs = [(p, lang, n) for p, lang, n in dbs if lang == args.lang]
@@ -400,7 +401,7 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
     skip_count = 0
     
     for db_path, lang, name in dbs:
-        repo_context_dir = context_dir / name
+        repo_context_dir = output_dir / lang / name / "context"
         csv_files = list(repo_context_dir.glob("*.csv")) if repo_context_dir.exists() else []
         
         if csv_files and not force:
@@ -417,12 +418,12 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
     extractor = ContextExtractorDB(
         codeql_path=codeql_path,
         queries_dir=base_path / "config" / "queries" / "tools",
-        output_dir=context_dir,
+        output_dir=output_dir,
     )
     
     # Filter to only process repos that need extraction
     results = extractor.extract_all(
-        databases_dir=base_path / "databases",
+        output_dir=output_dir,
         lang_filter=args.lang,
         repo_filter=args.repo if len(repos_to_process) == len(dbs) else None,
         dry_run=args.dry_run,
@@ -606,15 +607,8 @@ def cmd_build_sanitized(args: argparse.Namespace) -> int:
         print("No C/C++ repositories to build.", file=sys.stderr)
         return 1
 
-    # Paths: use config or defaults
-    default_builds = base_path / "builds"
-    default_repos = base_path / "repos"
-    builds_dir = getattr(args, "builds_dir", None) or default_builds
-    repos_dir = getattr(args, "repos_dir", None) or default_repos
-    if not isinstance(builds_dir, Path):
-        builds_dir = Path(builds_dir)
-    if not isinstance(repos_dir, Path):
-        repos_dir = Path(repos_dir)
+    repos_dir = base_path / "repos"
+    output_dir = base_path / "output"
 
     print("Build sanitized (C/C++)\n")
     ok_count = 0
@@ -628,12 +622,13 @@ def cmd_build_sanitized(args: argparse.Namespace) -> int:
             print(f"[{name}] [dry-run] Would run sanitized build")
             ok_count += 1
             continue
+        sanitized_build_dir = output_dir / lang / name / "sanitized_build"
         ok, msg, manifest_path = build_sanitized(
             name=name,
             lang=lang,
             repo_config=repo,
             repos_dir=repos_dir,
-            builds_dir=builds_dir,
+            sanitized_build_dir=sanitized_build_dir,
             force=args.force,
         )
         status = "OK" if ok else "FAIL"
@@ -651,25 +646,12 @@ def cmd_extract_fuzz_context(args: argparse.Namespace) -> int:
     from vuln_hunter_x.fuzz.extract_fuzz_context import extract_fuzz_context_all
 
     base_path = Path.cwd()
-    config_path = args.config or base_path / "config" / "confirm_findings.yaml"
-    if config_path.exists():
-        config = load_config(config_path, base_path)
-        context_dir = config.paths.context_dir
-        queries_dir = config.paths.queries_dir / "tools"
-        databases_dir = config.paths.databases_dir
-    else:
-        context_dir = base_path / "output" / "context"
-        queries_dir = base_path / "config" / "queries" / "tools"
-        databases_dir = base_path / "databases"
-
-    if not databases_dir.is_dir():
-        print(f"Databases dir not found: {databases_dir}", file=sys.stderr)
-        return 1
+    output_dir = base_path / "output"
+    queries_dir = base_path / "config" / "queries" / "tools"
 
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
     results = extract_fuzz_context_all(
-        databases_dir=databases_dir,
-        context_output_dir=context_dir,
+        output_dir=output_dir,
         queries_dir=queries_dir,
         codeql_path=codeql_path,
         lang_filter=args.lang,
@@ -700,27 +682,12 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
     from vuln_hunter_x.fuzz.generate_drivers import generate_fuzz_drivers, build_and_record
 
     base_path = Path.cwd()
+    output_dir = base_path / "output"
     config_path = args.config or base_path / "config" / "confirm_findings.yaml"
-    config = None
-    if config_path.exists():
-        config = load_config(config_path, base_path)
-        results_dir = config.paths.output_dir / "results"
-        context_dir = config.paths.context_dir
-        output_dir = config.paths.output_dir
-        fuzz_targets_dir = config.paths.fuzz_targets_dir
-        builds_dir = config.paths.builds_dir
-    else:
-        results_dir = base_path / "output" / "results"
-        context_dir = base_path / "output" / "context"
-        output_dir = base_path / "output"
-        fuzz_targets_dir = base_path / "output" / "fuzz_targets"
-        builds_dir = base_path / "builds"
+    config = load_config(config_path, base_path) if config_path.exists() else None
 
     results = generate_fuzz_drivers(
-        results_dir=results_dir,
-        context_dir=context_dir,
         output_dir=output_dir,
-        fuzz_targets_dir=fuzz_targets_dir,
         repo_filter=args.repo,
         lang_filter=args.lang,
         verdict_filter=args.verdict,
@@ -745,8 +712,7 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
         print("\nBuild harnesses (Stage 7.4–7.6)\n")
         build_results = build_and_record(
             results,
-            builds_dir=builds_dir,
-            fuzz_targets_dir=fuzz_targets_dir,
+            output_dir=output_dir,
             llm_fix=args.llm_fix,
             max_fix_iterations=args.max_fix_iterations,
             llm_provider=config.llm.provider if config else "openai",
@@ -756,8 +722,8 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
         for repo_name, entries in build_results:
             for e in entries:
                 print(f"  [{repo_name}] {e['harness']}: {e['status']}")
-            status_path = fuzz_targets_dir / repo_name / "status.json"
-            print(f"  -> {status_path}")
+            # status.json lives under output/<lang>/<repo>/fuzz_targets (lang from first finding for this repo)
+            print(f"  -> output/<lang>/{repo_name}/fuzz_targets/status.json")
     return 0
 
 
@@ -766,18 +732,10 @@ def cmd_fuzz_run(args: argparse.Namespace) -> int:
     from vuln_hunter_x.fuzz.runner import run_all_fuzzers
 
     base_path = Path.cwd()
-    config_path = args.config or base_path / "config" / "confirm_findings.yaml"
-    if config_path.exists():
-        config = load_config(config_path, base_path)
-        fuzz_targets_dir = config.paths.fuzz_targets_dir
-        fuzz_results_dir = config.paths.fuzz_results_dir
-    else:
-        fuzz_targets_dir = base_path / "output" / "fuzz_targets"
-        fuzz_results_dir = base_path / "output" / "fuzz_results"
+    output_dir = base_path / "output"
 
     results = run_all_fuzzers(
-        fuzz_targets_dir=fuzz_targets_dir,
-        fuzz_results_dir=fuzz_results_dir,
+        output_dir=output_dir,
         repo_filter=args.repo,
         timeout_per_harness=args.timeout,
         max_total_time=args.max_fuzz_time,
@@ -838,9 +796,7 @@ def cmd_info(args: argparse.Namespace) -> int:
     print()
     print("Paths:")
     print(f"  Repos: {config.paths.repos_dir}")
-    print(f"  Databases: {config.paths.databases_dir}")
     print(f"  Output: {config.paths.output_dir}")
-    print(f"  Context: {config.paths.context_dir}")
     
     return 0
 

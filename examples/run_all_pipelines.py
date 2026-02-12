@@ -126,7 +126,7 @@ def load_repos(config_path: Path) -> list[dict]:
 
 def check_sarif_exists(repo_name: str, lang: str, base_path: Path) -> tuple[bool, int]:
     """Check if SARIF file exists and return findings count."""
-    sarif_path = base_path / "output" / "sarif" / lang / f"{repo_name}.sarif"
+    sarif_path = base_path / "output" / lang / repo_name / f"{repo_name}.sarif"
     if not sarif_path.exists():
         return False, 0
     try:
@@ -138,9 +138,9 @@ def check_sarif_exists(repo_name: str, lang: str, base_path: Path) -> tuple[bool
         return True, 0
 
 
-def check_context_exists(repo_name: str, base_path: Path) -> tuple[bool, int]:
+def check_context_exists(repo_name: str, lang: str, base_path: Path) -> tuple[bool, int]:
     """Check if context CSVs exist and return file count."""
-    context_dir = base_path / "output" / "context" / repo_name
+    context_dir = base_path / "output" / lang / repo_name / "context"
     if not context_dir.exists():
         return False, 0
     csv_files = list(context_dir.glob("*.csv"))
@@ -149,13 +149,13 @@ def check_context_exists(repo_name: str, base_path: Path) -> tuple[bool, int]:
 
 def check_database_exists(repo_name: str, lang: str, base_path: Path) -> bool:
     """Check if CodeQL database exists."""
-    db_path = base_path / "databases" / lang / repo_name
-    return db_path.exists() and (db_path / "codeql-database.yml").exists()
+    db_path = base_path / "output" / lang / repo_name / "database"
+    return db_path.is_dir() and (db_path / "codeql-database.yml").exists()
 
 
 def get_sarif_findings_count(repo_name: str, lang: str, base_path: Path) -> int:
     """Get the number of findings from a SARIF file."""
-    sarif_path = base_path / "output" / "sarif" / lang / f"{repo_name}.sarif"
+    sarif_path = base_path / "output" / lang / repo_name / f"{repo_name}.sarif"
     if not sarif_path.exists():
         return 0
     try:
@@ -173,8 +173,8 @@ def get_verification_stats(base_path: Path) -> dict:
     Returns:
         Dictionary with verdict counts and details
     """
-    results_dir = base_path / "output" / "results"
-    if not results_dir.exists():
+    output_dir = base_path / "output"
+    if not output_dir.is_dir():
         return {}
     
     stats = {
@@ -184,11 +184,10 @@ def get_verification_stats(base_path: Path) -> dict:
         "by_language": {},
     }
     
-    # Scan individual result JSON files (not summaries)
-    for lang_dir in results_dir.iterdir():
-        if not lang_dir.is_dir() or lang_dir.name.startswith("summary"):
+    # Scan output/<lang>/<repo>/verification_results/*.json (skip summary_*.json)
+    for lang_dir in output_dir.iterdir():
+        if not lang_dir.is_dir():
             continue
-        
         lang = lang_dir.name
         if lang not in stats["by_language"]:
             stats["by_language"][lang] = {"total": 0, "verdicts": {}}
@@ -196,12 +195,16 @@ def get_verification_stats(base_path: Path) -> dict:
         for repo_dir in lang_dir.iterdir():
             if not repo_dir.is_dir():
                 continue
-            
             repo_name = repo_dir.name
+            ver_dir = repo_dir / "verification_results"
+            if not ver_dir.is_dir():
+                continue
             if repo_name not in stats["by_repo"]:
                 stats["by_repo"][repo_name] = {"total": 0, "verdicts": {}}
             
-            for result_file in repo_dir.glob("*.json"):
+            for result_file in ver_dir.glob("*.json"):
+                if result_file.name.startswith("summary_"):
+                    continue
                 try:
                     with open(result_file) as f:
                         result = json.load(f)
@@ -350,8 +353,9 @@ def stage_verify(
     base_path = base_path or Path.cwd()
     
     # Check if verification results already exist for this repo
-    results_dir = base_path / "output" / "results" / lang / repo_name
-    existing_results = list(results_dir.glob("*.json")) if results_dir.exists() else []
+    results_dir = base_path / "output" / lang / repo_name / "verification_results"
+    all_jsons = list(results_dir.glob("*.json")) if results_dir.exists() else []
+    existing_results = [f for f in all_jsons if not f.name.startswith("summary_")]
     
     if existing_results and not force:
         # Count verdicts from existing results

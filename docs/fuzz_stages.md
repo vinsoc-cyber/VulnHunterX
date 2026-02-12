@@ -9,8 +9,8 @@ Builds the repository with AddressSanitizer and UBSan in a **separate** director
 ### Sub-stages
 
 - **5.1 Prepare build env**: Sets `CC=clang`, `CXX=clang++`, `CFLAGS`/`CXXFLAGS`/`LDFLAGS` with sanitizer flags. Build command comes from `sanitized_build_command` or `build_command` in `config/repos.yaml`.
-- **5.2 Run sanitized build**: Copies repo to `builds/<lang>/<repo>/src` and runs the build there (out-of-tree dir `build_sanitized` used when applicable).
-- **5.3 Write manifest**: Writes `builds/<lang>/<repo>/manifest.json` with `libs`, `objects`, `include_dirs`, and `source_root`.
+- **5.2 Run sanitized build**: Copies repo to `output/<lang>/<repo>/sanitized_build/src` and runs the build there (out-of-tree dir `build_sanitized` used when applicable).
+- **5.3 Write manifest**: Writes `output/<lang>/<repo>/sanitized_build/manifest.json` with `libs`, `objects`, `include_dirs`, and `source_root`.
 
 ### CLI
 
@@ -24,7 +24,7 @@ vuln-hunter-x build-sanitized --dry-run       # Preview
 ### Config
 
 - **config/repos.yaml**: Optional per-repo `sanitized_build_command` and `sanitizer_flags` (e.g. `cflags`, `ldflags`).
-- **Paths**: `builds_dir` (default `builds/`) can be set in `config/confirm_findings.yaml` under `paths.builds_dir`.
+- **Paths**: Sanitized build output is always `output/<lang>/<repo>/sanitized_build/`.
 
 ### Prerequisites
 
@@ -41,7 +41,7 @@ Runs CodeQL queries to produce CSVs used when generating fuzz harnesses: functio
 
 - **6.1 CodeQL queries**: `config/queries/tools/cpp/function_signatures.ql` (one row per parameter), `config/queries/tools/cpp/includes.ql`.
 - **6.2 Run extraction**: For each C/C++ database, run these queries via CodeQL CLI and decode BQRS to CSV.
-- **6.3 Emit CSVs**: Write `output/context/<repo>/function_signatures.csv` and `output/context/<repo>/includes.csv`.
+- **6.3 Emit CSVs**: Write `output/<lang>/<repo>/context/function_signatures.csv` and `output/<lang>/<repo>/context/includes.csv`.
 
 ### CLI
 
@@ -66,7 +66,7 @@ Generate libFuzzer harness source (`.cc`) from verified findings, then compile/l
 
 - **7.1 Select targets**: From verification results (or SARIF if `--verdict all`), filter by verdict (default: True Positive, Needs More Data). Resolve (file, line) → enclosing function via `functions.csv` or `function_signatures.csv`.
 - **7.2 Gather per-target context**: For each target, load signature (params) and includes from Stage 6 CSVs.
-- **7.3 Generate harness source**: For each target, write a `.cc` with `#include` from context, `FuzzedDataProvider`, and `LLVMFuzzerTestOneInput` calling the target function. Output: `output/fuzz_targets/<repo>/<rule>_<file>_<line>.cc`.
+- **7.3 Generate harness source**: For each target, write a `.cc` with `#include` from context, `FuzzedDataProvider`, and `LLVMFuzzerTestOneInput` calling the target function. Output: `output/<lang>/<repo>/fuzz_targets/<rule>_<file>_<line>.cc`.
 
 ### CLI (generation only)
 
@@ -79,15 +79,15 @@ vuln-hunter-x generate-fuzz-drivers --dry-run
 
 ### Prerequisites
 
-- Verification results under `output/results/` (or use `--verdict all` to use SARIF only).
-- Stage 6 context: `output/context/<repo>/function_signatures.csv` and `includes.csv`.
+- Verification results under `output/<lang>/<repo>/verification_results/` (or use `--verdict all` to use SARIF only).
+- Stage 6 context: `output/<lang>/<repo>/context/function_signatures.csv` and `includes.csv`.
 - Optionally `functions.csv` (from extract-context) for enclosing function resolution.
 
 ### Sub-stages 7.4–7.6 (compile, LLM fix, status)
 
 - **7.4 Compile and link**: For each harness, run `clang++ -c -fsanitize=fuzzer,address -g -O2 -I... harness.cc` then link with Stage 5 manifest (objects/libs from `build_sanitized`). Capture stderr and normalize for LLM.
 - **7.5 LLM fix loop (optional)**: If `--llm-fix` and build failed, send harness source + command + errors to LLM; replace source; re-run 7.4; repeat up to `--max-fix-iterations`. Response must contain `LLVMFuzzerTestOneInput`.
-- **7.6 Record status**: Per harness: `compiled`, `compile_failed`, `link_failed`, `llm_fix_failed`, or `manifest_missing`. Write `output/fuzz_targets/<repo>/status.json`.
+- **7.6 Record status**: Per harness: `compiled`, `compile_failed`, `link_failed`, `llm_fix_failed`, or `manifest_missing`. Write `output/<lang>/<repo>/fuzz_targets/status.json`.
 
 ### CLI (with build)
 
@@ -111,8 +111,8 @@ Run libFuzzer for each harness that reached `compiled` in Stage 7; collect crash
 ### Sub-stages
 
 - **8.1 Compile (if needed)**: Binaries are produced in Stage 7.4 next to each `.cc` (no extension). No extra compile step.
-- **8.2 Run libFuzzer**: For each binary, run with `-max_total_time=N`, `-artifact_prefix=crash-`, and `ASAN_OPTIONS=abort_on_error=1`. Crashes are written under `output/fuzz_results/<repo>/<harness_stem>/`.
-- **8.3 Summarize**: Write `output/fuzz_results/<repo>/summary.json` with per-harness: `crashed`, `crash_count`, `crash_files`, `time_sec`, `log_snippet`. Map finding → crash yes/no for reporting.
+- **8.2 Run libFuzzer**: For each binary, run with `-max_total_time=N`, `-artifact_prefix=crash-`, and `ASAN_OPTIONS=abort_on_error=1`. Crashes are written under `output/<lang>/<repo>/fuzz_results/<harness_stem>/`.
+- **8.3 Summarize**: Write `output/<lang>/<repo>/fuzz_results/summary.json` with per-harness: `crashed`, `crash_count`, `crash_files`, `time_sec`, `log_snippet`. Map finding → crash yes/no for reporting.
 
 ### CLI
 

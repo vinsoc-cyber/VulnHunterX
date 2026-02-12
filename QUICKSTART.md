@@ -48,7 +48,7 @@ vuln-hunter-x verify --repo pyyaml --limit 5
 ## View Results
 
 ```bash
-cat output/results/summary_*.json
+cat output/<lang>/<repo>/verification_results/summary_*.json
 ```
 
 Output shows verdicts (True Positive, False Positive, Needs More Data) with confidence and reasoning.

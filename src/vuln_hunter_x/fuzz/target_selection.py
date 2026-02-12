@@ -34,25 +34,26 @@ def _finding_from_dict(d: dict) -> Finding:
 
 
 def load_verification_verdicts(
-    results_dir: Path,
+    output_dir: Path,
     repo_filter: str | None = None,
     lang_filter: str | None = None,
     verdict_filter: list[str] | None = None,
 ) -> list[tuple[Finding, str]]:
     """
-    Load verification result JSONs and return (finding, verdict) for matching verdicts.
+    Load verification result JSONs from output_dir/<lang>/<repo>/verification_results/
+    and return (finding, verdict) for matching verdicts.
 
     verdict_filter: e.g. ["True Positive", "Needs More Data"]. If None, all verdicts.
     """
     if verdict_filter is None:
         verdict_filter = [VERDICT_TP, VERDICT_NMD]
-    results_dir = Path(results_dir)
-    if not results_dir.is_dir():
+    output_dir = Path(output_dir)
+    if not output_dir.is_dir():
         return []
 
     out: list[tuple[Finding, str]] = []
-    for lang_dir in results_dir.iterdir():
-        if not lang_dir.is_dir() or lang_dir.name in ("summary", "summaries"):
+    for lang_dir in output_dir.iterdir():
+        if not lang_dir.is_dir():
             continue
         lang = lang_dir.name
         if lang_filter and lang != lang_filter:
@@ -65,7 +66,10 @@ def load_verification_verdicts(
             repo_name = repo_dir.name
             if repo_filter and repo_name.lower() != repo_filter.lower():
                 continue
-            for json_file in repo_dir.glob("*.json"):
+            ver_dir = repo_dir / "verification_results"
+            if not ver_dir.is_dir():
+                continue
+            for json_file in ver_dir.glob("*.json"):
                 if json_file.name.startswith("summary_"):
                     continue
                 try:
@@ -112,16 +116,15 @@ def _normalize_path(p: str) -> str:
 def find_enclosing_function(
     file: str,
     line: int,
-    repo_name: str,
-    context_dir: Path,
+    repo_context_dir: Path,
 ) -> dict | None:
     """
     Resolve (file, line) to enclosing function using functions.csv or function_signatures.csv.
 
+    repo_context_dir: output/<lang>/<repo_name>/context (contains functions.csv, etc.)
     Returns dict with name, file, start_line, end_line or None if not found.
     """
-    context_dir = Path(context_dir)
-    repo_ctx = context_dir / repo_name
+    repo_ctx = Path(repo_context_dir)
     file_norm = _normalize_path(file)
 
     # Prefer functions.csv (one row per function with start/end)
@@ -175,8 +178,6 @@ def find_enclosing_function(
 
 
 def select_targets(
-    results_dir: Path,
-    context_dir: Path,
     output_dir: Path,
     repo_filter: str | None = None,
     lang_filter: str | None = None,
@@ -185,10 +186,12 @@ def select_targets(
 ) -> list[tuple[Finding, str, dict]]:
     """
     Stage 7.1: Produce list of (finding, verdict, target_function_info).
+    Uses output_dir/<lang>/<repo>/verification_results and output_dir/<lang>/<repo>/context.
 
     verdict_filter: "tp,nmd" (default), "tp", "all", etc. "all" = use SARIF only.
-    use_verification: if True and verdict_filter not "all", load from results_dir.
+    use_verification: if True and verdict_filter not "all", load from output_dir.
     """
+    output_dir = Path(output_dir)
     if verdict_filter.lower() == "all":
         findings = get_findings_from_sarif(output_dir, repo_filter=repo_filter, lang_filter=lang_filter)
         verdicts_for_finding = [(f, "all") for f in findings]
@@ -207,23 +210,22 @@ def select_targets(
                 wanted.append(v)
         if not wanted:
             wanted = [VERDICT_TP, VERDICT_NMD]
-        if use_verification and Path(results_dir).is_dir():
+        if use_verification and output_dir.is_dir():
             verdicts_for_finding = load_verification_verdicts(
-                results_dir, repo_filter=repo_filter, lang_filter=lang_filter, verdict_filter=wanted
+                output_dir, repo_filter=repo_filter, lang_filter=lang_filter, verdict_filter=wanted
             )
         else:
-            # Only use verification results for verdict-filtered mode; do not fall back to all SARIF
             verdicts_for_finding = []
 
     targets: list[tuple[Finding, str, dict]] = []
     for finding, verdict in verdicts_for_finding:
         if finding.lang not in ("c", "cpp"):
             continue
+        repo_context_dir = output_dir / finding.lang / finding.repo_name / "context"
         info = find_enclosing_function(
             finding.file,
             finding.start_line,
-            finding.repo_name,
-            context_dir,
+            repo_context_dir,
         )
         if info is None:
             continue

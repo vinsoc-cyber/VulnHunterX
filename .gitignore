@@ -1,7 +1,6 @@
-# Phase 2: cloned repos and CodeQL databases
+# Phase 2: cloned repos; all stage outputs under output/
 repos/
-databases/
-builds/
+output/
 .codeql_build.sh
 
 # Env and build

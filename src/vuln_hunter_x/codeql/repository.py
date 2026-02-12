@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import shutil
 from pathlib import Path
 
 import yaml
@@ -191,11 +192,11 @@ class RepositoryManager:
     def __init__(
         self,
         repos_dir: Path,
-        databases_dir: Path,
+        output_dir: Path,
         codeql_path: str = "codeql",
     ):
         self.repos_dir = Path(repos_dir)
-        self.databases_dir = Path(databases_dir)
+        self.output_dir = Path(output_dir)
         self.codeql_path = codeql_path
     
     def clone_and_create_db(
@@ -225,8 +226,8 @@ class RepositoryManager:
         Returns:
             Tuple of (success, message)
         """
-        repo_dir = self.repos_dir / language / name
-        db_dir = self.databases_dir / language / name
+        repo_dir = (self.repos_dir / language / name).resolve()
+        db_dir = (self.output_dir / language / name / "database").resolve()
         
         # Clone
         if not skip_clone:
@@ -247,7 +248,37 @@ class RepositoryManager:
             return False, "C/C++ requires build_command"
         
         if db_dir.exists():
-            return True, "Database already exists"
+            if dry_run:
+                return True, "Database already exists"
+            if ql_lang != "cpp":
+                return True, "Database already exists"
+            # C/C++: validate existing DB by running finalize
+            try:
+                r = subprocess.run(
+                    [self.codeql_path, "database", "finalize", str(db_dir)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                out = (r.stderr or "") + (r.stdout or "")
+                out_lower = out.lower()
+                if r.returncode == 0:
+                    return True, "Database already exists"
+                if "already finalized" in out_lower or "no longer under construction" in out_lower or "nothing to do" in out_lower:
+                    return True, "Database already exists"
+                if (
+                    "could not process" in out_lower
+                    or "no source code" in out_lower
+                    or "no-source-code-seen" in out_lower
+                ):
+                    shutil.rmtree(db_dir)
+                    # Fall through to create database
+                else:
+                    return False, f"Existing database could not be finalized: {(out[:500] + '...') if len(out) > 500 else out}"
+            except subprocess.TimeoutExpired:
+                return False, "Existing database finalization check timed out"
+            except Exception as e:
+                return False, f"Existing database finalization check failed: {e}"
         
         if dry_run:
             return True, f"[dry-run] Would create database at {db_dir}"
@@ -265,7 +296,7 @@ class RepositoryManager:
         
         if build_command:
             script_path = write_build_script(repo_dir, build_command)
-            cmd.append(f"--command={script_path}")
+            cmd.append(f"--command={script_path.resolve()}")
         
         try:
             result = subprocess.run(
@@ -288,7 +319,8 @@ class RepositoryManager:
                 if recommendation:
                     return False, f"Database creation failed.\n\nLLM Recommendation:\n{recommendation}"
             
-            return False, f"Database creation failed: {error[:500]}"
+            err_msg = error if len(error) <= 800 else (error[:200] + "\n... (truncated) ...\n" + error[-600:])
+            return False, f"Database creation failed: {err_msg}"
             
         except subprocess.TimeoutExpired:
             return False, "Database creation timed out"

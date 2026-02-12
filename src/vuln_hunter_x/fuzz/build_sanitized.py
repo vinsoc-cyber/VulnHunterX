@@ -141,7 +141,7 @@ def write_manifest(
     Sub-stage 5.3: Write manifest with libs, objects, and include_dirs.
 
     Args:
-        build_src_dir: Directory containing the built tree (e.g. builds/<lang>/<repo>/src).
+        build_src_dir: Directory containing the built tree (e.g. output/<lang>/<repo>/sanitized_build/src).
         manifest_path: Where to write manifest.json.
         repo_root_for_includes: Repository root for include paths (same as build_src_dir when we copied repo).
     """
@@ -167,7 +167,7 @@ def build_sanitized(
     lang: str,
     repo_config: dict[str, Any],
     repos_dir: Path,
-    builds_dir: Path,
+    sanitized_build_dir: Path,
     force: bool = False,
     timeout: int = 1800,
 ) -> tuple[bool, str, Path | None]:
@@ -179,7 +179,7 @@ def build_sanitized(
         lang: Language (c or cpp).
         repo_config: Repo entry from repos.yaml.
         repos_dir: Path to repos directory (e.g. repos/).
-        builds_dir: Path to builds directory (e.g. builds/).
+        sanitized_build_dir: Output dir for this repo (e.g. output/<lang>/<name>/sanitized_build).
         force: If True, rebuild even if manifest exists.
         timeout: Build timeout in seconds.
 
@@ -190,12 +190,12 @@ def build_sanitized(
         return False, f"Sanitized build only supported for c/cpp, got {lang}", None
 
     repos_dir = Path(repos_dir).resolve()
-    builds_dir = Path(builds_dir).resolve()
+    sanitized_build_dir = Path(sanitized_build_dir).resolve()
     repo_src = repos_dir / lang / name
     if not repo_src.is_dir():
         return False, f"Repository not found: {repo_src}", None
 
-    out_dir = builds_dir / lang / name
+    out_dir = sanitized_build_dir
     src_copy = out_dir / "src"
     manifest_path = out_dir / "manifest.json"
 
@@ -206,7 +206,7 @@ def build_sanitized(
     if not build_cmd:
         return False, "No build_command for this repo", None
 
-    # Copy repo to builds/<lang>/<name>/src (exclude .git)
+    # Copy repo to sanitized_build_dir/src (exclude .git)
     if src_copy.exists():
         shutil.rmtree(src_copy)
     shutil.copytree(repo_src, src_copy, ignore=shutil.ignore_patterns(".git", "*.pyc", "__pycache__"))

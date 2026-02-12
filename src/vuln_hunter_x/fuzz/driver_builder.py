@@ -47,7 +47,7 @@ def build_harness(
 
     Args:
         harness_cc: Path to .cc file
-        manifest_path: Path to manifest.json (builds/<lang>/<repo>/manifest.json)
+        manifest_path: Path to manifest.json (output/<lang>/<repo>/sanitized_build/manifest.json)
         output_binary: Path for fuzz binary; default harness_cc.with_suffix('')
         cxx: C++ compiler
         timeout: Timeout in seconds
@@ -134,28 +134,24 @@ def _normalize_errors(text: str, max_lines: int = MAX_ERROR_LINES) -> str:
     return "\n".join(lines)
 
 
-def find_manifest_for_repo(builds_dir: Path, repo_name: str) -> Path | None:
-    """Return path to manifest.json for repo (try c and cpp)."""
-    for lang in ("c", "cpp"):
-        p = builds_dir / lang / repo_name / "manifest.json"
-        if p.is_file():
-            return p
-    return None
+def find_manifest_for_repo(output_dir: Path, lang: str, repo_name: str) -> Path | None:
+    """Return path to manifest.json: output_dir/<lang>/<repo_name>/sanitized_build/manifest.json."""
+    p = output_dir / lang / repo_name / "sanitized_build" / "manifest.json"
+    return p if p.is_file() else None
 
 
 def write_harness_status(
     repo_name: str,
     entries: list[dict],
-    fuzz_targets_dir: Path,
+    repo_fuzz_targets_dir: Path,
 ) -> Path:
     """
     Stage 7.6: Write status.json for a repo's harnesses.
-
-    entries: list of {"harness": path_or_name, "status": "compiled"|"compile_failed"|"link_failed"|"llm_fix_failed", "errors": str}
+    repo_fuzz_targets_dir: output/<lang>/<repo_name>/fuzz_targets.
     """
-    out_dir = fuzz_targets_dir / repo_name
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / "status.json"
+    repo_fuzz_targets_dir = Path(repo_fuzz_targets_dir)
+    repo_fuzz_targets_dir.mkdir(parents=True, exist_ok=True)
+    path = repo_fuzz_targets_dir / "status.json"
     # Serialize paths as str for JSON
     data = []
     for e in entries:

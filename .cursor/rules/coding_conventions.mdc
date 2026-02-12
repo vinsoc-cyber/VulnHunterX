@@ -1,0 +1,77 @@
+---
+description: Python coding conventions for VulnHunterX - type hints, style, structure
+alwaysApply: false
+globs: ["**/*.py", "**/pyproject.toml"]
+---
+
+# Coding Conventions
+
+## Python style
+
+- **PEP 8**: Follow PEP 8. Use 4 spaces (no tabs). Prefer line length 100; 120 acceptable.
+- **Naming**: `snake_case` for functions/variables, `PascalCase` for classes.
+- **Ruff**: Follow [pyproject.toml](pyproject.toml) Ruff config for formatting and linting.
+
+## Type hints
+
+- Use type hints for all function signatures and class attributes.
+- Use `from __future__ import annotations` at the top of files.
+- Prefer built-in generics: `list[str]`, `dict[str, int]`; use `Type | None` for nullable types.
+- Example:
+  ```python
+  from __future__ import annotations
+
+  def process_items(items: list[str]) -> dict[str, int]:
+      """Process items and return counts."""
+      return {"count": len(items)}
+  ```
+
+## Paths and subprocess
+
+- Use **pathlib.Path** for all file/directory paths; resolve to absolute when passing to subprocess.
+- Subprocess: use **list argv** only (no `shell=True`). Example: `subprocess.run([codeql_path, "database", "create", str(db_dir)], ...)`.
+
+## Dataclasses
+
+- Use `@dataclass` for structured config and data (e.g. [src/vuln_hunter_x/core/config.py](src/vuln_hunter_x/core/config.py)).
+- Use `@dataclass(frozen=True)` for immutable config when appropriate.
+
+## Import order
+
+1. Standard library
+2. Third-party
+3. Local (`vuln_hunter_x.*`)
+- Group with blank lines between groups. Prefer absolute imports.
+
+## Docstrings
+
+- **Google-style** for public functions, classes, and modules: description, Args, Returns, Raises (if any).
+- Example:
+  ```python
+  def run_analysis(self, db_path: Path, lang: str) -> tuple[bool, Path | None, str]:
+      """Run CodeQL analysis on a database.
+
+      Args:
+          db_path: Path to the CodeQL database.
+          lang: Language (c, cpp, python, javascript).
+
+      Returns:
+          Tuple of (success, sarif_path or None, message).
+      """
+  ```
+
+## Error handling and return conventions
+
+- Prefer **structured returns** over exceptions for expected failures: e.g. `tuple[bool, str]` for (success, message), or `tuple[bool, Path | None, str]` when returning a path.
+- Avoid bare `except:`; handle specific exceptions or re-raise.
+- When calling subprocesses, capture stderr/stdout and surface a concise error (e.g. first N + last M chars for long output).
+
+## Code organization (this repo)
+
+- **CLI**: [src/vuln_hunter_x/cli/main.py](src/vuln_hunter_x/cli/main.py) — commands: clone, analyze, extract-context, verify, fuzz stages.
+- **Packages** under `src/vuln_hunter_x/`: `codeql` (DB, analysis, context extractor), `sarif` (parse SARIF), `verification` (engine + LLM), `llm` (client, prompts), `questions` (guided questions), `context` (extractor, provider), `fuzz` (sanitized build, drivers, runner), `core` (config, types).
+- Keep one main responsibility per module; split large modules (e.g. keep files under ~500–800 lines where practical).
+
+## File size
+
+- Prefer Python files under **~800 lines** for maintainability. If a file grows large, extract helpers or submodules under the same package (e.g. under `codeql/`, `fuzz/`).

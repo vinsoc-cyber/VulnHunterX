@@ -143,7 +143,7 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 │ Purpose: Clone source code and create CodeQL database                       │
 │ Input:   Repository URL (from config/repos.yaml)                            │
 │ Output:  repos/<lang>/<name>/        (source code)                          │
-│          databases/<lang>/<name>/    (CodeQL database)                      │
+│          output/<lang>/<name>/database/  (CodeQL database)                    │
 │                                                                             │
 │ For compiled languages (C/C++), this stage:                                 │
 │   1. Clones the repository                                                  │
@@ -160,8 +160,8 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 │ STAGE 2: analyze                                                            │
 │ ────────────────                                                            │
 │ Purpose: Run CodeQL security analysis on database                           │
-│ Input:   databases/<lang>/<name>/                                           │
-│ Output:  output/sarif/<lang>/<name>.sarif                                   │
+│ Input:   output/<lang>/<name>/database/                                     │
+│ Output:  output/<lang>/<name>/<name>.sarif                                  │
 │                                                                             │
 │ This stage:                                                                 │
 │   1. Finalizes the database (if not already finalized)                      │
@@ -180,8 +180,8 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 │ STAGE 3: extract-context (Optional, recommended for LLM mode)               │
 │ ─────────────────────────────────────────────────────────────────────────── │
 │ Purpose: Pre-extract structured context for multi-turn verification         │
-│ Input:   databases/<lang>/<name>/                                           │
-│ Output:  output/context/<name>/*.csv                                        │
+│ Input:   output/<lang>/<name>/database/                                     │
+│ Output:  output/<lang>/<name>/context/*.csv                                 │
 │                                                                             │
 │ Extracts the following into CSV files:                                      │
 │   - functions.csv   : Function definitions (name, file, lines, params)      │
@@ -200,10 +200,10 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 │ STAGE 4: verify                                                             │
 │ ───────────────                                                             │
 │ Purpose: Verify each finding using LLM analysis                             │
-│ Input:   output/sarif/<lang>/<name>.sarif                                   │
-│          output/context/<name>/*.csv (for LLM mode)                         │
-│ Output:  output/results/summary_*.json                                      │
-│          output/results/details_*.json                                      │
+│ Input:   output/<lang>/<name>/<name>.sarif                                  │
+│          output/<lang>/<name>/context/*.csv (for LLM mode)                 │
+│ Output:  output/<lang>/<name>/verification_results/*.json                  │
+│          output/<lang>/<name>/verification_results/summary_*.json           │
 │                                                                             │
 │ For each finding:                                                           │
 │   1. Extract code context (surrounding lines, enclosing function)           │
@@ -267,7 +267,7 @@ vuln-hunter-x verify --repo pyyaml --limit 5
 ### 4. View Results
 
 ```bash
-cat output/results/summary_*.json
+cat output/<lang>/<repo>/verification_results/summary_*.json
 ```
 
 **For detailed setup instructions, see [QUICKSTART.md](QUICKSTART.md)**
@@ -429,7 +429,7 @@ vuln-hunter-x build-sanitized --lang cpp -f   # Force rebuild
 
 ### extract-fuzz-context (Stage 6: fuzz, C/C++ only)
 
-Extract fuzz-oriented context (function signatures and includes) from C/C++ CodeQL databases. Writes `output/context/<repo>/function_signatures.csv` and `includes.csv` for harness generation. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
+Extract fuzz-oriented context (function signatures and includes) from C/C++ CodeQL databases. Writes `output/<lang>/<repo>/context/function_signatures.csv` and `includes.csv` for harness generation. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
 
 ```bash
 vuln-hunter-x extract-fuzz-context
@@ -470,7 +470,7 @@ vuln-hunter-x generate-fuzz-drivers --dry-run
 
 ### fuzz-run (Stage 8: optional, C/C++ only)
 
-Run libFuzzer for each compiled harness; collect crashes and write `output/fuzz_results/<repo>/summary.json`. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
+Run libFuzzer for each compiled harness; collect crashes and write `output/<lang>/<repo>/fuzz_results/summary.json`. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
 
 ```bash
 vuln-hunter-x fuzz-run
@@ -680,7 +680,7 @@ engine = VerificationEngine.from_config("config/confirm_findings.yaml")
 
 # Verify a SARIF file
 result = engine.verify_sarif(
-    "output/sarif/c/libucl.sarif",
+    "output/c/libucl/libucl.sarif",
     lang="c",
     repo_name="libucl"
 )
@@ -882,12 +882,18 @@ VulnHunterX/
 ├── examples/                 # Pipeline examples
 ├── docs/                     # Security check docs
 ├── repos/                    # Cloned repositories
-├── databases/                # CodeQL databases
-└── output/
-    ├── sarif/                # Analysis results
-    ├── context/              # Extracted CSVs
-    └── results/              # Verification results
+└── output/                   # All stage outputs (per lang/repo)
+    └── <lang>/<repo_name>/
+        ├── database/         # CodeQL database
+        ├── <repo_name>.sarif # Analysis results
+        ├── context/          # Extracted CSVs
+        ├── verification_results/  # Verification JSONs + summary
+        ├── sanitized_build/   # Sanitized build + manifest (C/C++)
+        ├── fuzz_targets/      # Harness .cc + status.json (C/C++)
+        └── fuzz_results/      # Crashes + summary (C/C++)
 ```
+
+**Migration from an older layout:** If you previously used top-level `databases/` and `builds/`, move `databases/<lang>/<name>` to `output/<lang>/<name>/database/` and `builds/<lang>/<name>` to `output/<lang>/<name>/sanitized_build/`. Move `output/sarif/<lang>/<name>.sarif` to `output/<lang>/<name>/<name>.sarif`, and `output/context/<name>` to `output/<lang>/<name>/context/`. Verification and fuzz outputs go under `output/<lang>/<name>/verification_results/`, `fuzz_targets/`, and `fuzz_results/`.
 
 ---
 

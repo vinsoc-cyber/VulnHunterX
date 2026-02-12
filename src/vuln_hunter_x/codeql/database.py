@@ -27,11 +27,11 @@ class DatabaseManager:
         self,
         codeql_path: str = "codeql",
         repos_dir: Path | None = None,
-        databases_dir: Path | None = None,
+        output_dir: Path | None = None,
     ):
         self.codeql_path = codeql_path
         self.repos_dir = repos_dir or Path("repos")
-        self.databases_dir = databases_dir or Path("databases")
+        self.output_dir = output_dir or Path("output")
     
     def create_database(
         self,
@@ -52,7 +52,7 @@ class DatabaseManager:
         codeql_lang = "cpp" if lang in ("c", "cpp") else lang
         
         source_root = repo.local_path or (self.repos_dir / lang / repo.name)
-        db_path = repo.database_path or (self.databases_dir / lang / repo.name)
+        db_path = repo.database_path or (self.output_dir / lang / repo.name / "database")
         
         if not Path(source_root).is_dir():
             return False, f"Repository not found: {source_root}"
@@ -147,19 +147,22 @@ class DatabaseManager:
     def list_databases(
         self,
         lang_filter: str | None = None,
-    ) -> list[tuple[Path, str]]:
+    ) -> list[tuple[Path, str, str]]:
         """
-        List all databases in the databases directory.
+        List all databases under output_dir/<lang>/<repo_name>/database.
         
         Args:
             lang_filter: Optional language filter
             
         Returns:
-            List of (db_path, language) tuples
+            List of (db_path, lang, repo_name) tuples
         """
-        databases: list[tuple[Path, str]] = []
+        databases: list[tuple[Path, str, str]] = []
         
-        for lang_dir in self.databases_dir.iterdir():
+        if not self.output_dir.is_dir():
+            return databases
+        
+        for lang_dir in self.output_dir.iterdir():
             if not lang_dir.is_dir():
                 continue
             
@@ -167,8 +170,12 @@ class DatabaseManager:
             if lang_filter and lang != lang_filter:
                 continue
             
-            for db_dir in lang_dir.iterdir():
+            for repo_dir in lang_dir.iterdir():
+                if not repo_dir.is_dir():
+                    continue
+                repo_name = repo_dir.name
+                db_dir = repo_dir / "database"
                 if (db_dir / "codeql-database.yml").is_file():
-                    databases.append((db_dir, lang))
+                    databases.append((db_dir, lang, repo_name))
         
         return databases

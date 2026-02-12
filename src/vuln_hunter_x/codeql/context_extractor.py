@@ -22,22 +22,22 @@ LANG_TO_QL_DIR: dict[str, str] = {
 }
 
 
-def discover_databases(databases_dir: Path) -> list[tuple[Path, str, str]]:
+def discover_databases(output_dir: Path) -> list[tuple[Path, str, str]]:
     """
-    Discover CodeQL databases.
+    Discover CodeQL databases under output_dir/<lang>/<repo_name>/database.
     
     Args:
-        databases_dir: Base directory containing databases
+        output_dir: Base output directory (output/<lang>/<repo_name>/database)
         
     Returns:
-        List of (db_path, lang, name) tuples
+        List of (db_path, lang, repo_name) tuples
     """
     results: list[tuple[Path, str, str]] = []
     
-    if not databases_dir.is_dir():
+    if not output_dir.is_dir():
         return results
     
-    for lang_dir in databases_dir.iterdir():
+    for lang_dir in output_dir.iterdir():
         if not lang_dir.is_dir():
             continue
         
@@ -45,13 +45,14 @@ def discover_databases(databases_dir: Path) -> list[tuple[Path, str, str]]:
         if lang not in QUERIES_BY_LANG:
             continue
         
-        for name_dir in lang_dir.iterdir():
-            if not name_dir.is_dir():
+        for repo_dir in lang_dir.iterdir():
+            if not repo_dir.is_dir():
                 continue
             
-            # Check for CodeQL database markers
-            if (name_dir / "codeql-database.yml").exists() or (name_dir / "log").exists():
-                results.append((name_dir, lang, name_dir.name))
+            repo_name = repo_dir.name
+            db_dir = repo_dir / "database"
+            if (db_dir / "codeql-database.yml").exists() or (db_dir / "log").exists():
+                results.append((db_dir, lang, repo_name))
     
     return results
 
@@ -67,7 +68,7 @@ class ContextExtractorDB:
     ):
         self.codeql_path = codeql_path
         self.queries_dir = queries_dir or Path("config/queries/tools")
-        self.output_dir = output_dir or Path("output/context")
+        self.output_dir = output_dir or Path("output")
     
     def run_query(
         self,
@@ -168,7 +169,7 @@ class ContextExtractorDB:
         if not lang_queries_dir.is_dir():
             return {"error": (False, f"No queries at {lang_queries_dir}")}
         
-        repo_output_dir = self.output_dir / repo_name
+        repo_output_dir = self.output_dir / lang / repo_name / "context"
         
         for query_name in QUERIES_BY_LANG.get(lang, []):
             query_path = lang_queries_dir / f"{query_name}.ql"
@@ -185,16 +186,16 @@ class ContextExtractorDB:
     
     def extract_all(
         self,
-        databases_dir: Path,
+        output_dir: Path,
         lang_filter: str | None = None,
         repo_filter: str | None = None,
         dry_run: bool = False,
     ) -> list[tuple[str, str, dict[str, tuple[bool, str]]]]:
         """
-        Extract context for all databases.
+        Extract context for all databases under output_dir/<lang>/<repo>/database.
         
         Args:
-            databases_dir: Directory containing CodeQL databases
+            output_dir: Base output directory
             lang_filter: Only process this language
             repo_filter: Only process this repository
             dry_run: Only print actions
@@ -202,7 +203,7 @@ class ContextExtractorDB:
         Returns:
             List of (repo_name, lang, results_dict) tuples
         """
-        dbs = discover_databases(databases_dir)
+        dbs = discover_databases(output_dir)
         
         if lang_filter:
             dbs = [(p, lang, n) for p, lang, n in dbs if lang == lang_filter]
