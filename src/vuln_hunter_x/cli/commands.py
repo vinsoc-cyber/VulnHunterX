@@ -196,7 +196,16 @@ def _run_semgrep_analyze(
         print("No repositories found for Semgrep (check config and --lang/--repo).", file=sys.stderr)
         return 1
 
-    configs = getattr(args, "semgrep_configs", None) or ["auto"]
+    raw_configs = getattr(args, "semgrep_configs", None) or ["auto"]
+    # Support comma-separated in a single --semgrep-config (e.g. "auto,p/security-audit")
+    configs = []
+    for c in raw_configs:
+        if isinstance(c, str):
+            configs.extend(s.strip() for s in c.split(",") if s.strip())
+        else:
+            configs.append(c)
+    if not configs:
+        configs = ["auto"]
     semgrep_path = os.environ.get("SEMGREP_PATH", "semgrep")
     analyzer = SemgrepAnalyzer(
         semgrep_path=semgrep_path,
@@ -256,6 +265,28 @@ def _run_semgrep_analyze(
     return 0 if ok_count == len(repo_list) else 1
 
 
+def _load_analyze_defaults(base_path: Path) -> tuple[str | None, list[str]]:
+    """Load codeql_suite and semgrep_configs from config if present. Returns (suite, configs)."""
+    import yaml
+    config_path = base_path / "config" / "confirm_findings.yaml"
+    if not config_path.is_file():
+        return None, []
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        return None, []
+    suite = data.get("codeql_suite")
+    configs = data.get("semgrep_configs")
+    if isinstance(configs, list):
+        pass
+    elif data.get("semgrep_config"):
+        configs = [data["semgrep_config"]]
+    else:
+        configs = []
+    return suite, configs
+
+
 def cmd_analyze(args: argparse.Namespace) -> int:
     """Execute analyze command (CodeQL and/or Semgrep by --tool)."""
     base_path = Path.cwd()
@@ -264,6 +295,13 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     verbose = getattr(args, "verbose", False)
     force = getattr(args, "force", False)
     tool = getattr(args, "tool", "codeql")
+
+    # Optional: defaults from config (CLI overrides)
+    default_suite, default_semgrep_configs = _load_analyze_defaults(base_path)
+    if getattr(args, "codeql_suite", None) is None and default_suite:
+        args.codeql_suite = default_suite
+    if not getattr(args, "semgrep_configs", None) and default_semgrep_configs:
+        args.semgrep_configs = default_semgrep_configs
 
     if tool == "codeql":
         return _run_codeql_analyze(args, base_path, output_dir, verbose, force)
