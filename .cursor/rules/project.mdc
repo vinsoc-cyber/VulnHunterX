@@ -1,22 +1,22 @@
 ---
-description: Project context for VulnHunterX - CodeQL + LLM bug verification
+description: Project context for VulnHunterX - static analysis + LLM bug verification + fuzzing confirmation (C/C++ only)
 alwaysApply: true
 ---
 
 # Project context (VulnHunterX)
 
-This repo is a **Python framework** that combines **CodeQL** static analysis with **LLM verification** to reduce false positives. Main language: **Python 3.12+**. Stack: **litellm** (OpenAI/Ollama), **python-dotenv**, **PyYAML**.
+This repo is a **Python framework** that combines static analysis with **LLM verification** to reduce false positives. Main language: **Python 3.12+**. Stack: **litellm** (OpenAI/Ollama), **python-dotenv**, **PyYAML**.
 
 ## Pipeline
 
-clone -> CodeQL database -> analyze (SARIF) -> extract-context -> verify (LLM). Optional fuzz stages 5-8 for C/C++ (build-sanitized, extract-fuzz-context, generate-fuzz-drivers, fuzz-run).
+clone -> Static analysis (CodeQL, Semgrep) -> analyze (SARIF) -> extract-context -> verify (LLM). Optional fuzz stages for C/C++ (build-sanitized, extract-fuzz-context, generate-fuzz-drivers, fuzz-run).
 
 ## Structure
 
 - **CLI:** `vuln-hunter-x` in [src/vuln_hunter_x/cli/main.py](src/vuln_hunter_x/cli/main.py). Commands: clone, analyze, extract-context, verify, build-sanitized, extract-fuzz-context, generate-fuzz-drivers, fuzz-run, check-env.
 - **Packages:** codeql (DB, analysis), sarif (parse SARIF -> Finding), verification (engine + LLM), llm (client, prompts), questions (guided questions), context (extractor, provider), fuzz (sanitized build, target selection, drivers, runner).
 - **Config:** [config/confirm_findings.yaml](config/confirm_findings.yaml), [config/repos.yaml](config/repos.yaml), [config/prompts/guided_questions.yaml](config/prompts/guided_questions.yaml).
-- **Paths:** Repos `repos/<lang>/<name>/`, DBs `databases/<lang>/<name>/`, SARIF `output/sarif/<lang>/<repo>.sarif`, results `output/results/`, context `output/context/<repo>/`.
+- **Paths:** Repos `repos/<lang>/<name>/`. All stage outputs under `output/<lang>/<repo_name>/`: `database/`, `<repo_name>.sarif`, `context/`, `verification_results/`; C/C++ fuzz: `sanitized_build/`, `fuzz_targets/`, `fuzz_results/`.
 
 ## Conventions
 
