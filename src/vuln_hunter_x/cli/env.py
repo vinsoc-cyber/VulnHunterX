@@ -22,6 +22,41 @@ def load_config_for_check() -> dict:
         return {}
 
 
+def check_semgrep(semgrep_path: str = "semgrep") -> tuple[bool, str]:
+    """
+    Verify Semgrep CLI is available (for analyze --tool semgrep or both).
+
+    Args:
+        semgrep_path: Path to semgrep executable (from SEMGREP_PATH or default).
+
+    Returns:
+        Tuple of (success, message)
+    """
+    if semgrep_path != "semgrep":
+        if not os.path.isfile(semgrep_path) and not shutil.which(semgrep_path):
+            return False, f"SEMGREP_PATH set but not found: {semgrep_path}"
+    else:
+        if not shutil.which("semgrep"):
+            return False, "Semgrep not on PATH; set SEMGREP_PATH or install semgrep."
+    try:
+        out = subprocess.run(
+            [semgrep_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if out.returncode != 0:
+            return False, f"semgrep --version failed: {out.stderr or out.stdout}"
+        version = (out.stdout or out.stderr or "").strip().split("\n")[0] or "unknown"
+        return True, version
+    except subprocess.TimeoutExpired:
+        return False, "semgrep --version timed out"
+    except FileNotFoundError:
+        return False, f"Semgrep executable not found: {semgrep_path}"
+    except Exception as e:
+        return False, str(e)
+
+
 def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:
     """
     Verify CodeQL CLI is available and report version.
@@ -181,6 +216,14 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
     if not quiet:
         status = "OK" if ok else "FAIL"
         print(f"  CodeQL: [{status}] {msg}")
+
+    # Semgrep (optional; used for analyze --tool semgrep or both)
+    semgrep_path = os.environ.get("SEMGREP_PATH", "semgrep")
+    ok, msg = check_semgrep(semgrep_path)
+    results["semgrep"] = (ok, msg)
+    if not quiet:
+        status = "OK" if ok else "SKIP/FAIL"
+        print(f"  Semgrep: [{status}] {msg}")
     
     # OpenAI - test if provider is openai or if we have an API key
     if provider == "openai" or os.environ.get("OPENAI_API_KEY"):
