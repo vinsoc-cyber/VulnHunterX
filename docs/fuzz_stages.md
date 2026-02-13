@@ -1,6 +1,6 @@
 # Fuzz-Based Vulnerability Confirmation (Stages 5–8)
 
-Optional pipeline stages to confirm CodeQL/LLM findings by building with sanitizers and generating fuzz drivers. **C/C++ only.**
+Optional pipeline stages to confirm **SAST (CodeQL/Semgrep) and LLM** findings by building with sanitizers and generating fuzz drivers. The framework uses static analysis (CodeQL and Semgrep) to identify vulnerabilities and the LLM to verify them; stages 5–8 add fuzz-based confirmation for C/C++. **C/C++ only.**
 
 ## Stage 5: Build with sanitizers
 
@@ -55,6 +55,8 @@ vuln-hunter-x extract-fuzz-context --lang cpp --dry-run
 
 - CodeQL databases for C/C++ repos (run `vuln-hunter-x clone` and create DBs first).
 - `CODEQL_PATH` in env or `codeql` on PATH.
+
+Fuzz driver generation reads SARIF from any analyzer; the function-signature and include context used for harnesses come from the CodeQL database (Stage 6), so for C/C++ fuzz you need at least one CodeQL DB for that repo.
 
 ---
 
