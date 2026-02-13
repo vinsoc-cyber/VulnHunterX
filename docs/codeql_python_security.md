@@ -1,6 +1,6 @@
 # CodeQL Python Security Checks
 
-Comprehensive reference for CodeQL security queries targeting Python code.
+The framework uses **static analysis (CodeQL and Semgrep)** to identify vulnerabilities, then **verifies findings by the LLM**. Comprehensive reference for CodeQL security queries targeting Python code. Findings from Semgrep (when using `--tool semgrep` or `--tool both`) use the same LLM verification; rule IDs follow Semgrep's naming (see guided_questions.yaml or generic fallback).
 
 **Query Suite**: `codeql/python-queries:codeql-suites/python-security-extended.qls`
 
