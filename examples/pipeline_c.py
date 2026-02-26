@@ -2,11 +2,11 @@
 """
 Full Pipeline Example: C Repository (libucl)
 
-This script demonstrates the complete CodeQL + LLM verification pipeline
-for a C repository, covering all stages from cloning to LLM verification.
+This script demonstrates the complete CodeQL + Semgrep + LLM verification pipeline
+for a C repository. Stage 2 runs both CodeQL and Semgrep (--tool both); verify discovers all SARIF files.
 
 Usage:
-    python examples/pipeline_c.py              # Run full pipeline
+    python examples/pipeline_c.py              # Run full pipeline (CodeQL + Semgrep)
     python examples/pipeline_c.py --dry-run    # Preview without executing
     python examples/pipeline_c.py --skip-clone # Skip clone if already exists
     python examples/pipeline_c.py --api        # Use Python API instead of CLI
@@ -22,7 +22,7 @@ from pathlib import Path
 # Configuration
 # =============================================================================
 
-REPO_NAME = "libucl"
+REPO_NAME = "c-ares"
 LANGUAGE = "c"
 MAX_FINDINGS = 5  # Limit findings to process for demo
 
@@ -101,11 +101,19 @@ def stage_clone(dry_run: bool = False, skip: bool = False) -> bool:
     return success
 
 
-def stage_analyze(dry_run: bool = False) -> bool:
-    """Stage 2: Run CodeQL security analysis."""
-    print_header("Stage 2: Run CodeQL Security Analysis")
-    
-    print(f"Running C security-extended query suite...")
+def stage_analyze(dry_run: bool = False, tool: str = "both") -> bool:
+    """Stage 2: Run CodeQL and/or Semgrep security analysis."""
+    print_header("Stage 2: Run CodeQL & Semgrep Security Analysis")
+
+    if tool == "both":
+        print("Running both analyzers:")
+        print("  - CodeQL: C security-extended suite (buffer overflows, use-after-free, etc.)")
+        print("  - Semgrep: on source in repos/ (no DB required); writes <repo>_semgrep.sarif")
+    elif tool == "semgrep":
+        print("Running Semgrep only (on source in repos/).")
+    else:
+        print("Running CodeQL only (C security-extended query suite).")
+    print()
     print("This includes checks for:")
     print("  - Buffer overflows")
     print("  - Use-after-free")
@@ -113,17 +121,20 @@ def stage_analyze(dry_run: bool = False) -> bool:
     print("  - Memory leaks")
     print("  - Format string vulnerabilities")
     print()
-    
+
     success, error = run_command(
-        _CLI + ["analyze", "--repo", REPO_NAME, "-v"],
+        _CLI + ["analyze", "--tool", tool, "--repo", REPO_NAME, "-v"],
         dry_run,
     )
-    
+
     if success:
-        print(f"\n[OK] Analysis complete - SARIF file generated")
+        if tool == "both":
+            print(f"\n[OK] Analysis complete - CodeQL and Semgrep SARIF files generated")
+        else:
+            print(f"\n[OK] Analysis complete - SARIF file generated")
     else:
         print(f"\n[FAIL] Analysis failed: {error}")
-    
+
     return success
 
 
@@ -332,7 +343,8 @@ def print_summary(results: dict[str, bool], elapsed: float, run_fuzz: bool = Fal
         print("Pipeline completed successfully!")
         print()
         print("Next steps:")
-        print(f"  - View SARIF: output/{LANGUAGE}/{REPO_NAME}/{REPO_NAME}.sarif")
+        print(f"  - View CodeQL SARIF: output/{LANGUAGE}/{REPO_NAME}/{REPO_NAME}.sarif")
+        print(f"  - View Semgrep SARIF: output/{LANGUAGE}/{REPO_NAME}/{REPO_NAME}_semgrep.sarif")
         print(f"  - View results: output/{LANGUAGE}/{REPO_NAME}/verification_results/")
         print(f"  - View context: output/{LANGUAGE}/{REPO_NAME}/context/")
         if run_fuzz:
@@ -391,20 +403,20 @@ def main():
     # Stage 1: Clone
     results["Clone & Create DB"] = stage_clone(dry_run, skip_clone)
     
-    # Stage 2: Analyze
+    # Stage 2: Analyze (CodeQL + Semgrep when --tool both)
     if results["Clone & Create DB"] or skip_clone:
-        results["CodeQL Analysis"] = stage_analyze(dry_run)
+        results["CodeQL & Semgrep Analysis"] = stage_analyze(dry_run, tool="both")
     else:
-        results["CodeQL Analysis"] = False
+        results["CodeQL & Semgrep Analysis"] = False
     
     # Stage 3: Extract Context
-    if results["CodeQL Analysis"]:
+    if results["CodeQL & Semgrep Analysis"]:
         results["Extract Context"] = stage_extract_context(dry_run)
     else:
         results["Extract Context"] = False
-    
-    # Stage 4: Verify
-    if results["CodeQL Analysis"]:
+
+    # Stage 4: Verify (discovers all SARIF: CodeQL + Semgrep)
+    if results["CodeQL & Semgrep Analysis"]:
         results["LLM Verification"] = stage_verify(dry_run)
     else:
         results["LLM Verification"] = False

@@ -91,9 +91,9 @@ class SarifParser:
                     if art_index is not None and art_index in artifacts:
                         uri = artifacts[art_index].get("location", {}).get("uri") or uri
                     
-                    # Get line numbers
+                    # Get line numbers (SARIF line numbers are 1-indexed)
                     region = phys.get("region") or {}
-                    start_line = region.get("startLine") or 0
+                    start_line = region.get("startLine") or 1
                     end_line = region.get("endLine") or start_line
                     
                     findings.append(Finding(

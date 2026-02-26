@@ -138,6 +138,8 @@ class LLMClient:
                 if api_base:
                     kwargs["api_base"] = api_base
                 response = litellm.completion(**kwargs)
+                if not response.choices:
+                    raise ValueError("LLM returned empty choices list")
                 raw_response = response.choices[0].message.content or ""
                 all_raw_responses.append(raw_response)
                 

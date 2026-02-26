@@ -2,7 +2,7 @@
 
 **SAST (CodeQL, Semgrep) + fuzzing + LLM vulnerability hunting and verification**
 
-A Python framework that combines CodeQL static analysis with Large Language Model (LLM) verification to reduce false positives in security findings. Implements the Vulnhalla methodology for intelligent, multi-turn bug confirmation.
+A Python framework that combines CodeQL and Semgrep static analysis with Large Language Model (LLM) verification to reduce false positives in security findings. Implements the Vulnhalla methodology for intelligent, multi-turn bug confirmation.
 
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
@@ -28,7 +28,7 @@ A Python framework that combines CodeQL static analysis with Large Language Mode
 
 ### The Problem
 
-Static analysis tools like CodeQL produce many findings, but a significant portion are **false positives**. Security teams spend considerable time manually reviewing each finding to determine if it's a real vulnerability.
+Static analysis tools like CodeQL and Semgrep produce many findings, but a significant portion are **false positives**. Security teams spend considerable time manually reviewing each finding to determine if it's a real vulnerability.
 
 ### The Solution
 
@@ -48,6 +48,7 @@ This framework automates the triage process by using LLMs to:
 | **Guided Questions** | Rule-specific questions for structured analysis |
 | **Context Expansion** | LLM can request callers, structs, globals |
 | **Multiple LLM Providers** | OpenAI (GPT-4) and Ollama (local models) |
+| **Dual SAST** | CodeQL and Semgrep; choose analyzer(s) with `analyze --tool codeql`, `semgrep`, or `both` |
 | **Unified CLI** | Single command-line tool for entire workflow |
 | **Python API** | Programmatic access for integration |
 
@@ -59,7 +60,7 @@ This framework automates the triage process by using LLMs to:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         CodeQL + LLM VERIFICATION PIPELINE                  │
+│                    CodeQL + Semgrep + LLM VERIFICATION PIPELINE             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
      ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
@@ -113,14 +114,14 @@ This framework automates the triage process by using LLMs to:
 
 **Traditional Approach:**
 ```
-CodeQL Finding -> Manual Review -> Decision
-                 (time-consuming)
+SAST finding (CodeQL or Semgrep) -> Manual Review -> Decision
+                                     (time-consuming)
 ```
 
 **This Framework:**
 ```
-CodeQL Finding -> Guided Questions -> LLM Analysis -> Verdict
-                                      (automated)
+SAST finding (CodeQL or Semgrep) -> Guided Questions -> LLM Analysis -> Verdict
+                                                         (automated)
 ```
 
 The framework follows the **Vulnhalla methodology** (CyberArk research), which improves accuracy by:
@@ -159,14 +160,18 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ STAGE 2: analyze                                                            │
 │ ────────────────                                                            │
-│ Purpose: Run CodeQL security analysis on database                           │
-│ Input:   output/<lang>/<name>/database/                                     │
-│ Output:  output/<lang>/<name>/<name>.sarif                                  │
+│ Purpose: Run CodeQL and/or Semgrep security analysis (CodeQL on DB,        │
+│          Semgrep on source in repos/)                                       │
+│ Input:   output/<lang>/<name>/database/ (CodeQL); repos/<lang>/<name>/     │
+│          (Semgrep)                                                           │
+│ Output:  output/<lang>/<name>/<name>.sarif (CodeQL); optionally             │
+│          <name>_semgrep.sarif (Semgrep)                                     │
 │                                                                             │
 │ This stage:                                                                 │
-│   1. Finalizes the database (if not already finalized)                      │
-│   2. Runs the security-extended query suite                                 │
-│   3. Produces SARIF file with all security findings                         │
+│   1. [CodeQL] Finalizes the database (if not already finalized)             │
+│   2. [CodeQL] Runs the security-extended query suite                         │
+│   3. [Semgrep] Scans source; no database required                           │
+│   4. Produces SARIF file(s) with all security findings                       │
 │                                                                             │
 │ SARIF (Static Analysis Results Interchange Format) contains:                │
 │   - Rule ID (e.g., cpp/use-after-free)                                      │
@@ -200,8 +205,8 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 │ STAGE 4: verify                                                             │
 │ ───────────────                                                             │
 │ Purpose: Verify each finding using LLM analysis                             │
-│ Input:   output/<lang>/<name>/<name>.sarif                                  │
-│          output/<lang>/<name>/context/*.csv (for LLM mode)                 │
+│ Input:   output/<lang>/<name>/*.sarif (CodeQL and Semgrep)                 │
+│          output/<lang>/<name>/context/*.csv (for LLM mode)                   │
 │ Output:  output/<lang>/<name>/verification_results/*.json                  │
 │          output/<lang>/<name>/verification_results/summary_*.json           │
 │                                                                             │
@@ -220,7 +225,7 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 | Stage | Command | Input | Output |
 |-------|---------|-------|--------|
 | 1 | `clone` | Repository URL | Source code + CodeQL database |
-| 2 | `analyze` | CodeQL database | SARIF file with findings |
+| 2 | `analyze` | CodeQL database and/or source (Semgrep) | SARIF (e.g. `<name>.sarif`, `<name>_semgrep.sarif`) |
 | 3 | `extract-context` | CodeQL database | CSV files with context |
 | 4 | `verify` | SARIF + CSVs | JSON with verdicts |
 | 5 (C/C++) | `build-sanitized` | Repo + config | Sanitized build + manifest |
@@ -297,6 +302,7 @@ vuln-hunter-x check-env
 
 **What it checks:**
 - CodeQL CLI installed and accessible
+- Semgrep CLI (optional; for `analyze --tool semgrep` or `--tool both`)
 - OpenAI API key valid (if configured)
 - Ollama server reachable (if configured)
 
@@ -742,6 +748,7 @@ result = engine.verify_all_sarif()
 | `OPENAI_API_KEY` | OpenAI API key | For OpenAI |
 | `OLLAMA_API_BASE` | Ollama server URL | For Ollama |
 | `CODEQL_PATH` | Path to CodeQL CLI | If not on PATH |
+| `SEMGREP_PATH` | Path to Semgrep CLI | If not on PATH (for Semgrep analysis) |
 
 ### Application Settings (`config/confirm_findings.yaml`)
 
@@ -967,4 +974,5 @@ MIT License
 
 - [Vulnhalla - CyberArk](https://www.cyberark.com/resources/threat-research-blog/vulnhalla-picking-the-true-vulnerabilities-from-the-codeql-haystack) - Original methodology
 - [CodeQL Documentation](https://codeql.github.com/docs/)
+- [Semgrep Documentation](https://semgrep.dev/docs/)
 - [SARIF Specification](https://sarifweb.azurewebsites.net/)
