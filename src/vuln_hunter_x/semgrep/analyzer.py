@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -79,6 +80,10 @@ class SemgrepAnalyzer:
             argv.append(c)
         argv.append(str(repo_path.resolve()))
 
+        if self.verbose:
+            self._log("  Command: " + " ".join(argv))
+
+        start = time.perf_counter()
         try:
             result = subprocess.run(
                 argv,
@@ -86,9 +91,24 @@ class SemgrepAnalyzer:
                 text=True,
                 timeout=3600,
             )
+            elapsed = time.perf_counter() - start
+
+            if self.verbose and (result.stdout or result.stderr):
+                combined = (result.stdout or "") + (result.stderr or "")
+                lines = combined.strip().splitlines()
+                last_n = lines[-40:] if len(lines) > 40 else lines
+                self._log("  Semgrep output (last 40 lines):")
+                for line in last_n:
+                    self._log(f"    {line}")
+
             if result.returncode == 0:
                 findings_count = self._count_sarif_results(sarif_path)
-                return True, sarif_path, f"Semgrep completed ({findings_count} findings)"
+                rules_count = self._count_sarif_rules(sarif_path)
+                msg = f"Semgrep completed in {elapsed:.1f}s ({findings_count} findings"
+                if rules_count > 0:
+                    msg += f", {rules_count} rules"
+                msg += ")"
+                return True, sarif_path, msg
             error_msg = result.stderr or result.stdout or "Unknown error"
             self._log(f"  Error: {error_msg[:500]}")
             return False, None, error_msg
@@ -107,5 +127,20 @@ class SemgrepAnalyzer:
             for run in data.get("runs", []):
                 count += len(run.get("results", []))
             return count
+        except Exception:
+            return 0
+
+    def _count_sarif_rules(self, sarif_path: Path) -> int:
+        """Count the number of rules in a SARIF file (from tool.driver.rules)."""
+        if not sarif_path.is_file():
+            return 0
+        try:
+            data = json.loads(sarif_path.read_text())
+            total = 0
+            for run in data.get("runs", []):
+                rules = run.get("tool", {}).get("driver", {}).get("rules", [])
+                if isinstance(rules, list):
+                    total += len(rules)
+            return total
         except Exception:
             return 0
