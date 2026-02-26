@@ -48,6 +48,7 @@ This framework automates the triage process by using LLMs to:
 | **Guided Questions** | Rule-specific questions for structured analysis |
 | **Context Expansion** | LLM can request callers, structs, globals |
 | **Multiple LLM Providers** | OpenAI (GPT-4) and Ollama (local models) |
+| **Dual SAST** | CodeQL and Semgrep; choose analyzer(s) with `analyze --tool codeql`, `semgrep`, or `both` |
 | **Unified CLI** | Single command-line tool for entire workflow |
 | **Python API** | Programmatic access for integration |
 
@@ -165,17 +166,18 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ STAGE 2: analyze                                                            │
 │ ────────────────                                                            │
-│ Purpose: Run CodeQL and/or Semgrep security analysis.                        │
-│ Input:   CodeQL database (for CodeQL) and/or repos (for Semgrep).           │
-│ Output:  output/<lang>/<name>/<name>.sarif (CodeQL) and optionally          │
-│          output/<lang>/<name>/<name>_semgrep.sarif (Semgrep).               │
+│ Purpose: Run CodeQL and/or Semgrep security analysis (CodeQL on DB,        │
+│          Semgrep on source in repos/)                                       │
+│ Input:   output/<lang>/<name>/database/ (CodeQL); repos/<lang>/<name>/     │
+│          (Semgrep)                                                           │
+│ Output:  output/<lang>/<name>/<name>.sarif (CodeQL); optionally             │
+│          <name>_semgrep.sarif (Semgrep)                                     │
 │                                                                             │
-│ With --tool codeql (default): run CodeQL only. With --tool semgrep: run    │
-│ Semgrep on repo source only. With --tool both: produce both SARIF files.   │
-│ (Semgrep support and --tool are planned; currently only CodeQL is run.)    │
-│                                                                             │
-│ CodeQL path: finalizes DB, runs security-extended query suite, writes      │
-│ <name>.sarif. Semgrep path: scans cloned source, no DB needed.              │
+│ This stage:                                                                 │
+│   1. [CodeQL] Finalizes the database (if not already finalized)             │
+│   2. [CodeQL] Runs the security-extended query suite                         │
+│   3. [Semgrep] Scans source; no database required                           │
+│   4. Produces SARIF file(s) with all security findings                       │
 │                                                                             │
 │ SARIF (Static Analysis Results Interchange Format) contains:                │
 │   - Rule ID (e.g., cpp/use-after-free)                                      │
@@ -211,10 +213,10 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ STAGE 4: verify                                                             │
 │ ───────────────                                                             │
-│ Purpose: Verify SAST findings (from CodeQL and/or Semgrep) using LLM.       │
-│ Input:   output/<lang>/<name>/<name>.sarif (and optionally *_semgrep.sarif) │
-│          output/<lang>/<name>/context/*.csv (for LLM mode)                  │
-│ Output:  output/<lang>/<name>/verification_results/*.json                   │
+│ Purpose: Verify each finding using LLM analysis                             │
+│ Input:   output/<lang>/<name>/*.sarif (CodeQL and Semgrep)                 │
+│          output/<lang>/<name>/context/*.csv (for LLM mode)                   │
+│ Output:  output/<lang>/<name>/verification_results/*.json                  │
 │          output/<lang>/<name>/verification_results/summary_*.json           │
 │                                                                             │
 │ For each finding:                                                           │
@@ -232,7 +234,7 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 | Stage | Command | Input | Output |
 |-------|---------|-------|--------|
 | 1 | `clone` | Repository URL | Source code + CodeQL database |
-| 2 | `analyze` | CodeQL database (CodeQL) or repo path (Semgrep) | SARIF (e.g. name.sarif, name_semgrep.sarif) |
+| 2 | `analyze` | CodeQL database and/or source (Semgrep) | SARIF (e.g. `<name>.sarif`, `<name>_semgrep.sarif`) |
 | 3 | `extract-context` | CodeQL database | CSV files with context |
 | 4 | `verify` | SARIF + CSVs | JSON with verdicts |
 | 5 (C/C++) | `build-sanitized` | Repo + config | Sanitized build + manifest |
@@ -311,7 +313,7 @@ vuln-hunter-x check-env
 
 **What it checks:**
 - CodeQL CLI installed and accessible
-- Semgrep CLI (if using Semgrep; e.g. `SEMGREP_PATH` or on PATH)
+- Semgrep CLI (optional; for `analyze --tool semgrep` or `--tool both`)
 - OpenAI API key valid (if configured)
 - Ollama server reachable (if configured)
 
@@ -353,7 +355,7 @@ vuln-hunter-x clone --repo libucl --skip-db
 
 ### analyze
 
-Run CodeQL and/or Semgrep security analysis. CodeQL requires a database (from clone); Semgrep scans the cloned repo and does not require a CodeQL database. Semgrep support and `--tool` are planned; currently only CodeQL is run.
+Run CodeQL and/or Semgrep security analysis. Use `--tool` to choose which analyzer(s) run. Both produce SARIF under `output/<lang>/<repo_name>/`; the verify stage reads all SARIF files (CodeQL and Semgrep).
 
 ```bash
 vuln-hunter-x analyze [options]
@@ -361,31 +363,47 @@ vuln-hunter-x analyze [options]
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--repo NAME` | Analyze specific repository | All databases |
+| `--tool {codeql,semgrep,both}` | Analyzer(s) to run | codeql |
+| `--semgrep-config CONFIG` | Semgrep config (repeatable); e.g. auto, p/security-audit | auto |
+| `--codeql-suite SUITE` | CodeQL query suite (built-in ref or path to .qls) | language default |
+| `--config PATH` | Path to repos.yaml (for Semgrep repo list) | config/repos.yaml |
+| `--repo NAME` | Analyze specific repository | All |
 | `--lang LANG` | Filter by language | All |
 | `--tool TOOL` | Analyzer(s): `codeql`, `semgrep`, or `both` | `codeql` |
 | `--semgrep-config CONFIG` | Semgrep config (e.g. `auto`, `p/security-audit`) | `auto` |
 | `-v, --verbose` | Show detailed output | false |
 | `--json` | Also output findings as JSON | false |
+| `-f, --force` | Re-run even if SARIF exists | false |
 | `--dry-run` | Preview without executing | false |
 
 **Examples:**
 
 ```bash
-# Analyze all databases
+# CodeQL only (default; requires CodeQL DBs from clone)
 vuln-hunter-x analyze
-
-# Analyze specific repository with verbose output
 vuln-hunter-x analyze --repo libucl -v
 
-# Analyze all C++ databases
-vuln-hunter-x analyze --lang cpp
+# Semgrep only (runs on source in repos/; no CodeQL DB required)
+vuln-hunter-x analyze --tool semgrep --repo pyyaml
+vuln-hunter-x analyze --tool semgrep --semgrep-config auto --semgrep-config p/security-audit
+
+# Both: CodeQL then Semgrep (both SARIF files per repo)
+vuln-hunter-x analyze --tool both --repo c-ares
+
+# Custom CodeQL suite
+vuln-hunter-x analyze --codeql-suite path/to/custom.qls
 ```
 
+**Semgrep integration:** Semgrep runs on the cloned source in `repos/<lang>/<name>/` and writes `output/<lang>/<name>/<name>_semgrep.sarif`. Verify reads all `*.sarif` in each repo directory (CodeQL and Semgrep). Semgrep does not require a CodeQL database.
+
+**Adding more security rules**
+
+- **CodeQL:** Use `--codeql-suite` with a custom `.qls` file that references the standard security-extended suite and adds extra queries or packs. You can also set `codeql_suite` in `config/confirm_findings.yaml`.
+- **Semgrep:** Pass multiple `--semgrep-config` (e.g. `auto`, `p/security-audit`, or paths to YAML rule files). Comma-separated in one flag is supported: `--semgrep-config "auto,p/security-audit"`. Optional defaults: `semgrep_configs` or `semgrep_config` in `config/confirm_findings.yaml`.
+
 **Verbose output includes:**
-- Database path and status
-- Query suite being used
-- Full CodeQL command
+- Database path and status (CodeQL) or repo path (Semgrep)
+- Query suite or Semgrep configs
 - Number of findings detected
 
 ---
@@ -506,7 +524,7 @@ vuln-hunter-x fuzz-run --dry-run
 
 ### verify
 
-Verify SAST findings (CodeQL and/or Semgrep) using LLM analysis. Verify discovers all SARIF files under the output tree (both CodeQL and Semgrep outputs).
+Verify findings from SARIF using LLM analysis. Discovers all `*.sarif` under `output/<lang>/<repo_name>/` (CodeQL and Semgrep).
 
 ```bash
 vuln-hunter-x verify [options]
@@ -743,7 +761,7 @@ result = engine.verify_all_sarif()
 | `OPENAI_API_KEY` | OpenAI API key | For OpenAI |
 | `OLLAMA_API_BASE` | Ollama server URL | For Ollama |
 | `CODEQL_PATH` | Path to CodeQL CLI | If not on PATH |
-| `SEMGREP_PATH` | Path to Semgrep CLI | If using Semgrep and not on PATH |
+| `SEMGREP_PATH` | Path to Semgrep CLI | If not on PATH (for Semgrep analysis) |
 
 ### Application Settings (`config/confirm_findings.yaml`)
 
