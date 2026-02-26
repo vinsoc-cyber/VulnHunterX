@@ -1,6 +1,6 @@
 # CodeQL Security Checks Overview
 
-This document provides an overview of CodeQL security analysis. For detailed documentation on each language, see the language-specific guides.
+The framework uses **static analysis (CodeQL and Semgrep)** to identify potential vulnerabilities; findings are then **verified by the LLM** to reduce false positives. VulnHunterX integrates **CodeQL** and **Semgrep** for static code analysis. This document provides an overview of supported analysis tools, explains their query suites, and describes how they operate. For comprehensive details on checks and vulnerabilities for each language, see the language-specific documentation below.
 
 ## Language-Specific Documentation
 
@@ -268,6 +268,7 @@ paths-ignore:
 
 - [CodeQL Documentation](https://codeql.github.com/docs/)
 - [CodeQL Query Repository](https://github.com/github/codeql)
+- [Semgrep Documentation](https://semgrep.dev/docs/)
 - [CWE - Common Weakness Enumeration](https://cwe.mitre.org/)
 - [OWASP Top 10](https://owasp.org/www-project-top-ten/)
 - [SARIF Specification](https://sarifweb.azurewebsites.net/)

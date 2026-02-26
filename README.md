@@ -2,7 +2,7 @@
 
 **SAST (CodeQL, Semgrep) + fuzzing + LLM vulnerability hunting and verification**
 
-A Python framework that combines CodeQL and Semgrep static analysis with Large Language Model (LLM) verification to reduce false positives in security findings. Implements the Vulnhalla methodology for intelligent, multi-turn bug confirmation.
+A Python framework that combines static analysis (CodeQL, Semgrep) with Large Language Model (LLM) verification to reduce false positives in security findings. Implements the Vulnhalla methodology for intelligent, multi-turn bug confirmation.
 
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
@@ -28,7 +28,7 @@ A Python framework that combines CodeQL and Semgrep static analysis with Large L
 
 ### The Problem
 
-Static analysis tools like CodeQL and Semgrep produce many findings, but a significant portion are **false positives**. Security teams spend considerable time manually reviewing each finding to determine if it's a real vulnerability.
+Static analysis tools like **CodeQL and Semgrep** produce many findings, but a significant portion are **false positives**. Security teams spend considerable time manually reviewing each finding to determine if it's a real vulnerability.
 
 ### The Solution
 
@@ -60,20 +60,21 @@ This framework automates the triage process by using LLMs to:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    CodeQL + Semgrep + LLM VERIFICATION PIPELINE             │
+│                  SAST (CodeQL / Semgrep) + LLM VERIFICATION PIPELINE        │
 └─────────────────────────────────────────────────────────────────────────────┘
 
      ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-     │   SOURCE     │     │   CODEQL     │     │    SARIF     │
-     │   REPOSITORY │────>│   DATABASE   │────>│   FINDINGS   │
-     │   (GitHub)   │     │              │     │              │
-     └──────────────┘     └──────────────┘     └──────────────┘
-            │                    │                    │
-     ┌──────┴──────┐      ┌──────┴──────┐      ┌──────┴──────┐
-     │  STAGE 1    │      │  STAGE 2    │      │  STAGE 3    │
-     │  clone      │      │  analyze    │      │  extract-   │
-     │             │      │             │      │  context    │
-     └─────────────┘      └─────────────┘      └─────────────┘
+     │   SOURCE     │     │   STATIC     │     │    SARIF     │
+     │   REPOSITORY │────>│   ANALYSIS   │────>│   FINDINGS   │
+     │   (GitHub)   │     │ (CodeQL/     │     │              │
+     └──────────────┘     │  Semgrep)    │     └──────────────┘
+            │             └──────────────┘
+     ┌──────┴──────┐             │                    │
+     │  STAGE 1    │      ┌──────┴──────┐      ┌──────┴──────┐
+     │  clone      │      │  STAGE 2    │      │  STAGE 3    │
+     │             │      │  analyze    │      │  extract-   │
+     └─────────────┘      └─────────────┘      │  context    │
+                                               └─────────────┘
                                                       │
                                                       ▼
                          ┌────────────────────────────────────┐
@@ -110,18 +111,20 @@ This framework automates the triage process by using LLMs to:
                          └────────────────────────────────────┘
 ```
 
+Stage 2: Run CodeQL (on database) and/or Semgrep (on source); both produce SARIF. Semgrep scans source directly (no CodeQL database required). You can run CodeQL only, Semgrep only, or both; verify consumes all SARIF files.
+
 ### What Makes This Different
 
 **Traditional Approach:**
 ```
 SAST finding (CodeQL or Semgrep) -> Manual Review -> Decision
-                                     (time-consuming)
+                                    (time-consuming)
 ```
 
 **This Framework:**
 ```
 SAST finding (CodeQL or Semgrep) -> Guided Questions -> LLM Analysis -> Verdict
-                                                         (automated)
+                                                    (automated)
 ```
 
 The framework follows the **Vulnhalla methodology** (CyberArk research), which improves accuracy by:
@@ -144,7 +147,10 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 │ Purpose: Clone source code and create CodeQL database                       │
 │ Input:   Repository URL (from config/repos.yaml)                            │
 │ Output:  repos/<lang>/<name>/        (source code)                          │
-│          output/<lang>/<name>/database/  (CodeQL database)                    │
+│          output/<lang>/<name>/database/  (CodeQL database)                  │
+│                                                                             │
+│ CodeQL analysis requires this database; Semgrep does not (it scans the      │
+│ repo source).                                                               │
 │                                                                             │
 │ For compiled languages (C/C++), this stage:                                 │
 │   1. Clones the repository                                                  │
@@ -187,6 +193,9 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 │ Purpose: Pre-extract structured context for multi-turn verification         │
 │ Input:   output/<lang>/<name>/database/                                     │
 │ Output:  output/<lang>/<name>/context/*.csv                                 │
+│                                                                             │
+│ Uses the CodeQL database; when using Semgrep only, run clone (and            │
+│ optionally analyze with CodeQL) if you want full context expansion.          │
 │                                                                             │
 │ Extracts the following into CSV files:                                      │
 │   - functions.csv   : Function definitions (name, file, lines, params)      │
@@ -234,6 +243,8 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 | 8 (C/C++) | `fuzz-run` | Compiled harnesses | Crashes + summary.json |
 
 See [Fuzz-based confirmation](docs/fuzz_stages.md) for stages 5–8.
+
+VulnHunterX supports **CodeQL** and **Semgrep**. CodeQL requires building a database (stage 1) and runs on that database; Semgrep scans the cloned source and does not need a CodeQL database. You can run one or both; both output SARIF. The verify stage reads all SARIF files and applies the same LLM verification. Context expansion (extract-context) uses the CodeQL database, so for full multi-turn context when using Semgrep, run CodeQL at least once for that repo (e.g. `--tool both`).
 
 ---
 
@@ -358,6 +369,8 @@ vuln-hunter-x analyze [options]
 | `--config PATH` | Path to repos.yaml (for Semgrep repo list) | config/repos.yaml |
 | `--repo NAME` | Analyze specific repository | All |
 | `--lang LANG` | Filter by language | All |
+| `--tool TOOL` | Analyzer(s): `codeql`, `semgrep`, or `both` | `codeql` |
+| `--semgrep-config CONFIG` | Semgrep config (e.g. `auto`, `p/security-audit`) | `auto` |
 | `-v, --verbose` | Show detailed output | false |
 | `--json` | Also output findings as JSON | false |
 | `-f, --force` | Re-run even if SARIF exists | false |
@@ -908,7 +921,7 @@ VulnHunterX/
 └── output/                   # All stage outputs (per lang/repo)
     └── <lang>/<repo_name>/
         ├── database/         # CodeQL database
-        ├── <repo_name>.sarif # Analysis results
+        ├── <repo_name>.sarif # CodeQL analysis results (and optionally <repo_name>_semgrep.sarif)
         ├── context/          # Extracted CSVs
         ├── verification_results/  # Verification JSONs + summary
         ├── sanitized_build/   # Sanitized build + manifest (C/C++)
@@ -943,6 +956,8 @@ cpp/use-after-free:
 - [C/C++ Security Checks](docs/codeql_cpp_security.md)
 - [Python Security Checks](docs/codeql_python_security.md)
 - [JavaScript Security Checks](docs/codeql_javascript_security.md)
+
+Findings from Semgrep (SARIF) use the same verification flow; rule IDs may differ (see guided_questions.yaml or generic fallback).
 
 ---
 
