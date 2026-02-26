@@ -91,7 +91,7 @@ class SarifParser:
                     if art_index is not None and art_index in artifacts:
                         uri = artifacts[art_index].get("location", {}).get("uri") or uri
                     
-                    # Get line numbers
+                    # Get line numbers (SARIF line numbers are 1-indexed)
                     region = phys.get("region") or {}
                     start_line = region.get("startLine") or 0
                     end_line = region.get("endLine") or start_line
@@ -150,30 +150,32 @@ def parse_sarif_file(
 
 def discover_sarif_files(output_dir: Path) -> list[tuple[Path, str, str]]:
     """
-    Discover SARIF files under output/<lang>/<repo_name>/<repo_name>.sarif.
-    
+    Discover SARIF files under output/<lang>/<repo_name>/.
+
+    All *.sarif files in each repo directory are included (CodeQL and Semgrep).
+    repo_name is taken from the directory name for context lookup.
+
     Args:
         output_dir: Base output directory
-        
+
     Returns:
         List of (sarif_path, lang, repo_name) tuples
     """
     if not output_dir.is_dir():
         return []
-    
+
     results: list[tuple[Path, str, str]] = []
-    
+
     for lang_dir in output_dir.iterdir():
         if not lang_dir.is_dir():
             continue
         lang = lang_dir.name
-        
+
         for repo_dir in lang_dir.iterdir():
             if not repo_dir.is_dir():
                 continue
             repo_name = repo_dir.name
-            sarif_file = repo_dir / f"{repo_name}.sarif"
-            if sarif_file.is_file():
+            for sarif_file in sorted(repo_dir.glob("*.sarif")):
                 results.append((sarif_file, lang, repo_name))
-    
+
     return results
