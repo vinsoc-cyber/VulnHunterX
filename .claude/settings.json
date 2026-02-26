@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /home/thientc/repos/VulnHunterX diff HEAD README.md)",
+      "Bash(git -C /home/thientc/repos/VulnHunterX diff HEAD src/vuln_hunter_x/semgrep/analyzer.py)"
+    ]
+  }
+}
