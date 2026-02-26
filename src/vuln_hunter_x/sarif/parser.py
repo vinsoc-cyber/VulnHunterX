@@ -93,7 +93,7 @@ class SarifParser:
                     
                     # Get line numbers (SARIF line numbers are 1-indexed)
                     region = phys.get("region") or {}
-                    start_line = region.get("startLine") or 1
+                    start_line = region.get("startLine") or 0
                     end_line = region.get("endLine") or start_line
                     
                     findings.append(Finding(
