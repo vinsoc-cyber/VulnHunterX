@@ -33,3 +33,17 @@ class TestIsTestPath:
     def test_backslash_normalized(self):
         assert _is_test_path("repo\\tests\\foo.c") is True
         assert _is_test_path("repo\\test\\bar.py") is True
+
+    def test_spec_directory_not_matched(self):
+        # spec/ is not in the default exclusion list
+        assert _is_test_path("src/spec/foo.js") is False
+
+    def test_test_word_in_filename_not_matched(self):
+        # "testing_helper.py" or "contest.c" should NOT be excluded
+        assert _is_test_path("src/testing/helper.py") is False
+        assert _is_test_path("src/contest.c") is False
+        assert _is_test_path("unittest_utils.py") is False
+
+    def test_deeply_nested_test_dir(self):
+        assert _is_test_path("a/b/c/d/tests/e/f.c") is True
+        assert _is_test_path("a/b/c/d/test/e/f.c") is True
