@@ -1,6 +1,6 @@
 # CodeQL C/C++ Security Checks
 
-Comprehensive reference for CodeQL security queries targeting C and C++ code.
+The framework uses **static analysis (CodeQL and Semgrep)** to identify vulnerabilities, then verifies by LLM. This document is a focused guide to **CodeQL** and **Semgrep** security queries for C/C++; all findings are subject to the same LLM-powered verification process used throughout VulnHunterX.
 
 **Query Suite**: `codeql/cpp-queries:codeql-suites/cpp-security-extended.qls`
 
