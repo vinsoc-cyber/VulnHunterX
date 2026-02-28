@@ -1,0 +1,653 @@
+# Guided Questions Templates for CodeQL/Semgrep Rules (LLM verification style)
+#
+# Questions MUST force the LLM to trace:
+#   1. WHERE variables are declared
+#   2. What their exact SIZES/VALUES are
+#   3. Whether sizes/values CHANGE through assignment or reallocation
+#   4. What CHECKS or CONSTRAINTS exist
+#   5. What OTHER variables feed into the target variables
+#
+# The LLM must answer ALL questions BEFORE giving a verdict.
+# This forces step-by-step reasoning instead of pattern matching.
+#
+# Language: Python
+#
+# Format:
+#   rule_id:
+#     short_description: Brief description of the vulnerability
+#     questions: List of questions to answer BEFORE verdict
+#     context_hint: What additional context helps (caller, struct, etc.)
+#     additional_context: List of context types that may be needed
+
+py/sql-injection:
+  short_description: "User input concatenated into SQL query"
+  questions:
+    - "Where does the INPUT originate - request.args, request.form, request.json, or other?"
+    - "Trace the INPUT through ALL assignments - is it ever SANITIZED?"
+    - "Is the query built using f-strings, .format(), +, or % (all vulnerable)?"
+    - "Or is cursor.execute() called with PLACEHOLDERS and a tuple (safe)?"
+    - "Is an ORM method like .filter() or .get() used instead of raw SQL?"
+    - "What is the DATABASE and does the driver support parameterization?"
+  context_hint: "Trace from request input through all transformations to query execution."
+  additional_context: ["caller"]
+
+py/command-injection:
+  short_description: "User input passed to shell command execution"
+  questions:
+    - "Where does the INPUT originate - request, file, environment variable?"
+    - "Is subprocess called with shell=True (vulnerable) or shell=False (safer)?"
+    - "If shell=True, is shlex.quote() used to ESCAPE the input?"
+    - "If shell=False, is the input passed as a LIST of arguments (safe)?"
+    - "Could an attacker inject SHELL METACHARACTERS?"
+    - "Is os.system() used (always vulnerable) vs subprocess.run()?"
+  context_hint: "Trace from input source to subprocess/os.system call."
+  additional_context: ["caller"]
+
+py/xss:
+  short_description: "User input rendered in HTML response without escaping"
+  questions:
+    - "Where does the INPUT originate - request.args, request.form, database?"
+    - "Is the input passed through an ESCAPE function (escape(), html.escape())?"
+    - "Is a TEMPLATE ENGINE used with auto-escaping enabled?"
+    - "Or is the response built with f-strings/concatenation (vulnerable)?"
+    - "Is |safe or {% autoescape false %} used to DISABLE escaping?"
+    - "What is the CONTENT-TYPE of the response (text/html triggers XSS)?"
+  context_hint: "Trace from input source through template/response construction."
+  additional_context: ["caller"]
+
+py/unsafe-deserialization:
+  short_description: "Deserializing untrusted data with pickle or yaml.load"
+  questions:
+    - "Where does the SERIALIZED DATA come from - request body, file, database?"
+    - "Is pickle.loads() or yaml.load() used (vulnerable to code execution)?"
+    - "Could an attacker CONTROL the serialized data content?"
+    - "Does the serialized data contain class/type information that triggers code execution during deserialization?"
+    - "Is there any VALIDATION of the data before deserialization?"
+    - "What CLASS or TYPE is expected to be deserialized?"
+  context_hint: "Trace from data source to deserialization call."
+  additional_context: ["caller"]
+
+py/path-injection:
+  short_description: "User input used in file path allowing directory traversal"
+  questions:
+    - "Where does the PATH input originate - request parameter, form field?"
+    - "Is os.path.join() used (note: it does NOT prevent traversal if input starts with /)?"
+    - "Is the path NORMALIZED with os.path.realpath() or os.path.abspath()?"
+    - "After normalization, is the result CHECKED to start with the allowed base directory?"
+    - "Could '../' sequences or absolute paths escape the intended directory?"
+    - "What FILE OPERATIONS are performed (read, write, delete)?"
+  context_hint: "Trace from input through path construction to file operation."
+  additional_context: ["caller"]
+
+py/code-injection:
+  short_description: "User input passed to eval/exec/compile"
+  questions:
+    - "Where does the INPUT come from - request, file, environment?"
+    - "Is eval(), exec(), or compile() called with user-controlled data?"
+    - "Is there ANY validation or sandboxing of the input?"
+    - "Is the input expected to be a data literal (string, number, list, dict) or arbitrary executable code?"
+    - "What CODE could an attacker execute - import os, __import__, etc.?"
+    - "Is the eval in a restricted namespace or with full globals?"
+  context_hint: "Trace from input source to eval/exec call."
+  additional_context: ["caller"]
+
+py/ssrf:
+  short_description: "Server-side request forgery via user-controlled URL"
+  questions:
+    - "Where does the URL come from - request parameter, database, config?"
+    - "Is the URL VALIDATED against an allowlist of domains/hosts?"
+    - "Could an attacker specify an INTERNAL IP (127.0.0.1, 169.254.x.x, 10.x.x.x)?"
+    - "Is the URL SCHEME validated (http/https only, not file://)?"
+    - "What RESPONSE data is returned to the user or used server-side?"
+    - "Are HTTP redirects followed automatically (default in requests library), allowing an allowlisted URL to redirect to an internal IP?"
+    - "Could an attacker probe internal services or exfiltrate data?"
+  context_hint: "Trace from URL input through request construction."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Authentication & Session Security
+# ==============================================================================
+
+py/broken-authentication:
+  short_description: "Insecure session token generation or missing session expiry"
+  questions:
+    - "How are session tokens generated - what entropy source is used (secrets.token_hex, os.urandom, or weak random)?"
+    - "Are session tokens INVALIDATED after logout or timeout - is there a server-side expiry enforced?"
+    - "Is the session token sent over HTTPS only (Secure flag) and inaccessible to JavaScript (HttpOnly flag)?"
+    - "Is the session ID rotated after privilege escalation (e.g., after login to prevent session fixation)?"
+    - "Are there concurrent session limits, or can an attacker reuse a stolen token indefinitely?"
+    - "Does the authentication path validate credentials before creating a session, or can sessions be created without auth?"
+  context_hint: "Include token generation, session creation, and session validation logic."
+  additional_context: ["caller"]
+
+py/hardcoded-credentials:
+  short_description: "Hardcoded password, API key, or secret in source code"
+  questions:
+    - "Is this string a real credential used in production, or a placeholder/example/test value?"
+    - "Is this value committed to version control where it could be exposed to others?"
+    - "Could this credential be rotated if compromised, or is it baked into the application?"
+    - "Is there an environment variable or secrets manager (Vault, AWS Secrets Manager) already in use that should be used instead?"
+    - "What system or service does this credential grant access to, and what is the blast radius if leaked?"
+    - "Is this code path reachable from production, or is it only used in tests/development?"
+  context_hint: "Include the credential usage and any configuration loading."
+  additional_context: []
+
+py/sensitive-data-exposure:
+  short_description: "Sensitive data logged, printed, or transmitted without protection"
+  questions:
+    - "What sensitive data is being exposed (password, token, PII, credit card, health data)?"
+    - "Where does this data end up - log file, HTTP response, console, third-party service?"
+    - "Who has access to that destination (all users, admins, log aggregation services)?"
+    - "Is the data MASKED or REDACTED before being written (e.g., last 4 digits of card)?"
+    - "Is the exposed data a credential, token, or PII (name, email, SSN, card number) that grants access or identifies a person?"
+    - "Is this in an error handler that might expose internal details to the end user?"
+  context_hint: "Include the data source and where it flows to."
+  additional_context: ["caller"]
+
+py/insecure-randomness:
+  short_description: "Using random module instead of secrets for security-sensitive values"
+  questions:
+    - "What is this random value used for - token, session ID, OTP, CSRF value, salt?"
+    - "Is random.random(), random.randint(), or random.choice() used (not cryptographically secure)?"
+    - "Could an attacker predict the output by observing previous values (Mersenne Twister is predictable)?"
+    - "Should secrets.token_hex(), secrets.token_urlsafe(), or os.urandom() be used instead?"
+    - "What is the security impact if the random value is predictable?"
+    - "Is this in a test or simulation context where cryptographic strength is not needed?"
+  context_hint: "Include random generation and how the value is used."
+  additional_context: ["caller"]
+
+py/ecb-encryption:
+  short_description: "Using ECB cipher mode which reveals plaintext patterns"
+  questions:
+    - "What cipher mode is being used - is it explicitly ECB or is it the default (often ECB)?"
+    - "What type of data is being encrypted (structured data, images, text blocks)?"
+    - "Would ECB mode reveal patterns in the ciphertext (identical plaintext blocks produce identical ciphertext)?"
+    - "Is the plaintext structured or repetitive such that identical blocks would produce identical ciphertext, revealing patterns?"
+    - "Is the encryption for confidentiality, integrity, or both?"
+    - "Is there an IV/nonce being used - ECB mode does not use an IV which is a strong signal of weakness?"
+  context_hint: "Include cipher initialization and mode selection."
+  additional_context: []
+
+py/race-condition:
+  short_description: "TOCTOU race on filesystem or shared state without proper locking"
+  questions:
+    - "Is os.path.exists() or os.access() checked before opening/using a file (TOCTOU gap)?"
+    - "Could an attacker replace the file with a symlink between the check and the open?"
+    - "Is threading.Lock() or a file lock (fcntl.flock) used to protect shared state?"
+    - "Can the operation be made atomic - e.g., open with 'x' mode (exclusive creation) instead of checking?"
+    - "In a multi-threaded or multi-process context, is the shared variable protected?"
+    - "What is the security impact if the race is won by an attacker (arbitrary file write, privilege escalation)?"
+  context_hint: "Include the check and use operations and any locking."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - XML Security
+# ==============================================================================
+
+py/xxe:
+  short_description: "XML parser configured to allow external entity resolution"
+  questions:
+    - "Which XML library is used (lxml, xml.etree, minidom, xmltodict, defusedxml)?"
+    - "Is the XML input from an untrusted source (request body, uploaded file, network)?"
+    - "Are external entities explicitly DISABLED (e.g., lxml with resolve_entities=False, no_network=True)?"
+    - "Is defusedxml used as a safe drop-in replacement?"
+    - "Could an attacker use an XXE payload to read local files (/etc/passwd) or perform SSRF?"
+    - "Is DTD processing disabled, or could an attacker define a DOCTYPE with external entities?"
+  context_hint: "Include XML parser initialization and all parsing options."
+  additional_context: ["caller"]
+
+py/information-exposure:
+  short_description: "Stack trace, exception detail, or internal path returned to user"
+  questions:
+    - "What sensitive information could be exposed - stack trace, file paths, database schema, internal variable values?"
+    - "Is this returned in an HTTP response, rendered in a template, or logged to an accessible location?"
+    - "In production, is DEBUG mode disabled and generic error pages served instead of tracebacks?"
+    - "Could an attacker trigger this deliberately to learn about the application internals?"
+    - "Is the exception handler catching too broadly and re-exposing the original exception message?"
+    - "Who can observe this output — external users via HTTP response, internal admins, or only server-side logs?"
+  context_hint: "Include the exception handler and where the error detail is sent."
+  additional_context: ["caller"]
+
+py/deprecated-api:
+  short_description: "Deprecated or removed Python API used with security implications"
+  questions:
+    - "What deprecated API is used — which module, function, or class, and in which Python version was it deprecated?"
+    - "Is the deprecated API related to security (ssl.PROTOCOL_TLSv1, cgi module, formatter, telnetlib, etc.)?"
+    - "Does the deprecated API have known security weaknesses that the replacement addresses?"
+    - "Is the code running on a Python version where this API has been REMOVED (not just deprecated)?"
+    - "What is the security impact if the deprecated behavior differs from the replacement — weaker defaults, missing validation?"
+    - "Is this code path reachable in production, or only used in tests/development?"
+  context_hint: "Include the deprecated API call and how its result is used."
+  additional_context: []
+
+# ==============================================================================
+# Python - Injection (LDAP, XPath, Log, HTML, Template, Header)
+# ==============================================================================
+
+py/ldap-injection:
+  short_description: "LDAP query or filter built from untrusted user input"
+  questions:
+    - "Where does the INPUT originate — request.args, request.form, request.json, or other user-controlled source?"
+    - "Is the input concatenated directly into an LDAP filter string (e.g., f'(uid={user})')?"
+    - "Is the input ESCAPED using ldap3's escape_filter_chars() or equivalent before use?"
+    - "Could an attacker inject LDAP metacharacters (* ( ) \\ NUL) to alter the filter — e.g., authentication bypass via (uid=*)?"
+    - "What LDAP operations are affected — ldap3.Connection.search, python-ldap.search?"
+    - "Would using parameterized search filters or a strict allowlist of alphanumeric characters prevent this?"
+  context_hint: "Trace from request input through LDAP filter construction to search call."
+  additional_context: ["caller"]
+
+py/xpath-injection:
+  short_description: "XPath expression built from untrusted user input"
+  questions:
+    - "Where does the INPUT originate — request parameter, form field, or other user-controlled source?"
+    - "Is the input concatenated into an XPath string (e.g., f\"//user[name='{user}']\")?"
+    - "Is the input ESCAPED or validated to reject XPath metacharacters (', \", [, ], /)?"
+    - "Could an attacker inject a payload like ' or '1'='1 to bypass authentication or extract all data?"
+    - "What library is used (lxml, xml.etree) and does it support parameterized XPath with variables?"
+    - "Would using lxml's XPath variable binding (e.g., xpath('//user[name=$n]', n=user)) prevent injection?"
+  context_hint: "Trace from input through XPath string construction to evaluate call."
+  additional_context: ["caller"]
+
+py/log-injection:
+  short_description: "Unsanitized user input written to logs enabling log forging"
+  questions:
+    - "Where does the LOG DATA originate — request parameters, user-supplied strings, external API responses?"
+    - "Is the data written to a log via logging.info/warning/error without sanitization?"
+    - "Could an attacker embed newline characters (\\n, \\r) to inject fake log entries?"
+    - "Could injected entries mask real security events or mislead incident responders?"
+    - "Is the log consumed by a log aggregation system (ELK, Splunk) that could be confused by crafted entries?"
+    - "Would stripping or encoding newlines and control characters from user data before logging prevent this?"
+  context_hint: "Include the log call and the source of the logged data."
+  additional_context: ["caller"]
+
+py/html-injection:
+  short_description: "Untrusted HTML fragment inserted into response without sanitization"
+  questions:
+    - "Where does the HTML fragment originate — request parameter, database, or CMS field?"
+    - "Is the fragment inserted into a response that is rendered as text/html?"
+    - "Is the content SANITIZED with a library like bleach/nh3 to an allowlist of safe tags?"
+    - "If sanitized, is the allowlist strict (no script, no event handlers, no javascript: URLs)?"
+    - "Is this distinct from XSS — is the intent to allow some HTML but restrict dangerous tags?"
+    - "Would using a strict Content Security Policy (CSP) limit the damage if sanitization is incomplete?"
+  context_hint: "Include the HTML source, sanitization step, and how the result is rendered."
+  additional_context: ["caller"]
+
+py/template-injection:
+  short_description: "User input embedded in a Jinja2/Mako/Chameleon template string"
+  questions:
+    - "Where does the INPUT originate — request parameter, database field, config file?"
+    - "Is the input used as the TEMPLATE SOURCE (e.g., jinja2.Template(user_input)) rather than a template variable?"
+    - "Could an attacker inject Jinja2 expressions like {{7*7}} or {{config}} to execute Python code?"
+    - "Is the template rendered in a SANDBOX (jinja2.sandbox.SandboxedEnvironment) that restricts dangerous operations?"
+    - "If sandboxed, is the sandbox escape-resistant (Jinja2 sandbox has known bypasses)?"
+    - "Would treating user input as data (passed as template variable) rather than template code fix this?"
+  context_hint: "Include template engine initialization and where user input enters the template."
+  additional_context: ["caller"]
+
+py/header-injection:
+  short_description: "HTTP response header value built from user-controlled input"
+  questions:
+    - "Where does the HEADER VALUE originate — request parameter, cookie, form field?"
+    - "Is the value set in a response header (e.g., response.headers['Location'] = user_input) without validation?"
+    - "Could an attacker inject \\r\\n (CRLF) sequences to inject additional headers or split the response?"
+    - "Is the header a Location redirect — if so, is the value validated against an allowlist of allowed hosts?"
+    - "What is the security impact — cache poisoning, open redirect, XSS via injected Content-Type?"
+    - "Would stripping \\r, \\n, and %0d, %0a from values before setting headers prevent this?"
+  context_hint: "Include the header assignment and source of the header value."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Web Security (CSRF, Open Redirect, Cookie, ReDoS)
+# ==============================================================================
+
+py/csrf:
+  short_description: "State-changing endpoint missing CSRF token validation"
+  questions:
+    - "Does this endpoint perform a state-changing operation (write, update, delete, transfer)?"
+    - "Is a CSRF token required in the request and validated server-side (not just checked for presence)?"
+    - "Is the framework's CSRF protection enabled globally (e.g., Flask-WTF, Django CsrfMiddleware)?"
+    - "Is this endpoint exempt from CSRF protection — if so, is it truly safe (idempotent, read-only)?"
+    - "Could the SameSite=Strict cookie attribute or a custom request header (X-Requested-With) mitigate this?"
+    - "Could an attacker craft a cross-origin form or fetch request to trigger this action on behalf of a victim?"
+  context_hint: "Include the route handler and any middleware or decorator for CSRF."
+  additional_context: ["caller"]
+
+py/open-redirect:
+  short_description: "Redirect to a user-controlled URL without domain validation"
+  questions:
+    - "Where does the REDIRECT TARGET URL come from — request.args, request.form, query string?"
+    - "Is the URL validated against an allowlist of trusted domains or paths before redirecting?"
+    - "Could an attacker supply an absolute URL (https://evil.com) or protocol-relative URL (//evil.com) to redirect victims?"
+    - "Is there a check that the redirect stays on the same host (e.g., validating urlparse(url).netloc)?"
+    - "What is the phishing/social-engineering risk — users see a trusted domain before being redirected?"
+    - "Would redirecting only to relative paths or validating against a fixed set of allowed URLs prevent this?"
+  context_hint: "Include the redirect call and where the target URL comes from."
+  additional_context: ["caller"]
+
+py/insecure-cookie:
+  short_description: "Session or security cookie missing Secure, HttpOnly, or SameSite attribute"
+  questions:
+    - "Which cookie is being set — session ID, CSRF token, auth token?"
+    - "Is the Secure flag set (prevents transmission over HTTP, required for sensitive cookies)?"
+    - "Is the HttpOnly flag set (prevents JavaScript access, mitigates XSS-based theft)?"
+    - "Is the SameSite attribute set to Strict or Lax (mitigates CSRF)?"
+    - "Is the cookie domain scoped as narrowly as possible (not .example.com when app.example.com suffices)?"
+    - "Is the cookie lifetime appropriate — session cookies (no max_age) vs persistent tokens?"
+  context_hint: "Include the cookie-setting call and all attributes passed."
+  additional_context: []
+
+py/weak-cryptographic-algorithm:
+  short_description: "Weak or broken cryptographic algorithm (MD5, SHA1, DES, RC4) used for security"
+  questions:
+    - "Which algorithm is used (MD5, SHA1, SHA-256, DES, 3DES, RC4, Blowfish) and for what purpose?"
+    - "Is this for password HASHING (must use bcrypt/argon2/scrypt), HMAC, symmetric encryption, or checksums?"
+    - "Is collision resistance required — MD5 and SHA1 are broken for collision resistance?"
+    - "Is preimage resistance required — MD5 is weakened; SHA1 is acceptable only for non-security checksums?"
+    - "For symmetric encryption: is a modern authenticated cipher (AES-GCM, ChaCha20-Poly1305) available?"
+    - "Is this for backward compatibility with an external system, and is there a migration path?"
+  context_hint: "Include the crypto function call and how the result is used."
+  additional_context: []
+
+py/regex-dos:
+  short_description: "Regular expression with catastrophic backtracking matched against user input"
+  questions:
+    - "What is the REGEX pattern — does it contain nested quantifiers like (a+)+, (a|a)*, or similar?"
+    - "Is the pattern matched against USER-CONTROLLED input without length limits?"
+    - "What is the WORST-CASE backtracking behavior — exponential, polynomial, or linear?"
+    - "Is there a timeout (re.timeout, signal.alarm, or similar) on the regex operation?"
+    - "Could an attacker craft an input like 'aaaaaaaaa...!' to trigger exponential backtracking and hang the server?"
+    - "Would rewriting the pattern (possessive quantifiers, atomic groups) or using the 'regex' library with timeout fix this?"
+  context_hint: "Include the regex pattern and where user input enters the match operation."
+  additional_context: []
+
+py/insecure-temporary-file:
+  short_description: "Predictable temporary file path or insecure mktemp() usage"
+  questions:
+    - "Is tempfile.mktemp() used (returns a name without creating the file — TOCTOU race) instead of mkstemp()?"
+    - "Is the temp file created in /tmp with a predictable name (e.g., based on PID or timestamp)?"
+    - "Could an attacker pre-create a symlink at that path to redirect writes to a sensitive file?"
+    - "Is tempfile.mkstemp() or tempfile.NamedTemporaryFile(delete=False) used for atomic creation?"
+    - "Are the file permissions set to 0600 (owner-only) before any sensitive data is written?"
+    - "Is the temp file securely deleted (shutil.rmtree or tempfile.TemporaryDirectory context manager) after use?"
+  context_hint: "Include temp file creation and how the path is derived."
+  additional_context: []
+
+py/xml-bomb:
+  short_description: "XML parser vulnerable to billion-laughs or quadratic entity expansion DoS"
+  questions:
+    - "Which XML parser is used (lxml, xml.etree, minidom, expat) and is entity expansion limited?"
+    - "Is the XML input from an untrusted source (request body, uploaded file, external feed)?"
+    - "Does the parser process DTD entity definitions that could cause exponential expansion?"
+    - "Is defusedxml used, which disables entity expansion and DTD processing by default?"
+    - "Is there a maximum document size or entity depth limit configured?"
+    - "Would disabling DTD processing (e.g., lxml with resolve_entities=False, forbid_dtd=True) prevent this?"
+  context_hint: "Include XML parser initialization and input source."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Cleartext Data Handling
+# ==============================================================================
+
+py/cleartext-storage:
+  short_description: "Sensitive data stored in cleartext without encryption"
+  questions:
+    - "What sensitive data is being stored — password, token, API key, PII, credit card?"
+    - "Where is the data stored — database, file, pickle, shelve, Redis, SQLite, config?"
+    - "Is the data ENCRYPTED or HASHED before storage (e.g., cryptography.fernet, bcrypt for passwords)?"
+    - "Could an attacker with access to the storage medium (database dump, backup, file) read the sensitive data?"
+    - "Is this storage reachable in production, or is it only used in tests/development?"
+    - "What is the blast radius if this data is exposed — account compromise, credential reuse, regulatory violation?"
+  context_hint: "Include the data source, storage call, and any encryption step."
+  additional_context: ["caller"]
+
+py/cleartext-transmission:
+  short_description: "Sensitive data transmitted over unencrypted channel (HTTP, plain TCP)"
+  questions:
+    - "What sensitive data is being sent — credentials, tokens, session IDs, PII?"
+    - "Is the URL scheme http:// where https:// should be used?"
+    - "Is the connection using TLS (ssl.wrap_socket, requests with verify=True) or plain sockets?"
+    - "Could an attacker on the network path (MITM) intercept and read this data?"
+    - "Is smtplib or ftplib used without STARTTLS for transmitting credentials?"
+    - "Is this an internal-only connection with compensating network-level encryption (VPN, service mesh)?"
+  context_hint: "Include the data being sent and the network/HTTP call."
+  additional_context: ["caller"]
+
+py/certificate-validation-disabled:
+  short_description: "TLS certificate verification disabled (verify=False, CERT_NONE)"
+  questions:
+    - "Is requests.get/post called with verify=False, disabling certificate validation?"
+    - "Is ssl.SSLContext created with check_hostname=False or CERT_NONE?"
+    - "Is urllib3 configured with cert_reqs='CERT_NONE' or InsecureRequestWarning suppressed?"
+    - "Could an attacker with a self-signed certificate perform a man-in-the-middle attack?"
+    - "Is this a development/test configuration that should NOT be used in production?"
+    - "What remote server is being connected to — is it an internal service with a custom CA, or an external API?"
+  context_hint: "Include the HTTP/TLS client setup and verify parameter."
+  additional_context: ["caller"]
+
+py/insecure-tls-version:
+  short_description: "Deprecated TLS/SSL protocol version (SSLv3, TLS 1.0, TLS 1.1) used"
+  questions:
+    - "Is ssl.PROTOCOL_TLSv1, PROTOCOL_TLSv1_1, or PROTOCOL_SSLv23 used without disabling old protocols?"
+    - "Is SSLContext.minimum_version set to TLSVersion.TLSv1_2 or higher?"
+    - "Are deprecated protocols disabled via SSLContext.options (OP_NO_SSLv3, OP_NO_TLSv1, OP_NO_TLSv1_1)?"
+    - "Could an attacker force a protocol downgrade to exploit BEAST, POODLE, or similar vulnerabilities?"
+    - "Is this connecting to a legacy server that cannot support TLS 1.2+?"
+    - "What cipher suites are enabled — do they include weak ciphers (RC4, DES, export-grade)?"
+  context_hint: "Include ssl.SSLContext creation and all protocol configuration."
+  additional_context: []
+
+# ==============================================================================
+# Python - NoSQL / Data Access
+# ==============================================================================
+
+py/nosql-injection:
+  short_description: "NoSQL (MongoDB) query built from unsanitized user input"
+  questions:
+    - "Where does the INPUT originate — request.args, request.form, request.json, or other user-controlled source?"
+    - "Is user input used directly as a MongoDB query object (e.g., collection.find(request.json))?"
+    - "Could an attacker supply JSON operators like {'$gt': ''} or {'$where': 'sleep(1000)'} to alter query semantics?"
+    - "Is the input VALIDATED to ensure it is a scalar value (string, number) rather than a dict or list?"
+    - "Is pymongo or motor used, and is there any input sanitization middleware?"
+    - "What is the impact — authentication bypass, data exfiltration, or DoS via $where expressions?"
+  context_hint: "Trace from request input through query object construction to database call."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Archive Extraction
+# ==============================================================================
+
+py/zip-slip:
+  short_description: "Archive extraction without validating file paths allows directory traversal"
+  questions:
+    - "Is tarfile.extractall(), zipfile.extractall(), or shutil.unpack_archive() used on untrusted archives?"
+    - "Are individual member paths CHECKED to ensure they do not contain '../' or absolute paths?"
+    - "Could an attacker craft an archive with entries like '../../etc/cron.d/malicious' to write outside the target directory?"
+    - "Is tarfile used with a data_filter or filter parameter (Python 3.12+) to restrict extraction?"
+    - "Is os.path.realpath() applied to each extracted path and compared to the intended base directory?"
+    - "What is the impact — arbitrary file write, code execution via overwriting scripts or configs?"
+  context_hint: "Include the archive extraction call and the source of the archive."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Session Security
+# ==============================================================================
+
+py/session-fixation:
+  short_description: "Session ID not regenerated after successful login"
+  questions:
+    - "After successful authentication, is the session ID regenerated (e.g., Flask session.regenerate(), Django cycle_key())?"
+    - "Could an attacker set a known session ID (via URL or cookie) and wait for the victim to authenticate?"
+    - "Does the framework handle session regeneration automatically, or must it be done explicitly?"
+    - "Is this a login endpoint or another privilege escalation point (2FA completion, role change)?"
+    - "Is the old session data properly migrated to the new session after regeneration?"
+    - "Are session IDs generated with sufficient entropy (secrets module, framework default) to resist guessing?"
+  context_hint: "Include the login handler and session management logic."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - File Upload
+# ==============================================================================
+
+py/file-upload:
+  short_description: "Uploaded file processed without type, extension, or content validation"
+  questions:
+    - "Is the uploaded file saved to disk without validating its extension, MIME type, or content?"
+    - "Is the file stored in a web-accessible directory where it could be executed (e.g., as a Python/PHP script)?"
+    - "Is the file extension checked against an ALLOWLIST (not a blocklist) of safe extensions?"
+    - "Is the filename sanitized (werkzeug.utils.secure_filename or equivalent) to prevent path traversal?"
+    - "Is the Content-Type header trusted (client-controlled) or is the actual content inspected (e.g., python-magic)?"
+    - "What is the impact — arbitrary file write, code execution, or storage of malicious content?"
+  context_hint: "Include the upload handling code, destination path, and validation logic."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Clickjacking
+# ==============================================================================
+
+py/clickjacking:
+  short_description: "Missing X-Frame-Options or CSP frame-ancestors header in Python web framework"
+  questions:
+    - "Is the X-Frame-Options header (DENY or SAMEORIGIN) set in responses, or is frame-ancestors in CSP?"
+    - "Could an attacker embed this page in an iframe on their site to trick users into clicking sensitive UI?"
+    - "What sensitive actions could be triggered — button clicks, form submissions, permission grants?"
+    - "Is Flask-Talisman, Django SecurityMiddleware, or equivalent middleware configured for this app?"
+    - "Does the application intentionally allow framing for specific pages (widgets, embeds)?"
+    - "Are there any pages with state-changing actions that are NOT protected by frame-busting headers?"
+  context_hint: "Include the response header configuration and which routes serve sensitive UI."
+  additional_context: []
+
+# ==============================================================================
+# Python - Debug / Configuration
+# ==============================================================================
+
+py/flask-debug:
+  short_description: "Flask debug mode enabled in production allowing code execution"
+  questions:
+    - "Is app.run(debug=True) or FLASK_DEBUG=1 set in code that runs in production?"
+    - "Does debug mode expose the Werkzeug interactive debugger, which allows arbitrary Python execution?"
+    - "Is the debugger PIN protection sufficient — can an attacker derive the PIN from /proc filesystem info?"
+    - "Is this guarded by an environment check (e.g., only enabled when ENV=development)?"
+    - "Is this in the main entry point (if __name__ == '__main__') that is NOT used in production (gunicorn/uwsgi)?"
+    - "What is the impact — full remote code execution if the debugger is reachable from the network?"
+  context_hint: "Include the app.run() call and any environment-based guards."
+  additional_context: []
+
+# ==============================================================================
+# Python - File Permissions
+# ==============================================================================
+
+py/overly-permissive-file:
+  short_description: "File created with world-readable or world-writable permissions"
+  questions:
+    - "What permissions are set — is os.chmod() called with 0o777, 0o666, or similar world-accessible mode?"
+    - "Is open() called without restricting permissions via os.umask() or the opener parameter?"
+    - "What data is written to this file — credentials, tokens, config, sensitive logs?"
+    - "Could another user or process on the same system read or modify this file?"
+    - "Is tempfile.mkstemp() or NamedTemporaryFile() used, which create files with 0o600 by default?"
+    - "Is this on a shared system (multi-user server, container with shared volumes) where other users exist?"
+  context_hint: "Include the file creation call and the mode/permissions."
+  additional_context: []
+
+# ==============================================================================
+# Python - Regex Injection
+# ==============================================================================
+
+py/regex-injection:
+  short_description: "User input used as a regular expression pattern without escaping"
+  questions:
+    - "Is user-controlled input passed directly as the PATTERN argument to re.compile(), re.search(), re.match()?"
+    - "Is re.escape() applied to the user input before using it in a regex?"
+    - "Could an attacker craft a malicious regex pattern to cause catastrophic backtracking (ReDoS)?"
+    - "Could an attacker use regex features (backreferences, lookbehinds) to extract data or cause unexpected matches?"
+    - "Is there a timeout configured on the regex operation to limit execution time?"
+    - "Is the intent to search for a literal string — if so, should str.find() or str.contains() be used instead?"
+  context_hint: "Include the regex call and where the pattern comes from."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Additional Security Rules
+# ==============================================================================
+
+py/unsafe-yaml:
+  short_description: "yaml.load() used without SafeLoader, allowing arbitrary code execution (CWE-502)"
+  questions:
+    - "Is yaml.load() called WITHOUT specifying Loader=yaml.SafeLoader or Loader=yaml.CSafeLoader?"
+    - "Where does the YAML INPUT come from — user upload, network, file, config?"
+    - "Could an attacker supply a YAML payload with !!python/object to execute arbitrary code?"
+    - "Is yaml.safe_load() or yaml.load(data, Loader=SafeLoader) used instead?"
+    - "Is the PyYAML version >= 6.0 (which defaults to SafeLoader) or an older version?"
+    - "Is there any input validation or schema check BEFORE parsing the YAML?"
+  context_hint: "Include the yaml.load() call and where the input data originates."
+  additional_context: ["caller"]
+
+py/django-raw-sql:
+  short_description: "Django ORM raw SQL method with user-controlled input"
+  questions:
+    - "Is .raw(), .extra(), cursor.execute(), or RawSQL() used with string concatenation or %-formatting?"
+    - "Where does the user input come from — request.GET, request.POST, URL parameter?"
+    - "Are PARAMETERIZED queries used (params=[...]) instead of string interpolation?"
+    - "Could the ORM query builder (.filter(), .exclude(), .annotate()) achieve the same result safely?"
+    - "Is there any INPUT VALIDATION or ESCAPING before the value enters the SQL string?"
+    - "Could an attacker inject SQL to read, modify, or delete data beyond their authorization?"
+  context_hint: "Include the ORM/SQL call, input source, and any parameterization."
+  additional_context: ["caller"]
+
+py/missing-access-control:
+  short_description: "Endpoint or function performs privileged action without authorization check (CWE-862)"
+  questions:
+    - "What PRIVILEGED OPERATION does this view/function perform — data modification, admin action, user management?"
+    - "Is there a DECORATOR or MIDDLEWARE enforcing authentication (@login_required, @permission_required, IsAuthenticated)?"
+    - "Is there an AUTHORIZATION CHECK verifying the user has permission for THIS specific resource/action?"
+    - "Could an unauthenticated or low-privilege user reach this code path via the URL routing?"
+    - "Does the framework provide DEFAULT PROTECTION (e.g., Django LOGIN_URL, DRF default permission classes)?"
+    - "What is the IMPACT if an unauthorized user triggers this action?"
+  context_hint: "Include the view function, URL routing, and any authentication decorators or middleware."
+  additional_context: ["caller"]
+
+py/input-validation:
+  short_description: "User input used without validation at system boundary (CWE-20)"
+  questions:
+    - "Where does the INPUT originate — request.GET, request.POST, request.FILES, sys.argv, env var?"
+    - "What TYPE and FORMAT is expected — integer, email, UUID, bounded string?"
+    - "Is the input VALIDATED using a form, serializer, schema library (Pydantic, marshmallow, WTForms)?"
+    - "Could malformed input cause an exception, logic error, or security bypass?"
+    - "Is the input used in a SECURITY-SENSITIVE context (database query, file path, shell command, template)?"
+    - "Is the validation at the BOUNDARY (view/endpoint) or scattered across multiple layers?"
+  context_hint: "Include the input source, any validation, and the first security-sensitive use."
+  additional_context: ["caller"]
+
+py/async-race-condition:
+  short_description: "Shared mutable state accessed from async coroutines without synchronization"
+  questions:
+    - "What SHARED STATE is accessed — module-level variable, class attribute, global dict/list?"
+    - "Is the state READ and WRITTEN from multiple coroutines or tasks?"
+    - "Is an asyncio.Lock, asyncio.Semaphore, or other synchronization primitive used?"
+    - "Could a context switch (await) between read and write cause a TOCTOU or inconsistent state?"
+    - "Is the operation ATOMIC (single dict assignment) or COMPOUND (read-modify-write)?"
+    - "What is the impact — data corruption, authentication bypass, financial inconsistency?"
+  context_hint: "Include the shared state declaration, all async functions accessing it, and any locks."
+  additional_context: ["caller", "global"]
+
+py/unsafe-string-formatting:
+  short_description: "User input in %-format or .format() string used in security-sensitive context"
+  questions:
+    - "Is user input used in a %-format string (% operator) or .format() call?"
+    - "Could an attacker use format specifiers to READ object attributes (e.g., {0.__class__.__init__.__globals__})?"
+    - "Is the formatted string used in a SECURITY-SENSITIVE context (logging, SQL, HTML, shell command)?"
+    - "Would f-strings or parameterized APIs be safer alternatives?"
+    - "Is the format string itself HARDCODED, or is the format string template also user-controlled?"
+    - "Are there any restrictions on what objects/attributes the format placeholders can access?"
+  context_hint: "Include the format call, user input source, and where the result is used."
+  additional_context: ["caller"]
+
+py/insecure-tls-context:
+  short_description: "SSLContext created without enforcing minimum TLS version or hostname checking"
+  questions:
+    - "Is ssl.SSLContext() created without setting minimum_version to TLSVersion.TLSv1_2 or higher?"
+    - "Is check_hostname set to True and verify_mode set to CERT_REQUIRED?"
+    - "Is ssl.create_default_context() used (which has secure defaults) or a manual SSLContext?"
+    - "Could this context be used for connections carrying sensitive data (passwords, tokens, PII)?"
+    - "Are deprecated protocols (SSLv3, TLS 1.0, TLS 1.1) explicitly disabled via context.options?"
+    - "Is this context used only for INTERNAL services with self-signed certs, or for public-facing connections?"
+  context_hint: "Include the SSLContext creation, option settings, and where it is used for connections."
+  additional_context: ["caller"]

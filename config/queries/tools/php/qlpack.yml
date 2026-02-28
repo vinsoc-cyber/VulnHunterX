@@ -1,0 +1,4 @@
+name: vulnhunterx/php-tools
+version: 0.0.1
+dependencies:
+  codeql/php-all: "*"

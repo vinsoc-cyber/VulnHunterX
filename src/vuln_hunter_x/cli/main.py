@@ -61,7 +61,7 @@ Examples:
     # Check-env command
     subparsers.add_parser(
         "check-env",
-        help="Check environment (CodeQL, OpenAI, Ollama)",
+        help="Check environment (CodeQL, OpenAI, Anthropic, Ollama)",
     )
     
     # Clone command
@@ -133,7 +133,7 @@ Examples:
 def _add_clone_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for clone command."""
     parser.add_argument("--config", type=Path, help="Path to repos.yaml")
-    parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
+    parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript", "php"], help="Only this language")
     parser.add_argument("--repo", help="Only this repository")
     parser.add_argument("--skip-clone", action="store_true", help="Skip git clone")
     parser.add_argument("--skip-db", action="store_true", help="Skip database creation")
@@ -164,7 +164,7 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
         type=Path,
         help="Path to repos.yaml (for Semgrep repo list)",
     )
-    parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
+    parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript", "php"], help="Only this language")
     parser.add_argument("--repo", help="Only this repository")
     parser.add_argument("--json", action="store_true", help="Also output findings JSON")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output with command details")
@@ -174,7 +174,7 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_extract_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for extract-context command."""
-    parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
+    parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript", "php"], help="Only this language")
     parser.add_argument("--repo", help="Only this repository")
     parser.add_argument("-f", "--force", action="store_true", help="Force re-extraction even if context CSVs exist")
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
@@ -229,7 +229,7 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     
     # LLM settings
     llm_group = parser.add_argument_group("LLM Settings")
-    llm_group.add_argument("--provider", choices=["openai", "ollama"], help="LLM provider")
+    llm_group.add_argument("--provider", choices=["openai", "ollama", "anthropic"], help="LLM provider")
     llm_group.add_argument("--model", help="LLM model name")
     llm_group.add_argument("--temperature", type=float, help="LLM temperature (0.0-1.0)")
     llm_group.add_argument("--max-tokens", type=int, help="Maximum tokens in response")
@@ -242,7 +242,7 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     filter_group = parser.add_argument_group("Filters")
     filter_group.add_argument("--sarif", type=Path, help="Specific SARIF file to process")
     filter_group.add_argument("--repo", help="Only process this repository")
-    filter_group.add_argument("--lang", choices=["c", "cpp", "python", "javascript"], help="Only this language")
+    filter_group.add_argument("--lang", choices=["c", "cpp", "python", "javascript", "php"], help="Only this language")
     filter_group.add_argument("--limit", type=int, help="Maximum findings to process")
     filter_group.add_argument("--include-tests", action="store_true", help="Include findings under test/ or tests/ (default: exclude)")
     
