@@ -12,32 +12,32 @@ from vuln_hunter_x.core.types import Finding
 
 class SarifParser:
     """Parser for SARIF (Static Analysis Results Interchange Format) files."""
-    
+
     def __init__(self, sarif_path: Path):
         self.sarif_path = Path(sarif_path)
         self._data: dict | None = None
-    
+
     @property
     def data(self) -> dict:
         """Lazy load SARIF data."""
         if self._data is None:
             self._data = self._load()
         return self._data
-    
+
     def _load(self) -> dict[str, Any]:
         """Load SARIF file."""
         if not self.sarif_path.is_file():
             raise FileNotFoundError(f"SARIF file not found: {self.sarif_path}")
-        
+
         with open(self.sarif_path, encoding="utf-8") as f:
             data = json.load(f)
             return data if isinstance(data, dict) else {}
-    
+
     def get_runs(self) -> list[dict[str, Any]]:
         """Get all runs from SARIF data."""
         runs = self.data.get("runs", [])
         return runs if isinstance(runs, list) else []
-    
+
     def get_results(self, run_index: int = 0) -> list[dict[str, Any]]:
         """Get results from a specific run."""
         runs = self.get_runs()
@@ -45,16 +45,16 @@ class SarifParser:
             return []
         results = runs[run_index].get("results", [])
         return results if isinstance(results, list) else []
-    
+
     def get_artifacts(self, run_index: int = 0) -> dict[int, dict]:
         """Get artifacts (file info) from a specific run, indexed by index."""
         runs = self.get_runs()
         if run_index >= len(runs):
             return {}
-        
+
         artifacts = runs[run_index].get("artifacts", [])
         return {i: art for i, art in enumerate(artifacts)}
-    
+
     def parse_findings(
         self,
         lang: str,
@@ -62,66 +62,80 @@ class SarifParser:
     ) -> list[Finding]:
         """
         Parse all findings from the SARIF file.
-        
+
         Args:
             lang: Language of the codebase (c, cpp, python, javascript)
             repo_name: Name of the repository
-            
+
         Returns:
             List of Finding objects
         """
         findings: list[Finding] = []
-        
+
         for run in self.get_runs():
             artifacts = {i: art for i, art in enumerate(run.get("artifacts", []))}
-            
+
+            # Extract tool name from SARIF standard field
+            tool_name = (run.get("tool") or {}).get("driver", {}).get("name", "")
+            if not tool_name:
+                # Fallback: infer from file name
+                tool_name = (
+                    "Semgrep" if self.sarif_path.name.endswith("_semgrep.sarif") else "CodeQL"
+                )
+
             for result in run.get("results", []):
                 rule_id = result.get("ruleId") or ""
                 message = (result.get("message") or {}).get("text") or ""
-                
+
                 locations = result.get("locations") or []
-                
+
                 for loc in locations:
-                    phys = (loc.get("physicalLocation") or {})
+                    phys = loc.get("physicalLocation") or {}
                     art_ref = phys.get("artifactLocation") or {}
-                    
+
                     # Get file URI
                     uri = art_ref.get("uri") or ""
                     art_index = art_ref.get("index")
                     if art_index is not None and art_index in artifacts:
                         uri = artifacts[art_index].get("location", {}).get("uri") or uri
-                    
+
                     # Get line numbers (SARIF line numbers are 1-indexed)
                     region = phys.get("region") or {}
                     start_line = region.get("startLine") or 0
                     end_line = region.get("endLine") or start_line
-                    
-                    findings.append(Finding(
-                        rule_id=rule_id,
-                        message=message,
-                        file=uri,
-                        start_line=start_line,
-                        end_line=end_line,
-                        repo_name=repo_name,
-                        lang=lang,
-                        sarif_path=str(self.sarif_path),
-                    ))
-                
+
+                    findings.append(
+                        Finding(
+                            rule_id=rule_id,
+                            message=message,
+                            file=uri,
+                            start_line=start_line,
+                            end_line=end_line,
+                            repo_name=repo_name,
+                            lang=lang,
+                            sarif_path=str(self.sarif_path),
+                            tool=tool_name,
+                        )
+                    )
+
                 # Handle results without locations
                 if not locations:
-                    findings.append(Finding(
-                        rule_id=rule_id,
-                        message=message,
-                        file="",
-                        start_line=0,
-                        end_line=0,
-                        repo_name=repo_name,
-                        lang=lang,
-                        sarif_path=str(self.sarif_path),
-                    ))
-        
+                    findings.append(
+                        Finding(
+                            rule_id=rule_id,
+                            message=message,
+                            file="",
+                            start_line=0,
+                            end_line=0,
+                            repo_name=repo_name,
+                            lang=lang,
+                            sarif_path=str(self.sarif_path),
+                            tool=tool_name,
+                        )
+                    )
+
         return findings
-    
+
     def __iter__(self) -> Iterator[dict]:
         """Iterate over all results."""
         for run in self.get_runs():
@@ -135,12 +149,12 @@ def parse_sarif_file(
 ) -> list[Finding]:
     """
     Convenience function to parse a SARIF file.
-    
+
     Args:
         sarif_path: Path to the SARIF file
         lang: Language of the codebase
         repo_name: Name of the repository
-        
+
     Returns:
         List of Finding objects
     """

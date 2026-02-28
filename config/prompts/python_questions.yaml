@@ -563,3 +563,91 @@ py/regex-injection:
     - "Is the intent to search for a literal string — if so, should str.find() or str.contains() be used instead?"
   context_hint: "Include the regex call and where the pattern comes from."
   additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Additional Security Rules
+# ==============================================================================
+
+py/unsafe-yaml:
+  short_description: "yaml.load() used without SafeLoader, allowing arbitrary code execution (CWE-502)"
+  questions:
+    - "Is yaml.load() called WITHOUT specifying Loader=yaml.SafeLoader or Loader=yaml.CSafeLoader?"
+    - "Where does the YAML INPUT come from — user upload, network, file, config?"
+    - "Could an attacker supply a YAML payload with !!python/object to execute arbitrary code?"
+    - "Is yaml.safe_load() or yaml.load(data, Loader=SafeLoader) used instead?"
+    - "Is the PyYAML version >= 6.0 (which defaults to SafeLoader) or an older version?"
+    - "Is there any input validation or schema check BEFORE parsing the YAML?"
+  context_hint: "Include the yaml.load() call and where the input data originates."
+  additional_context: ["caller"]
+
+py/django-raw-sql:
+  short_description: "Django ORM raw SQL method with user-controlled input"
+  questions:
+    - "Is .raw(), .extra(), cursor.execute(), or RawSQL() used with string concatenation or %-formatting?"
+    - "Where does the user input come from — request.GET, request.POST, URL parameter?"
+    - "Are PARAMETERIZED queries used (params=[...]) instead of string interpolation?"
+    - "Could the ORM query builder (.filter(), .exclude(), .annotate()) achieve the same result safely?"
+    - "Is there any INPUT VALIDATION or ESCAPING before the value enters the SQL string?"
+    - "Could an attacker inject SQL to read, modify, or delete data beyond their authorization?"
+  context_hint: "Include the ORM/SQL call, input source, and any parameterization."
+  additional_context: ["caller"]
+
+py/missing-access-control:
+  short_description: "Endpoint or function performs privileged action without authorization check (CWE-862)"
+  questions:
+    - "What PRIVILEGED OPERATION does this view/function perform — data modification, admin action, user management?"
+    - "Is there a DECORATOR or MIDDLEWARE enforcing authentication (@login_required, @permission_required, IsAuthenticated)?"
+    - "Is there an AUTHORIZATION CHECK verifying the user has permission for THIS specific resource/action?"
+    - "Could an unauthenticated or low-privilege user reach this code path via the URL routing?"
+    - "Does the framework provide DEFAULT PROTECTION (e.g., Django LOGIN_URL, DRF default permission classes)?"
+    - "What is the IMPACT if an unauthorized user triggers this action?"
+  context_hint: "Include the view function, URL routing, and any authentication decorators or middleware."
+  additional_context: ["caller"]
+
+py/input-validation:
+  short_description: "User input used without validation at system boundary (CWE-20)"
+  questions:
+    - "Where does the INPUT originate — request.GET, request.POST, request.FILES, sys.argv, env var?"
+    - "What TYPE and FORMAT is expected — integer, email, UUID, bounded string?"
+    - "Is the input VALIDATED using a form, serializer, schema library (Pydantic, marshmallow, WTForms)?"
+    - "Could malformed input cause an exception, logic error, or security bypass?"
+    - "Is the input used in a SECURITY-SENSITIVE context (database query, file path, shell command, template)?"
+    - "Is the validation at the BOUNDARY (view/endpoint) or scattered across multiple layers?"
+  context_hint: "Include the input source, any validation, and the first security-sensitive use."
+  additional_context: ["caller"]
+
+py/async-race-condition:
+  short_description: "Shared mutable state accessed from async coroutines without synchronization"
+  questions:
+    - "What SHARED STATE is accessed — module-level variable, class attribute, global dict/list?"
+    - "Is the state READ and WRITTEN from multiple coroutines or tasks?"
+    - "Is an asyncio.Lock, asyncio.Semaphore, or other synchronization primitive used?"
+    - "Could a context switch (await) between read and write cause a TOCTOU or inconsistent state?"
+    - "Is the operation ATOMIC (single dict assignment) or COMPOUND (read-modify-write)?"
+    - "What is the impact — data corruption, authentication bypass, financial inconsistency?"
+  context_hint: "Include the shared state declaration, all async functions accessing it, and any locks."
+  additional_context: ["caller", "global"]
+
+py/unsafe-string-formatting:
+  short_description: "User input in %-format or .format() string used in security-sensitive context"
+  questions:
+    - "Is user input used in a %-format string (% operator) or .format() call?"
+    - "Could an attacker use format specifiers to READ object attributes (e.g., {0.__class__.__init__.__globals__})?"
+    - "Is the formatted string used in a SECURITY-SENSITIVE context (logging, SQL, HTML, shell command)?"
+    - "Would f-strings or parameterized APIs be safer alternatives?"
+    - "Is the format string itself HARDCODED, or is the format string template also user-controlled?"
+    - "Are there any restrictions on what objects/attributes the format placeholders can access?"
+  context_hint: "Include the format call, user input source, and where the result is used."
+  additional_context: ["caller"]
+
+py/insecure-tls-context:
+  short_description: "SSLContext created without enforcing minimum TLS version or hostname checking"
+  questions:
+    - "Is ssl.SSLContext() created without setting minimum_version to TLSVersion.TLSv1_2 or higher?"
+    - "Is check_hostname set to True and verify_mode set to CERT_REQUIRED?"
+    - "Is ssl.create_default_context() used (which has secure defaults) or a manual SSLContext?"
+    - "Could this context be used for connections carrying sensitive data (passwords, tokens, PII)?"
+    - "Are deprecated protocols (SSLv3, TLS 1.0, TLS 1.1) explicitly disabled via context.options?"
+    - "Is this context used only for INTERNAL services with self-signed certs, or for public-facing connections?"
+  context_hint: "Include the SSLContext creation, option settings, and where it is used for connections."
+  additional_context: ["caller"]

@@ -8,7 +8,7 @@ Get **SAST (CodeQL / Semgrep)** + LLM bug verification running in 5 minutes.
 - **CodeQL CLI 2.15+** ([install guide](https://codeql.github.com/docs/codeql-cli/getting-started-with-the-codeql-cli/))
 - **Semgrep** (optional, for Semgrep-based analysis; [install](https://semgrep.dev/docs/getting-started/))
 - **Git**
-- **OpenAI API key** or **Ollama** installed locally
+- **OpenAI API key**, **Anthropic API key**, or **Ollama** installed locally
 
 ## Installation
 
@@ -36,7 +36,7 @@ vuln-hunter-x check-env
 python examples/pipeline_python.py
 ```
 
-This clones `pyyaml`, runs CodeQL analysis, and verifies findings with LLM. Semgrep support is planned for the same pipeline.
+This clones `pyyaml`, runs CodeQL analysis, and verifies findings with LLM.
 
 **Option B: Run commands individually**
 
@@ -72,7 +72,8 @@ All scripts support: `--dry-run`, `--skip-clone`, `--api`
 | `.env` | API keys and paths |
 | `config/confirm_findings.yaml` | LLM settings (model, iterations) |
 | `config/repos.yaml` | Repositories to analyze |
-| `config/prompts/guided_questions.yaml` | Rule-specific questions |
+| `config/prompts/*_questions.yaml` | Per-language guided questions |
+| `config/prompts/system_prompt.yaml` | LLM system prompt template |
 
 ## Adding Your Own Repository
 
@@ -82,7 +83,7 @@ Edit `config/repos.yaml`:
 repos:
   - name: my-app
     url: https://github.com/org/my-app.git
-    language: python  # or c, cpp, javascript
+    language: python  # or c, cpp, javascript, php
     # build_command: "make"  # Required for C/C++ only
 ```
 
@@ -124,6 +125,6 @@ python examples/run_all_pipelines.py --fuzz --repo libucl
 ## Next Steps
 
 - See [README.md](README.md) for full CLI reference and API documentation
-- Explore [guided questions](config/prompts/guided_questions.yaml)
+- Explore [guided questions](config/prompts/)
 - Check [security check docs](docs/) for supported vulnerability types
 - [Fuzz stages](docs/fuzz_stages.md) for C/C++ fuzz-based confirmation
