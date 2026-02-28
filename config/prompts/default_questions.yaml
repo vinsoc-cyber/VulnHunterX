@@ -1,0 +1,32 @@
+# Guided Questions Templates for CodeQL/Semgrep Rules (LLM verification style)
+#
+# Questions MUST force the LLM to trace:
+#   1. WHERE variables are declared
+#   2. What their exact SIZES/VALUES are
+#   3. Whether sizes/values CHANGE through assignment or reallocation
+#   4. What CHECKS or CONSTRAINTS exist
+#   5. What OTHER variables feed into the target variables
+#
+# The LLM must answer ALL questions BEFORE giving a verdict.
+# This forces step-by-step reasoning instead of pattern matching.
+#
+# Language: Generic Fallback
+#
+# Format:
+#   rule_id:
+#     short_description: Brief description of the vulnerability
+#     questions: List of questions to answer BEFORE verdict
+#     context_hint: What additional context helps (caller, struct, etc.)
+#     additional_context: List of context types that may be needed
+
+default:
+  short_description: "Generic CodeQL security finding"
+  questions:
+    - "Where does the potentially DANGEROUS data originate - what is the ultimate SOURCE?"
+    - "Trace the data through ALL assignments - list each variable it flows through."
+    - "At each step, is there any VALIDATION, SANITIZATION, or ENCODING applied?"
+    - "What is the SINK - where does the data end up being used unsafely?"
+    - "What is the SECURITY IMPACT if an attacker controls this data?"
+    - "Are there any MITIGATING FACTORS in the broader context (dead code, test code, internal use only)?"
+  context_hint: "Must trace the complete data flow from source to sink."
+  additional_context: ["caller", "struct", "global"]

@@ -1,0 +1,132 @@
+# Guided Questions Templates for CodeQL/Semgrep Rules (LLM verification style)
+#
+# Questions MUST force the LLM to trace:
+#   1. WHERE variables are declared
+#   2. What their exact SIZES/VALUES are
+#   3. Whether sizes/values CHANGE through assignment or reallocation
+#   4. What CHECKS or CONSTRAINTS exist
+#   5. What OTHER variables feed into the target variables
+#
+# The LLM must answer ALL questions BEFORE giving a verdict.
+# This forces step-by-step reasoning instead of pattern matching.
+#
+# Language: PHP
+#
+# Format:
+#   rule_id:
+#     short_description: Brief description of the vulnerability
+#     questions: List of questions to answer BEFORE verdict
+#     context_hint: What additional context helps (caller, struct, etc.)
+#     additional_context: List of context types that may be needed
+
+php/sql-injection:
+  short_description: "User input concatenated into SQL query in PHP"
+  questions:
+    - "Where does the INPUT originate - $_GET, $_POST, $_REQUEST, $_COOKIE, $_SERVER?"
+    - "Is the query built with string concatenation or sprintf (vulnerable)?"
+    - "Or is a PREPARED STATEMENT used with PDO::prepare() + bindParam() or MySQLi bind_param() (safe)?"
+    - "Trace the INPUT - is it passed through mysql_real_escape_string() or similar (insufficient for safety)?"
+    - "Could SQL metacharacters (quotes, semicolons, comments) in the input alter the query structure?"
+    - "What database API is used (PDO, MySQLi, legacy mysql_*) and does it support parameterization?"
+  context_hint: "Trace from $_GET/$_POST through all assignments to query execution."
+  additional_context: ["caller"]
+
+php/command-injection:
+  short_description: "User input passed to exec(), shell_exec(), system(), or backticks in PHP"
+  questions:
+    - "Where does the INPUT originate - $_GET, $_POST, $_COOKIE, or other superglobal?"
+    - "Is exec(), shell_exec(), system(), passthru(), popen(), or backtick syntax used?"
+    - "Is escapeshellarg() or escapeshellcmd() applied to the input before use?"
+    - "Is an allowlist used to validate the input against known-safe values?"
+    - "Could an attacker inject shell metacharacters (;|&$`\\) to execute additional commands?"
+    - "Could the functionality be achieved without shell invocation (PHP built-in functions)?"
+  context_hint: "Trace from input superglobal to shell execution function."
+  additional_context: ["caller"]
+
+php/xss:
+  short_description: "User input echoed to HTML output without escaping in PHP"
+  questions:
+    - "Where does the INPUT originate - $_GET, $_POST, $_COOKIE, database, or other source?"
+    - "Is echo, print, or heredoc used to output user input directly?"
+    - "Is htmlspecialchars() or htmlentities() applied with ENT_QUOTES before output?"
+    - "Is a templating engine (Twig, Blade) with auto-escaping enabled used?"
+    - "Could an attacker inject <script> tags or event handlers to execute JavaScript?"
+    - "Is the output in an HTML attribute context, requiring attribute-specific escaping?"
+  context_hint: "Trace from input through all assignments to HTML output."
+  additional_context: ["caller"]
+
+php/path-injection:
+  short_description: "User input used in include(), require(), or file operations allowing traversal"
+  questions:
+    - "Where does the PATH input originate - $_GET, $_POST, or other user-controlled source?"
+    - "Is include(), require(), include_once(), file_get_contents(), or fopen() used with user input?"
+    - "Is the path VALIDATED against an allowlist of permitted file names or paths?"
+    - "Is realpath() used and the result CHECKED to be within the intended base directory?"
+    - "Could '../' sequences allow reading arbitrary files or including remote URLs (allow_url_include)?"
+    - "Is allow_url_include disabled in php.ini, preventing remote file inclusion?"
+  context_hint: "Trace from input through path construction to file/include operation."
+  additional_context: ["caller"]
+
+php/code-injection:
+  short_description: "User input passed to eval() or preg_replace() with /e modifier in PHP"
+  questions:
+    - "Where does the INPUT come from - $_GET, $_POST, database, or config file?"
+    - "Is eval(), assert() with a string argument, or preg_replace() with /e modifier used?"
+    - "Is there ANY validation or allowlist applied before eval()?"
+    - "What PHP code could an attacker inject - system(), file_get_contents(), or data exfiltration?"
+    - "Could the functionality be achieved without eval (e.g., using a lookup table or switch)?"
+    - "Is this in a template engine or plugin system that should use a sandboxed evaluator?"
+  context_hint: "Trace from input to eval() or equivalent dynamic code execution."
+  additional_context: ["caller"]
+
+php/xxe:
+  short_description: "PHP XML parser allowing external entity resolution on untrusted input"
+  questions:
+    - "Which PHP XML API is used (SimpleXML, DOMDocument, XMLReader, xml_parse)?"
+    - "Is the XML input from an untrusted source (request body, uploaded file, API)?"
+    - "Is libxml_disable_entity_loader(true) called before parsing (PHP < 8.0)?"
+    - "In PHP 8.0+, are LIBXML_NOENT flags avoided (entity loading is disabled by default)?"
+    - "Could an attacker use a DOCTYPE + ENTITY to read local files or trigger SSRF?"
+    - "Is DTD processing disabled - could an attacker send a DOCTYPE declaration?"
+  context_hint: "Include XML parser initialization, options, and input source."
+  additional_context: ["caller"]
+
+php/broken-authentication:
+  short_description: "Weak session management or missing session_regenerate_id() in PHP"
+  questions:
+    - "Is session_regenerate_id(true) called after successful login to prevent session fixation?"
+    - "Is the session ID generated by PHP's session_start() (uses CSPRNG) or custom-generated?"
+    - "Are session cookies set with Secure, HttpOnly, and SameSite attributes?"
+    - "Is there a session timeout enforced server-side (not just via cookie expiry)?"
+    - "Is the session_save_path secure, or could other users on shared hosting read session files?"
+    - "Are session tokens validated server-side, or is user-provided data (cookie, GET param) trusted directly?"
+  context_hint: "Include session initialization, cookie settings, and authentication logic."
+  additional_context: ["caller"]
+
+php/hardcoded-credentials:
+  short_description: "Hardcoded password, API key, or database credentials in PHP source"
+  questions:
+    - "Is this string a real credential used in production, or a placeholder/example value?"
+    - "Is this value committed to version control where it could be exposed?"
+    - "Could an attacker read this credential if they gain access to the PHP source (e.g., via LFI, backup files)?"
+    - "Should this be loaded from a .env file (with phpdotenv), environment variable, or secrets vault?"
+    - "What service or database does this credential grant access to?"
+    - "Is this in included configuration that may be web-accessible (e.g., config.php in webroot)?"
+  context_hint: "Include the credential usage and any configuration loading."
+  additional_context: []
+
+php/unsafe-deserialization:
+  short_description: "unserialize() called on user-controlled data enabling object injection"
+  questions:
+    - "Where does the SERIALIZED DATA come from - $_GET, $_POST, $_COOKIE, database, or file?"
+    - "Is unserialize() called on user-controlled data without any HMAC validation?"
+    - "Are there classes in the codebase with __wakeup(), __destruct(), or __toString() magic methods that could be abused?"
+    - "Could an attacker craft a POP chain using existing classes to achieve RCE or file write?"
+    - "Would json_decode() work as a safer alternative for the data being transmitted?"
+    - "Is there a whitelist of allowed classes passed as the second argument to unserialize()?"
+  context_hint: "Trace from data source to unserialize() and identify classes with magic methods."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Generic/Fallback - For Unknown Rules
+# ==============================================================================

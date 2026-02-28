@@ -113,17 +113,49 @@ class TestQuestionsLoader:
     
     def test_load_from_dict(self):
         loader = QuestionsLoader()
-        
+
         loader.add_questions(GuidedQuestions(
             rule_id="cpp/test-rule",
             short_description="Test rule",
             questions=["Q1", "Q2"],
             context_hint="Test hint",
         ))
-        
+
         assert loader.has_questions("cpp/test-rule")
         q = loader.get_questions("cpp/test-rule")
         assert q.short_description == "Test rule"
+
+    def test_load_from_directory_merges_multiple_files(self, tmp_path):
+        """load_from_directory() should glob and merge all *_questions.yaml files."""
+        (tmp_path / "cpp_questions.yaml").write_text(
+            "cpp/test-rule:\n"
+            "  short_description: 'cpp rule'\n"
+            "  questions: ['Q1']\n"
+            "  context_hint: 'hint'\n"
+            "  additional_context: []\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "python_questions.yaml").write_text(
+            "py/test-rule:\n"
+            "  short_description: 'py rule'\n"
+            "  questions: ['Q2']\n"
+            "  context_hint: 'hint'\n"
+            "  additional_context: []\n",
+            encoding="utf-8",
+        )
+        loader = QuestionsLoader(tmp_path)
+        assert loader.rule_count == 2
+        assert loader.has_questions("cpp/test-rule")
+        assert loader.has_questions("py/test-rule")
+        assert loader.get_questions("cpp/test-rule").short_description == "cpp rule"
+        assert loader.get_questions("py/test-rule").short_description == "py rule"
+
+    def test_load_from_directory_ignores_non_yaml_files(self, tmp_path):
+        """load_from_directory() must NOT load .txt or other non-yaml files."""
+        (tmp_path / "notes.txt").write_text("ignore me")
+        (tmp_path / "readme.md").write_text("# ignore me")
+        loader = QuestionsLoader(tmp_path)
+        assert loader.rule_count == 0  # no *_questions.yaml files found
 
 
 class TestPromptBuilder:
