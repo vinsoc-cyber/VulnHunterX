@@ -35,10 +35,15 @@ class LLMClient:
         self.max_tokens = max_tokens
         self.prompt_builder = PromptBuilder()
         
-        # Configure Ollama base URL if provided
+        # Configure provider-specific settings
         if provider == "ollama":
             ollama_base = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
             os.environ["OLLAMA_API_BASE"] = ollama_base
+        elif provider == "anthropic":
+            # LiteLLM reads ANTHROPIC_API_KEY from the environment automatically.
+            # Prefix the model name so LiteLLM routes to the Anthropic backend.
+            if not self.model.startswith("anthropic/"):
+                self.model = "anthropic/" + self.model
     
     def analyze(
         self,
