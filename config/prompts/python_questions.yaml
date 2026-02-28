@@ -220,5 +220,169 @@ py/deprecated-api:
   additional_context: []
 
 # ==============================================================================
+# Python - Injection (LDAP, XPath, Log, HTML, Template, Header)
+# ==============================================================================
+
+py/ldap-injection:
+  short_description: "LDAP query or filter built from untrusted user input"
+  questions:
+    - "Where does the INPUT originate — request.args, request.form, request.json, or other user-controlled source?"
+    - "Is the input concatenated directly into an LDAP filter string (e.g., f'(uid={user})')?"
+    - "Is the input ESCAPED using ldap3's escape_filter_chars() or equivalent before use?"
+    - "Could an attacker inject LDAP metacharacters (* ( ) \\ NUL) to alter the filter — e.g., authentication bypass via (uid=*)?"
+    - "What LDAP operations are affected — ldap3.Connection.search, python-ldap.search?"
+    - "Would using parameterized search filters or a strict allowlist of alphanumeric characters prevent this?"
+  context_hint: "Trace from request input through LDAP filter construction to search call."
+  additional_context: ["caller"]
+
+py/xpath-injection:
+  short_description: "XPath expression built from untrusted user input"
+  questions:
+    - "Where does the INPUT originate — request parameter, form field, or other user-controlled source?"
+    - "Is the input concatenated into an XPath string (e.g., f\"//user[name='{user}']\")?"
+    - "Is the input ESCAPED or validated to reject XPath metacharacters (', \", [, ], /)?"
+    - "Could an attacker inject a payload like ' or '1'='1 to bypass authentication or extract all data?"
+    - "What library is used (lxml, xml.etree) and does it support parameterized XPath with variables?"
+    - "Would using lxml's XPath variable binding (e.g., xpath('//user[name=$n]', n=user)) prevent injection?"
+  context_hint: "Trace from input through XPath string construction to evaluate call."
+  additional_context: ["caller"]
+
+py/log-injection:
+  short_description: "Unsanitized user input written to logs enabling log forging"
+  questions:
+    - "Where does the LOG DATA originate — request parameters, user-supplied strings, external API responses?"
+    - "Is the data written to a log via logging.info/warning/error without sanitization?"
+    - "Could an attacker embed newline characters (\\n, \\r) to inject fake log entries?"
+    - "Could injected entries mask real security events or mislead incident responders?"
+    - "Is the log consumed by a log aggregation system (ELK, Splunk) that could be confused by crafted entries?"
+    - "Would stripping or encoding newlines and control characters from user data before logging prevent this?"
+  context_hint: "Include the log call and the source of the logged data."
+  additional_context: ["caller"]
+
+py/html-injection:
+  short_description: "Untrusted HTML fragment inserted into response without sanitization"
+  questions:
+    - "Where does the HTML fragment originate — request parameter, database, or CMS field?"
+    - "Is the fragment inserted into a response that is rendered as text/html?"
+    - "Is the content SANITIZED with a library like bleach/nh3 to an allowlist of safe tags?"
+    - "If sanitized, is the allowlist strict (no script, no event handlers, no javascript: URLs)?"
+    - "Is this distinct from XSS — is the intent to allow some HTML but restrict dangerous tags?"
+    - "Would using a strict Content Security Policy (CSP) limit the damage if sanitization is incomplete?"
+  context_hint: "Include the HTML source, sanitization step, and how the result is rendered."
+  additional_context: ["caller"]
+
+py/template-injection:
+  short_description: "User input embedded in a Jinja2/Mako/Chameleon template string"
+  questions:
+    - "Where does the INPUT originate — request parameter, database field, config file?"
+    - "Is the input used as the TEMPLATE SOURCE (e.g., jinja2.Template(user_input)) rather than a template variable?"
+    - "Could an attacker inject Jinja2 expressions like {{7*7}} or {{config}} to execute Python code?"
+    - "Is the template rendered in a SANDBOX (jinja2.sandbox.SandboxedEnvironment) that restricts dangerous operations?"
+    - "If sandboxed, is the sandbox escape-resistant (Jinja2 sandbox has known bypasses)?"
+    - "Would treating user input as data (passed as template variable) rather than template code fix this?"
+  context_hint: "Include template engine initialization and where user input enters the template."
+  additional_context: ["caller"]
+
+py/header-injection:
+  short_description: "HTTP response header value built from user-controlled input"
+  questions:
+    - "Where does the HEADER VALUE originate — request parameter, cookie, form field?"
+    - "Is the value set in a response header (e.g., response.headers['Location'] = user_input) without validation?"
+    - "Could an attacker inject \\r\\n (CRLF) sequences to inject additional headers or split the response?"
+    - "Is the header a Location redirect — if so, is the value validated against an allowlist of allowed hosts?"
+    - "What is the security impact — cache poisoning, open redirect, XSS via injected Content-Type?"
+    - "Would stripping \\r, \\n, and %0d, %0a from values before setting headers prevent this?"
+  context_hint: "Include the header assignment and source of the header value."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Web Security (CSRF, Open Redirect, Cookie, ReDoS)
+# ==============================================================================
+
+py/csrf:
+  short_description: "State-changing endpoint missing CSRF token validation"
+  questions:
+    - "Does this endpoint perform a state-changing operation (write, update, delete, transfer)?"
+    - "Is a CSRF token required in the request and validated server-side (not just checked for presence)?"
+    - "Is the framework's CSRF protection enabled globally (e.g., Flask-WTF, Django CsrfMiddleware)?"
+    - "Is this endpoint exempt from CSRF protection — if so, is it truly safe (idempotent, read-only)?"
+    - "Could the SameSite=Strict cookie attribute or a custom request header (X-Requested-With) mitigate this?"
+    - "Could an attacker craft a cross-origin form or fetch request to trigger this action on behalf of a victim?"
+  context_hint: "Include the route handler and any middleware or decorator for CSRF."
+  additional_context: ["caller"]
+
+py/open-redirect:
+  short_description: "Redirect to a user-controlled URL without domain validation"
+  questions:
+    - "Where does the REDIRECT TARGET URL come from — request.args, request.form, query string?"
+    - "Is the URL validated against an allowlist of trusted domains or paths before redirecting?"
+    - "Could an attacker supply an absolute URL (https://evil.com) or protocol-relative URL (//evil.com) to redirect victims?"
+    - "Is there a check that the redirect stays on the same host (e.g., validating urlparse(url).netloc)?"
+    - "What is the phishing/social-engineering risk — users see a trusted domain before being redirected?"
+    - "Would redirecting only to relative paths or validating against a fixed set of allowed URLs prevent this?"
+  context_hint: "Include the redirect call and where the target URL comes from."
+  additional_context: ["caller"]
+
+py/insecure-cookie:
+  short_description: "Session or security cookie missing Secure, HttpOnly, or SameSite attribute"
+  questions:
+    - "Which cookie is being set — session ID, CSRF token, auth token?"
+    - "Is the Secure flag set (prevents transmission over HTTP, required for sensitive cookies)?"
+    - "Is the HttpOnly flag set (prevents JavaScript access, mitigates XSS-based theft)?"
+    - "Is the SameSite attribute set to Strict or Lax (mitigates CSRF)?"
+    - "Is the cookie domain scoped as narrowly as possible (not .example.com when app.example.com suffices)?"
+    - "Is the cookie lifetime appropriate — session cookies (no max_age) vs persistent tokens?"
+  context_hint: "Include the cookie-setting call and all attributes passed."
+  additional_context: []
+
+py/weak-cryptographic-algorithm:
+  short_description: "Weak or broken cryptographic algorithm (MD5, SHA1, DES, RC4) used for security"
+  questions:
+    - "Which algorithm is used (MD5, SHA1, SHA-256, DES, 3DES, RC4, Blowfish) and for what purpose?"
+    - "Is this for password HASHING (must use bcrypt/argon2/scrypt), HMAC, symmetric encryption, or checksums?"
+    - "Is collision resistance required — MD5 and SHA1 are broken for collision resistance?"
+    - "Is preimage resistance required — MD5 is weakened; SHA1 is acceptable only for non-security checksums?"
+    - "For symmetric encryption: is a modern authenticated cipher (AES-GCM, ChaCha20-Poly1305) available?"
+    - "Is this for backward compatibility with an external system, and is there a migration path?"
+  context_hint: "Include the crypto function call and how the result is used."
+  additional_context: []
+
+py/regex-dos:
+  short_description: "Regular expression with catastrophic backtracking matched against user input"
+  questions:
+    - "What is the REGEX pattern — does it contain nested quantifiers like (a+)+, (a|a)*, or similar?"
+    - "Is the pattern matched against USER-CONTROLLED input without length limits?"
+    - "What is the WORST-CASE backtracking behavior — exponential, polynomial, or linear?"
+    - "Is there a timeout (re.timeout, signal.alarm, or similar) on the regex operation?"
+    - "Could an attacker craft an input like 'aaaaaaaaa...!' to trigger exponential backtracking and hang the server?"
+    - "Would rewriting the pattern (possessive quantifiers, atomic groups) or using the 'regex' library with timeout fix this?"
+  context_hint: "Include the regex pattern and where user input enters the match operation."
+  additional_context: []
+
+py/insecure-temporary-file:
+  short_description: "Predictable temporary file path or insecure mktemp() usage"
+  questions:
+    - "Is tempfile.mktemp() used (returns a name without creating the file — TOCTOU race) instead of mkstemp()?"
+    - "Is the temp file created in /tmp with a predictable name (e.g., based on PID or timestamp)?"
+    - "Could an attacker pre-create a symlink at that path to redirect writes to a sensitive file?"
+    - "Is tempfile.mkstemp() or tempfile.NamedTemporaryFile(delete=False) used for atomic creation?"
+    - "Are the file permissions set to 0600 (owner-only) before any sensitive data is written?"
+    - "Is the temp file securely deleted (shutil.rmtree or tempfile.TemporaryDirectory context manager) after use?"
+  context_hint: "Include temp file creation and how the path is derived."
+  additional_context: []
+
+py/xml-bomb:
+  short_description: "XML parser vulnerable to billion-laughs or quadratic entity expansion DoS"
+  questions:
+    - "Which XML parser is used (lxml, xml.etree, minidom, expat) and is entity expansion limited?"
+    - "Is the XML input from an untrusted source (request body, uploaded file, external feed)?"
+    - "Does the parser process DTD entity definitions that could cause exponential expansion?"
+    - "Is defusedxml used, which disables entity expansion and DTD processing by default?"
+    - "Is there a maximum document size or entity depth limit configured?"
+    - "Would disabling DTD processing (e.g., lxml with resolve_entities=False, forbid_dtd=True) prevent this?"
+  context_hint: "Include XML parser initialization and input source."
+  additional_context: ["caller"]
+
+# ==============================================================================
 # PHP Security
 # ==============================================================================

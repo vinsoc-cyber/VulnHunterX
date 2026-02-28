@@ -220,5 +220,173 @@ js/information-exposure:
   additional_context: ["caller"]
 
 # ==============================================================================
+# JavaScript - Server-Side Request Forgery & Redirect
+# ==============================================================================
+
+js/ssrf:
+  short_description: "Server-side request forgery via user-controlled URL in Node.js"
+  questions:
+    - "Where does the URL come from — req.query, req.body, req.params, or another user-controlled source?"
+    - "Is the URL validated against an allowlist of trusted domains/hosts before making the request?"
+    - "Could an attacker specify an INTERNAL IP (127.0.0.1, 169.254.x.x, 10.x.x.x, ::1) to reach internal services?"
+    - "Is the URL scheme validated (http/https only — not file://, gopher://, dict://)?"
+    - "What fetch/request library is used (node-fetch, axios, got, http.request) and are redirects followed automatically?"
+    - "Could an attacker exfiltrate data by making the server fetch attacker-controlled URLs and relay the response?"
+  context_hint: "Trace from request input through URL construction to HTTP fetch call."
+  additional_context: ["caller"]
+
+js/open-redirect:
+  short_description: "Redirect to a user-controlled URL without host validation"
+  questions:
+    - "Where does the REDIRECT TARGET come from — req.query, req.body, or another user-controlled source?"
+    - "Is the URL validated against an allowlist of trusted hosts or paths before redirecting?"
+    - "Could an attacker supply an absolute URL (https://evil.com) or protocol-relative URL (//evil.com)?"
+    - "Is res.redirect() called with the user-supplied value directly or after insufficient validation?"
+    - "What is the phishing risk — users see a trusted domain before being sent to an attacker's site?"
+    - "Would validating that the URL is a relative path (starting with /) or matching a specific host prevent this?"
+  context_hint: "Include the redirect call and where the target URL comes from."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# JavaScript - Web Security (CSRF, Cookie, Clickjacking, Session)
+# ==============================================================================
+
+js/csrf:
+  short_description: "State-changing endpoint missing CSRF token validation"
+  questions:
+    - "Does this endpoint perform a state-changing operation (POST, PUT, DELETE, write, transfer)?"
+    - "Is a CSRF token required and validated server-side (e.g., csurf middleware, custom double-submit cookie)?"
+    - "Is the framework's built-in CSRF protection enabled for this route?"
+    - "Is this endpoint exempt from CSRF protection — if so, is it truly read-only or idempotent?"
+    - "Could the SameSite=Strict cookie attribute alone be relied upon, or are older browsers a concern?"
+    - "Could an attacker craft a cross-origin form POST or fetch with credentials to trigger this action?"
+  context_hint: "Include the route handler and any CSRF middleware or decorator."
+  additional_context: ["caller"]
+
+js/insecure-cookie:
+  short_description: "Cookie set without Secure, HttpOnly, or SameSite attribute"
+  questions:
+    - "Which cookie is being set — session ID, auth token, CSRF token?"
+    - "Is the Secure flag set (prevents transmission over plain HTTP)?"
+    - "Is the HttpOnly flag set (prevents JavaScript access, mitigates XSS cookie theft)?"
+    - "Is the SameSite attribute set to 'Strict' or 'Lax' (mitigates CSRF attacks)?"
+    - "Is the cookie domain scoped as narrowly as possible (not .example.com when a subdomain suffices)?"
+    - "Is the cookie's maxAge or expires set appropriately for the security requirement?"
+  context_hint: "Include the cookie-setting call (res.cookie, Set-Cookie header) and all options."
+  additional_context: []
+
+js/session-fixation:
+  short_description: "Session ID not regenerated after successful login"
+  questions:
+    - "After a successful login, is req.session.regenerate() (or equivalent) called to issue a new session ID?"
+    - "Could an attacker pre-set a known session ID and then wait for the victim to authenticate, taking over the session?"
+    - "Does the session library (express-session, cookie-session) automatically regenerate sessions on privilege change?"
+    - "Is the old session data properly migrated to the new session after regeneration?"
+    - "Is this a login endpoint or any other privilege escalation point (e.g., sudo, 2FA completion)?"
+    - "Are session tokens long and random enough to resist brute-forcing even without fixation?"
+  context_hint: "Include the login handler and session configuration."
+  additional_context: ["caller"]
+
+js/clickjacking:
+  short_description: "Missing X-Frame-Options or CSP frame-ancestors header enabling UI redress"
+  questions:
+    - "Is the X-Frame-Options header (DENY or SAMEORIGIN) set in responses, or is frame-ancestors set in CSP?"
+    - "Could an attacker embed this page in an iframe on their site to trick users into clicking sensitive UI elements?"
+    - "What sensitive actions could be triggered via clickjacking — button clicks, form submissions, permission grants?"
+    - "Is helmet.js or a similar security header middleware used and configured for this application?"
+    - "Does the application use frames itself — if so, is frame-ancestors set to only allow trusted origins?"
+    - "Are there any pages that intentionally allow framing (e.g., widgets) that should be scoped separately?"
+  context_hint: "Include the response header configuration and which routes serve sensitive UI."
+  additional_context: []
+
+# ==============================================================================
+# JavaScript - Injection (LDAP, XPath, Log, NoSQL, Header, Template)
+# ==============================================================================
+
+js/ldap-injection:
+  short_description: "LDAP query or filter built from user-controlled input in Node.js"
+  questions:
+    - "Where does the INPUT originate — req.body, req.query, req.params?"
+    - "Is the input concatenated into an LDAP filter string (e.g., '(uid=' + user + ')')?"
+    - "Is the input ESCAPED using ldapjs's escape() or equivalent before inclusion in the filter?"
+    - "Could an attacker inject LDAP metacharacters (* ( ) \\ NUL) to alter the filter — e.g., bypass authentication?"
+    - "What LDAP library is used (ldapjs, activedirectory2) and what search operation is affected?"
+    - "Would using a parameterized filter or strict allowlist of alphanumeric characters prevent this?"
+  context_hint: "Trace from request input through LDAP filter construction to search call."
+  additional_context: ["caller"]
+
+js/xpath-injection:
+  short_description: "XPath expression built from user-controlled input in Node.js"
+  questions:
+    - "Where does the INPUT originate — req.query, req.body, or another user-controlled source?"
+    - "Is the input concatenated into an XPath string (e.g., '//user[name=\\'' + name + '\\']')?"
+    - "Is the input ESCAPED or validated to reject XPath metacharacters (', \", [, ], /)?"
+    - "Could an attacker inject ' or '1'='1 to bypass authentication or extract all document data?"
+    - "What library is used (xpath, libxmljs) and does it support parameterized XPath with variables?"
+    - "Would parameterized XPath evaluation or rejecting non-alphanumeric input prevent this?"
+  context_hint: "Trace from input through XPath string construction to evaluate call."
+  additional_context: ["caller"]
+
+js/log-injection:
+  short_description: "Unsanitized user input written to logs enabling log forging"
+  questions:
+    - "Where does the LOG DATA originate — req.body, req.query, user-provided strings?"
+    - "Is the data written to a log (console.log, winston, pino, bunyan) without sanitization?"
+    - "Could an attacker embed newline characters (\\n, \\r) to inject fake log entries?"
+    - "Could injected entries mask real security events or inject structured JSON to confuse log parsers?"
+    - "Is the log consumed by a centralized system (ELK, Splunk, Datadog) that parses newlines as separate events?"
+    - "Would encoding or stripping \\n, \\r, and control characters from user data before logging prevent this?"
+  context_hint: "Include the log call and the source of the logged data."
+  additional_context: ["caller"]
+
+js/nosql-injection:
+  short_description: "NoSQL (MongoDB) query built from unsanitized user input enabling operator injection"
+  questions:
+    - "Where does the INPUT originate — req.body (JSON parsed), req.query, or another user-controlled source?"
+    - "Is user input used directly as a MongoDB query object (e.g., db.collection.find(req.body))?"
+    - "Could an attacker supply JSON operators like {$gt: ''} or {$where: 'sleep(1000)'} to alter query semantics?"
+    - "Is the input VALIDATED to ensure it is a scalar value (string, number) rather than an object or array?"
+    - "Is mongoose-express-sanitize, express-mongo-sanitize, or similar middleware used to strip $ and . from inputs?"
+    - "What is the impact — authentication bypass, data exfiltration, or DoS via expensive $where expressions?"
+  context_hint: "Trace from request input through query object construction to database call."
+  additional_context: ["caller"]
+
+js/header-injection:
+  short_description: "HTTP response header value built from user-controlled input"
+  questions:
+    - "Where does the HEADER VALUE originate — req.query, req.body, or another user-controlled source?"
+    - "Is the value set in a response header (res.setHeader, res.set) without sanitization?"
+    - "Could an attacker inject \\r\\n (CRLF) sequences to inject additional response headers?"
+    - "What is the impact — injecting Set-Cookie, X-Forwarded-For, or Content-Type to poison caches or trigger XSS?"
+    - "Does Node.js/Express automatically reject headers containing \\r or \\n (recent versions do)?"
+    - "Would stripping \\r and \\n from header values or using a safe encoding prevent this?"
+  context_hint: "Include the header-setting call and the source of the header value."
+  additional_context: ["caller"]
+
+js/template-injection:
+  short_description: "Server-side template injection via user input in template string (Pug, EJS, Handlebars)"
+  questions:
+    - "Where does the INPUT originate — req.query, req.body, or another user-controlled source?"
+    - "Is the input used as the TEMPLATE SOURCE (e.g., pug.compile(userInput), ejs.render(userInput)) rather than a variable?"
+    - "Could an attacker inject template expressions to execute server-side code (e.g., #{require('child_process').exec('...')} in Pug)?"
+    - "Is the template engine sandboxed or restricted from accessing dangerous APIs?"
+    - "Would treating user input as data (passed as a template variable) rather than template code fix this?"
+    - "What template engine is used (Pug, EJS, Handlebars, Nunjucks) and what expression syntax does it use?"
+  context_hint: "Include template engine initialization and where user input enters the template."
+  additional_context: ["caller"]
+
+js/xml-bomb:
+  short_description: "XML parser vulnerable to billion-laughs or quadratic entity expansion DoS"
+  questions:
+    - "Which XML parser is used (xml2js, fast-xml-parser, sax, libxmljs) and is entity expansion limited?"
+    - "Is the XML input from an untrusted source (request body, uploaded file, external feed)?"
+    - "Does the parser process DTD entity definitions that could cause exponential expansion?"
+    - "Is there a maximum document size, depth, or entity expansion limit configured?"
+    - "Would disabling DTD processing or entity resolution in the parser options prevent this?"
+    - "Could an attacker send a small XML document that expands to gigabytes, exhausting server memory?"
+  context_hint: "Include XML parser initialization, options, and input source."
+  additional_context: ["caller"]
+
+# ==============================================================================
 # Deprecated / Unsafe API Usage
 # ==============================================================================
