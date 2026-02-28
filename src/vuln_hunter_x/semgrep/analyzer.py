@@ -127,7 +127,7 @@ class SemgrepAnalyzer:
             for run in data.get("runs", []):
                 count += len(run.get("results", []))
             return count
-        except (OSError, json.JSONDecodeError):
+        except (json.JSONDecodeError, OSError, ValueError):
             return 0
 
     def _count_sarif_rules(self, sarif_path: Path) -> int:
@@ -142,5 +142,5 @@ class SemgrepAnalyzer:
                 if isinstance(rules, list):
                     total += len(rules)
             return total
-        except (OSError, json.JSONDecodeError):
+        except (json.JSONDecodeError, OSError, ValueError):
             return 0

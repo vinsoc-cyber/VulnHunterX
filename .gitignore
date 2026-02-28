@@ -16,3 +16,4 @@ __pycache__/
 output/
 *.sarif
 uv.lock
+.coverage
