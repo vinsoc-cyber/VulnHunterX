@@ -93,6 +93,44 @@ def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:
         return False, str(e)
 
 
+def check_anthropic(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
+    """
+    Verify Anthropic API via LiteLLM.
+
+    Args:
+        api_key: Anthropic API key (defaults to env var ANTHROPIC_API_KEY)
+        model: Model name to test (defaults to claude-haiku-4-5-20251001)
+
+    Returns:
+        Tuple of (success, message)
+    """
+    api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return False, "ANTHROPIC_API_KEY not set"
+
+    try:
+        import litellm
+    except ImportError:
+        return False, "litellm not installed; run: pip install litellm"
+
+    # Use the smallest/fastest Claude model for the connectivity check
+    test_model = model or "anthropic/claude-haiku-4-5-20251001"
+    if not test_model.startswith("anthropic/"):
+        test_model = "anthropic/" + test_model
+
+    try:
+        resp = litellm.completion(
+            model=test_model,
+            messages=[{"role": "user", "content": "Reply with exactly: OK"}],
+            api_key=api_key,
+            max_tokens=10,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        return True, f"Anthropic ({test_model}): {text[:50]}"
+    except Exception as e:
+        return False, f"Anthropic error: {e}"
+
+
 def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
     """
     Verify OpenAI API via LiteLLM.
@@ -237,7 +275,20 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
         results["openai"] = (False, "Not configured")
         if not quiet:
             print("  OpenAI: [SKIP] Not configured")
-    
+
+    # Anthropic - test if provider is anthropic or if we have an API key
+    if provider == "anthropic" or os.environ.get("ANTHROPIC_API_KEY"):
+        anthropic_model = model if provider == "anthropic" else None
+        ok, msg = check_anthropic(model=anthropic_model)
+        results["anthropic"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  Anthropic: [{status}] {msg}")
+    else:
+        results["anthropic"] = (False, "Not configured")
+        if not quiet:
+            print("  Anthropic: [SKIP] Not configured")
+
     # Ollama - test if provider is ollama or model starts with ollama/
     if provider == "ollama" or model.startswith("ollama/"):
         ollama_model = model if model.startswith("ollama/") else f"ollama/{model}"
