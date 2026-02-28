@@ -61,7 +61,7 @@ Examples:
     # Check-env command
     subparsers.add_parser(
         "check-env",
-        help="Check environment (CodeQL, OpenAI, Ollama)",
+        help="Check environment (CodeQL, OpenAI, Anthropic, Ollama)",
     )
     
     # Clone command
@@ -229,7 +229,7 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     
     # LLM settings
     llm_group = parser.add_argument_group("LLM Settings")
-    llm_group.add_argument("--provider", choices=["openai", "ollama"], help="LLM provider")
+    llm_group.add_argument("--provider", choices=["openai", "ollama", "anthropic"], help="LLM provider")
     llm_group.add_argument("--model", help="LLM model name")
     llm_group.add_argument("--temperature", type=float, help="LLM temperature (0.0-1.0)")
     llm_group.add_argument("--max-tokens", type=int, help="Maximum tokens in response")
