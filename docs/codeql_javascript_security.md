@@ -1,6 +1,6 @@
 # CodeQL JavaScript/TypeScript Security Checks
 
-The framework uses **static analysis (CodeQL and Semgrep)** to identify vulnerabilities, then **verifies findings by the LLM**. Comprehensive reference for CodeQL security queries targeting JavaScript and TypeScript code. Findings from Semgrep (when using `--tool semgrep` or `--tool both`) use the same LLM verification; rule IDs follow Semgrep's naming (see guided_questions.yaml or generic fallback).
+The framework uses **static analysis (CodeQL and Semgrep)** to identify vulnerabilities, then **verifies findings by the LLM**. Comprehensive reference for CodeQL security queries targeting JavaScript and TypeScript code. Findings from Semgrep (when using `--tool semgrep` or `--tool both`) use the same LLM verification; rule IDs follow Semgrep's naming (see per-language `*_questions.yaml` files or generic fallback).
 
 **Query Suite**: `codeql/javascript-queries:codeql-suites/javascript-security-extended.qls`
 
