@@ -1,0 +1,224 @@
+# Guided Questions Templates for CodeQL/Semgrep Rules (LLM verification style)
+#
+# Questions MUST force the LLM to trace:
+#   1. WHERE variables are declared
+#   2. What their exact SIZES/VALUES are
+#   3. Whether sizes/values CHANGE through assignment or reallocation
+#   4. What CHECKS or CONSTRAINTS exist
+#   5. What OTHER variables feed into the target variables
+#
+# The LLM must answer ALL questions BEFORE giving a verdict.
+# This forces step-by-step reasoning instead of pattern matching.
+#
+# Language: Python
+#
+# Format:
+#   rule_id:
+#     short_description: Brief description of the vulnerability
+#     questions: List of questions to answer BEFORE verdict
+#     context_hint: What additional context helps (caller, struct, etc.)
+#     additional_context: List of context types that may be needed
+
+py/sql-injection:
+  short_description: "User input concatenated into SQL query"
+  questions:
+    - "Where does the INPUT originate - request.args, request.form, request.json, or other?"
+    - "Trace the INPUT through ALL assignments - is it ever SANITIZED?"
+    - "Is the query built using f-strings, .format(), +, or % (all vulnerable)?"
+    - "Or is cursor.execute() called with PLACEHOLDERS and a tuple (safe)?"
+    - "Is an ORM method like .filter() or .get() used instead of raw SQL?"
+    - "What is the DATABASE and does the driver support parameterization?"
+  context_hint: "Trace from request input through all transformations to query execution."
+  additional_context: ["caller"]
+
+py/command-injection:
+  short_description: "User input passed to shell command execution"
+  questions:
+    - "Where does the INPUT originate - request, file, environment variable?"
+    - "Is subprocess called with shell=True (vulnerable) or shell=False (safer)?"
+    - "If shell=True, is shlex.quote() used to ESCAPE the input?"
+    - "If shell=False, is the input passed as a LIST of arguments (safe)?"
+    - "Could an attacker inject SHELL METACHARACTERS?"
+    - "Is os.system() used (always vulnerable) vs subprocess.run()?"
+  context_hint: "Trace from input source to subprocess/os.system call."
+  additional_context: ["caller"]
+
+py/xss:
+  short_description: "User input rendered in HTML response without escaping"
+  questions:
+    - "Where does the INPUT originate - request.args, request.form, database?"
+    - "Is the input passed through an ESCAPE function (escape(), html.escape())?"
+    - "Is a TEMPLATE ENGINE used with auto-escaping enabled?"
+    - "Or is the response built with f-strings/concatenation (vulnerable)?"
+    - "Is |safe or {% autoescape false %} used to DISABLE escaping?"
+    - "What is the CONTENT-TYPE of the response (text/html triggers XSS)?"
+  context_hint: "Trace from input source through template/response construction."
+  additional_context: ["caller"]
+
+py/unsafe-deserialization:
+  short_description: "Deserializing untrusted data with pickle or yaml.load"
+  questions:
+    - "Where does the SERIALIZED DATA come from - request body, file, database?"
+    - "Is pickle.loads() or yaml.load() used (vulnerable to code execution)?"
+    - "Could an attacker CONTROL the serialized data content?"
+    - "Would json.loads() or yaml.safe_load() work as a SAFE alternative?"
+    - "Is there any VALIDATION of the data before deserialization?"
+    - "What CLASS or TYPE is expected to be deserialized?"
+  context_hint: "Trace from data source to deserialization call."
+  additional_context: ["caller"]
+
+py/path-injection:
+  short_description: "User input used in file path allowing directory traversal"
+  questions:
+    - "Where does the PATH input originate - request parameter, form field?"
+    - "Is os.path.join() used (note: it does NOT prevent traversal if input starts with /)?"
+    - "Is the path NORMALIZED with os.path.realpath() or os.path.abspath()?"
+    - "After normalization, is the result CHECKED to start with the allowed base directory?"
+    - "Could '../' sequences or absolute paths escape the intended directory?"
+    - "What FILE OPERATIONS are performed (read, write, delete)?"
+  context_hint: "Trace from input through path construction to file operation."
+  additional_context: ["caller"]
+
+py/code-injection:
+  short_description: "User input passed to eval/exec/compile"
+  questions:
+    - "Where does the INPUT come from - request, file, environment?"
+    - "Is eval(), exec(), or compile() called with user-controlled data?"
+    - "Is there ANY validation or sandboxing of the input?"
+    - "Could ast.literal_eval() be used instead (safe for data literals)?"
+    - "What CODE could an attacker execute - import os, __import__, etc.?"
+    - "Is the eval in a restricted namespace or with full globals?"
+  context_hint: "Trace from input source to eval/exec call."
+  additional_context: ["caller"]
+
+py/ssrf:
+  short_description: "Server-side request forgery via user-controlled URL"
+  questions:
+    - "Where does the URL come from - request parameter, database, config?"
+    - "Is the URL VALIDATED against an allowlist of domains/hosts?"
+    - "Could an attacker specify an INTERNAL IP (127.0.0.1, 169.254.x.x, 10.x.x.x)?"
+    - "Is the URL SCHEME validated (http/https only, not file://)?"
+    - "What RESPONSE data is returned to the user or used server-side?"
+    - "Could an attacker probe internal services or exfiltrate data?"
+  context_hint: "Trace from URL input through request construction."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# JavaScript/TypeScript Security
+# ==============================================================================
+
+py/broken-authentication:
+  short_description: "Insecure session token generation or missing session expiry"
+  questions:
+    - "How are session tokens generated - what entropy source is used (secrets.token_hex, os.urandom, or weak random)?"
+    - "Are session tokens INVALIDATED after logout or timeout - is there a server-side expiry enforced?"
+    - "Is the session token sent over HTTPS only (Secure flag) and inaccessible to JavaScript (HttpOnly flag)?"
+    - "Is the session ID rotated after privilege escalation (e.g., after login to prevent session fixation)?"
+    - "Are there concurrent session limits, or can an attacker reuse a stolen token indefinitely?"
+    - "Does the authentication path validate credentials before creating a session, or can sessions be created without auth?"
+  context_hint: "Include token generation, session creation, and session validation logic."
+  additional_context: ["caller"]
+
+py/hardcoded-credentials:
+  short_description: "Hardcoded password, API key, or secret in source code"
+  questions:
+    - "Is this string a real credential used in production, or a placeholder/example/test value?"
+    - "Is this value committed to version control where it could be exposed to others?"
+    - "Could this credential be rotated if compromised, or is it baked into the application?"
+    - "Is there an environment variable or secrets manager (Vault, AWS Secrets Manager) already in use that should be used instead?"
+    - "What system or service does this credential grant access to, and what is the blast radius if leaked?"
+    - "Is this code path reachable from production, or is it only used in tests/development?"
+  context_hint: "Include the credential usage and any configuration loading."
+  additional_context: []
+
+py/sensitive-data-exposure:
+  short_description: "Sensitive data logged, printed, or transmitted without protection"
+  questions:
+    - "What sensitive data is being exposed (password, token, PII, credit card, health data)?"
+    - "Where does this data end up - log file, HTTP response, console, third-party service?"
+    - "Who has access to that destination (all users, admins, log aggregation services)?"
+    - "Is the data MASKED or REDACTED before being written (e.g., last 4 digits of card)?"
+    - "Is there a legal or compliance obligation (GDPR, PCI-DSS, HIPAA) that prohibits this exposure?"
+    - "Is this in an error handler that might expose internal details to the end user?"
+  context_hint: "Include the data source and where it flows to."
+  additional_context: ["caller"]
+
+py/insecure-randomness:
+  short_description: "Using random module instead of secrets for security-sensitive values"
+  questions:
+    - "What is this random value used for - token, session ID, OTP, CSRF value, salt?"
+    - "Is random.random(), random.randint(), or random.choice() used (not cryptographically secure)?"
+    - "Could an attacker predict the output by observing previous values (Mersenne Twister is predictable)?"
+    - "Should secrets.token_hex(), secrets.token_urlsafe(), or os.urandom() be used instead?"
+    - "What is the security impact if the random value is predictable?"
+    - "Is this in a test or simulation context where cryptographic strength is not needed?"
+  context_hint: "Include random generation and how the value is used."
+  additional_context: ["caller"]
+
+py/ecb-encryption:
+  short_description: "Using ECB cipher mode which reveals plaintext patterns"
+  questions:
+    - "What cipher mode is being used - is it explicitly ECB or is it the default (often ECB)?"
+    - "What type of data is being encrypted (structured data, images, text blocks)?"
+    - "Would ECB mode reveal patterns in the ciphertext (identical plaintext blocks produce identical ciphertext)?"
+    - "Should GCM (authenticated encryption) or CBC with HMAC be used instead?"
+    - "Is the encryption for confidentiality, integrity, or both?"
+    - "Is there an IV/nonce being used - ECB mode does not use an IV which is a strong signal of weakness?"
+  context_hint: "Include cipher initialization and mode selection."
+  additional_context: []
+
+py/race-condition:
+  short_description: "TOCTOU race on filesystem or shared state without proper locking"
+  questions:
+    - "Is os.path.exists() or os.access() checked before opening/using a file (TOCTOU gap)?"
+    - "Could an attacker replace the file with a symlink between the check and the open?"
+    - "Is threading.Lock() or a file lock (fcntl.flock) used to protect shared state?"
+    - "Can the operation be made atomic - e.g., open with 'x' mode (exclusive creation) instead of checking?"
+    - "In a multi-threaded or multi-process context, is the shared variable protected?"
+    - "What is the security impact if the race is won by an attacker (arbitrary file write, privilege escalation)?"
+  context_hint: "Include the check and use operations and any locking."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Resource Leaks
+# ==============================================================================
+
+py/xxe:
+  short_description: "XML parser configured to allow external entity resolution"
+  questions:
+    - "Which XML library is used (lxml, xml.etree, minidom, xmltodict, defusedxml)?"
+    - "Is the XML input from an untrusted source (request body, uploaded file, network)?"
+    - "Are external entities explicitly DISABLED (e.g., lxml with resolve_entities=False, no_network=True)?"
+    - "Is defusedxml used as a safe drop-in replacement?"
+    - "Could an attacker use an XXE payload to read local files (/etc/passwd) or perform SSRF?"
+    - "Is DTD processing disabled, or could an attacker define a DOCTYPE with external entities?"
+  context_hint: "Include XML parser initialization and all parsing options."
+  additional_context: ["caller"]
+
+py/information-exposure:
+  short_description: "Stack trace, exception detail, or internal path returned to user"
+  questions:
+    - "What sensitive information could be exposed - stack trace, file paths, database schema, internal variable values?"
+    - "Is this returned in an HTTP response, rendered in a template, or logged to an accessible location?"
+    - "In production, is DEBUG mode disabled and generic error pages served instead of tracebacks?"
+    - "Could an attacker trigger this deliberately to learn about the application internals?"
+    - "Is the exception handler catching too broadly and re-exposing the original exception message?"
+    - "Should only a generic error message be returned to the user, with full details logged internally?"
+  context_hint: "Include the exception handler and where the error detail is sent."
+  additional_context: ["caller"]
+
+py/deprecated-api:
+  short_description: "Weak hash function (MD5/SHA1) used for passwords or security-critical purpose"
+  questions:
+    - "What is hashlib.md5() or hashlib.sha1() used for - password storage, HMAC, content addressing, checksum?"
+    - "If for PASSWORD HASHING: bcrypt, argon2, or scrypt must be used instead (MD5/SHA1 are not password hash functions)?"
+    - "Is there a salt used, or is the hash computed directly from the input (rainbow table vulnerable)?"
+    - "For non-password use: is collision resistance required (MD5/SHA1 are broken for collisions)?"
+    - "Is this for backward compatibility with an external system that requires MD5/SHA1?"
+    - "Is this code path reachable in production, or only used in tests/development?"
+  context_hint: "Include hash computation and how the result is used."
+  additional_context: []
+
+# ==============================================================================
+# PHP Security
+# ==============================================================================
