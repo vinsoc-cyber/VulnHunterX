@@ -85,7 +85,7 @@ js/unsafe-deserialization:
     - "Where does the SERIALIZED DATA come from - request body, cookie?"
     - "Is eval(), new Function(), or a vulnerable unserialize library used?"
     - "Could an attacker CRAFT the serialized data?"
-    - "Would JSON.parse() work as a SAFE alternative?"
+    - "Does the deserialized data trigger code execution (eval, Function constructor, class instantiation)?"
     - "Is there any VALIDATION of the data structure before use?"
     - "What CODE could an attacker execute if deserialization is unsafe?"
   context_hint: "Trace from data source to deserialization call."
@@ -99,7 +99,7 @@ js/regex-dos:
     - "What is the MAXIMUM length of input that could be matched?"
     - "Is there a TIMEOUT on regex operations?"
     - "Could a crafted input like 'aaaaaaaaaaaaaaaaaaaaaaaa!' cause exponential backtracking?"
-    - "Would a non-backtracking regex engine (RE2) be an option?"
+    - "What is the maximum input length accepted by the endpoint, and is there a timeout on the regex match?"
   context_hint: "Include the regex pattern and where user input enters."
   additional_context: []
 
@@ -154,7 +154,7 @@ js/sensitive-data-exposure:
     - "Where does this data end up - localStorage, console.log, error response, analytics?"
     - "Is localStorage accessible to any JavaScript on the same origin (XSS risk)?"
     - "Is the data included in HTTP responses sent to the browser (could be cached or logged)?"
-    - "Is there a legal or compliance obligation (GDPR, PCI-DSS) that prohibits this storage?"
+    - "Is the exposed data a credential, token, or PII (name, email, SSN, card number) that grants access or identifies a person?"
     - "Should sessionStorage (cleared on tab close) or an HttpOnly cookie be used instead?"
   context_hint: "Include the data source and storage/transmission target."
   additional_context: ["caller"]
@@ -188,7 +188,7 @@ js/weak-cryptographic-algorithm:
   additional_context: []
 
 # ==============================================================================
-# Concurrency / Race Conditions
+# JavaScript - XML Security
 # ==============================================================================
 
 js/xxe:
@@ -204,7 +204,7 @@ js/xxe:
   additional_context: ["caller"]
 
 # ==============================================================================
-# Type Safety / Undefined Behavior
+# JavaScript - Error Handling / Information Disclosure
 # ==============================================================================
 
 js/information-exposure:
@@ -215,7 +215,7 @@ js/information-exposure:
     - "Is NODE_ENV set to 'production', which typically disables detailed error output in frameworks?"
     - "Could an attacker trigger this path deliberately to enumerate internal structure?"
     - "Is the error middleware sending err.stack or err.message directly to res.send()?"
-    - "Should only a generic error code be returned to the client, with full details written to a server log?"
+    - "Who can observe this output — browser users, API consumers, or only server-side logs?"
   context_hint: "Include the error handler and how the error is sent to the client."
   additional_context: ["caller"]
 
@@ -388,5 +388,149 @@ js/xml-bomb:
   additional_context: ["caller"]
 
 # ==============================================================================
-# Deprecated / Unsafe API Usage
+# JavaScript - Cleartext Data Handling
 # ==============================================================================
+
+js/cleartext-storage:
+  short_description: "Sensitive data stored in cleartext (localStorage, database, file)"
+  questions:
+    - "What sensitive data is being stored — password, token, API key, PII, credit card?"
+    - "Where is the data stored — localStorage, sessionStorage, IndexedDB, file, database, cookie without encryption?"
+    - "Is the data ENCRYPTED before storage using a vetted library (e.g., crypto.createCipheriv, Web Crypto API)?"
+    - "If stored in localStorage, is it accessible to any JavaScript on the same origin (XSS risk)?"
+    - "Could an attacker with access to the storage medium (browser dev tools, database dump) read the data?"
+    - "What is the blast radius if this data is exposed — account compromise, credential reuse, regulatory violation?"
+  context_hint: "Include the data source, storage call, and any encryption step."
+  additional_context: ["caller"]
+
+js/cleartext-transmission:
+  short_description: "Sensitive data transmitted over unencrypted channel (HTTP, plain WebSocket)"
+  questions:
+    - "What sensitive data is being sent — credentials, tokens, session IDs, PII?"
+    - "Is the request URL http:// where https:// should be used?"
+    - "Is a WebSocket using ws:// instead of wss:// (TLS-encrypted)?"
+    - "Could an attacker on the network path (MITM, open WiFi) intercept and read this data?"
+    - "Is this a server-to-server connection or client-facing transmission?"
+    - "Is this an internal-only connection with compensating network-level encryption?"
+  context_hint: "Include the data being sent and the network/HTTP call."
+  additional_context: ["caller"]
+
+js/certificate-validation-disabled:
+  short_description: "TLS certificate verification disabled in Node.js"
+  questions:
+    - "Is NODE_TLS_REJECT_UNAUTHORIZED set to '0' globally, disabling certificate validation for all connections?"
+    - "Is https.Agent created with rejectUnauthorized: false?"
+    - "Is the fetch/axios/got request configured with a custom agent that skips verification?"
+    - "Could an attacker with a self-signed certificate perform a man-in-the-middle attack?"
+    - "Is this a development/test configuration that should NOT be used in production?"
+    - "What remote server is being connected to — internal service with custom CA, or external API?"
+  context_hint: "Include the HTTPS client setup and TLS configuration."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# JavaScript - CORS
+# ==============================================================================
+
+js/cors-misconfiguration:
+  short_description: "CORS policy reflects Origin header or allows credentials with wildcard"
+  questions:
+    - "Is Access-Control-Allow-Origin set to the request's Origin header value without validation (reflecting any origin)?"
+    - "Is Access-Control-Allow-Credentials set to true along with a permissive origin?"
+    - "Could an attacker from evil.com make credentialed cross-origin requests and read the response?"
+    - "Is the origin checked against an allowlist, or is any origin accepted?"
+    - "Is the cors middleware (e.g., npm cors package) configured with origin: true or a function that always returns true?"
+    - "What sensitive data or actions are accessible via this CORS-enabled endpoint?"
+  context_hint: "Include CORS middleware configuration and any origin validation logic."
+  additional_context: []
+
+js/missing-origin-check:
+  short_description: "postMessage event listener without origin validation"
+  questions:
+    - "Is window.addEventListener('message', handler) used without checking event.origin?"
+    - "Could an attacker from any origin send a crafted message to trigger the handler?"
+    - "Is event.origin compared against a specific trusted origin (not '*' or a substring check)?"
+    - "What action does the handler perform — DOM manipulation, data storage, navigation, authentication?"
+    - "Could an attacker inject malicious data via postMessage that is used unsafely (innerHTML, eval)?"
+    - "Is the message data VALIDATED for expected structure and type before processing?"
+  context_hint: "Include the message event listener and any origin checking."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# JavaScript - Archive Extraction
+# ==============================================================================
+
+js/zip-slip:
+  short_description: "Archive extraction without validating file paths allows directory traversal"
+  questions:
+    - "Is unzipper, adm-zip, tar, or similar used to extract untrusted archives?"
+    - "Are individual entry paths CHECKED to ensure they do not contain '../' or absolute paths?"
+    - "Could an attacker craft a zip/tar with entries like '../../etc/cron.d/malicious' to write outside the target?"
+    - "Is path.resolve() applied to each entry and compared to the intended extraction base directory?"
+    - "Is the archive from an untrusted source — user upload, external API, npm package?"
+    - "What is the impact — arbitrary file write, code execution via overwriting config or scripts?"
+  context_hint: "Include the archive extraction call and the source of the archive."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# JavaScript - File Upload
+# ==============================================================================
+
+js/file-upload:
+  short_description: "Uploaded file processed without type, extension, or content validation"
+  questions:
+    - "Is multer, formidable, or busboy used to handle uploads without validating file type or extension?"
+    - "Is the file stored in a web-accessible directory (public/, static/) where it could be served directly?"
+    - "Is the file extension checked against an ALLOWLIST of safe extensions?"
+    - "Is the MIME type validated server-side (not just the client-provided Content-Type header)?"
+    - "Is the filename sanitized to prevent path traversal (e.g., stripping ../ and path separators)?"
+    - "What is the impact — arbitrary file write, serving malicious content, or storage exhaustion?"
+  context_hint: "Include the upload handling middleware, destination, and validation logic."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# JavaScript - HTML Injection
+# ==============================================================================
+
+js/html-injection:
+  short_description: "Untrusted HTML fragment inserted into response without sanitization"
+  questions:
+    - "Where does the HTML content originate — user input, database, CMS, markdown conversion?"
+    - "Is the HTML inserted via innerHTML, res.send(), or template engine without sanitization?"
+    - "Is a sanitization library (DOMPurify, sanitize-html, isomorphic-dompurify) used with a strict allowlist?"
+    - "If sanitized, does the allowlist exclude script tags, event handlers, and javascript: URLs?"
+    - "Is this distinct from XSS — is the intent to allow some HTML but restrict dangerous elements?"
+    - "Is Content-Security-Policy set to limit inline script execution as a defense-in-depth measure?"
+  context_hint: "Include the HTML source, any sanitization step, and how the result is rendered."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# JavaScript - Regex Injection
+# ==============================================================================
+
+js/regex-injection:
+  short_description: "User input used as a regular expression pattern without escaping"
+  questions:
+    - "Is user-controlled input passed directly to new RegExp(userInput) or string.match(userInput)?"
+    - "Is the input escaped (e.g., lodash.escapeRegExp or manual escaping of metacharacters) before use?"
+    - "Could an attacker craft a malicious regex pattern to cause catastrophic backtracking (ReDoS)?"
+    - "Could an attacker use regex features to cause unexpected matching behavior?"
+    - "Is there a timeout or maximum input length to limit regex execution time?"
+    - "Is the intent to search for a literal string — if so, should String.includes() be used instead?"
+  context_hint: "Include the regex construction and where the pattern comes from."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# JavaScript - Resource Exhaustion
+# ==============================================================================
+
+js/resource-exhaustion:
+  short_description: "Unbounded allocation, loop, or recursion from user-controlled input"
+  questions:
+    - "Is a loop count, array size, recursion depth, or buffer size derived from user input without bounds?"
+    - "Could an attacker supply a very large value to exhaust memory or CPU (DoS)?"
+    - "Is there a MAXIMUM limit enforced before the resource-intensive operation begins?"
+    - "Is this in an endpoint accessible without authentication, allowing unauthenticated DoS?"
+    - "Could the operation block the Node.js event loop, affecting all concurrent requests?"
+    - "Is there a timeout (e.g., AbortController, setTimeout) to terminate long-running operations?"
+  context_hint: "Include the resource allocation and the source of the size/count parameter."
+  additional_context: ["caller"]
