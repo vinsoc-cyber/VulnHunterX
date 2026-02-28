@@ -174,7 +174,7 @@ def _run_semgrep_analyze(
         return 1
 
     repos = load_repos_config(Path(config_path))
-    supported_langs = {"c", "cpp", "python", "javascript"}
+    supported_langs = {"c", "cpp", "python", "javascript", "php"}
     # Build (lang, name) list; normalize language key
     repo_list: list[tuple[str, str]] = []
     for r in repos:

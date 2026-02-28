@@ -76,3 +76,6 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-v --tb=short --cov=src --cov-report=term-missing --cov-report=html:output/htmlcov"
+
+[tool.coverage.run]
+data_file = "output/.coverage"

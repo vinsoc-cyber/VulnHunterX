@@ -21,6 +21,7 @@ class DatabaseManager:
         "cpp": "cmake -B build && cmake --build build",
         "python": "",  # No build needed
         "javascript": "npm install --ignore-scripts",  # Just install deps
+        "php": "",  # No build needed
     }
     
     def __init__(
@@ -49,6 +50,7 @@ class DatabaseManager:
             Tuple of (success, message)
         """
         lang = repo.lang
+        # C and C++ both use CodeQL's "cpp" language; all others map directly
         codeql_lang = "cpp" if lang in ("c", "cpp") else lang
         
         source_root = repo.local_path or (self.repos_dir / lang / repo.name)

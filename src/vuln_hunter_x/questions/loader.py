@@ -21,18 +21,22 @@ class QuestionsLoader:
     
     def load_from_directory(self, prompts_dir: Path) -> int:
         """
-        Load guided questions from a directory.
-        
+        Load guided questions from all *_questions.yaml files in a directory.
+
+        Files are loaded in sorted (alphabetical) order so the load sequence
+        is deterministic.  Each file is merged into the shared questions dict;
+        later files override earlier ones if the same rule_id appears twice.
+
         Args:
-            prompts_dir: Directory containing guided_questions.yaml
-            
+            prompts_dir: Directory containing *_questions.yaml files
+
         Returns:
-            Number of question templates loaded
+            Total number of question templates loaded across all files
         """
-        yaml_file = prompts_dir / "guided_questions.yaml"
-        if yaml_file.is_file():
-            return self.load_from_file(yaml_file)
-        return 0
+        count = 0
+        for yaml_file in sorted(prompts_dir.glob("*_questions.yaml")):
+            count += self.load_from_file(yaml_file)
+        return count
     
     def load_from_file(self, yaml_path: Path) -> int:
         """

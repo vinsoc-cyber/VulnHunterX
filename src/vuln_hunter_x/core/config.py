@@ -22,10 +22,14 @@ class LLMConfig:
     @property
     def is_openai(self) -> bool:
         return self.provider == "openai"
-    
+
     @property
     def is_ollama(self) -> bool:
         return self.provider == "ollama"
+
+    @property
+    def is_anthropic(self) -> bool:
+        return self.provider == "anthropic"
 
 
 @dataclass

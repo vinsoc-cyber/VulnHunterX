@@ -30,7 +30,7 @@ VulnHunterX is an 8-stage pipeline that combines SAST tools (CodeQL, Semgrep) wi
 
 ### Pipeline Stages
 
-**Stages 1–4: Core analysis (all languages: C, C++, Python, JavaScript)**
+**Stages 1–4: Core analysis (all languages: C, C++, Python, JavaScript, PHP)**
 1. `clone` — Clone repos and create CodeQL databases
 2. `analyze` — Run CodeQL / Semgrep / both (produces `*.sarif` files)
 3. `extract-context` — Pre-extract function/caller/struct/global/macro context as CSVs
@@ -52,7 +52,7 @@ src/vuln_hunter_x/
 ├── context/       # ContextExtractor (heuristic) + ContextProvider (CSV-based)
 ├── core/          # Config (3-tier priority) and types
 ├── llm/           # LLMClient (LiteLLM-backed), PromptBuilder
-├── questions/     # Loads guided questions YAML; fallback to generic questions
+├── questions/     # Loads per-language *_questions.yaml; fallback to generic questions
 ├── sarif/         # SARIF parser; discovers all *.sarif in repo output dir
 ├── verification/  # VerificationEngine orchestrating multi-turn LLM flow
 └── fuzz/          # Stages 5–8 modules
@@ -66,7 +66,7 @@ SARIF files
         └─► VerificationEngine
               ├── QuestionsLoader  (rule-specific guided questions)
               ├── ContextProvider  (CSV look-ups from pre-extracted context)
-              └── LLMClient (LiteLLM → OpenAI or Ollama)
+              └── LLMClient (LiteLLM → OpenAI, Anthropic, or Ollama)
                     └─► Verdict (TRUE_POSITIVE | FALSE_POSITIVE | NEEDS_MORE_DATA)
 ```
 
@@ -76,10 +76,11 @@ Multi-turn: the LLM can request more context; `VerificationEngine` fetches addit
 
 | File | Purpose |
 |---|---|
-| `.env` | Secrets: `OPENAI_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`, `CODEQL_PATH`, `SEMGREP_PATH`, `OLLAMA_API_BASE` |
+| `.env` | Secrets: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`, `CODEQL_PATH`, `SEMGREP_PATH`, `OLLAMA_API_BASE` |
 | `config/confirm_findings.yaml` | App settings: model, temperature, max_iterations, verbosity, paths, filters |
 | `config/repos.yaml` | Repository list with names, URLs, languages, optional build commands |
-| `config/prompts/guided_questions.yaml` | Per-rule guided questions (4–6 questions each, e.g. `cpp/use-after-free`) |
+| `config/prompts/*_questions.yaml` | Per-language guided questions (4–6 questions each, e.g. `cpp/use-after-free`) |
+| `config/prompts/system_prompt.yaml` | LLM system prompt template with `{tool_name}` and `{lang}` placeholders |
 | `config/queries/tools/<lang>/` | CodeQL `.ql` extraction queries (functions, callers, structs, globals, macros) |
 
 ### Python API
