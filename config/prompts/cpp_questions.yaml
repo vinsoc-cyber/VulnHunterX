@@ -129,9 +129,9 @@ cpp/weak-cryptographic-algorithm:
     - "What ALGORITHM is being used (MD5, SHA1, DES, RC4, etc.)?"
     - "What is the PURPOSE of the cryptographic operation (password hashing, signatures, encryption)?"
     - "Is this for SECURITY purposes or just checksums/identifiers?"
-    - "Is there a STRONGER algorithm that could be used instead?"
+    - "Is the output relied upon for security guarantees (integrity, confidentiality, authentication), or used for non-security purposes?"
     - "Is this code in a security-critical path or test/legacy code?"
-    - "Are there any CONSTRAINTS (compatibility, performance) that require the weak algorithm?"
+    - "Is this algorithm used in a protocol negotiation or interop path where the peer mandates it?"
   context_hint: "Include the crypto function call and its context."
   additional_context: []
 
@@ -146,7 +146,7 @@ cpp/sql-injection:
     - "Trace the INPUT through ALL assignments - does it ever get SANITIZED or ESCAPED?"
     - "Is the query built using STRING CONCATENATION or a PARAMETERIZED query?"
     - "If concatenated, could SQL metacharacters (quotes, semicolons, comments) alter the query?"
-    - "Is there a PREPARED STATEMENT or PARAMETERIZED query that could be used instead?"
+    - "Does the query structure change based on user input, or is it fixed with only data values varying?"
     - "What DATABASE API is used and does it support safe parameterization?"
   context_hint: "Trace from input source through all transformations to SQL execution."
   additional_context: ["caller"]
@@ -159,7 +159,7 @@ cpp/command-line-injection:
     - "Trace the INPUT - is it ESCAPED for shell metacharacters (;|&$`\\)?"
     - "Could an attacker inject SHELL METACHARACTERS to execute additional commands?"
     - "Is the input VALIDATED against an allowlist of safe values?"
-    - "Could execv/execl with separate arguments be used instead of system()?"
+    - "Is the user input embedded in a single command string parsed by a shell interpreter?"
   context_hint: "Trace from input source to command execution function."
   additional_context: ["caller"]
 
@@ -183,7 +183,7 @@ cpp/format-string-injection:
     - "Or is it safely passed as a LATER argument with a fixed format string?"
     - "Could %n, %x, %s specifiers in the input read/write memory?"
     - "Is the input VALIDATED to contain only safe characters?"
-    - "Should this use puts() or printf(\"%s\", input) instead?"
+    - "Is the format string argument identical across all invocations, or does it vary based on external input?"
   context_hint: "Include the printf-family call with all arguments."
   additional_context: []
 
@@ -216,7 +216,7 @@ cpp/incorrect-return-value-check:
   additional_context: []
 
 # ==============================================================================
-# Python Security
+# C/C++ - Secrets / Credentials
 # ==============================================================================
 
 cpp/hardcoded-credentials:
@@ -263,7 +263,7 @@ cpp/thread-safety-violation:
     - "What is the worst-case impact of a data race (heap corruption, use-after-free, security bypass)?"
     - "Are ALL read AND write accesses to the shared data protected, not just some?"
     - "Could using std::atomic or _Atomic (C11) replace the need for a mutex here?"
-    - "Is the thread access pattern clearly documented, or is synchronization responsibility unclear?"
+    - "Are ALL accesses to this variable within the same thread, or do call sites exist in different thread entry points?"
   context_hint: "Include variable declarations and all accesses across thread boundaries."
   additional_context: ["global", "caller"]
 
@@ -287,12 +287,12 @@ cpp/memory-leak:
     - "Are there early returns, breaks, or goto statements that skip the free()?"
     - "Is there an ALIAS of the pointer that outlives the original - could double-free result from fixing this?"
     - "Is this in a loop where each iteration allocates but the free is outside the loop?"
-    - "Would using RAII (std::unique_ptr, std::vector) eliminate the need for manual free?"
+    - "Is this allocation in a function called frequently (loop, request handler) where leaks accumulate over time?"
   context_hint: "Include allocation site, all code paths, and any deallocation."
   additional_context: ["caller"]
 
 # ==============================================================================
-# XXE — XML External Entity Injection
+# C/C++ - Type Safety
 # ==============================================================================
 
 cpp/type-confusion:
@@ -315,7 +315,7 @@ cpp/signed-overflow:
     - "Is this overflow intentional (e.g., wrapping arithmetic) or accidental?"
     - "Does the result get used for memory allocation, array indexing, or other security-sensitive operations?"
     - "Is there a CHECK for overflow BEFORE the operation (e.g., comparing operands to INT_MAX - b)?"
-    - "Would using unsigned arithmetic, __builtin_add_overflow, or a larger type fix this?"
+    - "What code path is taken if the overflow occurs — could it corrupt memory, bypass a check, or cause undefined behavior?"
   context_hint: "Include operand declarations and how the result is used."
   additional_context: ["caller"]
 
@@ -341,7 +341,7 @@ cpp/unsafe-functions:
     - "Which unsafe function is used (gets, strcpy, strcat, sprintf, scanf with %s)?"
     - "What is the SIZE of the destination buffer and can the input exceed it?"
     - "Is the input from an untrusted source (user input, network, file)?"
-    - "What is the safe replacement (fgets, strncpy/strlcpy, snprintf, strncat/strlcat)?"
+    - "Is the destination buffer size known at compile time, and does the input always fit within it?"
     - "If using strncpy, is the destination null-terminated - strncpy does NOT guarantee null termination?"
     - "Is there a code review or compiler warning (e.g., -Wformat, -D_FORTIFY_SOURCE) that should catch this?"
   context_hint: "Include destination buffer declaration and input source."
@@ -371,7 +371,7 @@ cpp/dangling-pointer:
     - "Is the pointer USED (read, write, passed) after that lifetime ends?"
     - "Is this distinct from a use-after-free — is the object stack-allocated or temporary rather than heap-freed?"
     - "Could the compiler eliminate or reuse the storage (UB in C/C++) before the pointer is used?"
-    - "Would making the object static, extending its scope, or copying the value fix this safely?"
+    - "Is the dangling pointer READ or WRITTEN through — and what data could be corrupted or leaked?"
   context_hint: "Include object declaration, scope end, and all pointer uses."
   additional_context: ["caller", "struct"]
 
@@ -387,7 +387,7 @@ cpp/integer-truncation:
     - "Where does the source value come from — user input, file size, network data, arithmetic result?"
     - "Is the result used in a security-sensitive operation (allocation size, array index, loop bound, comparison)?"
     - "Is there an explicit CAST or an implicit narrowing conversion?"
-    - "Would using a wider type consistently, or adding a range check before conversion, fix this?"
+    - "After truncation, is the narrowed value used in a security-sensitive comparison, allocation size, or array index?"
   context_hint: "Include the conversion site, source value origin, and how the result is used."
   additional_context: ["caller"]
 
@@ -447,7 +447,7 @@ cpp/comparison-always-true:
     - "Is a BOOL or bit-field compared against a value outside 0/1?"
     - "Could this dead branch cause a security bypass — e.g., a bounds check that never triggers?"
     - "Is this intentional (e.g., a compile-time constant check) or accidental?"
-    - "Would using a static assertion or a different comparison type make the intent explicit?"
+    - "Does the dead branch guard a security-critical check (bounds, auth, null) that now never executes?"
   context_hint: "Include the comparison expression and operand type declarations."
   additional_context: []
 
@@ -465,4 +465,120 @@ cpp/alloca-in-loop:
     - "Would using a single heap allocation before the loop (malloc/std::vector) be equivalent and safe?"
     - "Is this in a recursive function where alloca compounds with recursion depth?"
   context_hint: "Include the loop bounds, alloca call, and any user-controlled inputs."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Cleartext Data Handling
+# ==============================================================================
+
+cpp/cleartext-storage:
+  short_description: "Sensitive data stored in cleartext without encryption"
+  questions:
+    - "What sensitive data is being stored — password, token, API key, PII, credit card number?"
+    - "Where is the data stored — file, database, shared memory, registry, config, or log?"
+    - "Is the data ENCRYPTED before storage using a vetted encryption API (e.g., OpenSSL EVP, libsodium)?"
+    - "Could an attacker with access to the storage medium (disk, database dump, backup) read the sensitive data?"
+    - "Is this storage reachable in production, or is it only used in debug/test builds?"
+    - "What is the blast radius if this data is exposed — account compromise, credential reuse, regulatory violation?"
+  context_hint: "Include the data source, storage call, and any encryption step in between."
+  additional_context: ["caller"]
+
+cpp/cleartext-transmission:
+  short_description: "Sensitive data transmitted over unencrypted channel (HTTP, plain TCP)"
+  questions:
+    - "What sensitive data is being sent — credentials, tokens, session IDs, PII?"
+    - "Is the transmission over an ENCRYPTED channel (TLS/SSL) or plain HTTP/TCP?"
+    - "If using sockets, is SSL_write/SSL_read (OpenSSL) or equivalent TLS wrapper used?"
+    - "Could an attacker on the network path (MITM) intercept and read this data?"
+    - "Is the URL hardcoded as http:// where https:// should be used?"
+    - "Is this an internal-only connection with compensating network-level encryption (VPN, mTLS)?"
+  context_hint: "Include the data being sent and the network API call."
+  additional_context: ["caller"]
+
+cpp/certificate-validation-disabled:
+  short_description: "TLS certificate verification skipped or disabled in C/C++ code"
+  questions:
+    - "Is SSL_CTX_set_verify() called with SSL_VERIFY_NONE, or is the verify callback always returning 1 (success)?"
+    - "Is CURLOPT_SSL_VERIFYPEER set to 0 or CURLOPT_SSL_VERIFYHOST set to 0 in libcurl?"
+    - "Could an attacker with a self-signed or stolen certificate perform a man-in-the-middle attack?"
+    - "Is this a development/test configuration that should NOT be used in production?"
+    - "What server is being connected to — is it an internal service or an external API?"
+    - "Is there a custom certificate store or pinning that replaces the default validation?"
+  context_hint: "Include the TLS/SSL initialization and verify configuration."
+  additional_context: ["caller"]
+
+cpp/insecure-tls-version:
+  short_description: "Deprecated TLS/SSL protocol version (SSLv3, TLS 1.0, TLS 1.1) used"
+  questions:
+    - "What TLS/SSL method is used — SSLv23_method, TLSv1_method, TLSv1_1_method, or TLS_method with min version?"
+    - "Is SSL_CTX_set_min_proto_version() called to enforce TLS 1.2 or higher?"
+    - "Are deprecated protocols explicitly disabled via SSL_CTX_set_options (SSL_OP_NO_SSLv3, SSL_OP_NO_TLSv1)?"
+    - "Could an attacker force a protocol downgrade to exploit known vulnerabilities (BEAST, POODLE)?"
+    - "Is this connecting to a legacy system that does not support TLS 1.2+?"
+    - "What cipher suites are enabled — do they include weak ciphers (RC4, DES, export-grade)?"
+  context_hint: "Include SSL_CTX creation and all protocol/cipher configuration."
+  additional_context: []
+
+# ==============================================================================
+# C/C++ - Cryptographic Key Size
+# ==============================================================================
+
+cpp/insufficient-key-size:
+  short_description: "Cryptographic key size too small for security requirements"
+  questions:
+    - "What key size is used and for what algorithm (RSA <2048, AES <128, ECC <256, DH <2048)?"
+    - "Is the key size hardcoded or derived from a configuration that could be changed?"
+    - "What is the key used for — TLS handshake, data encryption, code signing, key exchange?"
+    - "Is this key size below current NIST/industry recommendations (RSA 2048+, AES 128+, ECC 256+)?"
+    - "Could an attacker with sufficient compute resources brute-force or factor the key?"
+    - "Is this a legacy system with constraints that prevent upgrading the key size?"
+  context_hint: "Include the key generation or import call and the size parameter."
+  additional_context: []
+
+# ==============================================================================
+# C/C++ - File Permissions
+# ==============================================================================
+
+cpp/overly-permissive-file:
+  short_description: "File or directory created with world-readable or world-writable permissions"
+  questions:
+    - "What permissions are set — is the mode 0777, 0666, or otherwise world-accessible?"
+    - "What data is written to this file — credentials, tokens, config, log data?"
+    - "Could another user or process on the same system read or modify this file?"
+    - "Is open() or mkdir() called without restricting permissions to owner-only (0600/0700)?"
+    - "Is umask() set to restrict default permissions before file creation?"
+    - "Is this on a shared system (multi-user server, container with shared volumes) where other users exist?"
+  context_hint: "Include the file creation call and the mode/permissions argument."
+  additional_context: []
+
+# ==============================================================================
+# C/C++ - XML Security
+# ==============================================================================
+
+cpp/xxe:
+  short_description: "C/C++ XML parser allowing external entity resolution on untrusted input"
+  questions:
+    - "Which XML parser is used — libxml2, Xerces-C, expat, MSXML, RapidXML?"
+    - "Is the XML input from an untrusted source — network, file upload, IPC, user-provided path?"
+    - "Is external entity loading DISABLED (e.g., xmlCtxtUseOptions with XML_PARSE_NOENT removed, or XercesDOMParser::setDisableDefaultEntityResolution)?"
+    - "Is DTD processing disabled to prevent an attacker from defining external entities via DOCTYPE?"
+    - "Could an attacker use an XXE payload to read local files (file:///etc/passwd) or trigger SSRF?"
+    - "Is input size limited to prevent entity expansion DoS (billion-laughs attack)?"
+  context_hint: "Include XML parser creation, option configuration, and input source."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Resource Exhaustion
+# ==============================================================================
+
+cpp/uncontrolled-allocation-size:
+  short_description: "Allocation size derived from untrusted input without bounds check"
+  questions:
+    - "Where does the ALLOCATION SIZE value originate — network packet, file header, user input, IPC?"
+    - "Is there an UPPER BOUND check on the size before malloc/calloc/new/mmap is called?"
+    - "Could an attacker supply a very large value to exhaust memory and crash the process (DoS)?"
+    - "Could an attacker supply a very small or zero value, then write past the allocation (heap overflow)?"
+    - "Is the size value multiplied by another factor (e.g., count * element_size) that could overflow before the allocation?"
+    - "What is the maximum reasonable size for this allocation, and is it enforced?"
+  context_hint: "Include the allocation call, size parameter origin, and any bounds checks."
   additional_context: ["caller"]
