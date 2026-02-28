@@ -11,6 +11,7 @@ QUERIES_BY_LANG: dict[str, list[str]] = {
     "cpp": ["functions", "callers", "structs", "globals", "macros"],
     "python": ["functions", "callers", "classes"],
     "javascript": ["functions", "callers", "classes"],
+    "php": ["functions", "callers", "classes"],
 }
 
 # Map language to CodeQL library folder
@@ -19,6 +20,7 @@ LANG_TO_QL_DIR: dict[str, str] = {
     "cpp": "cpp",
     "python": "python",
     "javascript": "javascript",
+    "php": "php",
 }
 
 

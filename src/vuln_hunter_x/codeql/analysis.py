@@ -20,6 +20,7 @@ class CodeQLAnalyzer:
         "c": "codeql/cpp-queries:codeql-suites/cpp-security-extended.qls",
         "python": "codeql/python-queries:codeql-suites/python-security-extended.qls",
         "javascript": "codeql/javascript-queries:codeql-suites/javascript-security-extended.qls",
+        "php": "codeql/php-queries:codeql-suites/php-security-extended.qls",
     }
     
     def __init__(
@@ -277,6 +278,7 @@ class CodeQLAnalyzer:
             "codeql/cpp-queries",
             "codeql/python-queries",
             "codeql/javascript-queries",
+            "codeql/php-queries",
         ]
         
         for pack in packs:
