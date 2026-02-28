@@ -128,5 +128,165 @@ php/unsafe-deserialization:
   additional_context: ["caller"]
 
 # ==============================================================================
+# PHP - Injection (LDAP, XPath, Log, Header)
+# ==============================================================================
+
+php/ldap-injection:
+  short_description: "LDAP query or filter built from user-controlled input in PHP"
+  questions:
+    - "Where does the INPUT originate — $_GET, $_POST, $_REQUEST, $_COOKIE, or $_SERVER?"
+    - "Is the input concatenated into an LDAP filter string (e.g., '(uid=' . $user . ')')?"
+    - "Is the input ESCAPED using ldap_escape() with LDAP_ESCAPE_FILTER before inclusion?"
+    - "Could an attacker inject LDAP metacharacters (* ( ) \\ NUL) to alter the filter — e.g., (uid=*) for auth bypass?"
+    - "What ldap_* function is affected (ldap_search, ldap_read, ldap_list) and what data could be extracted?"
+    - "Would using ldap_escape() on ALL user-supplied values and a strict allowlist prevent this?"
+  context_hint: "Trace from $_GET/$_POST through LDAP filter construction to ldap_search call."
+  additional_context: ["caller"]
+
+php/xpath-injection:
+  short_description: "XPath expression built from user-controlled input in PHP"
+  questions:
+    - "Where does the INPUT originate — $_GET, $_POST, or another user-controlled superglobal?"
+    - "Is the input concatenated into an XPath string (e.g., '//user[name=\\'' . $name . '\\']')?"
+    - "Is the input validated or escaped to reject XPath metacharacters (', \", [, ], /)?"
+    - "Could an attacker inject ' or '1'='1 to bypass authentication or extract all document nodes?"
+    - "What PHP XML function is used — SimpleXMLElement::xpath(), DOMXPath::query()?"
+    - "Would parameterized XPath (using DOMXPath with registered variables) or rejecting special characters prevent this?"
+  context_hint: "Trace from input through XPath string construction to XPath evaluation."
+  additional_context: ["caller"]
+
+php/header-injection:
+  short_description: "HTTP response header value built from user-controlled input enabling header splitting"
+  questions:
+    - "Where does the HEADER VALUE originate — $_GET, $_POST, $_COOKIE, or another user-controlled source?"
+    - "Is header() called with a value that includes user input without stripping \\r and \\n?"
+    - "Could an attacker inject \\r\\n to add arbitrary headers (Set-Cookie, Content-Type, Location)?"
+    - "Does PHP's built-in header() function reject headers containing CR/LF (PHP 7.4+ does for some cases)?"
+    - "What is the impact — session hijacking via injected Set-Cookie, cache poisoning, XSS via Content-Type?"
+    - "Would stripping \\r, \\n, %0d, %0a from user input before passing to header() prevent this?"
+  context_hint: "Include the header() call and the source of the header value."
+  additional_context: ["caller"]
+
+php/log-injection:
+  short_description: "Unsanitized user input written to logs enabling log forging"
+  questions:
+    - "Where does the LOG DATA originate — $_GET, $_POST, $_SERVER['HTTP_*'], or user-controlled strings?"
+    - "Is error_log(), syslog(), fwrite() to a log file, or a logging library used without sanitization?"
+    - "Could an attacker embed newline characters (\\n, \\r) to inject fake log entries?"
+    - "Could injected entries mask real security events or mislead incident responders?"
+    - "Is the log consumed by a centralized system (ELK, Splunk) that parses newlines as separate entries?"
+    - "Would stripping or encoding control characters (\\n, \\r, \\t, NUL) from user input before logging prevent this?"
+  context_hint: "Include the log call and the source of the logged data."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# PHP - Web Security (SSRF, Open Redirect, Cookie)
+# ==============================================================================
+
+php/ssrf:
+  short_description: "Server-side request forgery via user-controlled URL in PHP"
+  questions:
+    - "Where does the URL come from — $_GET, $_POST, $_COOKIE, or another user-controlled source?"
+    - "Is file_get_contents(), curl_setopt(CURLOPT_URL), fsockopen(), or a similar function used with user input?"
+    - "Is the URL validated against an allowlist of trusted domains before the request is made?"
+    - "Could an attacker specify an internal IP (127.0.0.1, 169.254.x.x, 10.x.x.x) to reach internal services?"
+    - "Is the URL scheme validated (http/https only — not file://, gopher://, dict://, php://)?"
+    - "Could an attacker use this to read local files (file:///etc/passwd) if allow_url_fopen is enabled?"
+  context_hint: "Trace from superglobal input through URL construction to HTTP/file fetch call."
+  additional_context: ["caller"]
+
+php/open-redirect:
+  short_description: "header('Location: ...') with user-controlled URL enables phishing"
+  questions:
+    - "Where does the REDIRECT TARGET come from — $_GET['redirect'], $_POST, or another user-controlled source?"
+    - "Is header('Location: ' . $url) called without validating the URL against an allowlist?"
+    - "Could an attacker supply an absolute URL (https://evil.com) or protocol-relative URL (//evil.com)?"
+    - "Is there a check that the redirect stays on the same host (e.g., parsing the URL and comparing host)?"
+    - "What is the phishing risk — users see a trusted domain in the browser before being redirected?"
+    - "Would redirecting only to relative paths or validating against a fixed set of allowed destinations prevent this?"
+  context_hint: "Include the header() redirect call and where the target URL comes from."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# PHP - Cryptography
+# ==============================================================================
+
+php/weak-cryptographic-algorithm:
+  short_description: "Weak or broken hash function (md5, sha1) used for security purpose in PHP"
+  questions:
+    - "Which function is used — md5(), sha1(), crc32(), hash('md5'), hash('sha1') — and for what purpose?"
+    - "If for PASSWORD HASHING: password_hash() with PASSWORD_BCRYPT or PASSWORD_ARGON2ID must be used instead."
+    - "Is there a salt — md5($pass . $salt) — or is the hash unsalted (rainbow table vulnerable)?"
+    - "For non-password use (signature, HMAC): is HMAC collision resistance required (md5/sha1 are broken)?"
+    - "Is this for a checksum or content ID where collision resistance is not security-critical?"
+    - "Is this for backward compatibility with an external system, and is there a migration path?"
+  context_hint: "Include the hash call and how the result is stored or compared."
+  additional_context: []
+
+php/insecure-randomness:
+  short_description: "Non-cryptographic random function (mt_rand, rand) used for security token"
+  questions:
+    - "What is the random value used for — session token, CSRF token, password reset link, OTP?"
+    - "Is mt_rand(), rand(), or array_rand() used (Mersenne Twister, predictable with state recovery)?"
+    - "Could an attacker observe previous random outputs to predict future values and forge tokens?"
+    - "Should random_bytes(), random_int(), or openssl_random_pseudo_bytes() be used instead?"
+    - "What is the security impact if the value is predictable — account takeover, CSRF bypass, token forgery?"
+    - "Is this in a test or simulation context where cryptographic strength is not needed?"
+  context_hint: "Include random generation call and how the value is used (token generation, comparison)."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# PHP - Language-Specific Vulnerabilities
+# ==============================================================================
+
+php/type-juggling:
+  short_description: "Loose comparison (==) with type coercion enabling authentication bypass"
+  questions:
+    - "Is a LOOSE comparison (==) used for a security check — password comparison, token validation, type check?"
+    - "Could an attacker supply a value that PHP coerces to match — e.g., '0e...' magic hash, TRUE, 0, '' ?"
+    - "Specifically: does 0 == 'password' evaluate to true (yes, in PHP with older behavior)?"
+    - "Does '0e462097431906509019562988736854' == '0e830400451993494058024219903391' evaluate to true?"
+    - "Would using strict comparison (===) enforce both value and type equality and prevent the bypass?"
+    - "Are there other coercion hazards — in_array() with loose matching, switch/case type juggling?"
+  context_hint: "Include the comparison expression and the source of both operands."
+  additional_context: ["caller"]
+
+php/extract-injection:
+  short_description: "extract() called on user-controlled array enabling variable overwriting"
+  questions:
+    - "Is extract() called with $_GET, $_POST, $_REQUEST, $_COOKIE, or other user-controlled input?"
+    - "Could an attacker overwrite critical variables — $authenticated, $admin, $db_host, $query?"
+    - "Is extract() called with EXTR_PREFIX_ALL or EXTR_SKIP to limit the impact?"
+    - "What local variables are in scope at the extract() call that could be overwritten?"
+    - "Is there any cleanup — checking $authenticated after extract() — that could be bypassed?"
+    - "Would using explicit assignment (e.g., $name = $_POST['name'] ?? '') eliminate the need for extract()?"
+  context_hint: "Include the extract() call, its arguments, and all local variables in scope."
+  additional_context: ["caller"]
+
+php/file-upload:
+  short_description: "Uploaded file processed without type, extension, or content validation"
+  questions:
+    - "Is move_uploaded_file() called without validating file extension, MIME type, or content?"
+    - "Is the file stored in a web-accessible directory where it could be executed as PHP?"
+    - "Is the file extension checked against an ALLOWLIST (not a blocklist) of safe extensions?"
+    - "Is the MIME type checked server-side (not just Content-Type header which is client-controlled)?"
+    - "Is the upload filename sanitized (e.g., basename(), removing path separators) to prevent path traversal?"
+    - "Could an attacker upload a .php file disguised as an image to achieve remote code execution?"
+  context_hint: "Include the upload handling code, destination path, and validation logic."
+  additional_context: ["caller"]
+
+php/information-exposure:
+  short_description: "Detailed PHP error messages, stack traces, or internal paths exposed to users"
+  questions:
+    - "Is display_errors set to On in production php.ini, causing errors to be shown to end users?"
+    - "Are try-catch blocks catching exceptions and returning the exception message directly to the HTTP response?"
+    - "Does the error output reveal internal file paths, database schema, class names, or configuration?"
+    - "Could an attacker deliberately trigger errors to enumerate the application's internal structure?"
+    - "Is error_reporting configured to log errors to a file rather than display them?"
+    - "Should only a generic error message be returned to the user, with full details in a server-side log?"
+  context_hint: "Include the error handling code and where error details are sent."
+  additional_context: ["caller"]
+
+# ==============================================================================
 # Generic/Fallback - For Unknown Rules
 # ==============================================================================

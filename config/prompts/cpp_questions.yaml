@@ -346,3 +346,123 @@ cpp/unsafe-functions:
     - "Is there a code review or compiler warning (e.g., -Wformat, -D_FORTIFY_SOURCE) that should catch this?"
   context_hint: "Include destination buffer declaration and input source."
   additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Null / Dangling Pointer
+# ==============================================================================
+
+cpp/null-deref:
+  short_description: "Null pointer dereference — pointer used without null check"
+  questions:
+    - "Where is the POINTER obtained — return value of malloc/calloc/fopen/API call that can return NULL?"
+    - "Is the pointer checked for NULL BEFORE it is dereferenced?"
+    - "On ALL code paths from assignment to dereference, is there a null guard?"
+    - "If the null check exists, is it on the CORRECT variable (not an alias or unrelated variable)?"
+    - "What is the impact of the null dereference — crash, denial of service, or exploitable control flow?"
+    - "Is this in a signal handler or interrupt context where recovery is not possible?"
+  context_hint: "Include pointer assignment and all dereference sites."
+  additional_context: ["caller"]
+
+cpp/dangling-pointer:
+  short_description: "Pointer used after the lifetime of the object it references has ended"
+  questions:
+    - "Where does the POINTER obtain its value — address of a local variable, temporary, or freed heap object?"
+    - "When does the referenced OBJECT's lifetime end — function return, end of scope, or explicit destruction?"
+    - "Is the pointer USED (read, write, passed) after that lifetime ends?"
+    - "Is this distinct from a use-after-free — is the object stack-allocated or temporary rather than heap-freed?"
+    - "Could the compiler eliminate or reuse the storage (UB in C/C++) before the pointer is used?"
+    - "Would making the object static, extending its scope, or copying the value fix this safely?"
+  context_hint: "Include object declaration, scope end, and all pointer uses."
+  additional_context: ["caller", "struct"]
+
+# ==============================================================================
+# C/C++ - Integer / Type Conversion
+# ==============================================================================
+
+cpp/integer-truncation:
+  short_description: "Integer narrowing conversion loses significant bits"
+  questions:
+    - "What are the SOURCE type and DESTINATION type of the conversion (e.g., size_t → int, long → short)?"
+    - "What is the MAXIMUM possible value of the source and does it exceed the destination type's range?"
+    - "Where does the source value come from — user input, file size, network data, arithmetic result?"
+    - "Is the result used in a security-sensitive operation (allocation size, array index, loop bound, comparison)?"
+    - "Is there an explicit CAST or an implicit narrowing conversion?"
+    - "Would using a wider type consistently, or adding a range check before conversion, fix this?"
+  context_hint: "Include the conversion site, source value origin, and how the result is used."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Injection (LDAP, XPath)
+# ==============================================================================
+
+cpp/ldap-injection:
+  short_description: "LDAP query or filter built from untrusted user input"
+  questions:
+    - "Where does the INPUT originate — argv, getenv, socket read, file, or other external source?"
+    - "Is the input concatenated directly into an LDAP filter string (e.g., (uid=<input>))?"
+    - "Is the input ESCAPED using a safe LDAP escaping function (e.g., ldap_escape, RFC 4515 encoding)?"
+    - "Could an attacker inject LDAP metacharacters (* ( ) \\ NUL) to alter the filter semantics?"
+    - "What LDAP operations does the injected filter affect — authentication bypass, data extraction, modification?"
+    - "Would using parameterized search APIs or a strict allowlist of input characters prevent this?"
+  context_hint: "Trace from input source through LDAP filter construction to ldap_search."
+  additional_context: ["caller"]
+
+cpp/xpath-injection:
+  short_description: "XPath expression built from untrusted user input"
+  questions:
+    - "Where does the INPUT originate — function argument, environment, file, or network?"
+    - "Is the input concatenated directly into an XPath expression string?"
+    - "Is the input ESCAPED or VALIDATED before inclusion in the XPath query?"
+    - "Could an attacker inject XPath metacharacters (', \", [, ], /) to alter query semantics?"
+    - "What data could be extracted or what authentication could be bypassed with a crafted XPath?"
+    - "Would using parameterized XPath (compiled expressions with variables) prevent this?"
+  context_hint: "Trace from input source to XPath evaluation call."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Format String (Tainted)
+# ==============================================================================
+
+cpp/tainted-format-string:
+  short_description: "Format string argument derived from external/tainted data"
+  questions:
+    - "Where does the FORMAT STRING value originate — environment variable, config file, network, argv?"
+    - "Is the tainted value used as the FORMAT string argument (first arg) of printf/sprintf/fprintf?"
+    - "Or is it passed as a DATA argument with a fixed format string (safe)?"
+    - "Could an attacker embed %n, %x, %s, or other specifiers to read or write memory?"
+    - "Is there any validation that the format string contains only safe characters?"
+    - "Should this use puts() or a fixed format string like printf(\"%s\", input) instead?"
+  context_hint: "Include the format string source and the printf-family call."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Logic / Dead Code
+# ==============================================================================
+
+cpp/comparison-always-true:
+  short_description: "Comparison always evaluates to true or false due to type range"
+  questions:
+    - "What are the TYPES of the two operands being compared (unsigned, signed, char, bool)?"
+    - "Is an UNSIGNED type compared against a negative literal (always true) or a value exceeding its max (always false)?"
+    - "Is a BOOL or bit-field compared against a value outside 0/1?"
+    - "Could this dead branch cause a security bypass — e.g., a bounds check that never triggers?"
+    - "Is this intentional (e.g., a compile-time constant check) or accidental?"
+    - "Would using a static assertion or a different comparison type make the intent explicit?"
+  context_hint: "Include the comparison expression and operand type declarations."
+  additional_context: []
+
+# ==============================================================================
+# C/C++ - Stack Exhaustion
+# ==============================================================================
+
+cpp/alloca-in-loop:
+  short_description: "alloca() called inside a loop causes unbounded stack growth"
+  questions:
+    - "Is alloca() (or a VLA) called inside a loop (for, while, do-while, or recursion)?"
+    - "Does the loop have a BOUNDED iteration count, or can an attacker control the number of iterations?"
+    - "Is the allocation SIZE also user-controlled, making the per-iteration allocation unbounded?"
+    - "What is the STACK SIZE limit of the process and at what number of iterations would it be exceeded?"
+    - "Would using a single heap allocation before the loop (malloc/std::vector) be equivalent and safe?"
+    - "Is this in a recursive function where alloca compounds with recursion depth?"
+  context_hint: "Include the loop bounds, alloca call, and any user-controlled inputs."
+  additional_context: ["caller"]
