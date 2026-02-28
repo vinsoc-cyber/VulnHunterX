@@ -1,4 +1,4 @@
-"""Tests for the CodeQL + LLM verification framework."""
+"""Tests for the SAST + LLM verification framework."""
 
 from __future__ import annotations
 
@@ -50,6 +50,21 @@ class TestFinding:
         d = finding.to_dict()
         assert d["rule_id"] == "py/sql-injection"
         assert d["file"] == "app.py"
+        assert d["tool"] == ""
+
+    def test_finding_to_dict_with_tool(self):
+        finding = Finding(
+            rule_id="py/sql-injection",
+            message="SQL injection",
+            file="app.py",
+            start_line=10,
+            end_line=15,
+            repo_name="test",
+            lang="python",
+            tool="Semgrep",
+        )
+        assert finding.tool == "Semgrep"
+        assert finding.to_dict()["tool"] == "Semgrep"
 
 
 class TestGuidedQuestions:
@@ -161,16 +176,31 @@ class TestQuestionsLoader:
 class TestPromptBuilder:
     """Tests for PromptBuilder (LLM mode only)."""
     
-    def test_system_prompt(self):
+    def test_system_prompt_generic(self):
         builder = PromptBuilder()
-        
-        assert "CRITICAL INSTRUCTIONS" in builder.system_prompt
-        assert "context_needed" in builder.system_prompt
-        assert "security static-analysis" in builder.system_prompt.lower()
+
+        prompt = builder.system_prompt
+        assert "context_needed" in prompt
+        assert "static-analysis" in prompt.lower()
+
+    def test_system_prompt_with_tool_and_lang(self):
+        builder = PromptBuilder()
+
+        prompt = builder.get_system_prompt(tool_name="Semgrep", lang="python")
+        assert "Semgrep" in prompt
+        assert "python" in prompt
+        assert "context_needed" in prompt
+
+    def test_system_prompt_defaults(self):
+        builder = PromptBuilder()
+
+        prompt = builder.get_system_prompt()
+        assert "static analysis" in prompt
+        assert "the target" in prompt
     
     def test_build_user_prompt(self):
         builder = PromptBuilder()
-        
+
         finding = Finding(
             rule_id="cpp/buffer-overflow",
             message="Buffer overflow",
@@ -180,19 +210,52 @@ class TestPromptBuilder:
             repo_name="test",
             lang="c",
         )
-        
+
         questions = GuidedQuestions(
             rule_id="cpp/buffer-overflow",
             short_description="Buffer overflow",
             questions=["What is the buffer size?"],
             context_hint="",
         )
-        
+
         prompt = builder.build_user_prompt(finding, "void test() {}", questions, "test")
-        
+
         assert "cpp/buffer-overflow" in prompt
         assert "Buffer overflow" in prompt
         assert "What is the buffer size?" in prompt
+
+    def test_user_prompt_includes_tool_and_lang(self):
+        builder = PromptBuilder()
+
+        finding = Finding(
+            rule_id="py/sql-injection",
+            message="SQL injection",
+            file="app.py",
+            start_line=5,
+            end_line=5,
+            repo_name="test",
+            lang="python",
+            tool="Semgrep",
+        )
+
+        questions = GuidedQuestions(
+            rule_id="py/sql-injection",
+            short_description="SQL injection",
+            questions=["Is user input sanitized?"],
+            context_hint="",
+        )
+
+        prompt = builder.build_user_prompt(finding, "code", questions, "handler")
+
+        assert "## Semgrep Finding" in prompt
+        assert "**Language**: python" in prompt
+
+    def test_followup_prompt_includes_instructions(self):
+        builder = PromptBuilder()
+
+        prompt = builder.build_followup_prompt({"caller:main": "void main() {}"})
+        assert "Re-examine the original guided questions" in prompt
+        assert "Re-trace the data flow" in prompt
 
 
 class TestSarifParser:
@@ -223,6 +286,60 @@ class TestSarifParser:
         assert len(findings) == 1
         assert findings[0].rule_id == "test/rule"
         assert findings[0].start_line == 10
+
+    def test_parse_sarif_extracts_tool_name_from_driver(self, tmp_path):
+        """Tool name is read from SARIF run.tool.driver.name."""
+        sarif_data = {
+            "version": "2.1.0",
+            "runs": [{
+                "tool": {"driver": {"name": "Semgrep"}},
+                "results": [{
+                    "ruleId": "py/sql-injection",
+                    "message": {"text": "SQL injection"},
+                    "locations": [{
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": "app.py"},
+                            "region": {"startLine": 5},
+                        }
+                    }]
+                }]
+            }]
+        }
+        sarif_file = tmp_path / "app_semgrep.sarif"
+        sarif_file.write_text(json.dumps(sarif_data))
+
+        findings = parse_sarif_file(sarif_file, "python", "test-repo")
+        assert len(findings) == 1
+        assert findings[0].tool == "Semgrep"
+
+    def test_parse_sarif_tool_fallback_from_filename(self, tmp_path):
+        """When tool.driver.name is missing, infer from filename."""
+        sarif_data = {
+            "version": "2.1.0",
+            "runs": [{
+                "results": [{
+                    "ruleId": "test/rule",
+                    "message": {"text": "msg"},
+                    "locations": [{
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": "f.c"},
+                            "region": {"startLine": 1},
+                        }
+                    }]
+                }]
+            }]
+        }
+        # No _semgrep suffix → defaults to CodeQL
+        sarif_file = tmp_path / "test.sarif"
+        sarif_file.write_text(json.dumps(sarif_data))
+        findings = parse_sarif_file(sarif_file, "c", "repo")
+        assert findings[0].tool == "CodeQL"
+
+        # _semgrep suffix → Semgrep
+        sarif_file2 = tmp_path / "test_semgrep.sarif"
+        sarif_file2.write_text(json.dumps(sarif_data))
+        findings2 = parse_sarif_file(sarif_file2, "c", "repo")
+        assert findings2[0].tool == "Semgrep"
 
     def test_discover_sarif_files_codeql_and_semgrep(self, tmp_path):
         """Discover returns both CodeQL and Semgrep SARIF with correct repo_name."""

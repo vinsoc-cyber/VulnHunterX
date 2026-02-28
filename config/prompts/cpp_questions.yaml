@@ -37,7 +37,7 @@ cpp/overflowing-snprintf:
     - "Where is the DESTINATION buffer declared and what is its exact size?"
     - "What is the SIZE argument passed to snprintf and where does it come from?"
     - "Does the size argument depend on a PREVIOUS snprintf return value?"
-    - "Is the destination buffer size FIXED at compile time or DYNAMIC?"
+    - "Is the size argument BOUNDED by the actual buffer size, or could snprintf's return value exceed it in subsequent calls?"
     - "Are there any BOUNDS checks on the size before snprintf is called?"
     - "Could repeated calls cause the size argument to exceed the buffer?"
   context_hint: "Include buffer declaration and all snprintf calls in sequence."
@@ -582,3 +582,91 @@ cpp/uncontrolled-allocation-size:
     - "What is the maximum reasonable size for this allocation, and is it enforced?"
   context_hint: "Include the allocation call, size parameter origin, and any bounds checks."
   additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Additional Memory and Safety Rules
+# ==============================================================================
+
+cpp/off-by-one:
+  short_description: "Off-by-one error in loop bound or buffer index (CWE-193)"
+  questions:
+    - "What is the BUFFER or ARRAY being indexed, and what is its declared size?"
+    - "What is the LOOP BOUND or INDEX expression — does it use <, <=, >, or >=?"
+    - "If using <=, could the index reach EXACTLY the buffer size (one past the end)?"
+    - "Are there any SIZE ADJUSTMENTS (e.g., size-1, len+1) that could be incorrect?"
+    - "Is a null terminator written or expected — does the buffer have room for it?"
+    - "What data is written at the boundary index — could it corrupt adjacent memory?"
+  context_hint: "Include buffer declaration, loop, and any index arithmetic."
+  additional_context: ["caller"]
+
+cpp/use-after-move:
+  short_description: "Use of C++ object after std::move has transferred ownership"
+  questions:
+    - "Where is std::move() called on the object, and what receives ownership?"
+    - "After the move, is the moved-from object ACCESSED (read, method call, dereference)?"
+    - "Does the moved-from object's type have a well-defined moved-from state (e.g., std::string becomes empty)?"
+    - "Is the object REASSIGNED or RESET before the subsequent access?"
+    - "Could the move and use occur on DIFFERENT code paths (conditional move)?"
+    - "Is this a unique_ptr or shared_ptr — does the use-after-move cause a null dereference?"
+  context_hint: "Include the move call, receiving variable, and all subsequent uses of the moved-from object."
+  additional_context: ["caller"]
+
+cpp/missing-authorization:
+  short_description: "Privileged operation performed without access control check (CWE-862)"
+  questions:
+    - "What PRIVILEGED OPERATION is performed — file access, config change, admin action, data modification?"
+    - "Is there an AUTHORIZATION CHECK before the operation (role check, permission flag, capability test)?"
+    - "Who can reach this code path — is it behind authentication, or publicly accessible?"
+    - "Could an attacker bypass the check by calling this function directly (missing check in callee)?"
+    - "Are there any FRAMEWORK-LEVEL guards (middleware, decorator, capability system) protecting this path?"
+    - "What is the IMPACT if an unauthorized user triggers this operation?"
+  context_hint: "Include the function performing the operation and its callers to verify authorization flow."
+  additional_context: ["caller"]
+
+cpp/input-validation:
+  short_description: "External input used without validation at system boundary (CWE-20)"
+  questions:
+    - "Where does the INPUT originate — network socket, file, command-line argument, environment variable, IPC?"
+    - "What TYPE and RANGE is expected — string length, integer bounds, allowed characters?"
+    - "Is the input VALIDATED against the expected type/range BEFORE use?"
+    - "Could malformed input cause a crash (buffer overflow, integer overflow, null deref)?"
+    - "Could malformed input cause a logic error (negative length, empty string, NUL bytes)?"
+    - "Is the input used in a SECURITY-SENSITIVE operation (allocation size, array index, format string, system call)?"
+  context_hint: "Include input source, any validation, and the first use of the input value."
+  additional_context: ["caller"]
+
+cpp/untrusted-search-path:
+  short_description: "Program uses PATH, LD_LIBRARY_PATH, or relative path for loading (CWE-426)"
+  questions:
+    - "Is the program using system(), popen(), exec*p(), or dlopen() with a RELATIVE path or unqualified name?"
+    - "Could an attacker control the PATH or LD_LIBRARY_PATH environment variable?"
+    - "Is the binary or library loaded from a WORLD-WRITABLE directory (e.g., /tmp, CWD)?"
+    - "Does the program run with ELEVATED PRIVILEGES (setuid, setgid, root, service account)?"
+    - "Would using an ABSOLUTE PATH or restricting the search path mitigate this?"
+    - "Is the environment SANITIZED before the exec/load call (clearenv, explicit PATH)?"
+  context_hint: "Include the exec/dlopen call, path argument, and any environment setup."
+  additional_context: ["caller"]
+
+cpp/heap-buffer-overflow:
+  short_description: "Write or read past heap allocation bounds (CWE-122)"
+  questions:
+    - "Where is the HEAP BUFFER allocated and what is its size?"
+    - "What WRITE or READ operation accesses the buffer at the flagged location?"
+    - "Could the ACCESS INDEX or COPY LENGTH exceed the allocated size?"
+    - "Is the buffer size based on UNTRUSTED INPUT that could be manipulated?"
+    - "Are there any BOUNDS CHECKS between allocation and access?"
+    - "Could this overflow corrupt heap metadata, adjacent objects, or function pointers?"
+  context_hint: "Include allocation, size computation, and the out-of-bounds access."
+  additional_context: ["caller", "struct"]
+
+cpp/exception-unsafe:
+  short_description: "Resource leak or undefined behavior when exception is thrown (RAII violation)"
+  questions:
+    - "What RESOURCE is acquired (memory, file handle, lock, socket) before the throwing operation?"
+    - "If an exception is thrown, is the resource RELEASED via RAII (smart pointer, lock_guard, unique_ptr)?"
+    - "Are there any RAW new/malloc calls without corresponding smart pointer wrappers?"
+    - "Is the resource cleanup in a DESTRUCTOR, or does it rely on reaching a specific cleanup line?"
+    - "Could the exception leave a MUTEX locked, causing deadlock in other threads?"
+    - "Is the function marked noexcept but capable of throwing (undefined behavior)?"
+  context_hint: "Include resource acquisition, potential throw site, and cleanup/destructor code."
+  additional_context: ["caller", "struct"]

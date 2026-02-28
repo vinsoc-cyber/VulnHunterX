@@ -111,7 +111,7 @@ js/code-injection:
     - "Is there ANY validation or sandboxing of the input?"
     - "Would JSON.parse() work for data parsing (safe)?"
     - "What CODE could an attacker inject and execute?"
-    - "Is the eval in browser context (XSS) or server context (RCE)?"
+    - "What built-in objects/functions (require, process, fetch, document) would be available to injected code?"
   context_hint: "Trace from input source to eval/Function call."
   additional_context: ["caller"]
 
@@ -533,4 +533,92 @@ js/resource-exhaustion:
     - "Could the operation block the Node.js event loop, affecting all concurrent requests?"
     - "Is there a timeout (e.g., AbortController, setTimeout) to terminate long-running operations?"
   context_hint: "Include the resource allocation and the source of the size/count parameter."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# JavaScript - Additional Security Rules
+# ==============================================================================
+
+js/dom-clobbering:
+  short_description: "DOM element with id/name attribute can overwrite global properties (CWE-79 variant)"
+  questions:
+    - "Does the code access a GLOBAL or DOCUMENT property that could be shadowed by a named DOM element?"
+    - "Is user-controlled HTML injected into the page (even via sanitized innerHTML) that could contain id/name attributes?"
+    - "Could an element with id='defaultView' or name='location' override document.defaultView or form.action?"
+    - "Does the code use hasOwnProperty or typeof checks before accessing the property?"
+    - "Is the accessed property used in a SECURITY-SENSITIVE context (URL navigation, script loading, condition checks)?"
+    - "Would using a local variable or Map instead of global/document property prevent clobbering?"
+  context_hint: "Include the property access, any HTML injection point, and how the value is used."
+  additional_context: ["caller"]
+
+js/insecure-websocket:
+  short_description: "WebSocket connection using ws:// instead of wss:// for sensitive data (CWE-319)"
+  questions:
+    - "Is the WebSocket URL using ws:// (unencrypted) instead of wss:// (TLS-encrypted)?"
+    - "What DATA is transmitted over this WebSocket — authentication tokens, user data, commands?"
+    - "Is this a DEVELOPMENT-ONLY URL that would use wss:// in production?"
+    - "Could an attacker on the same network intercept or modify WebSocket messages (MITM)?"
+    - "Is there application-level encryption on the WebSocket payload independent of the transport?"
+    - "Does the server enforce wss:// connections, or does it accept both ws:// and wss://?"
+  context_hint: "Include the WebSocket construction and what data is sent/received."
+  additional_context: ["caller"]
+
+js/missing-authorization:
+  short_description: "Express/Koa/Fastify route handler without authentication or authorization middleware (CWE-862)"
+  questions:
+    - "What PRIVILEGED OPERATION does this route handler perform — data modification, admin action, user management?"
+    - "Is there AUTH MIDDLEWARE applied to this route (passport.authenticate, jwt verification, session check)?"
+    - "Is authorization checked — does the handler verify the user has PERMISSION for this specific resource?"
+    - "Could an unauthenticated user reach this endpoint via the URL?"
+    - "Is there a GLOBAL middleware that protects all routes, or must each route opt in?"
+    - "What is the IMPACT if an unauthorized user calls this endpoint?"
+  context_hint: "Include the route definition, middleware chain, and handler function."
+  additional_context: ["caller"]
+
+js/input-validation:
+  short_description: "Request parameters used without validation at endpoint boundary (CWE-20)"
+  questions:
+    - "Where does the INPUT originate — req.params, req.query, req.body, req.headers?"
+    - "What TYPE and FORMAT is expected — integer, UUID, email, bounded string?"
+    - "Is the input VALIDATED using a schema library (Joi, Zod, express-validator, class-validator)?"
+    - "Could malformed input cause a crash, logic error, or security bypass?"
+    - "Is the input used in a SECURITY-SENSITIVE context (database query, file path, shell command, template)?"
+    - "Is validation applied at the MIDDLEWARE level or scattered across handler code?"
+  context_hint: "Include the input extraction, any validation, and the first security-sensitive use."
+  additional_context: ["caller"]
+
+js/untrusted-module-loading:
+  short_description: "Dynamic require() or import() with user-controlled module path (CWE-829)"
+  questions:
+    - "Is require() or dynamic import() called with a PATH derived from user input?"
+    - "Could an attacker specify a path to load an ARBITRARY module (e.g., ../../etc/passwd, /proc/self/environ)?"
+    - "Is there an ALLOWLIST of permitted module names checked before loading?"
+    - "Does the path undergo SANITIZATION (path.resolve, path traversal removal) before use?"
+    - "Could an attacker load a module that executes ARBITRARY CODE on the server?"
+    - "Is this in a plugin/extension system — if so, are plugins loaded from a TRUSTED directory only?"
+  context_hint: "Include the require/import call and where the module path originates."
+  additional_context: ["caller"]
+
+js/event-handler-injection:
+  short_description: "User input placed in HTML event handler attributes (CWE-79)"
+  questions:
+    - "Is user input inserted into an HTML event handler attribute (onclick, onerror, onload, onmouseover)?"
+    - "Is the input HTML-ENCODED before insertion, or only entity-encoded (which is insufficient for attributes)?"
+    - "Could an attacker inject JavaScript via the attribute value (e.g., alert(1) in onclick)?"
+    - "Is the HTML generated server-side (template) or client-side (innerHTML, insertAdjacentHTML)?"
+    - "Would using addEventListener() instead of inline handlers prevent this issue?"
+    - "Is Content-Security-Policy with 'unsafe-inline' disabled, providing defense-in-depth?"
+  context_hint: "Include the template or DOM manipulation and where user input enters the attribute."
+  additional_context: ["caller"]
+
+js/electron-node-integration:
+  short_description: "Electron app with nodeIntegration enabled for untrusted content (CWE-829)"
+  questions:
+    - "Is nodeIntegration set to TRUE in the BrowserWindow webPreferences?"
+    - "Does the window load REMOTE or USER-CONTROLLED URLs (not just local app files)?"
+    - "Is contextIsolation set to TRUE (isolates renderer from Node.js)?"
+    - "Is a PRELOAD SCRIPT used to selectively expose Node.js APIs via contextBridge?"
+    - "Could an attacker who achieves XSS in the renderer access require('child_process') or require('fs')?"
+    - "Is webSecurity disabled, allowing the window to load file:// or cross-origin resources?"
+  context_hint: "Include the BrowserWindow creation, webPreferences, and what URLs are loaded."
   additional_context: ["caller"]
