@@ -1,4 +1,4 @@
-"""Core data types for the CodeQL + LLM verification framework."""
+"""Core data types for the SAST + LLM verification framework."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from enum import Enum
 
 class VerdictType(Enum):
     """Possible verdict outcomes from LLM analysis."""
+
     TRUE_POSITIVE = "True Positive"
     FALSE_POSITIVE = "False Positive"
     NEEDS_MORE_DATA = "Needs More Data"
@@ -17,6 +18,7 @@ class VerdictType(Enum):
 
 class ConfidenceLevel(Enum):
     """Confidence level of the verdict."""
+
     HIGH = "High"
     MEDIUM = "Medium"
     LOW = "Low"
@@ -24,7 +26,8 @@ class ConfidenceLevel(Enum):
 
 @dataclass
 class Finding:
-    """A CodeQL finding from SARIF analysis."""
+    """A static analysis finding from SARIF output (CodeQL, Semgrep, etc.)."""
+
     rule_id: str
     message: str
     file: str
@@ -33,12 +36,13 @@ class Finding:
     repo_name: str
     lang: str
     sarif_path: str = ""
-    
+    tool: str = ""
+
     @property
     def location(self) -> str:
         """Return a formatted location string."""
         return f"{self.file}:{self.start_line}"
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
@@ -50,18 +54,20 @@ class Finding:
             "repo_name": self.repo_name,
             "lang": self.lang,
             "sarif_path": self.sarif_path,
+            "tool": self.tool,
         }
 
 
 @dataclass
 class GuidedQuestions:
-    """Guided questions for a specific CodeQL rule."""
+    """Guided questions for a specific static analysis rule."""
+
     rule_id: str
     short_description: str
     questions: list[str]
     context_hint: str = ""
     additional_context: list[str] = field(default_factory=list)
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
@@ -76,12 +82,13 @@ class GuidedQuestions:
 @dataclass
 class CodeContext:
     """Code context extracted for a finding."""
+
     code: str
     function_name: str
     start_line: int
     end_line: int
     file_path: str = ""
-    
+
     @property
     def line_count(self) -> int:
         """Return the number of lines in the context."""
@@ -91,6 +98,7 @@ class CodeContext:
 @dataclass
 class Verdict:
     """LLM verdict for a finding."""
+
     finding: Finding
     verdict: str
     confidence: str
@@ -102,22 +110,22 @@ class Verdict:
     elapsed_seconds: float = 0.0
     context_needed: list[str] = field(default_factory=list)
     iterations: int = 1
-    
+
     @property
     def is_true_positive(self) -> bool:
         """Check if verdict is True Positive."""
         return self.verdict == VerdictType.TRUE_POSITIVE.value
-    
+
     @property
     def is_false_positive(self) -> bool:
         """Check if verdict is False Positive."""
         return self.verdict == VerdictType.FALSE_POSITIVE.value
-    
+
     @property
     def needs_more_data(self) -> bool:
         """Check if verdict needs more data."""
         return self.verdict == VerdictType.NEEDS_MORE_DATA.value
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
@@ -137,35 +145,36 @@ class Verdict:
 @dataclass
 class VerificationResult:
     """Complete result of a verification run."""
+
     verdicts: list[Verdict]
     stats: dict[str, int]
     model: str
     provider: str
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     total_time_seconds: float = 0.0
-    
+
     @property
     def total_findings(self) -> int:
         """Return total number of findings analyzed."""
         return len(self.verdicts)
-    
+
     @property
     def true_positive_count(self) -> int:
         """Return count of True Positive verdicts."""
         return self.stats.get("True Positive", 0)
-    
+
     @property
     def false_positive_count(self) -> int:
         """Return count of False Positive verdicts."""
         return self.stats.get("False Positive", 0)
-    
+
     @property
     def false_positive_rate(self) -> float:
         """Return false positive rate as percentage."""
         if self.total_findings == 0:
             return 0.0
         return (self.false_positive_count / self.total_findings) * 100
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
@@ -182,6 +191,7 @@ class VerificationResult:
 @dataclass
 class RepositoryInfo:
     """Information about a repository for analysis."""
+
     name: str
     url: str
     lang: str

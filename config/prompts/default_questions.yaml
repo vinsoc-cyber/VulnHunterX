@@ -20,7 +20,7 @@
 #     additional_context: List of context types that may be needed
 
 default:
-  short_description: "Generic CodeQL security finding"
+  short_description: "Generic static analysis security finding"
   questions:
     - "Where does the potentially DANGEROUS data originate - what is the ultimate SOURCE?"
     - "Trace the data through ALL assignments - list each variable it flows through."
@@ -28,5 +28,6 @@ default:
     - "What is the SINK - where does the data end up being used unsafely?"
     - "What is the SECURITY IMPACT if an attacker controls this data?"
     - "Are there any MITIGATING FACTORS in the broader context (dead code, test code, internal use only)?"
+    - "Is this code in a TEST FILE, debug path, or dead code that would never execute in production?"
   context_hint: "Must trace the complete data flow from source to sink."
   additional_context: ["caller", "struct", "global"]

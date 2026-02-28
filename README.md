@@ -43,11 +43,11 @@ This framework automates the triage process by using LLMs to:
 
 | Feature | Description |
 |---------|-------------|
-| **Multi-language Support** | C, C++, Python, JavaScript |
+| **Multi-language Support** | C, C++, Python, JavaScript, PHP |
 | **LLM verification** | Multi-turn with context expansion |
 | **Guided Questions** | Rule-specific questions for structured analysis |
 | **Context Expansion** | LLM can request callers, structs, globals |
-| **Multiple LLM Providers** | OpenAI (GPT-4) and Ollama (local models) |
+| **Multiple LLM Providers** | OpenAI (GPT-4), Anthropic (Claude), and Ollama (local models) |
 | **Dual SAST** | CodeQL and Semgrep; choose analyzer(s) with `analyze --tool codeql`, `semgrep`, or `both` |
 | **Unified CLI** | Single command-line tool for entire workflow |
 | **Python API** | Programmatic access for integration |
@@ -759,6 +759,7 @@ result = engine.verify_all_sarif()
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `OPENAI_API_KEY` | OpenAI API key | For OpenAI |
+| `ANTHROPIC_API_KEY` | Anthropic API key | For Claude |
 | `OLLAMA_API_BASE` | Ollama server URL | For Ollama |
 | `CODEQL_PATH` | Path to CodeQL CLI | If not on PATH |
 | `SEMGREP_PATH` | Path to Semgrep CLI | If not on PATH (for Semgrep analysis) |
@@ -832,9 +833,21 @@ repos:
   build_command: "make"  # or cmake, autoconf, etc.
 ```
 
-### Guided Questions (`config/prompts/guided_questions.yaml`)
+### Guided Questions (`config/prompts/*_questions.yaml`)
 
-Rule-specific questions that force the LLM to reason step-by-step before giving a verdict. Based on the Vulnhalla methodology (see [References](#references)).
+Rule-specific questions that force the LLM to reason step-by-step before giving a verdict. Based on the Vulnhalla methodology (see [References](#references)). Questions are organized into per-language files:
+
+```
+config/prompts/
+├── system_prompt.yaml        # LLM system prompt template (see below)
+├── default_questions.yaml    # Generic fallback for unknown rules
+├── cpp_questions.yaml        # C/C++ rules (~52 rules)
+├── python_questions.yaml     # Python rules (~55 rules)
+├── javascript_questions.yaml # JavaScript rules (~45 rules)
+└── php_questions.yaml        # PHP rules (~40 rules)
+```
+
+**Example** (from `cpp_questions.yaml`):
 
 ```yaml
 cpp/use-after-free:
@@ -855,6 +868,8 @@ cpp/use-after-free:
 | `context_hint` | Guidance on what context is important |
 | `additional_context` | Context types that may be needed (`caller`, `struct`, `global`) |
 
+The loader discovers all `*_questions.yaml` files in `config/prompts/` automatically. If a finding's rule ID is not found, the generic questions from `default_questions.yaml` are used as fallback.
+
 **Why guided questions matter:**
 
 Without guided questions, LLMs often pattern-match and produce false verdicts. The questions force the LLM to:
@@ -862,6 +877,19 @@ Without guided questions, LLMs often pattern-match and produce false verdicts. T
 2. Identify all code paths
 3. Check for existing safeguards
 4. Reason about the specific code, not generic patterns
+
+### System Prompt (`config/prompts/system_prompt.yaml`)
+
+The LLM system prompt is loaded from `config/prompts/system_prompt.yaml`. It uses placeholders that are filled at runtime:
+
+| Placeholder | Filled with | Example |
+|-------------|-------------|---------|
+| `{tool_name}` | SAST tool that produced the finding | `CodeQL`, `Semgrep` |
+| `{lang}` | Programming language of the analyzed code | `c`, `python`, `javascript` |
+
+The prompt instructs the LLM to follow a structured analysis methodology: identify the vulnerability class, answer guided questions with line references, trace data flow from source to sink, evaluate reachability, then provide a verdict.
+
+You can customize this file without modifying Python source code. If the file is missing, a built-in default is used.
 
 ### CodeQL Tool Queries (`config/queries/tools/`)
 
@@ -935,7 +963,7 @@ VulnHunterX/
 
 ## Guided Questions
 
-Questions are defined per rule type in `config/prompts/guided_questions.yaml`:
+Questions are defined per rule type in per-language files under `config/prompts/` (e.g., `cpp_questions.yaml`, `python_questions.yaml`):
 
 ```yaml
 cpp/use-after-free:
@@ -957,7 +985,7 @@ cpp/use-after-free:
 - [Python Security Checks](docs/codeql_python_security.md)
 - [JavaScript Security Checks](docs/codeql_javascript_security.md)
 
-Findings from Semgrep (SARIF) use the same verification flow; rule IDs may differ (see guided_questions.yaml or generic fallback).
+Findings from Semgrep (SARIF) use the same verification flow; rule IDs may differ (see per-language `*_questions.yaml` files or generic fallback).
 
 ---
 

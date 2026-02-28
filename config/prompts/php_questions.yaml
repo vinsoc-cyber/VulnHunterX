@@ -426,3 +426,99 @@ php/cleartext-storage:
     - "What is the blast radius if this data is exposed — account compromise, credential reuse, regulatory violation?"
   context_hint: "Include the data source, storage call, and any encryption/hashing step."
   additional_context: ["caller"]
+
+php/cleartext-transmission:
+  short_description: "Sensitive data transmitted over HTTP or unencrypted channel in PHP (CWE-319)"
+  questions:
+    - "What sensitive data is being transmitted — password, token, API key, PII, session cookie?"
+    - "Is the data sent over HTTP (not HTTPS) via curl, file_get_contents, fsockopen, or header redirect?"
+    - "Is CURLOPT_SSL_VERIFYPEER or CURLOPT_SSL_VERIFYHOST disabled, allowing MITM?"
+    - "Is the application behind a TLS-terminating reverse proxy (HTTPS externally, HTTP internally)?"
+    - "Could an attacker on the network intercept the data in transit?"
+    - "What is the blast radius if this data is intercepted — account takeover, credential reuse, PII exposure?"
+  context_hint: "Include the data source, transmission call, and any SSL/TLS configuration."
+  additional_context: ["caller"]
+
+php/certificate-validation-disabled:
+  short_description: "SSL/TLS certificate verification disabled in PHP HTTP client (CWE-295)"
+  questions:
+    - "Is CURLOPT_SSL_VERIFYPEER set to FALSE or CURLOPT_SSL_VERIFYHOST set to 0?"
+    - "Is the stream context created with 'verify_peer' => false or 'allow_self_signed' => true?"
+    - "What SENSITIVE DATA is sent over this connection — API keys, credentials, user data?"
+    - "Is this for DEVELOPMENT/TESTING only, or does it run in production?"
+    - "Could an attacker perform a MAN-IN-THE-MIDDLE attack by presenting a forged certificate?"
+    - "Is a CUSTOM CA BUNDLE specified (CURLOPT_CAINFO) instead of disabling verification entirely?"
+  context_hint: "Include the curl/stream context setup and what data is transmitted."
+  additional_context: ["caller"]
+
+php/file-inclusion:
+  short_description: "include/require with user-controlled path allowing remote or local file inclusion (CWE-98)"
+  questions:
+    - "Is include(), require(), include_once(), or require_once() called with a PATH from user input?"
+    - "Could an attacker use PATH TRAVERSAL (../../) to include arbitrary local files?"
+    - "Is allow_url_include enabled in php.ini, allowing REMOTE file inclusion (http://, ftp://)?"
+    - "Is the path VALIDATED against an allowlist of permitted files or directories?"
+    - "Could an attacker include a FILE THEY UPLOADED to execute arbitrary PHP code?"
+    - "Is the input sanitized to remove null bytes, traversal sequences, and protocol wrappers?"
+  context_hint: "Include the include/require call, path construction, and any validation."
+  additional_context: ["caller"]
+
+php/variable-variables:
+  short_description: "Variable variables ($$var) allowing attacker to overwrite security-critical variables (CWE-621)"
+  questions:
+    - "Is the $$var construct used with a VARIABLE NAME derived from user input?"
+    - "Could an attacker set the variable name to overwrite security variables ($authenticated, $is_admin, $role)?"
+    - "Is extract() called on user input (equivalent to variable variables for arrays)?"
+    - "Is there a BLOCKLIST or ALLOWLIST of permitted variable names?"
+    - "Could the overwritten variable bypass AUTHENTICATION or AUTHORIZATION checks?"
+    - "Would using an associative array instead of variable variables eliminate this risk?"
+  context_hint: "Include the variable-variable usage and where the variable name originates."
+  additional_context: ["caller", "global"]
+
+php/missing-authorization:
+  short_description: "Controller action performs privileged operation without authorization check (CWE-862)"
+  questions:
+    - "What PRIVILEGED OPERATION does this controller action perform — data modification, admin function, user management?"
+    - "Is there MIDDLEWARE or a BEFORE-FILTER checking authentication (auth middleware, login check)?"
+    - "Is there an AUTHORIZATION CHECK verifying the user has permission for THIS specific action/resource?"
+    - "Could an unauthenticated user reach this action via the URL routing?"
+    - "Does the framework (Laravel, Symfony, CodeIgniter) provide built-in authorization (Gates, Voters, Policies)?"
+    - "What is the IMPACT if an unauthorized user triggers this action?"
+  context_hint: "Include the controller action, route definition, and any middleware or auth checks."
+  additional_context: ["caller"]
+
+php/input-validation:
+  short_description: "$_GET/$_POST/$_REQUEST used without filter_input or validation (CWE-20)"
+  questions:
+    - "Is $_GET, $_POST, $_REQUEST, or $_COOKIE accessed DIRECTLY without filter_input() or validation?"
+    - "What TYPE and FORMAT is expected — integer, email, URL, bounded string?"
+    - "Is filter_input() or filter_var() used with an appropriate filter (FILTER_VALIDATE_INT, FILTER_SANITIZE_STRING)?"
+    - "Is a framework validation layer (Laravel Validator, Symfony Form, Respect\\Validation) applied?"
+    - "Could unvalidated input cause a SECURITY ISSUE (injection, type juggling, logic error)?"
+    - "Is the validation at the CONTROLLER entry point, or scattered across the codebase?"
+  context_hint: "Include the superglobal access, any validation, and the first security-sensitive use."
+  additional_context: ["caller"]
+
+php/stream-wrapper-injection:
+  short_description: "PHP stream wrapper (php://, data://, phar://) used with user input (CWE-73)"
+  questions:
+    - "Is user input used in a function that accepts PHP stream wrappers (fopen, file_get_contents, include, readfile)?"
+    - "Could an attacker use php://filter to read arbitrary files (e.g., php://filter/convert.base64-encode/resource=config.php)?"
+    - "Could an attacker use data:// to inject code (data://text/plain,<?php system('id');?>)?"
+    - "Could an attacker use phar:// to trigger deserialization (phar://uploaded.jpg/file)?"
+    - "Is the input VALIDATED to ensure only expected protocols (file://, https://) are accepted?"
+    - "Is allow_url_fopen or allow_url_include restricted in php.ini?"
+  context_hint: "Include the file operation call, input source, and any protocol validation."
+  additional_context: ["caller"]
+
+php/insecure-tls-version:
+  short_description: "PHP HTTP client configured to use deprecated TLS 1.0 or 1.1 (CWE-327)"
+  questions:
+    - "Is CURLOPT_SSLVERSION set to CURL_SSLVERSION_TLSv1_0 or CURL_SSLVERSION_TLSv1_1?"
+    - "Is a stream context created with 'crypto_method' using STREAM_CRYPTO_METHOD_TLSv1_0_CLIENT?"
+    - "Is the connection carrying SENSITIVE DATA that requires strong encryption?"
+    - "Is the server endpoint REQUIRED to support only TLS 1.0/1.1, or is this a misconfiguration?"
+    - "Are TLS 1.2+ enforced (CURL_SSLVERSION_TLSv1_2 or higher)?"
+    - "Is this for connecting to LEGACY systems where upgrading TLS is not feasible?"
+  context_hint: "Include the curl/stream setup and TLS version configuration."
+  additional_context: ["caller"]
