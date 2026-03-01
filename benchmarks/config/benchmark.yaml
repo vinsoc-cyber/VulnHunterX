@@ -1,0 +1,41 @@
+# VulnHunterX Benchmark Configuration
+#
+# Override any setting via CLI flags to run_benchmark.py.
+# This file provides project-level defaults.
+
+# ── Dataset paths ──────────────────────────────────────────────────────────────
+datasets:
+  secllmholmes: benchmarks/datasets/secllmholmes
+  juliet:       benchmarks/datasets/juliet
+  cvefixes_db:  benchmarks/datasets/cvefixes/CVEfixes.db
+
+# ── LLM settings ──────────────────────────────────────────────────────────────
+llm:
+  provider: openai
+  model: gpt-4o           # default model; override with --model
+  # Alternatives:
+  #   model: claude-sonnet-4-6   # Anthropic (set ANTHROPIC_API_KEY)
+  #   model: gpt-4o-mini          # cheaper, faster
+  #   model: ollama/llama3.2      # local (set OLLAMA_API_BASE)
+
+# ── Verification settings ─────────────────────────────────────────────────────
+verification:
+  max_iterations: 3       # multi-turn rounds for vulnhunterx / generic-questions
+  # Iteration sweep: run vulnhunterx at each of these values to measure
+  # the marginal accuracy gain per additional context round.
+  # Enable via: python run_benchmark.py --iteration-sweep
+  iteration_sweep: [1, 2, 3]
+
+# ── Metrics settings ──────────────────────────────────────────────────────────
+metrics:
+  # How to handle "Needs More Data" verdicts in precision/recall:
+  #   exclude  — NMD is counted separately as nmd_rate (default)
+  #   fp       — NMD is treated as a False Positive prediction
+  nmd_handling: exclude
+
+# ── Run settings ──────────────────────────────────────────────────────────────
+run:
+  # Default entry limit per dataset (0 = no limit)
+  limit: 0
+  # Results output directory (relative to repo root)
+  results_dir: benchmarks/results
