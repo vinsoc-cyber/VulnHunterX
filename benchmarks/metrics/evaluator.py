@@ -265,6 +265,8 @@ def evaluate(
                 metrics.total_processed += 1
                 metrics.elapsed_seconds.append(r.elapsed_seconds)
                 metrics.total_elapsed += r.elapsed_seconds
+                metrics.total_tokens += r.tokens_used
+                metrics.total_cost_usd += r.cost_usd
                 if r.iterations:
                     metrics.iterations_list.append(r.iterations)
                 continue  # exclude from precision/recall
@@ -274,6 +276,10 @@ def evaluate(
             metrics.total_processed += 1
             metrics.elapsed_seconds.append(r.elapsed_seconds)
             metrics.total_elapsed += r.elapsed_seconds
+            metrics.total_tokens += r.tokens_used
+            metrics.total_cost_usd += r.cost_usd
+            if r.iterations:
+                metrics.iterations_list.append(r.iterations)
             continue
 
         gt_label = r.entry.label
