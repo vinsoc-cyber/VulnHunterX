@@ -21,6 +21,7 @@ class CodeQLAnalyzer:
         "python": "codeql/python-queries:codeql-suites/python-security-extended.qls",
         "javascript": "codeql/javascript-queries:codeql-suites/javascript-security-extended.qls",
         "php": "codeql/php-queries:codeql-suites/php-security-extended.qls",
+        "java": "codeql/java-queries:codeql-suites/java-security-extended.qls",
     }
     
     def __init__(
@@ -216,7 +217,7 @@ class CodeQLAnalyzer:
     def _is_finalized(self, db_path: Path) -> bool:
         """Check if database is finalized by looking for completion stamps."""
         # Check for completion stamps in various language DBs
-        for lang_db in ["db-cpp", "db-python", "db-javascript"]:
+        for lang_db in ["db-cpp", "db-python", "db-javascript", "db-java"]:
             stamp = db_path / lang_db / "trap" / "completion-stamp"
             if stamp.exists():
                 return True
@@ -279,6 +280,7 @@ class CodeQLAnalyzer:
             "codeql/python-queries",
             "codeql/javascript-queries",
             "codeql/php-queries",
+            "codeql/java-queries",
         ]
         
         for pack in packs:

@@ -129,6 +129,11 @@ repos:
     url: https://github.com/psf/requests.git
     language: python
 
+  # --- Java ---
+  - name: webgoat
+    url: https://github.com/WebGoat/WebGoat.git
+    language: java
+
   # --- Intentionally Vulnerable Projects (for demo/testing) ---
   - name: insecure-coding-examples
     url: https://github.com/patricia-gallardo/insecure-coding-examples.git

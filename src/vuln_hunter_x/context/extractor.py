@@ -36,6 +36,13 @@ class ContextExtractor:
             re.compile(r'^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\([^)]*\)\s*=>', re.MULTILINE),
             re.compile(r'^\s*(?:async\s+)?(\w+)\s*\([^)]*\)\s*\{', re.MULTILINE),
         ],
+        "java": [
+            re.compile(
+                r'^\s*(?:public|private|protected|static|final|abstract|synchronized|native|\s)*'
+                r'[\w<>\[\],\s]+\s+(\w+)\s*\([^)]*\)\s*(?:throws\s+[\w\s,]+)?\s*\{?\s*$',
+                re.MULTILINE,
+            ),
+        ],
     }
     
     def __init__(self, repos_base: Path):
