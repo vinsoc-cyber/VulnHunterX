@@ -37,6 +37,11 @@ dev = [
     "mypy>=1.0",
     "types-PyYAML>=6.0",
 ]
+benchmark = [
+    "pandas>=2.0",
+    "tabulate>=0.9",
+    "matplotlib>=3.8",
+]
 
 [project.scripts]
 vuln-hunter-x = "vuln_hunter_x.cli.main:main"

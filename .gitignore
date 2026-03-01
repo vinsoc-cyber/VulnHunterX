@@ -18,3 +18,7 @@ output/
 uv.lock
 .coverage
 .env*
+
+# Benchmarks — large datasets and results are git-ignored
+benchmarks/datasets/
+benchmarks/results/
