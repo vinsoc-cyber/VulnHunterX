@@ -22,6 +22,7 @@ class DatabaseManager:
         "python": "",  # No build needed
         "javascript": "npm install --ignore-scripts",  # Just install deps
         "php": "",  # No build needed
+        "java": "",  # CodeQL auto-detects Maven/Gradle
     }
     
     def __init__(
