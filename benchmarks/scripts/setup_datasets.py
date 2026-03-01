@@ -65,9 +65,23 @@ def _download_and_extract(url: str, target: Path) -> None:
     logger.info("Downloading %s …", url)
     urllib.request.urlretrieve(url, zip_path)  # noqa: S310
     logger.info("Extracting to %s …", target)
+    import os
+    import shutil
     import zipfile
+    target_resolved = target.resolve()
     with zipfile.ZipFile(zip_path) as zf:
-        zf.extractall(target)
+        for member in zf.infolist():
+            # Compute the final path and ensure it stays within target_resolved
+            member_path = (target_resolved / member.filename).resolve()
+            common = os.path.commonpath([str(target_resolved), str(member_path)])
+            if common != str(target_resolved):
+                raise ValueError(f"Unsafe path in ZIP file: {member.filename!r}")
+            if member.is_dir():
+                member_path.mkdir(parents=True, exist_ok=True)
+            else:
+                member_path.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(member, "r") as src, open(member_path, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
     zip_path.unlink()
     logger.info("Done: %s", target)
 
