@@ -56,7 +56,7 @@ log_file: output/llm_conversations.md
 limit: 0
 
 # Only process findings from specific languages (empty = all)
-# Options: c, cpp, python, javascript
+# Options: c, cpp, python, javascript, php, java
 languages: []
 
 # Only process findings from specific repositories (empty = all)
@@ -73,8 +73,10 @@ repos_dir: repos
 # (database, SARIF, context, verification_results, sanitized_build, fuzz_targets, fuzz_results)
 output_dir: output
 
-# Guided questions file
-questions_file: config/prompts/guided_questions.yaml
+# Fallback guided questions file (used only when no per-language file matches).
+# Per-language files (cpp_questions.yaml, python_questions.yaml, etc.) are
+# auto-discovered from the same directory and take priority.
+questions_file: config/prompts/default_questions.yaml
 
 # =============================================================================
 # Optional: Analyze defaults (CLI overrides)
