@@ -124,7 +124,7 @@ python benchmarks/scripts/run_benchmark.py \
 
 ```
 --dataset          secllmholmes | juliet | cvefixes | all  (default: secllmholmes)
---approach         raw-sast | single-shot | generic-questions | vulnhunterx | all
+--approach         One or more of: raw-sast single-shot generic-questions vulnhunterx all  (default: all)
 --model            LLM model name  (default: gpt-4o)
 --provider         openai | anthropic | ollama  (default: openai)
 --limit            Max entries per dataset, 0=all  (default: 0)
