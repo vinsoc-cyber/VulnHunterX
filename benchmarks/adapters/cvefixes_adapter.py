@@ -2,7 +2,7 @@
 
 CVEfixes: Automatically Collected Vulnerabilities and Their Fixes from Open-Source Software
   Paper: https://arxiv.org/abs/2107.08760
-  Data:  https://zenodo.org/records/7029359
+  Data:  https://zenodo.org/records/13118970
 
 The dataset is a SQLite database (CVEfixes.db) with vulnerability-fixing commits.
 Each row maps: CVE → repo → commit → file → function → CWE
@@ -34,6 +34,7 @@ _LANG_MAP: dict[str, str] = {
     "javascript": "javascript",
     "js": "javascript",
     "php": "php",
+    "java": "java",
 }
 
 # CWE IDs that have CodeQL rule mappings (we only import these)
