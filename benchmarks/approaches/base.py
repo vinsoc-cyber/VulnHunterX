@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-
-from vuln_hunter_x.context.extractor import ContextExtractor
-from vuln_hunter_x.core.types import CodeContext, Finding
+from dataclasses import dataclass
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry
+from vuln_hunter_x.context.extractor import ContextExtractor
+from vuln_hunter_x.core.types import CodeContext, Finding
 
 # Predicted label values produced by approaches
 PRED_TP = "TP"       # Approach predicted: vulnerable
@@ -52,6 +51,42 @@ class BenchmarkResult:
             "cost_usd": self.cost_usd,
             "iterations": self.iterations,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> BenchmarkResult:
+        """Reconstruct a BenchmarkResult from a checkpoint dict.
+
+        The ``entry`` field is rebuilt as a minimal stub from the stored
+        ``entry_id``, ``source_dataset``, and ``ground_truth_label`` fields so
+        that metrics evaluation and deduplication can work without the original
+        dataset being fully loaded during resume.
+        """
+        from benchmarks.adapters.ground_truth import GroundTruthEntry
+
+        # Build a stub entry sufficient for metrics recomputation
+        stub_entry = GroundTruthEntry(
+            id=data["entry_id"],
+            source_dataset=data.get("source_dataset", ""),
+            cwe_id=data.get("cwe_id", ""),
+            rule_id=data.get("rule_id", ""),
+            file_path=data.get("file_path", ""),
+            function_name=data.get("function_name", ""),
+            start_line=data.get("start_line", 1),
+            lang=data.get("lang", "c"),
+            label=data["ground_truth_label"],
+            code_snippet="",  # not stored; not needed for resume metrics
+            metadata=data.get("metadata", {}),
+        )
+        return cls(
+            entry=stub_entry,
+            predicted_label=data.get("predicted_label", "ERROR"),
+            confidence=data.get("confidence", ""),
+            reasoning=data.get("reasoning", ""),
+            elapsed_seconds=float(data.get("elapsed_seconds", 0.0)),
+            tokens_used=int(data.get("tokens_used", 0)),
+            cost_usd=float(data.get("cost_usd", 0.0)),
+            iterations=int(data.get("iterations", 0)),
+        )
 
 
 class BenchmarkApproach(ABC):

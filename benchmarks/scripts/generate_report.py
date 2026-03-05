@@ -40,7 +40,13 @@ def _load_results(run_dir: Path) -> list[dict]:
 
     # Fall back to reading individual checkpoints
     for f in sorted(run_dir.glob("*_results.json")):
-        data = json.loads(f.read_text())
+        try:
+            data = json.loads(f.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        # Only include completed checkpoints; skip in-progress (resumed but not done)
+        if data.get("status", "completed") != "completed":
+            continue
         if "metrics" in data:
             summaries.append(data["metrics"])
     return summaries
