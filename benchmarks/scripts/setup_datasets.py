@@ -39,9 +39,9 @@ DATASETS: dict[str, dict] = {
     "cvefixes": {
         "description": "CVEfixes v1.0.8: 12K vulnerability-fixing commits in SQLite",
         "type": "zip",
-        "url": "https://zenodo.org/records/7029359/files/CVEfixes_v1.0.8.zip",
+        "url": "https://zenodo.org/records/13118970/files/CVEfixes_v1.0.8.zip?download=1",
         "target_dir": DATASETS_DIR / "cvefixes",
-        "disk_mb": 1200,
+        "disk_mb": 13000,
     },
 }
 
