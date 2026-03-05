@@ -382,8 +382,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--approach",
+        nargs="+",
         choices=["raw-sast", "single-shot", "generic-questions", "vulnhunterx", "all"],
-        default="all",
+        default=["all"],
+        metavar="APPROACH",
+        help="One or more of: raw-sast single-shot generic-questions vulnhunterx all",
     )
     parser.add_argument("--model", default="gpt-4o")
     parser.add_argument("--provider", default="openai")
@@ -454,10 +457,11 @@ def main() -> int:
         if args.dataset == "all"
         else [args.dataset]
     )
+    _ALL_APPROACHES = ["raw-sast", "single-shot", "generic-questions", "vulnhunterx"]
     approaches = (
-        ["raw-sast", "single-shot", "generic-questions", "vulnhunterx"]
-        if args.approach == "all"
-        else [args.approach]
+        _ALL_APPROACHES
+        if "all" in args.approach
+        else list(dict.fromkeys(args.approach))
     )
 
     if args.iteration_sweep:
