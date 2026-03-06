@@ -51,6 +51,10 @@ if str(_REPO_ROOT / "src") not in sys.path:
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# Load .env before argparse so LLM_MODEL / LLM_PROVIDER become default values
+from dotenv import load_dotenv  # noqa: E402
+load_dotenv(_REPO_ROOT / ".env")
+
 from benchmarks.adapters.ground_truth import GroundTruthEntry, load_entries  # noqa: E402
 from benchmarks.approaches.base import BenchmarkApproach, BenchmarkResult  # noqa: E402
 from benchmarks.approaches.generic_questions import GenericQuestionsApproach  # noqa: E402
@@ -64,12 +68,37 @@ from benchmarks.scripts._progress import (  # noqa: E402
     print_run_header,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger(__name__)
+
+
+def _setup_logging(run_dir: Path) -> None:
+    """Configure logging: full INFO to file, WARNING+ to stderr.
+
+    Keeps the terminal clean (progress bar / verbose lines only) while writing
+    a complete audit trail — including per-finding entries and LiteLLM messages —
+    to <run_dir>/benchmark.log.
+    """
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+
+    # File handler — full INFO+ log for debugging / post-analysis
+    fh = logging.FileHandler(run_dir / "benchmark.log", encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter(
+        "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+        datefmt="%H:%M:%S",
+    ))
+    root.addHandler(fh)
+
+    # Stderr handler — WARNING+ only so the progress bar is never interrupted
+    sh = logging.StreamHandler(sys.stderr)
+    sh.setLevel(logging.WARNING)
+    sh.setFormatter(logging.Formatter("%(levelname)-8s  %(message)s"))
+    root.addHandler(sh)
+
+    # Silence noisy third-party loggers (still captured in the log file)
+    for lib in ("LiteLLM", "httpx", "httpcore", "openai", "anthropic"):
+        logging.getLogger(lib).setLevel(logging.WARNING)
 
 DATASETS_DIR = _REPO_ROOT / "benchmarks" / "datasets"
 RESULTS_DIR = _REPO_ROOT / "benchmarks" / "results"
@@ -77,7 +106,7 @@ RESULTS_DIR = _REPO_ROOT / "benchmarks" / "results"
 
 # ── Dataset loaders ──────────────────────────────────────────────────────────
 
-def _load_dataset(name: str, limit: int) -> list[GroundTruthEntry]:
+def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20) -> list[GroundTruthEntry]:
     """Load entries for a given dataset name."""
     # Check for fixture files first (for smoke tests)
     fixture = _REPO_ROOT / "benchmarks" / "fixtures" / f"{name}_sample.json"
@@ -99,7 +128,12 @@ def _load_dataset(name: str, limit: int) -> list[GroundTruthEntry]:
         ds_path = DATASETS_DIR / "juliet"
         if ds_path.exists():
             from benchmarks.adapters.juliet_adapter import JulietAdapter
-            return JulietAdapter(ds_path).load(mode="offline", limit=limit)
+            return JulietAdapter(ds_path).load(
+                mode="offline",
+                limit=limit,
+                per_cwe_limit=juliet_per_cwe,
+                benchmark_cwes_only=(juliet_per_cwe > 0),
+            )
         if fixture.exists():
             logger.info("Using fixture file: %s", fixture)
             return load_entries(fixture)
@@ -248,6 +282,24 @@ def _load_checkpoint(
     return status, processed_ids, prior_results
 
 
+# ── Per-finding log ───────────────────────────────────────────────────────────
+
+def _log_finding(findings_log: Path, entry: GroundTruthEntry, result: BenchmarkResult) -> None:
+    """Append one structured JSON line per evaluated entry to findings.jsonl."""
+    record = {
+        "id": entry.id,
+        "cwe_id": entry.cwe_id,
+        "gt_label": entry.label,
+        "predicted": result.predicted_label,
+        "confidence": result.confidence,
+        "tokens_used": result.tokens_used,
+        "cost_usd": result.cost_usd,
+        "elapsed_s": round(result.elapsed_seconds, 2),
+    }
+    with open(findings_log, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
 # ── Run config helpers ────────────────────────────────────────────────────────
 
 def _save_run_config(run_dir: Path, config: dict) -> None:
@@ -347,12 +399,20 @@ def run_one(
     progress.start(resumed_count=len(prior_results))
 
     new_results: list[BenchmarkResult] = []
+    findings_log = run_dir / "findings.jsonl"
 
     try:
         for i, entry in enumerate(entries, 1):
             result = approach.evaluate(entry)
             new_results.append(result)
             progress.update(result)
+            _log_finding(findings_log, entry, result)
+            logger.info(
+                "[%s] %s → %s (%s) | %d tok  $%.4f  %.1fs",
+                entry.id, entry.cwe_id, result.predicted_label,
+                result.confidence or "?", result.tokens_used,
+                result.cost_usd, result.elapsed_seconds,
+            )
 
             # Incremental checkpoint (also logs at 10-entry intervals in quiet mode)
             if quiet and (i % 10 == 0 or i == len(entries)):
@@ -406,10 +466,22 @@ def main() -> int:
         metavar="APPROACH",
         help="One or more of: raw-sast single-shot generic-questions vulnhunterx all",
     )
-    parser.add_argument("--model", default="gpt-4o")
-    parser.add_argument("--provider", default="openai")
+    parser.add_argument("--model", default=os.environ.get("LLM_MODEL", "gpt-4o"))
+    parser.add_argument("--provider", default=os.environ.get("LLM_PROVIDER", "openai"))
     parser.add_argument("--limit", type=int, default=0, help="Cap entries per dataset (0=all)")
-    parser.add_argument("--max-iterations", type=int, default=3)
+    parser.add_argument(
+        "--juliet-per-cwe",
+        type=int,
+        default=20,
+        metavar="N",
+        help=(
+            "Juliet only: max entries per CWE, balanced TP/FP (N//2 each). "
+            "Default 20 → 160 total across 8 CWEs (~$5.50). "
+            "Use 10 for a quick run (80 entries, ~$2.70). "
+            "Use 0 for all entries across all 15 target CWEs (local model recommended)."
+        ),
+    )
+    parser.add_argument("--max-iterations", type=int, default=10, help="Max iterations for multi-turn approaches (default: 10)")
     parser.add_argument(
         "--nmd-handling",
         choices=["exclude", "fp"],
@@ -505,6 +577,7 @@ def main() -> int:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_dir = RESULTS_DIR / ts
     run_dir.mkdir(parents=True, exist_ok=True)
+    _setup_logging(run_dir)
     logger.info("Run directory: %s", run_dir)
 
     # Persist run config; warn on config drift when resuming (Phase 1)
@@ -545,7 +618,7 @@ def main() -> int:
         for dataset_name in datasets:
             logger.info("Loading dataset: %s (limit=%d)", dataset_name, args.limit)
             try:
-                entries = _load_dataset(dataset_name, args.limit)
+                entries = _load_dataset(dataset_name, args.limit, juliet_per_cwe=args.juliet_per_cwe)
             except FileNotFoundError as exc:
                 logger.error("%s", exc)
                 continue
