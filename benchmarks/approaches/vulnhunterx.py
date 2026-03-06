@@ -42,11 +42,15 @@ class VulnHunterXApproach(BenchmarkApproach):
         max_iterations: int = 3,
         prompts_dir: Path | None = None,
         dry_run: bool = False,
+        force_decision: bool = True,
+        use_slicing: bool = False,
     ) -> None:
         self._provider = provider
         self._model = model
         self._max_iterations = max_iterations
         self._dry_run = dry_run
+        self._force_decision = force_decision
+        self._use_slicing = use_slicing
 
         # Load all per-language guided questions
         prompts_dir = prompts_dir or _PROMPTS_DIR
@@ -65,6 +69,7 @@ class VulnHunterXApproach(BenchmarkApproach):
                 "model": self._model,
                 "max_iterations": self._max_iterations,
                 "verbosity": "quiet",
+                "force_decision": self._force_decision,
             }
         )
 
@@ -72,7 +77,8 @@ class VulnHunterXApproach(BenchmarkApproach):
             config=config,
             questions_loader=self._questions_loader,
             context_extractor=_SnippetContextExtractor(
-                entry.code_snippet, entry.function_name
+                entry.code_snippet, entry.function_name,
+                use_slicing=self._use_slicing, finding=finding,
             ),
             context_provider=None,
         )
@@ -98,4 +104,6 @@ class VulnHunterXApproach(BenchmarkApproach):
             elapsed_seconds=elapsed,
             iterations=v.iterations,
             raw_response=v.raw_response,
+            tokens_used=v.tokens_used,
+            cost_usd=v.cost_usd,
         )

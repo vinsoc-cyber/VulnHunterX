@@ -36,6 +36,7 @@ class LLMConfig:
 class VerificationConfig:
     """Verification configuration (LLM multi-turn only)."""
     max_iterations: int = 3
+    force_decision: bool = True
 
 
 @dataclass
@@ -130,6 +131,7 @@ class Config:
         
         verification = VerificationConfig(
             max_iterations=data.get("max_iterations", 3),
+            force_decision=data.get("force_decision", True),
         )
         
         # Paths: support both top-level keys and paths.* for backward compatibility
@@ -198,6 +200,7 @@ class Config:
         
         verification = VerificationConfig(
             max_iterations=kwargs.get("max_iterations", self.verification.max_iterations),
+            force_decision=kwargs.get("force_decision", self.verification.force_decision),
         )
         
         output = OutputConfig(
