@@ -270,15 +270,13 @@ class SlicedContextExtractor:
         # Regex-based slicing: find lines referencing the key variable
         var_name = self._extract_key_variable(self._message or finding.message)
         if not var_name:
-            # No variable found; return window around target line
-            t = self._target_line - 1
-            start = max(0, t - self._window)
-            end = min(len(lines), t + self._window + 1)
+            # No variable target — slicing only helps when we know which variable to track.
+            # Return the full code so the LLM has complete context.
             return CodeContext(
-                code="\n".join(lines[start:end]),
+                code="\n".join(lines),
                 function_name="<sliced>",
-                start_line=start + 1,
-                end_line=end,
+                start_line=1,
+                end_line=len(lines),
             )
 
         # Collect line indices that reference the variable + window around target

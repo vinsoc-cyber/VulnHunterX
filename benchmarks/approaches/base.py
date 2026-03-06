@@ -100,11 +100,27 @@ class BenchmarkApproach(ABC):
         ...
 
 
+# CWE-specific messages that help variable-extraction patterns match
+_CWE_MESSAGES: dict[str, str] = {
+    "CWE-416": "use of freed memory: variable accessed after free()",
+    "CWE-787": "out-of-bounds write: buffer overwritten beyond its bounds",
+    "CWE-125": "out-of-bounds read: buffer read beyond its size",
+    "CWE-476": "null pointer dereference: pointer dereferenced without NULL check",
+    "CWE-190": "integer overflow: arithmetic result exceeds integer range",
+    "CWE-401": "memory leak: allocated memory not released before function exit",
+    "CWE-134": "uncontrolled format string: user-controlled input used as format",
+    "CWE-79":  "cross-site scripting: unsanitized user input rendered in HTML",
+}
+
+
 def entry_to_finding(entry: GroundTruthEntry) -> Finding:
     """Convert a GroundTruthEntry to a VulnHunterX Finding for use with VerificationEngine."""
     return Finding(
         rule_id=entry.rule_id or f"benchmark/{entry.cwe_id.lower().replace('-', '')}",
-        message=entry.metadata.get("message", f"{entry.cwe_id or 'vulnerability'} detected"),
+        message=entry.metadata.get(
+            "message",
+            _CWE_MESSAGES.get(entry.cwe_id, f"{entry.cwe_id or 'vulnerability'} detected"),
+        ),
         file=entry.file_path or "benchmark_snippet.c",
         start_line=entry.start_line or 1,
         end_line=entry.start_line or 1,
@@ -144,9 +160,16 @@ class _SnippetContextExtractor(ContextExtractor):
 
     def get_context(self, file_path: str, line: int, lang: str) -> CodeContext:  # type: ignore[override]
         if self._use_slicing and self._finding is not None:
+            # Use the last non-empty line as target_line — vulnerabilities are typically
+            # near the end of a function (after setup code), not at line 1.
+            snippet_lines = self._snippet.splitlines()
+            last_nonempty = max(
+                (i + 1 for i, ln in enumerate(snippet_lines) if ln.strip()),
+                default=1,
+            )
             slicer = SlicedContextExtractor(
                 code=self._snippet,
-                target_line=self._finding.start_line or 1,
+                target_line=last_nonempty,
                 message=self._finding.message,
             )
             return slicer.extract(self._finding)
