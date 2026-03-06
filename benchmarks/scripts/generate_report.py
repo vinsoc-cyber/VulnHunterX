@@ -40,7 +40,13 @@ def _load_results(run_dir: Path) -> list[dict]:
 
     # Fall back to reading individual checkpoints
     for f in sorted(run_dir.glob("*_results.json")):
-        data = json.loads(f.read_text())
+        try:
+            data = json.loads(f.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        # Only include completed checkpoints; skip in-progress (resumed but not done)
+        if data.get("status", "completed") != "completed":
+            continue
         if "metrics" in data:
             summaries.append(data["metrics"])
     return summaries
@@ -49,7 +55,7 @@ def _load_results(run_dir: Path) -> list[dict]:
 def _main_table(summaries: list[dict]) -> str:
     """Build the main Markdown comparison table."""
     headers = [
-        "Approach", "Dataset", "Precision", "Recall", "F1",
+        "Approach", "Dataset", "Precision", "Recall", "Eff. Recall", "F1",
         "FP Reduc.", "TP Pres.", "NMD Rate",
         "Tokens/Finding", "Cost (USD)", "Latency p95 (s)",
     ]
@@ -62,6 +68,7 @@ def _main_table(summaries: list[dict]) -> str:
             s.get("dataset", "?"),
             _pct(s.get("precision")),
             _pct(s.get("recall")),
+            _pct(s.get("effective_recall")),
             _pct(s.get("f1")),
             _pct(s.get("fp_reduction_rate")),
             _pct(s.get("tp_preservation_rate")),
@@ -181,6 +188,7 @@ def generate_report(run_dir: Path, include_charts: bool = False) -> Path:
         _main_table(summaries),
         "",
         "> **Columns**: Precision/Recall/F1 computed on TP+FP labels only (BENIGN excluded).",
+        "> Eff. Recall = TPs confirmed / (TPs confirmed + TPs missed + NMDs that were TPs).",
         "> FP Reduc. = (SAST FPs − approach FPs) / SAST FPs.",
         "> TP Pres. = approach TPs / SAST TPs.",
         "> NMD Rate = fraction of findings returned as Needs-More-Data (excluded from P/R/F1).",
