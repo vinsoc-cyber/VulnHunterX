@@ -272,6 +272,7 @@ def print_run_header(
         title += _colour(f"  (resuming {completed_pairs}/{total_pairs} pairs done)", _YELLOW)
     _stderr().write(title + "\n")
     _stderr().write(f"  Run dir:    {run_dir}\n")
+    _stderr().write(f"  Log file:   {run_dir}/benchmark.log\n")
     _stderr().write(f"  Model:      {model}  ({provider})\n")
     _stderr().write(f"  Datasets:   {', '.join(datasets)}\n")
     _stderr().write(f"  Approaches: {', '.join(approaches)}\n")
@@ -299,5 +300,6 @@ def print_run_footer(
     _stderr().write(
         f"  Report:     python benchmarks/scripts/generate_report.py --run-dir {run_dir}\n"
     )
+    _stderr().write(f"  Details:    {run_dir}/findings.jsonl\n")
     _stderr().write(sep + "\n")
     _stderr().flush()

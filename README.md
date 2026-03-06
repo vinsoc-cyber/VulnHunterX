@@ -20,6 +20,7 @@ A Python framework that combines static analysis (CodeQL, Semgrep) with Large La
 - [Python API](#python-api)
 - [Configuration](#configuration)
 - [Project Structure](#project-structure)
+- [Benchmark](#benchmark)
 - [References](#references)
 
 ---
@@ -943,6 +944,14 @@ VulnHunterX/
 │   ├── repos.yaml            # Repository definitions
 │   ├── prompts/              # Guided questions
 │   └── queries/              # CodeQL tool queries
+├── benchmarks/
+│   ├── adapters/             # Dataset adapters (SecLLMHolmes, Juliet, CVEfixes, DiverseVul)
+│   ├── approaches/           # Benchmark approaches (raw-sast, single-shot, vulnhunterx…)
+│   ├── datasets/             # Downloaded dataset files (git-ignored)
+│   ├── fixtures/             # Small sample files for smoke tests
+│   ├── metrics/              # Precision/recall/F1 evaluator
+│   ├── results/              # Run outputs (REPORT.md, benchmark.log, findings.jsonl)
+│   └── scripts/              # run_benchmark.py, generate_report.py, setup_datasets.py
 ├── examples/                 # Pipeline examples
 ├── docs/                     # Security check docs
 ├── repos/                    # Cloned repositories
@@ -1007,6 +1016,104 @@ mypy src/
 
 ---
 
+## Benchmark
+
+VulnHunterX includes a benchmarking framework (`benchmarks/`) to measure false-positive
+reduction accuracy across multiple baseline approaches and publicly available ground-truth datasets.
+
+### Supported Datasets
+
+| Dataset | Size | Language | CWEs | Source |
+|---------|------|----------|------|--------|
+| **SecLLMHolmes** | 228 findings | C/C++, Python | CWE-416, CWE-787, CWE-125, CWE-190, CWE-476, CWE-122, CWE-401, CWE-134 | [GitHub](https://github.com/ai4cloudops/SecLLMHolmes) |
+| **Juliet C/C++ 1.3.1** | 64K test cases | C/C++ | ~180 CWEs (NIST SARD) | [NIST SARD](https://samate.nist.gov/SARD/) |
+| **CVEfixes v1.0.8** | 12K CVE-fixing commits | C, C++, Python, Java, JavaScript | Real CVEs | [Zenodo](https://zenodo.org/records/13118970) |
+| **DiverseVul** | 349K functions | C/C++ | 150 CWEs | [GitHub](https://github.com/wagner-group/diversevul) |
+
+- **SecLLMHolmes** — balanced TP/FP pairs with ground-truth labels across 8 CWE classes; ideal for quick evaluations.
+- **DiverseVul** — 18,945 real CVE-backed vulnerable functions + 330,492 non-vulnerable functions from open-source projects; best for large-scale precision/recall evaluation.
+- **Juliet** — NIST SARD synthetic test suite; broadest CWE coverage (~180 CWEs).
+- **CVEfixes** — real vulnerability-fixing commits from open-source projects.
+
+### Setup Datasets
+
+```bash
+# Download a specific dataset
+python benchmarks/scripts/setup_datasets.py --dataset secllmholmes
+python benchmarks/scripts/setup_datasets.py --dataset juliet
+python benchmarks/scripts/setup_datasets.py --dataset cvefixes
+
+# DiverseVul: download diversevul_20230702.json from the GitHub releases page
+# https://github.com/wagner-group/diversevul
+# Place the file in: benchmarks/datasets/diversevul/
+
+# List available datasets and their download status
+python benchmarks/scripts/setup_datasets.py --list
+```
+
+### Run Benchmark
+
+Model and provider are read from `.env` (`LLM_MODEL`, `LLM_PROVIDER`) by default:
+
+```bash
+# Smoke test (no API cost — uses built-in fixture files)
+python benchmarks/scripts/run_benchmark.py \
+    --dataset secllmholmes --approach raw-sast --limit 10
+
+# Dry run (mock LLM, no API cost)
+python benchmarks/scripts/run_benchmark.py \
+    --dataset secllmholmes --approach all --limit 20 --dry-run
+
+# Real benchmark (model read from .env)
+python benchmarks/scripts/run_benchmark.py \
+    --dataset secllmholmes --approach all --limit 50
+
+# Full benchmark across all datasets and approaches
+python benchmarks/scripts/run_benchmark.py --dataset all --approach all
+
+# Resume an interrupted run
+python benchmarks/scripts/run_benchmark.py \
+    --run-dir benchmarks/results/my_run --resume
+```
+
+**Approaches:**
+
+| Approach | Description |
+|----------|-------------|
+| `raw-sast` | Baseline: accept all SAST findings as-is (no LLM) |
+| `single-shot` | Single LLM call with no guided questions |
+| `generic-questions` | Multi-turn with generic vulnerability questions |
+| `vulnhunterx` | Full pipeline with rule-specific questions and force-decision |
+
+**Key options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--max-iterations` | 5 | Max LLM turns per finding |
+| `--nmd-handling` | `exclude` | `exclude` = NMDs excluded from P/R; `fp` = counted as FP |
+| `--sliced-context` | off | Variable-aware code slicing instead of full function |
+| `--no-force-decision` | off | Allow NMD verdicts (by default NMDs are forced to TP/FP) |
+| `--limit N` | 0 (all) | Cap entries per dataset for quick tests |
+
+### Generate Report
+
+```bash
+python benchmarks/scripts/generate_report.py \
+    --run-dir benchmarks/results/<run_dir>
+```
+
+Produces `REPORT.md` in the run directory with:
+- Precision / Recall / F1 / Effective Recall per approach
+- FP reduction rate and TP preservation rate vs. raw SAST
+- Per-CWE breakdown
+- Cost and latency statistics
+
+Each run also produces:
+- `benchmark.log` — full per-finding log (verdict, tokens, cost, latency)
+- `findings.jsonl` — one structured JSON line per finding; queryable with `jq`
+
+---
+
 ## License
 
 MIT License
@@ -1019,3 +1126,7 @@ MIT License
 - [CodeQL Documentation](https://codeql.github.com/docs/)
 - [Semgrep Documentation](https://semgrep.dev/docs/)
 - [SARIF Specification](https://sarifweb.azurewebsites.net/)
+- [SecLLMHolmes](https://github.com/ai4cloudops/SecLLMHolmes) — LLM vulnerability detection benchmark (228 C/C++/Python findings)
+- [DiverseVul](https://github.com/wagner-group/diversevul) — 349K C/C++ functions with real CVE-backed labels (RAID 2023)
+- [Juliet C/C++ Test Suite](https://samate.nist.gov/SARD/) — NIST SARD synthetic vulnerability test cases (~180 CWEs)
+- [CVEfixes](https://zenodo.org/records/13118970) — Dataset of vulnerability-fixing commits (v1.0.8)

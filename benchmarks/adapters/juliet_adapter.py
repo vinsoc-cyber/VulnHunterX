@@ -27,11 +27,23 @@ from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntr
 
 logger = logging.getLogger(__name__)
 
-# Juliet CWEs with CodeQL rules — focus set from plan
+# Juliet CWEs with CodeQL rules — full target set
 TARGET_CWES = {
     "CWE416", "CWE476", "CWE190", "CWE119", "CWE787",
     "CWE78", "CWE22", "CWE125", "CWE134", "CWE401",
     "CWE415", "CWE457", "CWE193", "CWE170", "CWE197",
+}
+
+# 8 CWEs with cross-benchmark overlap (SecLLMHolmes + LLM4FPM) — default for cost-effective runs
+BENCHMARK_CWES = {
+    "CWE416",  # Use After Free        — SecLLMHolmes + LLM4FPM
+    "CWE476",  # NULL Pointer Deref    — SecLLMHolmes + LLM4FPM
+    "CWE190",  # Integer Overflow      — SecLLMHolmes
+    "CWE787",  # Out-of-Bounds Write   — SecLLMHolmes
+    "CWE125",  # Out-of-Bounds Read    — SecLLMHolmes
+    "CWE401",  # Memory Leak           — LLM4FPM
+    "CWE457",  # Uninitialized Var     — LLM4FPM
+    "CWE134",  # Uncontrolled Fmt Str  — SecLLMHolmes
 }
 
 # Extract CWE from directory name, e.g., "CWE416_Use_After_Free" → "CWE-416"
@@ -99,12 +111,25 @@ class JulietAdapter:
             "Expected CWE* subdirectories or C/testcases/ layout."
         )
 
-    def load(self, mode: str = "offline", limit: int = 0) -> list[GroundTruthEntry]:
+    def load(
+        self,
+        mode: str = "offline",
+        limit: int = 0,
+        per_cwe_limit: int = 0,
+        benchmark_cwes_only: bool = True,
+    ) -> list[GroundTruthEntry]:
         """Load Juliet test cases.
 
         Args:
             mode: "offline" (from file/function naming) or "full" (requires CodeQL).
-            limit: Maximum entries to return (0 = all).
+            limit: Overall cap on entries returned (0 = no cap). Applied after per-CWE
+                   sampling, so the actual count may be less than this value.
+            per_cwe_limit: Max entries per CWE, balanced TP/FP (per_cwe_limit // 2 each).
+                           0 = load all entries for each CWE.
+                           Default 0 (unlimited). Recommended: 20 for standard runs.
+            benchmark_cwes_only: When True (default), restrict to the 8-CWE BENCHMARK_CWES
+                                 set (SecLLMHolmes + LLM4FPM overlap) for cost-effective runs.
+                                 Set False to use the full 15-CWE TARGET_CWES set.
 
         Returns:
             List of GroundTruthEntry with TP (bad) or FP (good) labels.
@@ -113,12 +138,18 @@ class JulietAdapter:
             logger.warning(
                 "Juliet 'full' mode requires CodeQL; falling back to 'offline'."
             )
-        return self._load_offline(limit)
+        return self._load_offline(limit, per_cwe_limit, benchmark_cwes_only)
 
-    def _load_offline(self, limit: int) -> list[GroundTruthEntry]:
+    def _load_offline(
+        self,
+        limit: int,
+        per_cwe_limit: int = 0,
+        benchmark_cwes_only: bool = True,
+    ) -> list[GroundTruthEntry]:
         """Synthesize entries from filename conventions (no CodeQL required)."""
         testcases_dir = self._find_testcases_dir()
         entries: list[GroundTruthEntry] = []
+        active_cwes = BENCHMARK_CWES if benchmark_cwes_only else TARGET_CWES
 
         for cwe_dir in sorted(testcases_dir.iterdir()):
             if not cwe_dir.is_dir():
@@ -131,12 +162,13 @@ class JulietAdapter:
             if cwe_id is None:
                 continue
 
-            # Skip CWEs not in our target set
+            # Skip CWEs not in our active set
             cwe_no_dash = cwe_id.replace("-", "")  # "CWE416"
-            if cwe_no_dash not in TARGET_CWES:
+            if cwe_no_dash not in active_cwes:
                 continue
 
             rule_id = primary_rule(cwe_id)
+            cwe_entries: list[GroundTruthEntry] = []
 
             for c_file in sorted(cwe_dir.rglob("*.c")) + sorted(cwe_dir.rglob("*.cpp")):
                 lang = "cpp" if c_file.suffix == ".cpp" else "c"
@@ -146,7 +178,6 @@ class JulietAdapter:
                     continue
 
                 rel_path = str(c_file.relative_to(self.dataset_path))
-                file_stem = c_file.stem.lower()
 
                 # Determine labels from filename convention
                 candidates: list[tuple[str, str]] = []
@@ -167,7 +198,7 @@ class JulietAdapter:
                         f"{rel_path}:{label}".encode()
                     ).hexdigest()[:12]
 
-                    entries.append(
+                    cwe_entries.append(
                         GroundTruthEntry(
                             id=f"juliet_{entry_id}",
                             source_dataset="juliet",
@@ -186,8 +217,25 @@ class JulietAdapter:
                         )
                     )
 
-                    if limit and len(entries) >= limit:
-                        return entries
+            # Apply per-CWE balanced sampling
+            if per_cwe_limit and cwe_entries:
+                half = per_cwe_limit // 2
+                tp_entries = [e for e in cwe_entries if e.label == LABEL_TP][:half]
+                fp_entries = [e for e in cwe_entries if e.label == LABEL_FP][:half]
+                cwe_entries = tp_entries + fp_entries
+                logger.debug(
+                    "Juliet %s: sampled %d TP + %d FP (from %d total)",
+                    cwe_id, len(tp_entries), len(fp_entries), len(cwe_entries),
+                )
 
-        logger.info("Juliet: loaded %d entries", len(entries))
+            entries.extend(cwe_entries)
+
+        # Apply overall cap after per-CWE sampling
+        if limit:
+            entries = entries[:limit]
+
+        logger.info(
+            "Juliet: loaded %d entries (per_cwe_limit=%d, benchmark_cwes_only=%s)",
+            len(entries), per_cwe_limit, benchmark_cwes_only,
+        )
         return entries

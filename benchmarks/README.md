@@ -22,6 +22,9 @@ Standalone benchmark framework comparing VulnHunterX against three baselines on 
 | **SecLLMHolmes**       | ~228 scenarios | C/C++, Python  | Handcrafted bad/good code pairs, 8 CWE classes        |
 | **Juliet C/C++ 1.3.1** | 64K test cases | C, C++         | NIST synthetic bad()/good() function pairs, ~180 CWEs |
 | **CVEfixes**           | ~12K commits   | Multi-language | Real CVE-fixing commits mapped to functions           |
+| **DiverseVul**         | 349K functions | C, C++         | 18,945 CVE-backed vulnerable + 330,492 non-vulnerable |
+
+See [RESEARCH.md](RESEARCH.md) for the literature review that motivated dataset selection and benchmark design decisions.
 
 ---
 
@@ -123,27 +126,30 @@ python benchmarks/scripts/run_benchmark.py \
 ### `run_benchmark.py`
 
 ```
---dataset          secllmholmes | juliet | cvefixes | all  (default: secllmholmes)
---approach         One or more of: raw-sast single-shot generic-questions vulnhunterx all  (default: all)
---model            LLM model name  (default: gpt-4o)
---provider         openai | anthropic | ollama  (default: openai)
---limit            Max entries per dataset, 0=all  (default: 0)
---max-iterations   Multi-turn rounds for vulnhunterx/generic  (default: 3)
---nmd-handling     exclude | fp  (default: exclude)
---dry-run          Mock LLM responses — no API cost
---resume           Skip completed pairs; continue in-progress pairs from last checkpoint
---run-dir PATH     Explicit output directory (use with --resume for recovery)
---run-id ID        Timestamp alias for --run-dir (e.g. 20260305_113225)
+--dataset           secllmholmes | juliet | cvefixes | diversevul | all  (default: secllmholmes)
+--approach          One or more of: raw-sast single-shot generic-questions vulnhunterx all  (default: all)
+--model             LLM model name  (default: read from LLM_MODEL in .env, fallback gpt-4o)
+--provider          openai | anthropic | ollama  (default: read from LLM_PROVIDER in .env)
+--limit             Max entries per dataset, 0=all  (default: 0)
+--juliet-per-cwe N  Juliet only: max entries per CWE, balanced TP/FP.
+                    10=quick (80 entries, ~$2.70)  20=standard (160 entries, ~$5.50) [default]
+                    0=unlimited, all 15 CWEs (local model recommended)
+--max-iterations    Multi-turn rounds for vulnhunterx/generic  (default: 5)
+--nmd-handling      exclude | fp  (default: exclude)
+--dry-run           Mock LLM responses — no API cost
+--resume            Skip completed pairs; continue in-progress pairs from last checkpoint
+--run-dir PATH      Explicit output directory (use with --resume for recovery)
+--run-id ID         Timestamp alias for --run-dir (e.g. 20260305_113225)
 --checkpoint-every N  Save incremental checkpoint every N entries (default: 1)
---verbose / -v     Print a detailed line per entry during the run
---quiet            Suppress progress display; emit log lines only
---iteration-sweep  Run vulnhunterx at iterations=1,2,3
+--verbose / -v      Print a detailed line per entry during the run
+--quiet             Suppress progress display; emit log lines only
+--iteration-sweep   Run vulnhunterx at iterations=1,2,3
 ```
 
 ### `setup_datasets.py`
 
 ```
---dataset  secllmholmes | juliet | cvefixes | all  (default: all)
+--dataset  secllmholmes | juliet | cvefixes | diversevul | all  (default: all)
 --list     List available datasets and exit
 ```
 
