@@ -2,7 +2,7 @@
 """Download and set up benchmark datasets.
 
 Usage:
-    python benchmarks/scripts/setup_datasets.py [--dataset secllmholmes|juliet|cvefixes|all]
+    python benchmarks/scripts/setup_datasets.py [--dataset secllmholmes|juliet|cvefixes|diversevul|all]
     python benchmarks/scripts/setup_datasets.py --list
 """
 
@@ -39,9 +39,16 @@ DATASETS: dict[str, dict] = {
     "cvefixes": {
         "description": "CVEfixes v1.0.8: 12K vulnerability-fixing commits in SQLite",
         "type": "zip",
-        "url": "https://zenodo.org/records/7029359/files/CVEfixes_v1.0.8.zip",
+        "url": "https://zenodo.org/records/13118970/files/CVEfixes_v1.0.8.zip?download=1",
         "target_dir": DATASETS_DIR / "cvefixes",
-        "disk_mb": 1200,
+        "disk_mb": 13000,
+    },
+    "diversevul": {
+        "description": "DiverseVul: 349K C/C++ functions with real CVE-backed labels (150 CWEs)",
+        "type": "git",
+        "url": "https://github.com/wagner-group/diversevul",
+        "target_dir": DATASETS_DIR / "diversevul",
+        "disk_mb": 2000,
     },
 }
 
