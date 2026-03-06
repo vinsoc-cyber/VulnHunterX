@@ -280,6 +280,7 @@ class VerificationEngine:
             max_iterations=self.config.verification.max_iterations,
             verbose=self.config.output.is_verbose,
             quiet=self.config.output.is_quiet,
+            force_decision=self.config.verification.force_decision,
         )
         
         return verdict

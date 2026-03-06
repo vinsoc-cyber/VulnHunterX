@@ -100,4 +100,6 @@ class GenericQuestionsApproach(BenchmarkApproach):
             elapsed_seconds=elapsed,
             iterations=v.iterations,
             raw_response=v.raw_response,
+            tokens_used=v.tokens_used,
+            cost_usd=v.cost_usd,
         )

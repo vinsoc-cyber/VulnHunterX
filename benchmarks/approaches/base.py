@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry
-from vuln_hunter_x.context.extractor import ContextExtractor
+from vuln_hunter_x.context.extractor import ContextExtractor, SlicedContextExtractor
 from vuln_hunter_x.core.types import CodeContext, Finding
 
 # Predicted label values produced by approaches
@@ -124,14 +124,32 @@ class _SnippetContextExtractor(ContextExtractor):
 
     Used by benchmark approaches so code from GroundTruthEntry.code_snippet
     is passed directly to the LLM without needing files on disk.
+
+    When ``use_slicing=True``, delegates to ``SlicedContextExtractor`` for
+    variable-aware code slicing instead of returning the full snippet.
     """
 
-    def __init__(self, code_snippet: str, function_name: str) -> None:
+    def __init__(
+        self,
+        code_snippet: str,
+        function_name: str,
+        use_slicing: bool = False,
+        finding: Finding | None = None,
+    ) -> None:
         # Do not call super().__init__ — we bypass disk I/O entirely
         self._snippet = code_snippet
         self._func_name = function_name
+        self._use_slicing = use_slicing
+        self._finding = finding
 
     def get_context(self, file_path: str, line: int, lang: str) -> CodeContext:  # type: ignore[override]
+        if self._use_slicing and self._finding is not None:
+            slicer = SlicedContextExtractor(
+                code=self._snippet,
+                target_line=self._finding.start_line or 1,
+                message=self._finding.message,
+            )
+            return slicer.extract(self._finding)
         return CodeContext(
             code=self._snippet,
             function_name=self._func_name or "<benchmark>",
