@@ -73,10 +73,9 @@ repos_dir: repos
 # (database, SARIF, context, verification_results, sanitized_build, fuzz_targets, fuzz_results)
 output_dir: output
 
-# Fallback guided questions file (used only when no per-language file matches).
+# Guided questions prompts:
 # Per-language files (cpp_questions.yaml, python_questions.yaml, etc.) are
-# auto-discovered from the same directory and take priority.
-questions_file: config/prompts/default_questions.yaml
+# auto-discovered from the prompts directory configured in paths.prompts_dir.
 
 # =============================================================================
 # Optional: Analyze defaults (CLI overrides)
