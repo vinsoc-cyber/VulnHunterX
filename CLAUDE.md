@@ -30,7 +30,7 @@ VulnHunterX is an 8-stage pipeline that combines SAST tools (CodeQL, Semgrep) wi
 
 ### Pipeline Stages
 
-**Stages 1–4: Core analysis (all languages: C, C++, Python, JavaScript, PHP)**
+**Stages 1–4: Core analysis (all languages: C, C++, Python, JavaScript, PHP, Java)**
 1. `clone` — Clone repos and create CodeQL databases
 2. `analyze` — Run CodeQL / Semgrep / both (produces `*.sarif` files)
 3. `extract-context` — Pre-extract function/caller/struct/global/macro context as CSVs
