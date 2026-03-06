@@ -82,6 +82,7 @@ class ApproachMetrics:
     pred_fp: int = 0
     pred_nmd: int = 0
     pred_error: int = 0
+    nmd_tp_count: int = 0  # NMD entries whose ground truth was TP
 
     # Core accuracy
     tp_correct: int = 0    # label=TP, predicted TP
@@ -114,6 +115,12 @@ class ApproachMetrics:
     @property
     def recall(self) -> float | None:
         denom = self.tp_correct + self.tp_missed
+        return self.tp_correct / denom if denom else None
+
+    @property
+    def effective_recall(self) -> float | None:
+        """Recall including NMD-TPs as missed: tp_correct / (tp_correct + tp_missed + nmd_tp_count)."""
+        denom = self.tp_correct + self.tp_missed + self.nmd_tp_count
         return self.tp_correct / denom if denom else None
 
     @property
@@ -186,6 +193,7 @@ class ApproachMetrics:
             "precision": _fmt(self.precision),
             "recall": _fmt(self.recall),
             "f1": _fmt(self.f1),
+            "effective_recall": _fmt(self.effective_recall),
             "nmd_rate": _fmt(self.nmd_rate),
             "error_rate": _fmt(self.error_rate),
             "total_tokens": self.total_tokens,
@@ -262,6 +270,8 @@ def evaluate(
                 pred = PRED_FP
             else:
                 metrics.pred_nmd += 1
+                if r.entry.label == LABEL_TP:
+                    metrics.nmd_tp_count += 1
                 metrics.total_processed += 1
                 metrics.elapsed_seconds.append(r.elapsed_seconds)
                 metrics.total_elapsed += r.elapsed_seconds

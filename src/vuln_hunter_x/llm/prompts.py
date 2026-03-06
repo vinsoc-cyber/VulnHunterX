@@ -134,6 +134,14 @@ class PromptBuilder:
         """Build LLM mode prompt."""
         tool_label = finding.tool or "Static Analysis"
         lang_tag = finding.lang or ""
+        dataflow_section = ""
+        if finding.dataflow_path:
+            dataflow_lines = "\n".join(finding.dataflow_path)
+            dataflow_section = f"""
+## Dataflow Path (from static analysis)
+
+{dataflow_lines}
+"""
         return f"""## {tool_label} Finding
 
 **Rule**: {finding.rule_id}
@@ -150,7 +158,7 @@ Function: `{func_name}`
 ```{lang_tag}
 {context}
 ```
-
+{dataflow_section}
 ## Before deciding if this is a real issue, you MUST answer the following questions FIRST:
 
 {questions_text}

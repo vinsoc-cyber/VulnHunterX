@@ -34,7 +34,7 @@ system_prompt: |
   IMPORTANT CONSTRAINTS:
   - Do NOT speculate beyond the shown code — base your analysis only on visible evidence.
   - Do NOT call something a True Positive unless the vulnerability is CLEARLY present.
-  - When in doubt between True Positive and False Positive, prefer "Needs More Data" over guessing.
+  - Use "Needs More Data" only when specific additional context (caller, struct, global) would genuinely change your verdict. Do not use it to avoid making a judgment.
   - Language-specific safety: consider {lang} memory model, type system, and
     standard library guarantees when evaluating.
 
