@@ -41,16 +41,16 @@ This framework automates the triage process by using LLMs to:
 
 ### Key Features
 
-| Feature | Description |
-|---------|-------------|
-| **Multi-language Support** | C, C++, Python, JavaScript, PHP |
-| **LLM verification** | Multi-turn with context expansion |
-| **Guided Questions** | Rule-specific questions for structured analysis |
-| **Context Expansion** | LLM can request callers, structs, globals |
-| **Multiple LLM Providers** | OpenAI (GPT-4), Anthropic (Claude), and Ollama (local models) |
-| **Dual SAST** | CodeQL and Semgrep; choose analyzer(s) with `analyze --tool codeql`, `semgrep`, or `both` |
-| **Unified CLI** | Single command-line tool for entire workflow |
-| **Python API** | Programmatic access for integration |
+| Feature                    | Description                                                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------- |
+| **Multi-language Support** | C, C++, Python, JavaScript, PHP                                                           |
+| **LLM verification**       | Multi-turn with context expansion                                                         |
+| **Guided Questions**       | Rule-specific questions for structured analysis                                           |
+| **Context Expansion**      | LLM can request callers, structs, globals                                                 |
+| **Multiple LLM Providers** | OpenAI (GPT-4), Anthropic (Claude), and Ollama (local models)                             |
+| **Dual SAST**              | CodeQL and Semgrep; choose analyzer(s) with `analyze --tool codeql`, `semgrep`, or `both` |
+| **Unified CLI**            | Single command-line tool for entire workflow                                              |
+| **Python API**             | Programmatic access for integration                                                       |
 
 ---
 
@@ -166,18 +166,18 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ STAGE 2: analyze                                                            │
 │ ────────────────                                                            │
-│ Purpose: Run CodeQL and/or Semgrep security analysis (CodeQL on DB,        │
+│ Purpose: Run CodeQL and/or Semgrep security analysis (CodeQL on DB,         │
 │          Semgrep on source in repos/)                                       │
-│ Input:   output/<lang>/<name>/database/ (CodeQL); repos/<lang>/<name>/     │
-│          (Semgrep)                                                           │
+│ Input:   output/<lang>/<name>/database/ (CodeQL); repos/<lang>/<name>/      │
+│          (Semgrep)                                                          │
 │ Output:  output/<lang>/<name>/<name>.sarif (CodeQL); optionally             │
 │          <name>_semgrep.sarif (Semgrep)                                     │
 │                                                                             │
 │ This stage:                                                                 │
 │   1. [CodeQL] Finalizes the database (if not already finalized)             │
-│   2. [CodeQL] Runs the security-extended query suite                         │
+│   2. [CodeQL] Runs the security-extended query suite                        │
 │   3. [Semgrep] Scans source; no database required                           │
-│   4. Produces SARIF file(s) with all security findings                       │
+│   4. Produces SARIF file(s) with all security findings                      │
 │                                                                             │
 │ SARIF (Static Analysis Results Interchange Format) contains:                │
 │   - Rule ID (e.g., cpp/use-after-free)                                      │
@@ -194,8 +194,8 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 │ Input:   output/<lang>/<name>/database/                                     │
 │ Output:  output/<lang>/<name>/context/*.csv                                 │
 │                                                                             │
-│ Uses the CodeQL database; when using Semgrep only, run clone (and            │
-│ optionally analyze with CodeQL) if you want full context expansion.          │
+│ Uses the CodeQL database; when using Semgrep only, run clone (and           │
+│ optionally analyze with CodeQL) if you want full context expansion.         │
 │                                                                             │
 │ Extracts the following into CSV files:                                      │
 │   - functions.csv   : Function definitions (name, file, lines, params)      │
@@ -214,9 +214,9 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 │ STAGE 4: verify                                                             │
 │ ───────────────                                                             │
 │ Purpose: Verify each finding using LLM analysis                             │
-│ Input:   output/<lang>/<name>/*.sarif (CodeQL and Semgrep)                 │
-│          output/<lang>/<name>/context/*.csv (for LLM mode)                   │
-│ Output:  output/<lang>/<name>/verification_results/*.json                  │
+│ Input:   output/<lang>/<name>/*.sarif (CodeQL and Semgrep)                  │
+│          output/<lang>/<name>/context/*.csv (for LLM mode)                  │
+│ Output:  output/<lang>/<name>/verification_results/*.json                   │
 │          output/<lang>/<name>/verification_results/summary_*.json           │
 │                                                                             │
 │ For each finding:                                                           │
@@ -231,16 +231,16 @@ The framework consists of 4 main stages, each with a dedicated CLI command:
 
 ### Stage Input/Output Summary
 
-| Stage | Command | Input | Output |
-|-------|---------|-------|--------|
-| 1 | `clone` | Repository URL | Source code + CodeQL database |
-| 2 | `analyze` | CodeQL database and/or source (Semgrep) | SARIF (e.g. `<name>.sarif`, `<name>_semgrep.sarif`) |
-| 3 | `extract-context` | CodeQL database | CSV files with context |
-| 4 | `verify` | SARIF + CSVs | JSON with verdicts |
-| 5 (C/C++) | `build-sanitized` | Repo + config | Sanitized build + manifest |
-| 6 (C/C++) | `extract-fuzz-context` | CodeQL DB | function_signatures.csv, includes.csv |
-| 7 (C/C++) | `generate-fuzz-drivers` | Verification + context | Harness .cc + optional build + status.json |
-| 8 (C/C++) | `fuzz-run` | Compiled harnesses | Crashes + summary.json |
+| Stage     | Command                 | Input                                   | Output                                              |
+| --------- | ----------------------- | --------------------------------------- | --------------------------------------------------- |
+| 1         | `clone`                 | Repository URL                          | Source code + CodeQL database                       |
+| 2         | `analyze`               | CodeQL database and/or source (Semgrep) | SARIF (e.g. `<name>.sarif`, `<name>_semgrep.sarif`) |
+| 3         | `extract-context`       | CodeQL database                         | CSV files with context                              |
+| 4         | `verify`                | SARIF + CSVs                            | JSON with verdicts                                  |
+| 5 (C/C++) | `build-sanitized`       | Repo + config                           | Sanitized build + manifest                          |
+| 6 (C/C++) | `extract-fuzz-context`  | CodeQL DB                               | function_signatures.csv, includes.csv               |
+| 7 (C/C++) | `generate-fuzz-drivers` | Verification + context                  | Harness .cc + optional build + status.json          |
+| 8 (C/C++) | `fuzz-run`              | Compiled harnesses                      | Crashes + summary.json                              |
 
 See [Fuzz-based confirmation](docs/fuzz_stages.md) for stages 5–8.
 
@@ -298,10 +298,10 @@ vuln-hunter-x <command> [options]
 
 ### Global Options
 
-| Option | Description |
-|--------|-------------|
-| `--help` | Show help for command |
-| `--version` | Show version |
+| Option      | Description           |
+| ----------- | --------------------- |
+| `--help`    | Show help for command |
+| `--version` | Show version          |
 
 ### check-env
 
@@ -327,13 +327,13 @@ Clone repositories and create CodeQL databases.
 vuln-hunter-x clone [options]
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--repo NAME` | Clone specific repository | All in config |
-| `--lang LANG` | Filter by language (c, cpp, python, javascript) | All |
-| `--skip-db` | Clone only, don't create database | false |
-| `--ask-llm` | Ask LLM for help if build fails | false |
-| `--dry-run` | Preview without executing | false |
+| Option        | Description                                     | Default       |
+| ------------- | ----------------------------------------------- | ------------- |
+| `--repo NAME` | Clone specific repository                       | All in config |
+| `--lang LANG` | Filter by language (c, cpp, python, javascript) | All           |
+| `--skip-db`   | Clone only, don't create database               | false         |
+| `--ask-llm`   | Ask LLM for help if build fails                 | false         |
+| `--dry-run`   | Preview without executing                       | false         |
 
 **Examples:**
 
@@ -361,20 +361,20 @@ Run CodeQL and/or Semgrep security analysis. Use `--tool` to choose which analyz
 vuln-hunter-x analyze [options]
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--tool {codeql,semgrep,both}` | Analyzer(s) to run | codeql |
-| `--semgrep-config CONFIG` | Semgrep config (repeatable); e.g. auto, p/security-audit | auto |
-| `--codeql-suite SUITE` | CodeQL query suite (built-in ref or path to .qls) | language default |
-| `--config PATH` | Path to repos.yaml (for Semgrep repo list) | config/repos.yaml |
-| `--repo NAME` | Analyze specific repository | All |
-| `--lang LANG` | Filter by language | All |
-| `--tool TOOL` | Analyzer(s): `codeql`, `semgrep`, or `both` | `codeql` |
-| `--semgrep-config CONFIG` | Semgrep config (e.g. `auto`, `p/security-audit`) | `auto` |
-| `-v, --verbose` | Show detailed output | false |
-| `--json` | Also output findings as JSON | false |
-| `-f, --force` | Re-run even if SARIF exists | false |
-| `--dry-run` | Preview without executing | false |
+| Option                         | Description                                              | Default           |
+| ------------------------------ | -------------------------------------------------------- | ----------------- |
+| `--tool {codeql,semgrep,both}` | Analyzer(s) to run                                       | codeql            |
+| `--semgrep-config CONFIG`      | Semgrep config (repeatable); e.g. auto, p/security-audit | auto              |
+| `--codeql-suite SUITE`         | CodeQL query suite (built-in ref or path to .qls)        | language default  |
+| `--config PATH`                | Path to repos.yaml (for Semgrep repo list)               | config/repos.yaml |
+| `--repo NAME`                  | Analyze specific repository                              | All               |
+| `--lang LANG`                  | Filter by language                                       | All               |
+| `--tool TOOL`                  | Analyzer(s): `codeql`, `semgrep`, or `both`              | `codeql`          |
+| `--semgrep-config CONFIG`      | Semgrep config (e.g. `auto`, `p/security-audit`)         | `auto`            |
+| `-v, --verbose`                | Show detailed output                                     | false             |
+| `--json`                       | Also output findings as JSON                             | false             |
+| `-f, --force`                  | Re-run even if SARIF exists                              | false             |
+| `--dry-run`                    | Preview without executing                                | false             |
 
 **Examples:**
 
@@ -416,11 +416,11 @@ Extract context CSVs for multi-turn verification.
 vuln-hunter-x extract-context [options]
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
+| Option        | Description                     | Default       |
+| ------------- | ------------------------------- | ------------- |
 | `--repo NAME` | Extract for specific repository | All databases |
-| `--lang LANG` | Filter by language | All |
-| `--dry-run` | Preview without executing | false |
+| `--lang LANG` | Filter by language              | All           |
+| `--dry-run`   | Preview without executing       | false         |
 
 **Examples:**
 
@@ -434,13 +434,13 @@ vuln-hunter-x extract-context --repo libucl
 
 **Output files:**
 
-| File | Description |
-|------|-------------|
+| File            | Description                                       |
+| --------------- | ------------------------------------------------- |
 | `functions.csv` | Function definitions with location and parameters |
-| `callers.csv` | Call graph (who calls whom) |
-| `structs.csv` | Structure/class definitions |
-| `globals.csv` | Global variables |
-| `macros.csv` | Macro definitions (C/C++ only) |
+| `callers.csv`   | Call graph (who calls whom)                       |
+| `structs.csv`   | Structure/class definitions                       |
+| `globals.csv`   | Global variables                                  |
+| `macros.csv`    | Macro definitions (C/C++ only)                    |
 
 ---
 
@@ -453,12 +453,12 @@ vuln-hunter-x build-sanitized --repo libucl
 vuln-hunter-x build-sanitized --lang cpp -f   # Force rebuild
 ```
 
-| Option | Description |
-|--------|-------------|
-| `--repo NAME` | Build specific repository |
-| `--lang {c,cpp}` | Only C or C++ repos |
-| `-f, --force` | Rebuild even if manifest exists |
-| `--dry-run` | Preview only |
+| Option           | Description                     |
+| ---------------- | ------------------------------- |
+| `--repo NAME`    | Build specific repository       |
+| `--lang {c,cpp}` | Only C or C++ repos             |
+| `-f, --force`    | Rebuild even if manifest exists |
+| `--dry-run`      | Preview only                    |
 
 ---
 
@@ -472,11 +472,11 @@ vuln-hunter-x extract-fuzz-context --repo libucl
 vuln-hunter-x extract-fuzz-context --lang cpp --dry-run
 ```
 
-| Option | Description |
-|--------|-------------|
-| `--repo NAME` | Only this repository |
-| `--lang {c,cpp}` | Only this language |
-| `--dry-run` | Preview only |
+| Option           | Description          |
+| ---------------- | -------------------- |
+| `--repo NAME`    | Only this repository |
+| `--lang {c,cpp}` | Only this language   |
+| `--dry-run`      | Preview only         |
 
 ---
 
@@ -491,15 +491,15 @@ vuln-hunter-x generate-fuzz-drivers --verdict all      # all SARIF findings (no 
 vuln-hunter-x generate-fuzz-drivers --dry-run
 ```
 
-| Option | Description |
-|--------|-------------|
-| `--repo NAME` | Only this repository |
-| `--lang {c,cpp}` | Only this language |
-| `--verdict FILTER` | `tp,nmd` (default), `tp`, `nmd`, or `all` |
-| `--dry-run` | Do not write .cc files |
-| `--build` | Compile and link harnesses (Stage 7.4); write status.json |
-| `--llm-fix` | Use LLM to fix compile/link errors (Stage 7.5) |
-| `--max-fix-iterations N` | Max LLM fix attempts (default 3) |
+| Option                   | Description                                               |
+| ------------------------ | --------------------------------------------------------- |
+| `--repo NAME`            | Only this repository                                      |
+| `--lang {c,cpp}`         | Only this language                                        |
+| `--verdict FILTER`       | `tp,nmd` (default), `tp`, `nmd`, or `all`                 |
+| `--dry-run`              | Do not write .cc files                                    |
+| `--build`                | Compile and link harnesses (Stage 7.4); write status.json |
+| `--llm-fix`              | Use LLM to fix compile/link errors (Stage 7.5)            |
+| `--max-fix-iterations N` | Max LLM fix attempts (default 3)                          |
 
 ---
 
@@ -513,12 +513,12 @@ vuln-hunter-x fuzz-run --repo libucl --timeout 120 --max-fuzz-time 60
 vuln-hunter-x fuzz-run --dry-run
 ```
 
-| Option | Description |
-|--------|-------------|
-| `--repo NAME` | Only this repository |
-| `--timeout N` | Timeout per harness in seconds (default 60) |
-| `--max-fuzz-time N` | libFuzzer `-max_total_time` (default 30) |
-| `--dry-run` | Do not run fuzzers |
+| Option              | Description                                 |
+| ------------------- | ------------------------------------------- |
+| `--repo NAME`       | Only this repository                        |
+| `--timeout N`       | Timeout per harness in seconds (default 60) |
+| `--max-fuzz-time N` | libFuzzer `-max_total_time` (default 30)    |
+| `--dry-run`         | Do not run fuzzers                          |
 
 ---
 
@@ -530,17 +530,17 @@ Verify findings from SARIF using LLM analysis. Discovers all `*.sarif` under `ou
 vuln-hunter-x verify [options]
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--repo NAME` | Verify specific repository | All SARIF files |
-| `--lang LANG` | Filter by language | All |
-| `--provider PROV` | LLM provider: `openai` or `ollama` | From config |
-| `--model MODEL` | Model name (e.g., gpt-4o, ollama/llama3.2) | From config |
-| `--max-iterations N` | Max conversation rounds (LLM mode) | 3 |
-| `--limit N` | Max findings to process | Unlimited |
-| `-v, --verbose` | Show LLM requests and responses | false |
-| `-q, --quiet` | Minimal output | false |
-| `--log-file PATH` | Save LLM conversations to file | None |
+| Option               | Description                                | Default         |
+| -------------------- | ------------------------------------------ | --------------- |
+| `--repo NAME`        | Verify specific repository                 | All SARIF files |
+| `--lang LANG`        | Filter by language                         | All             |
+| `--provider PROV`    | LLM provider: `openai` or `ollama`         | From config     |
+| `--model MODEL`      | Model name (e.g., gpt-4o, ollama/llama3.2) | From config     |
+| `--max-iterations N` | Max conversation rounds (LLM mode)         | 3               |
+| `--limit N`          | Max findings to process                    | Unlimited       |
+| `-v, --verbose`      | Show LLM requests and responses            | false           |
+| `-q, --quiet`        | Minimal output                             | false           |
+| `--log-file PATH`    | Save LLM conversations to file             | None            |
 
 **Examples:**
 
@@ -670,12 +670,12 @@ The framework uses **LLM mode** only: multi-turn LLM analysis with dynamic conte
 
 When using LLM mode, the LLM can request additional context:
 
-| Request | Format | Description |
-|---------|--------|-------------|
-| Callers | `caller:function_name` | All functions that call this function |
-| Struct | `struct:struct_name` | Structure/class definition |
-| Global | `global:variable_name` | Global variable declaration |
-| Function | `function:function_name` | Full function definition |
+| Request  | Format                   | Description                           |
+| -------- | ------------------------ | ------------------------------------- |
+| Callers  | `caller:function_name`   | All functions that call this function |
+| Struct   | `struct:struct_name`     | Structure/class definition            |
+| Global   | `global:variable_name`   | Global variable declaration           |
+| Function | `function:function_name` | Full function definition              |
 
 ---
 
@@ -683,20 +683,20 @@ When using LLM mode, the LLM can request additional context:
 
 Ready-to-run pipeline examples:
 
-| Script | Language | Repository |
-|--------|----------|------------|
-| `examples/pipeline_c.py` | C | libucl |
-| `examples/pipeline_cpp.py` | C++ | re2 |
-| `examples/pipeline_python.py` | Python | pyyaml |
-| `examples/pipeline_javascript.py` | JavaScript | minimist |
+| Script                            | Language   | Repository |
+| --------------------------------- | ---------- | ---------- |
+| `examples/pipeline_c.py`          | C          | libucl     |
+| `examples/pipeline_cpp.py`        | C++        | re2        |
+| `examples/pipeline_python.py`     | Python     | pyyaml     |
+| `examples/pipeline_javascript.py` | JavaScript | minimist   |
 
 All scripts support:
 
-| Option | Description |
-|--------|-------------|
-| `--dry-run` | Preview without executing |
-| `--skip-clone` | Skip clone if exists |
-| `--api` | Use Python API instead of CLI |
+| Option         | Description                   |
+| -------------- | ----------------------------- |
+| `--dry-run`    | Preview without executing     |
+| `--skip-clone` | Skip clone if exists          |
+| `--api`        | Use Python API instead of CLI |
 
 ```bash
 # Example: Use Python API
@@ -756,13 +756,13 @@ result = engine.verify_all_sarif()
 
 ### Environment Variables (`.env`)
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `OPENAI_API_KEY` | OpenAI API key | For OpenAI |
-| `ANTHROPIC_API_KEY` | Anthropic API key | For Claude |
-| `OLLAMA_API_BASE` | Ollama server URL | For Ollama |
-| `CODEQL_PATH` | Path to CodeQL CLI | If not on PATH |
-| `SEMGREP_PATH` | Path to Semgrep CLI | If not on PATH (for Semgrep analysis) |
+| Variable            | Description         | Required                              |
+| ------------------- | ------------------- | ------------------------------------- |
+| `OPENAI_API_KEY`    | OpenAI API key      | For OpenAI                            |
+| `ANTHROPIC_API_KEY` | Anthropic API key   | For Claude                            |
+| `OLLAMA_API_BASE`   | Ollama server URL   | For Ollama                            |
+| `CODEQL_PATH`       | Path to CodeQL CLI  | If not on PATH                        |
+| `SEMGREP_PATH`      | Path to Semgrep CLI | If not on PATH (for Semgrep analysis) |
 
 ### Application Settings (`config/confirm_findings.yaml`)
 
@@ -811,12 +811,12 @@ repos:
     build_command: "mkdir -p build && cd build && cmake .. && make"
 ```
 
-| Field | Description | Required |
-|-------|-------------|----------|
-| `name` | Short name for the repository (used in paths) | Yes |
-| `url` | Git clone URL | Yes |
-| `language` | Programming language: `c`, `cpp`, `python`, `javascript` | Yes |
-| `build_command` | Shell command to compile the code | For C/C++ only |
+| Field           | Description                                              | Required       |
+| --------------- | -------------------------------------------------------- | -------------- |
+| `name`          | Short name for the repository (used in paths)            | Yes            |
+| `url`           | Git clone URL                                            | Yes            |
+| `language`      | Programming language: `c`, `cpp`, `python`, `javascript` | Yes            |
+| `build_command` | Shell command to compile the code                        | For C/C++ only |
 
 **Adding a new repository:**
 
@@ -861,11 +861,11 @@ cpp/use-after-free:
   additional_context: ["caller"]
 ```
 
-| Field | Description |
-|-------|-------------|
-| `short_description` | Brief explanation of the vulnerability |
-| `questions` | List of questions the LLM must answer before verdict |
-| `context_hint` | Guidance on what context is important |
+| Field                | Description                                                     |
+| -------------------- | --------------------------------------------------------------- |
+| `short_description`  | Brief explanation of the vulnerability                          |
+| `questions`          | List of questions the LLM must answer before verdict            |
+| `context_hint`       | Guidance on what context is important                           |
 | `additional_context` | Context types that may be needed (`caller`, `struct`, `global`) |
 
 The loader discovers all `*_questions.yaml` files in `config/prompts/` automatically. If a finding's rule ID is not found, the generic questions from `default_questions.yaml` are used as fallback.
@@ -882,10 +882,10 @@ Without guided questions, LLMs often pattern-match and produce false verdicts. T
 
 The LLM system prompt is loaded from `config/prompts/system_prompt.yaml`. It uses placeholders that are filled at runtime:
 
-| Placeholder | Filled with | Example |
-|-------------|-------------|---------|
-| `{tool_name}` | SAST tool that produced the finding | `CodeQL`, `Semgrep` |
-| `{lang}` | Programming language of the analyzed code | `c`, `python`, `javascript` |
+| Placeholder   | Filled with                               | Example                     |
+| ------------- | ----------------------------------------- | --------------------------- |
+| `{tool_name}` | SAST tool that produced the finding       | `CodeQL`, `Semgrep`         |
+| `{lang}`      | Programming language of the analyzed code | `c`, `python`, `javascript` |
 
 The prompt instructs the LLM to follow a structured analysis methodology: identify the vulnerability class, answer guided questions with line references, trace data flow from source to sink, evaluate reachability, then provide a verdict.
 
