@@ -1,7 +1,7 @@
 # Phase 2: Repos to clone and CodeQL DBs to create.
 # Format: list of { name, url, language, build_command?, sanitized_build_command?, sanitizer_flags? }
 # name: used for dirs repos/<lang>/<name>/ and output/<lang>/<name>/
-# build_command: required for c/cpp; omit for python/javascript.
+# build_command: required for c/cpp; omit for python/javascript/java.
 # sanitized_build_command: optional; for fuzz Stage 5. If omitted, build_command is used with CC/CXX/CFLAGS/LDFLAGS set for sanitizers.
 # sanitizer_flags: optional; e.g. { cflags: "-fsanitize=address,undefined -g", ldflags: "-fsanitize=address,undefined" }
 # Demo subset (small/fast for testing) is listed first.
@@ -129,10 +129,42 @@ repos:
     url: https://github.com/psf/requests.git
     language: python
 
-  # --- Java ---
-  - name: webgoat
-    url: https://github.com/WebGoat/WebGoat.git
-    language: java
+  # --- Java (OSS / reference) ---
+  # NOTE: The Java repos below are relatively large and are OPTIONAL.
+  # They are commented out to keep the default `vuln-hunter-x clone` run lightweight.
+  # To include them, uncomment the desired entries.
+  #
+  # - name: webgoat
+  #   url: https://github.com/WebGoat/WebGoat.git
+  #   language: java
+
+  # --- Java (Intentionally Vulnerable) ---
+  # - name: dvja
+  #   url: https://github.com/appsecco/dvja.git
+  #   language: java
+  # - name: java-sec-code
+  #   url: https://github.com/JoyChou93/java-sec-code.git
+  #   language: java
+  # - name: javavulnerablelab
+  #   url: https://github.com/CSPF-Founder/JavaVulnerableLab.git
+  #   language: java
+  # - name: owasp-benchmark
+  #   url: https://github.com/OWASP/benchmark.git
+  #   language: java
+  # - name: vulnerable-app
+  #   url: https://github.com/SasanLabs/VulnerableApp.git
+  #   language: java
+
+  # --- Java (Real-world OSS with known CVEs) ---
+  # - name: commons-collections
+  #   url: https://github.com/apache/commons-collections.git
+  #   language: java
+  # - name: jackson-databind
+  #   url: https://github.com/FasterXML/jackson-databind.git
+  #   language: java
+  # - name: apache-struts
+  #   url: https://github.com/apache/struts.git
+  #   language: java
 
   # --- Intentionally Vulnerable Projects (for demo/testing) ---
   - name: insecure-coding-examples
