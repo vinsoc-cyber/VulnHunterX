@@ -965,7 +965,7 @@ VulnHunterX/
 - [C/C++ Security Checks](docs/codeql_cpp_security.md)
 - [Python Security Checks](docs/codeql_python_security.md)
 - [JavaScript Security Checks](docs/codeql_javascript_security.md)
-- **Java:** Semgrep-based analysis (no dedicated CodeQL doc yet); see [`config/prompts/java_questions.yaml`](config/prompts/java_questions.yaml) for guided verification questions covering ~30 rule types (SQLi, XSS, deserialization, XXE, SSRF, and more).
+- **Java:** CodeQL-based analysis (using the default Java query suites) with optional Semgrep rules; a dedicated Java CodeQL security-check doc is not yet available. See [`config/prompts/java_questions.yaml`](config/prompts/java_questions.yaml) for guided verification questions covering ~30 rule types (SQLi, XSS, deserialization, XXE, SSRF, and more).
 
 Findings from Semgrep (SARIF) use the same verification flow; rule IDs may differ (see per-language `*_questions.yaml` files or generic fallback).
 
