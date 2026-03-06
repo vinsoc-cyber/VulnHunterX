@@ -44,7 +44,7 @@ This framework automates the triage process by using LLMs to:
 
 | Feature                    | Description                                                                               |
 | -------------------------- | ----------------------------------------------------------------------------------------- |
-| **Multi-language Support** | C, C++, Python, JavaScript, PHP                                                           |
+| **Multi-language Support** | C, C++, Python, JavaScript, PHP, Java                                                     |
 | **LLM verification**       | Multi-turn with context expansion                                                         |
 | **Guided Questions**       | Rule-specific questions for structured analysis                                           |
 | **Context Expansion**      | LLM can request callers, structs, globals                                                 |
@@ -112,7 +112,7 @@ This framework automates the triage process by using LLMs to:
                          └────────────────────────────────────┘
 ```
 
-Stage 2: Run CodeQL (on database) and/or Semgrep (on source); both produce SARIF. Semgrep scans source directly (no CodeQL database required). You can run CodeQL only, Semgrep only, or both; verify consumes all SARIF files.
+The pipeline has four core stages: **clone** (Stage 1) clones the repository and creates a CodeQL database (for compiled languages, this traces the build); **analyze** (Stage 2) runs CodeQL on the database and/or Semgrep on source, producing SARIF; **extract-context** (Stage 3, optional but recommended) pre-extracts structured context (functions, callers, structs) from the CodeQL database into CSV files for multi-turn expansion; **verify** (Stage 4) reads all SARIF files and uses an LLM to confirm or dismiss each finding.
 
 ### What Makes This Different
 
@@ -259,7 +259,7 @@ cd VulnHunterX
 
 uv venv --python python3.12 .venv
 source .venv/bin/activate
-pip install -e .
+pip install -e .  # use ".[dev]" to also install test/lint tools
 ```
 
 ### 2. Configuration
@@ -328,13 +328,13 @@ Clone repositories and create CodeQL databases.
 vuln-hunter-x clone [options]
 ```
 
-| Option        | Description                                     | Default       |
-| ------------- | ----------------------------------------------- | ------------- |
-| `--repo NAME` | Clone specific repository                       | All in config |
-| `--lang LANG` | Filter by language (c, cpp, python, javascript) | All           |
-| `--skip-db`   | Clone only, don't create database               | false         |
-| `--ask-llm`   | Ask LLM for help if build fails                 | false         |
-| `--dry-run`   | Preview without executing                       | false         |
+| Option        | Description                                                | Default       |
+| ------------- | ---------------------------------------------------------- | ------------- |
+| `--repo NAME` | Clone specific repository                                  | All in config |
+| `--lang LANG` | Filter by language (c, cpp, python, javascript, php, java) | All           |
+| `--skip-db`   | Clone only, don't create database                          | false         |
+| `--ask-llm`   | Ask LLM for help if build fails                            | false         |
+| `--dry-run`   | Preview without executing                                  | false         |
 
 **Examples:**
 
@@ -370,8 +370,6 @@ vuln-hunter-x analyze [options]
 | `--config PATH`                | Path to repos.yaml (for Semgrep repo list)               | config/repos.yaml |
 | `--repo NAME`                  | Analyze specific repository                              | All               |
 | `--lang LANG`                  | Filter by language                                       | All               |
-| `--tool TOOL`                  | Analyzer(s): `codeql`, `semgrep`, or `both`              | `codeql`          |
-| `--semgrep-config CONFIG`      | Semgrep config (e.g. `auto`, `p/security-audit`)         | `auto`            |
 | `-v, --verbose`                | Show detailed output                                     | false             |
 | `--json`                       | Also output findings as JSON                             | false             |
 | `-f, --force`                  | Re-run even if SARIF exists                              | false             |
@@ -812,12 +810,12 @@ repos:
     build_command: "mkdir -p build && cd build && cmake .. && make"
 ```
 
-| Field           | Description                                              | Required       |
-| --------------- | -------------------------------------------------------- | -------------- |
-| `name`          | Short name for the repository (used in paths)            | Yes            |
-| `url`           | Git clone URL                                            | Yes            |
-| `language`      | Programming language: `c`, `cpp`, `python`, `javascript` | Yes            |
-| `build_command` | Shell command to compile the code                        | For C/C++ only |
+| Field           | Description                                                             | Required       |
+| --------------- | ----------------------------------------------------------------------- | -------------- |
+| `name`          | Short name for the repository (used in paths)                           | Yes            |
+| `url`           | Git clone URL                                                           | Yes            |
+| `language`      | Programming language: `c`, `cpp`, `python`, `javascript`, `php`, `java` | Yes            |
+| `build_command` | Shell command to compile the code                                       | For C/C++ only |
 
 **Adding a new repository:**
 
@@ -845,7 +843,8 @@ config/prompts/
 ├── cpp_questions.yaml        # C/C++ rules (~52 rules)
 ├── python_questions.yaml     # Python rules (~55 rules)
 ├── javascript_questions.yaml # JavaScript rules (~45 rules)
-└── php_questions.yaml        # PHP rules (~40 rules)
+├── php_questions.yaml        # PHP rules (~40 rules)
+└── java_questions.yaml       # Java rules (~30 rules)
 ```
 
 **Example** (from `cpp_questions.yaml`):
@@ -970,29 +969,12 @@ VulnHunterX/
 
 ---
 
-## Guided Questions
-
-Questions are defined per rule type in per-language files under `config/prompts/` (e.g., `cpp_questions.yaml`, `python_questions.yaml`):
-
-```yaml
-cpp/use-after-free:
-  short_description: "Use of pointer after memory has been freed"
-  questions:
-    - "Where is the pointer ALLOCATED (malloc, calloc, new)?"
-    - "Where is the pointer FREED (free, delete)?"
-    - "Is the pointer set to NULL after being freed?"
-    - "List ALL paths from free() to the flagged use"
-  context_hint: "Must trace all paths between free and use"
-  additional_context: ["caller"]
-```
-
----
-
 ## Security Checks Documentation
 
 - [C/C++ Security Checks](docs/codeql_cpp_security.md)
 - [Python Security Checks](docs/codeql_python_security.md)
 - [JavaScript Security Checks](docs/codeql_javascript_security.md)
+- **Java:** CodeQL-based analysis (using the default Java query suites) with optional Semgrep rules; a dedicated Java CodeQL security-check doc is not yet available. See [`config/prompts/java_questions.yaml`](config/prompts/java_questions.yaml) for guided verification questions covering ~30 rule types (SQLi, XSS, deserialization, XXE, SSRF, and more).
 
 Findings from Semgrep (SARIF) use the same verification flow; rule IDs may differ (see per-language `*_questions.yaml` files or generic fallback).
 
