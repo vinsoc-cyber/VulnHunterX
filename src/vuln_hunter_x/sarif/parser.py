@@ -10,6 +10,30 @@ from typing import Any
 from vuln_hunter_x.core.types import Finding
 
 
+def _extract_dataflow_path(code_flows: list) -> list[str]:
+    """Extract dataflow path from SARIF codeFlows.
+
+    Returns a list of strings like "line 12: message text".
+    """
+    if not code_flows:
+        return []
+    try:
+        thread_flows = code_flows[0].get("threadFlows", [])
+        if not thread_flows:
+            return []
+        locations = thread_flows[0].get("locations", [])
+        path = []
+        for loc in locations:
+            phys = (loc.get("location") or {}).get("physicalLocation") or {}
+            line = (phys.get("region") or {}).get("startLine", 0)
+            msg = ((loc.get("location") or {}).get("message") or {}).get("text", "")
+            if line:
+                path.append(f"line {line}: {msg}" if msg else f"line {line}")
+        return path
+    except (IndexError, AttributeError, TypeError):
+        return []
+
+
 class SarifParser:
     """Parser for SARIF (Static Analysis Results Interchange Format) files."""
 
@@ -86,6 +110,7 @@ class SarifParser:
             for result in run.get("results", []):
                 rule_id = result.get("ruleId") or ""
                 message = (result.get("message") or {}).get("text") or ""
+                dataflow_path = _extract_dataflow_path(result.get("codeFlows", []))
 
                 locations = result.get("locations") or []
 
@@ -115,6 +140,7 @@ class SarifParser:
                             lang=lang,
                             sarif_path=str(self.sarif_path),
                             tool=tool_name,
+                            dataflow_path=dataflow_path,
                         )
                     )
 
@@ -131,6 +157,7 @@ class SarifParser:
                             lang=lang,
                             sarif_path=str(self.sarif_path),
                             tool=tool_name,
+                            dataflow_path=dataflow_path,
                         )
                     )
 

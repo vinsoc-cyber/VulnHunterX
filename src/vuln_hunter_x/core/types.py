@@ -37,6 +37,7 @@ class Finding:
     lang: str
     sarif_path: str = ""
     tool: str = ""
+    dataflow_path: list[str] = field(default_factory=list)
 
     @property
     def location(self) -> str:
@@ -55,6 +56,7 @@ class Finding:
             "lang": self.lang,
             "sarif_path": self.sarif_path,
             "tool": self.tool,
+            "dataflow_path": self.dataflow_path,
         }
 
 
@@ -110,6 +112,8 @@ class Verdict:
     elapsed_seconds: float = 0.0
     context_needed: list[str] = field(default_factory=list)
     iterations: int = 1
+    tokens_used: int = 0
+    cost_usd: float = 0.0
 
     @property
     def is_true_positive(self) -> bool:
@@ -139,6 +143,8 @@ class Verdict:
             "model": self.model,
             "timestamp": self.timestamp,
             "elapsed_seconds": self.elapsed_seconds,
+            "tokens_used": self.tokens_used,
+            "cost_usd": self.cost_usd,
         }
 
 

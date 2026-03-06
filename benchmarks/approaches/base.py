@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-
-from vuln_hunter_x.context.extractor import ContextExtractor
-from vuln_hunter_x.core.types import CodeContext, Finding
+from dataclasses import dataclass
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry
+from vuln_hunter_x.context.extractor import ContextExtractor, SlicedContextExtractor
+from vuln_hunter_x.core.types import CodeContext, Finding
 
 # Predicted label values produced by approaches
 PRED_TP = "TP"       # Approach predicted: vulnerable
@@ -53,6 +52,42 @@ class BenchmarkResult:
             "iterations": self.iterations,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict) -> BenchmarkResult:
+        """Reconstruct a BenchmarkResult from a checkpoint dict.
+
+        The ``entry`` field is rebuilt as a minimal stub from the stored
+        ``entry_id``, ``source_dataset``, and ``ground_truth_label`` fields so
+        that metrics evaluation and deduplication can work without the original
+        dataset being fully loaded during resume.
+        """
+        from benchmarks.adapters.ground_truth import GroundTruthEntry
+
+        # Build a stub entry sufficient for metrics recomputation
+        stub_entry = GroundTruthEntry(
+            id=data["entry_id"],
+            source_dataset=data.get("source_dataset", ""),
+            cwe_id=data.get("cwe_id", ""),
+            rule_id=data.get("rule_id", ""),
+            file_path=data.get("file_path", ""),
+            function_name=data.get("function_name", ""),
+            start_line=data.get("start_line", 1),
+            lang=data.get("lang", "c"),
+            label=data["ground_truth_label"],
+            code_snippet="",  # not stored; not needed for resume metrics
+            metadata=data.get("metadata", {}),
+        )
+        return cls(
+            entry=stub_entry,
+            predicted_label=data.get("predicted_label", "ERROR"),
+            confidence=data.get("confidence", ""),
+            reasoning=data.get("reasoning", ""),
+            elapsed_seconds=float(data.get("elapsed_seconds", 0.0)),
+            tokens_used=int(data.get("tokens_used", 0)),
+            cost_usd=float(data.get("cost_usd", 0.0)),
+            iterations=int(data.get("iterations", 0)),
+        )
+
 
 class BenchmarkApproach(ABC):
     """Abstract base for all benchmark approaches."""
@@ -65,11 +100,27 @@ class BenchmarkApproach(ABC):
         ...
 
 
+# CWE-specific messages that help variable-extraction patterns match
+_CWE_MESSAGES: dict[str, str] = {
+    "CWE-416": "use of freed memory: variable accessed after free()",
+    "CWE-787": "out-of-bounds write: buffer overwritten beyond its bounds",
+    "CWE-125": "out-of-bounds read: buffer read beyond its size",
+    "CWE-476": "null pointer dereference: pointer dereferenced without NULL check",
+    "CWE-190": "integer overflow: arithmetic result exceeds integer range",
+    "CWE-401": "memory leak: allocated memory not released before function exit",
+    "CWE-134": "uncontrolled format string: user-controlled input used as format",
+    "CWE-79":  "cross-site scripting: unsanitized user input rendered in HTML",
+}
+
+
 def entry_to_finding(entry: GroundTruthEntry) -> Finding:
     """Convert a GroundTruthEntry to a VulnHunterX Finding for use with VerificationEngine."""
     return Finding(
         rule_id=entry.rule_id or f"benchmark/{entry.cwe_id.lower().replace('-', '')}",
-        message=entry.metadata.get("message", f"{entry.cwe_id or 'vulnerability'} detected"),
+        message=entry.metadata.get(
+            "message",
+            _CWE_MESSAGES.get(entry.cwe_id, f"{entry.cwe_id or 'vulnerability'} detected"),
+        ),
         file=entry.file_path or "benchmark_snippet.c",
         start_line=entry.start_line or 1,
         end_line=entry.start_line or 1,
@@ -89,14 +140,39 @@ class _SnippetContextExtractor(ContextExtractor):
 
     Used by benchmark approaches so code from GroundTruthEntry.code_snippet
     is passed directly to the LLM without needing files on disk.
+
+    When ``use_slicing=True``, delegates to ``SlicedContextExtractor`` for
+    variable-aware code slicing instead of returning the full snippet.
     """
 
-    def __init__(self, code_snippet: str, function_name: str) -> None:
+    def __init__(
+        self,
+        code_snippet: str,
+        function_name: str,
+        use_slicing: bool = False,
+        finding: Finding | None = None,
+    ) -> None:
         # Do not call super().__init__ — we bypass disk I/O entirely
         self._snippet = code_snippet
         self._func_name = function_name
+        self._use_slicing = use_slicing
+        self._finding = finding
 
     def get_context(self, file_path: str, line: int, lang: str) -> CodeContext:  # type: ignore[override]
+        if self._use_slicing and self._finding is not None:
+            # Use the last non-empty line as target_line — vulnerabilities are typically
+            # near the end of a function (after setup code), not at line 1.
+            snippet_lines = self._snippet.splitlines()
+            last_nonempty = max(
+                (i + 1 for i, ln in enumerate(snippet_lines) if ln.strip()),
+                default=1,
+            )
+            slicer = SlicedContextExtractor(
+                code=self._snippet,
+                target_line=last_nonempty,
+                message=self._finding.message,
+            )
+            return slicer.extract(self._finding)
         return CodeContext(
             code=self._snippet,
             function_name=self._func_name or "<benchmark>",

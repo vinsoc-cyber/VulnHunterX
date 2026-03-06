@@ -56,6 +56,7 @@ class LLMClient:
         verbose: bool = False,
         log_file: Any | None = None,
         quiet: bool = False,
+        force_decision: bool = True,
     ) -> Verdict:
         """
         Analyze a finding and return a verdict.
@@ -110,6 +111,8 @@ class LLMClient:
         start_time = time.time()
         iterations = 0
         all_raw_responses: list[str] = []
+        total_tokens_used: int = 0
+        total_cost_usd: float = 0.0
 
         while iterations < max_iterations:
             iterations += 1
@@ -155,6 +158,14 @@ class LLMClient:
                 raw_response = response.choices[0].message.content or ""
                 all_raw_responses.append(raw_response)
 
+                # Accumulate token usage and cost
+                _tokens = getattr(getattr(response, "usage", None), "total_tokens", 0) or 0
+                total_tokens_used += _tokens
+                try:
+                    total_cost_usd += litellm.completion_cost(completion_response=response)
+                except Exception:
+                    pass
+
                 if not verbose and not quiet:
                     print(f" done ({len(raw_response)} chars)")
 
@@ -180,6 +191,24 @@ class LLMClient:
 
                 # Final verdict or no context expansion
                 if verdict != "Needs More Data" or not context_needed or not context_provider:
+                    # Force decision: if NMD and force_decision enabled, do one more turn
+                    if verdict == "Needs More Data" and force_decision:
+                        if verbose:
+                            print("    [Force decision] Sending forced re-prompt...")
+                        try:
+                            messages.append({"role": "assistant", "content": raw_response})
+                            parsed, raw_response, total_tokens_used, total_cost_usd = (
+                                self._force_decision_turn(
+                                    messages, all_raw_responses,
+                                    total_tokens_used, total_cost_usd,
+                                )
+                            )
+                            verdict = parsed.get("verdict", "False Positive")
+                            iterations += 1
+                        except Exception:
+                            # Force decision failed; keep original NMD
+                            pass
+
                     elapsed = time.time() - start_time
 
                     if log_file:
@@ -196,6 +225,8 @@ class LLMClient:
                         elapsed_seconds=elapsed,
                         context_needed=context_needed,
                         iterations=iterations,
+                        tokens_used=total_tokens_used,
+                        cost_usd=total_cost_usd,
                     )
 
                 # Fetch additional context
@@ -222,6 +253,8 @@ class LLMClient:
                         elapsed_seconds=elapsed,
                         context_needed=context_needed,
                         iterations=iterations,
+                        tokens_used=total_tokens_used,
+                        cost_usd=total_cost_usd,
                     )
 
                 # Build follow-up
@@ -250,9 +283,38 @@ class LLMClient:
                     model=self.model,
                     elapsed_seconds=elapsed,
                     iterations=iterations,
+                    tokens_used=total_tokens_used,
+                    cost_usd=total_cost_usd,
                 )
 
-        # Max iterations reached
+        # Max iterations reached — try force decision
+        if force_decision:
+            try:
+                messages.append({"role": "assistant", "content": all_raw_responses[-1] if all_raw_responses else ""})
+                parsed, _, total_tokens_used, total_cost_usd = (
+                    self._force_decision_turn(
+                        messages, all_raw_responses,
+                        total_tokens_used, total_cost_usd,
+                    )
+                )
+                iterations += 1
+                elapsed = time.time() - start_time
+                return Verdict(
+                    finding=finding,
+                    verdict=parsed.get("verdict", "False Positive"),
+                    confidence=parsed.get("confidence", "Low"),
+                    reasoning=parsed.get("reasoning", "Forced decision after max iterations"),
+                    answers=parsed.get("answers", []),
+                    raw_response="\n---\n".join(all_raw_responses),
+                    model=self.model,
+                    elapsed_seconds=elapsed,
+                    iterations=iterations,
+                    tokens_used=total_tokens_used,
+                    cost_usd=total_cost_usd,
+                )
+            except Exception:
+                pass
+
         elapsed = time.time() - start_time
         return Verdict(
             finding=finding,
@@ -264,7 +326,58 @@ class LLMClient:
             model=self.model,
             elapsed_seconds=elapsed,
             iterations=iterations,
+            tokens_used=total_tokens_used,
+            cost_usd=total_cost_usd,
         )
+
+    _FORCE_DECISION_PROMPT = (
+        "This is your final analysis attempt. Based on the code provided, you MUST choose "
+        "True Positive or False Positive. Low confidence is acceptable. Needs More Data is "
+        "NOT an acceptable final response. Give your best judgment."
+    )
+
+    def _force_decision_turn(
+        self,
+        messages: list[dict],
+        all_raw_responses: list[str],
+        total_tokens_used: int,
+        total_cost_usd: float,
+    ) -> tuple[dict[str, Any], str, int, float]:
+        """Execute one forced-decision LLM turn. Returns (parsed, raw, tokens, cost)."""
+        messages.append({"role": "user", "content": self._FORCE_DECISION_PROMPT})
+        model = self.model
+        api_base = None
+        if self.provider == "openai":
+            api_base = (
+                os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
+            ).strip()
+            api_base = api_base.rstrip("/") if api_base else None
+            if api_base and not model.startswith("openai/"):
+                model = "openai/" + model
+        kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+        }
+        if api_base:
+            kwargs["api_base"] = api_base
+        response = litellm.completion(**kwargs)
+        raw = response.choices[0].message.content or "" if response.choices else ""
+        all_raw_responses.append(raw)
+        _tokens = getattr(getattr(response, "usage", None), "total_tokens", 0) or 0
+        total_tokens_used += _tokens
+        try:
+            total_cost_usd += litellm.completion_cost(completion_response=response)
+        except Exception:
+            pass
+        parsed = self._parse_response(raw)
+        # If still NMD, force to FP with Low confidence
+        if parsed.get("verdict") == "Needs More Data":
+            parsed["verdict"] = "False Positive"
+            parsed["confidence"] = "Low"
+            parsed["reasoning"] = (parsed.get("reasoning") or "") + " [Forced decision: defaulted to FP]"
+        return parsed, raw, total_tokens_used, total_cost_usd
 
     def _parse_response(self, raw: str) -> dict[str, Any]:
         """Parse JSON from LLM response."""
