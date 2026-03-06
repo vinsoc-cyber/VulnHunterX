@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from vuln_hunter_x.core.types import CodeContext
+from vuln_hunter_x.core.types import CodeContext, Finding
 
 
 class ContextExtractor:
@@ -212,3 +212,92 @@ class ContextExtractor:
                 func_end = len(lines) - 1
         
         return func_start, func_end, func_name
+
+
+class SlicedContextExtractor:
+    """Extract a minimal code slice relevant to a finding.
+
+    Uses SARIF dataflow paths when available, otherwise falls back to
+    regex-based variable tracking around the flagged line.
+    """
+
+    # Patterns to extract variable names from SARIF messages
+    _VAR_PATTERNS = [
+        re.compile(r"variable\s+'(\w+)'"),
+        re.compile(r"buffer\s+'(\w+)'"),
+        re.compile(r"pointer\s+'(\w+)'"),
+        re.compile(r"'(\w+)'\s+is\s+"),
+        re.compile(r"of\s+'(\w+)'"),
+    ]
+
+    def __init__(self, code: str, target_line: int, message: str, window: int = 5) -> None:
+        self._code = code
+        self._target_line = target_line
+        self._message = message
+        self._window = window
+
+    @staticmethod
+    def _extract_key_variable(message: str) -> str | None:
+        """Extract the key variable name from a SARIF finding message."""
+        for pattern in SlicedContextExtractor._VAR_PATTERNS:
+            m = pattern.search(message)
+            if m:
+                return m.group(1)
+        return None
+
+    def extract(self, finding: Finding) -> CodeContext:
+        """Extract a sliced code context for the finding."""
+        lines = self._code.splitlines()
+
+        # If dataflow_path is available, use those lines directly
+        if finding.dataflow_path:
+            slice_text = "\n".join(
+                f"// {step}" for step in finding.dataflow_path
+            )
+            # Also include window around target line
+            t = self._target_line - 1  # 0-indexed
+            start = max(0, t - self._window)
+            end = min(len(lines), t + self._window + 1)
+            code_window = "\n".join(lines[start:end])
+            full_slice = f"// Dataflow path:\n{slice_text}\n\n// Code around flagged line {self._target_line}:\n{code_window}"
+            return CodeContext(
+                code=full_slice,
+                function_name="<sliced>",
+                start_line=start + 1,
+                end_line=end,
+            )
+
+        # Regex-based slicing: find lines referencing the key variable
+        var_name = self._extract_key_variable(self._message or finding.message)
+        if not var_name:
+            # No variable found; return window around target line
+            t = self._target_line - 1
+            start = max(0, t - self._window)
+            end = min(len(lines), t + self._window + 1)
+            return CodeContext(
+                code="\n".join(lines[start:end]),
+                function_name="<sliced>",
+                start_line=start + 1,
+                end_line=end,
+            )
+
+        # Collect line indices that reference the variable + window around target
+        relevant: set[int] = set()
+        t = self._target_line - 1
+        for i in range(max(0, t - self._window), min(len(lines), t + self._window + 1)):
+            relevant.add(i)
+
+        var_pat = re.compile(r'\b' + re.escape(var_name) + r'\b')
+        for i, line in enumerate(lines):
+            if var_pat.search(line):
+                for j in range(max(0, i - 1), min(len(lines), i + 2)):
+                    relevant.add(j)
+
+        sorted_lines = sorted(relevant)
+        slice_lines = [lines[i] for i in sorted_lines]
+        return CodeContext(
+            code="\n".join(slice_lines),
+            function_name="<sliced>",
+            start_line=sorted_lines[0] + 1 if sorted_lines else 1,
+            end_line=sorted_lines[-1] + 1 if sorted_lines else 1,
+        )

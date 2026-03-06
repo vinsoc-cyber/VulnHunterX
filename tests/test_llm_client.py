@@ -141,6 +141,7 @@ class TestLLMClientAnalyze:
             '{"verdict": "Needs More Data", "confidence": "Low", "reasoning": "need caller", "answers": [], "context_needed": ["caller:foo"]}'
         )
 
+        # With force_decision=False, NMD is preserved
         verdict = self.client.analyze(
             finding=finding,
             context="code",
@@ -149,11 +150,38 @@ class TestLLMClientAnalyze:
             context_provider=None,
             max_iterations=2,
             quiet=True,
+            force_decision=False,
         )
 
         assert verdict.verdict == "Needs More Data"
         # Without context_provider, exits on first iteration even with context_needed
         assert verdict.iterations == 1
+
+    @patch("vuln_hunter_x.llm.client.litellm.completion")
+    def test_force_decision_converts_nmd_to_verdict(self, mock_completion, finding, questions):
+        """When force_decision=True (default), NMD triggers a forced re-prompt."""
+        nmd_response = _make_litellm_response(
+            '{"verdict": "Needs More Data", "confidence": "Low", "reasoning": "need caller", "answers": [], "context_needed": ["caller:foo"]}'
+        )
+        forced_response = _make_litellm_response(
+            '{"verdict": "False Positive", "confidence": "Low", "reasoning": "forced", "answers": []}'
+        )
+        mock_completion.side_effect = [nmd_response, forced_response]
+
+        verdict = self.client.analyze(
+            finding=finding,
+            context="code",
+            questions=questions,
+            func_name="func",
+            context_provider=None,
+            max_iterations=2,
+            quiet=True,
+            force_decision=True,
+        )
+
+        assert verdict.verdict == "False Positive"
+        assert verdict.iterations == 2
+        assert mock_completion.call_count == 2
 
     @patch("vuln_hunter_x.llm.client.litellm.completion")
     def test_multi_turn_expands_context(self, mock_completion, finding, questions):

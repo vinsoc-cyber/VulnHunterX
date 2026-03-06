@@ -126,6 +126,19 @@ def _load_dataset(name: str, limit: int) -> list[GroundTruthEntry]:
             "Run: python benchmarks/scripts/setup_datasets.py --dataset cvefixes"
         )
 
+    if name == "diversevul":
+        ds_path = DATASETS_DIR / "diversevul"
+        if ds_path.exists():
+            from benchmarks.adapters.diversevul_adapter import DiverseVulAdapter
+            return DiverseVulAdapter(ds_path).load(limit=limit)
+        if fixture.exists():
+            logger.info("Using fixture file: %s", fixture)
+            return load_entries(fixture)
+        raise FileNotFoundError(
+            f"DiverseVul dataset not found at {ds_path}. "
+            "Download from: https://github.com/wagner-group/diversevul"
+        )
+
     raise ValueError(f"Unknown dataset: {name!r}")
 
 
@@ -137,6 +150,8 @@ def _build_approach(
     provider: str,
     max_iterations: int,
     dry_run: bool,
+    force_decision: bool = True,
+    use_slicing: bool = False,
 ) -> BenchmarkApproach:
     common = {"provider": provider, "model": model, "dry_run": dry_run}
     if name == "raw-sast":
@@ -146,7 +161,10 @@ def _build_approach(
     if name == "generic-questions":
         return GenericQuestionsApproach(**common, max_iterations=max_iterations)
     if name == "vulnhunterx":
-        return VulnHunterXApproach(**common, max_iterations=max_iterations)
+        return VulnHunterXApproach(
+            **common, max_iterations=max_iterations,
+            force_decision=force_decision, use_slicing=use_slicing,
+        )
     raise ValueError(f"Unknown approach: {name!r}")
 
 
@@ -377,7 +395,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--dataset",
-        choices=["secllmholmes", "juliet", "cvefixes", "all"],
+        choices=["secllmholmes", "juliet", "cvefixes", "diversevul", "all"],
         default="secllmholmes",
     )
     parser.add_argument(
@@ -445,6 +463,17 @@ def main() -> int:
         help="Suppress progress display; only emit log lines.",
     )
     parser.add_argument(
+        "--force-decision",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Force a TP/FP decision when LLM returns Needs More Data (default: enabled)",
+    )
+    parser.add_argument(
+        "--sliced-context",
+        action="store_true",
+        help="Use variable-aware code slicing for VulnHunterX approach",
+    )
+    parser.add_argument(
         "--iteration-sweep",
         action="store_true",
         help="Run vulnhunterx at max_iterations=1,2,3 to show multi-turn contribution",
@@ -453,7 +482,7 @@ def main() -> int:
 
     # Determine datasets and approaches
     datasets = (
-        ["secllmholmes", "juliet", "cvefixes"]
+        ["secllmholmes", "juliet", "cvefixes", "diversevul"]
         if args.dataset == "all"
         else [args.dataset]
     )
@@ -541,6 +570,8 @@ def main() -> int:
                         args.provider,
                         max_iters,
                         args.dry_run,
+                        force_decision=args.force_decision,
+                        use_slicing=args.sliced_context,
                     )
                     approach.name = effective_name
 
