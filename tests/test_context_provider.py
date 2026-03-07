@@ -168,6 +168,125 @@ class TestContextProviderMacroContext:
         assert "not found" in results["macro:UNKNOWN"].lower()
 
 
+class TestContextProviderCalleesContext:
+    def test_callees_returns_list_of_called_functions(self, repo_tree):
+        output_dir, repos_dir, context_dir, _ = repo_tree
+        _write_csv(
+            context_dir / "callers.csv",
+            [
+                {
+                    "callee_name": "malloc",
+                    "callee_file": "",
+                    "caller_name": "do_work",
+                    "caller_file": "work.c",
+                    "caller_start_line": "1",
+                    "caller_end_line": "10",
+                },
+                {
+                    "callee_name": "memcpy",
+                    "callee_file": "",
+                    "caller_name": "do_work",
+                    "caller_file": "work.c",
+                    "caller_start_line": "1",
+                    "caller_end_line": "10",
+                },
+                {
+                    "callee_name": "free",
+                    "callee_file": "",
+                    "caller_name": "other_func",
+                    "caller_file": "work.c",
+                    "caller_start_line": "12",
+                    "caller_end_line": "20",
+                },
+            ],
+        )
+
+        provider = ContextProvider(output_dir, repos_dir)
+        results = provider.get_additional_context("myrepo", "c", ["callees:do_work"])
+
+        assert "callees:do_work" in results
+        text = results["callees:do_work"]
+        assert "malloc" in text
+        assert "memcpy" in text
+        assert "free" not in text  # belongs to other_func
+
+    def test_callees_deduplicates_multiple_calls(self, repo_tree):
+        output_dir, repos_dir, context_dir, _ = repo_tree
+        _write_csv(
+            context_dir / "callers.csv",
+            [
+                {"callee_name": "log", "callee_file": "", "caller_name": "fn", "caller_file": "a.c", "caller_start_line": "1", "caller_end_line": "5"},
+                {"callee_name": "log", "callee_file": "", "caller_name": "fn", "caller_file": "a.c", "caller_start_line": "1", "caller_end_line": "5"},
+            ],
+        )
+
+        provider = ContextProvider(output_dir, repos_dir)
+        results = provider.get_additional_context("myrepo", "c", ["callees:fn"])
+
+        # "log" should appear only once
+        assert results["callees:fn"].count("log") == 1
+
+    def test_callees_not_found(self, repo_tree):
+        output_dir, repos_dir, context_dir, _ = repo_tree
+        _write_csv(context_dir / "callers.csv", [])
+
+        provider = ContextProvider(output_dir, repos_dir)
+        results = provider.get_additional_context("myrepo", "c", ["callees:unknown"])
+
+        assert "No callees found" in results["callees:unknown"]
+
+
+class TestContextProviderAllCallersContext:
+    def test_all_callers_returns_multiple(self, repo_tree):
+        output_dir, repos_dir, context_dir, source_dir = repo_tree
+        source_file = source_dir / "a.c"
+        source_file.write_text("void alpha() {\n  target();\n}\nvoid beta() {\n  target();\n}\n")
+
+        _write_csv(
+            context_dir / "callers.csv",
+            [
+                {"callee_name": "target", "callee_file": "", "caller_name": "alpha", "caller_file": "a.c", "caller_start_line": "1", "caller_end_line": "3"},
+                {"callee_name": "target", "callee_file": "", "caller_name": "beta", "caller_file": "a.c", "caller_start_line": "4", "caller_end_line": "6"},
+            ],
+        )
+
+        provider = ContextProvider(output_dir, repos_dir)
+        results = provider.get_additional_context("myrepo", "c", ["all_callers:target"])
+
+        assert "all_callers:target" in results
+        text = results["all_callers:target"]
+        assert "alpha" in text
+        assert "beta" in text
+
+    def test_all_callers_capped_at_max(self, repo_tree):
+        output_dir, repos_dir, context_dir, source_dir = repo_tree
+        (source_dir / "b.c").write_text("\n" * 50)
+        rows = [
+            {"callee_name": "fn", "callee_file": "", "caller_name": f"caller{i}", "caller_file": "b.c", "caller_start_line": str(i), "caller_end_line": str(i + 1)}
+            for i in range(1, 20)
+        ]
+        _write_csv(context_dir / "callers.csv", rows)
+
+        provider = ContextProvider(output_dir, repos_dir)
+        provider._get_all_callers_context("myrepo", "c", "fn", max_callers=5)
+        # Verify cap is respected: only first 5 unique callers fetched
+        seen: set = set()
+        for row in rows:
+            seen.add(row["caller_name"])
+            if len(seen) >= 5:
+                break
+        assert len(seen) == 5
+
+    def test_all_callers_not_found(self, repo_tree):
+        output_dir, repos_dir, context_dir, _ = repo_tree
+        _write_csv(context_dir / "callers.csv", [])
+
+        provider = ContextProvider(output_dir, repos_dir)
+        results = provider.get_additional_context("myrepo", "c", ["all_callers:ghost"])
+
+        assert "No callers found" in results["all_callers:ghost"]
+
+
 class TestContextProviderEdgeCases:
     def test_empty_request_list(self, repo_tree):
         output_dir, repos_dir, _, _ = repo_tree

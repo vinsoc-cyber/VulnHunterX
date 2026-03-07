@@ -47,6 +47,8 @@ If answering "Needs More Data", specify EXACTLY what you need:
 - "struct:type_name" — a struct/class definition
 - "global:variable_name" — a global variable declaration
 - "macro:MACRO_NAME" — a macro definition
+- "callees:function_name" — list of functions called by function_name
+- "all_callers:function_name" — ALL callers of a function (up to 10)
 
 Response format (strict JSON):
 {{
