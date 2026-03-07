@@ -176,6 +176,12 @@ def _add_extract_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for extract-context command."""
     parser.add_argument("--lang", choices=["c", "cpp", "python", "javascript", "php", "java"], help="Only this language")
     parser.add_argument("--repo", help="Only this repository")
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "codeql", "treesitter"],
+        default="auto",
+        help="Context extraction backend (default: auto-detect)",
+    )
     parser.add_argument("-f", "--force", action="store_true", help="Force re-extraction even if context CSVs exist")
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
 

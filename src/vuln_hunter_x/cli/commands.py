@@ -315,76 +315,42 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     return 1
 
 
-def cmd_extract_context(args: argparse.Namespace) -> int:
-    """Execute extract-context command."""
-    from vuln_hunter_x.codeql.context_extractor import (
-        ContextExtractorDB,
-        discover_databases,
-    )
+def _skip_existing_context(
+    output_dir: Path,
+    items: list[tuple],
+    force: bool,
+) -> tuple[list[tuple], int]:
+    """Filter out repos that already have context CSVs unless --force.
 
-    base_path = Path.cwd()
-    codeql_path = os.environ.get("CODEQL_PATH", "codeql")
-    force = getattr(args, "force", False)
-    output_dir = base_path / "output"
-
-    # Discover databases first to check for existing context
-    dbs = discover_databases(output_dir)
-
-    if args.lang:
-        dbs = [(p, lang, n) for p, lang, n in dbs if lang == args.lang]
-    if args.repo:
-        dbs = [(p, lang, n) for p, lang, n in dbs if n.lower() == args.repo.lower()]
-
-    if not dbs:
-        print("No databases found.", file=sys.stderr)
-        return 1
-
-    print(f"Extracting context from {len(dbs)} database(s)\n")
-
-    # Check which repos already have context and can be skipped
-    repos_to_process = []
+    Returns (repos_to_process, skip_count).
+    """
+    to_process: list[tuple] = []
     skip_count = 0
-
-    for db_path, lang, name in dbs:
+    for item in items:
+        # item[-2] is lang, item[-1] is repo_name (works for both 3-tuple formats)
+        lang, name = item[-2], item[-1]
         repo_context_dir = output_dir / lang / name / "context"
         csv_files = (
             list(repo_context_dir.glob("*.csv"))
             if repo_context_dir.exists()
             else []
         )
-
         if csv_files and not force:
             print(f"[{name}] {lang}")
             print(f"  [SKIP] Context already exists ({len(csv_files)} CSV files)")
             skip_count += 1
         else:
-            repos_to_process.append((db_path, lang, name))
+            to_process.append(item)
+    return to_process, skip_count
 
-    if not repos_to_process:
-        print(f"\nDone. All {len(dbs)} repos skipped (use --force to re-extract).")
-        return 0
 
-    extractor = ContextExtractorDB(
-        codeql_path=codeql_path,
-        queries_dir=base_path / "config" / "queries" / "tools",
-        output_dir=output_dir,
-    )
-
-    # Filter to only process repos that need extraction
-    results = extractor.extract_all(
-        output_dir=output_dir,
-        lang_filter=args.lang,
-        repo_filter=args.repo if len(repos_to_process) == len(dbs) else None,
-        dry_run=args.dry_run,
-    )
-
-    # Filter results to only show repos we're actually processing
-    process_names = {name for _, _, name in repos_to_process}
-    results = [(name, lang, qr) for name, lang, qr in results if name in process_names]
-
+def _print_extraction_results(
+    results: list[tuple[str, str, dict[str, tuple[bool, str]]]],
+    skip_count: int,
+) -> int:
+    """Print extraction results and return exit code."""
     total_ok = 0
     total_queries = 0
-
     for repo_name, lang, query_results in results:
         print(f"[{repo_name}] {lang}")
         for query_name, (ok, msg) in query_results.items():
@@ -396,11 +362,105 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
 
     if skip_count > 0:
         print(
-            f"\nDone. {total_ok}/{total_queries} queries succeeded ({skip_count} repos skipped, use --force to re-extract)."
+            f"\nDone. {total_ok}/{total_queries} queries succeeded"
+            f" ({skip_count} repos skipped, use --force to re-extract)."
         )
     else:
         print(f"\nDone. {total_ok}/{total_queries} queries succeeded.")
     return 0 if total_ok == total_queries else 1
+
+
+def cmd_extract_context(args: argparse.Namespace) -> int:
+    """Execute extract-context command (CodeQL, tree-sitter, or auto)."""
+    from vuln_hunter_x.codeql.context_extractor import (
+        ContextExtractorDB,
+        discover_databases,
+    )
+    from vuln_hunter_x.context.treesitter_extractor import (
+        TreeSitterContextExtractor,
+        discover_repos_for_context,
+    )
+
+    base_path = Path.cwd()
+    codeql_path = os.environ.get("CODEQL_PATH", "codeql")
+    force = getattr(args, "force", False)
+    backend = getattr(args, "backend", "auto")
+    output_dir = base_path / "output"
+    repos_dir = base_path / "repos"
+
+    # ── Discover sources ──────────────────────────────────────────
+    codeql_dbs: list[tuple[Path, str, str]] = []
+    ts_repos: list[tuple[Path, str, str]] = []
+
+    if backend in ("auto", "codeql"):
+        codeql_dbs = discover_databases(output_dir)
+    if backend in ("auto", "treesitter"):
+        ts_repos = discover_repos_for_context(output_dir, repos_dir)
+        if backend == "auto":
+            # Exclude repos already covered by CodeQL
+            codeql_keys = {(lang, name) for _, lang, name in codeql_dbs}
+            ts_repos = [(p, lg, n) for p, lg, n in ts_repos if (lg, n) not in codeql_keys]
+
+    # Apply filters
+    if args.lang:
+        codeql_dbs = [(p, lg, n) for p, lg, n in codeql_dbs if lg == args.lang]
+        ts_repos = [(p, lg, n) for p, lg, n in ts_repos if lg == args.lang]
+    if args.repo:
+        codeql_dbs = [(p, lg, n) for p, lg, n in codeql_dbs if n.lower() == args.repo.lower()]
+        ts_repos = [(p, lg, n) for p, lg, n in ts_repos if n.lower() == args.repo.lower()]
+
+    if not codeql_dbs and not ts_repos:
+        print("No CodeQL databases or source repos found.", file=sys.stderr)
+        return 1
+
+    total_skip = 0
+    all_results: list[tuple[str, str, dict[str, tuple[bool, str]]]] = []
+
+    # ── CodeQL extraction ─────────────────────────────────────────
+    if codeql_dbs:
+        codeql_dbs, skip = _skip_existing_context(output_dir, codeql_dbs, force)
+        total_skip += skip
+
+        if codeql_dbs:
+            print(f"Extracting context from {len(codeql_dbs)} CodeQL database(s)\n")
+            extractor = ContextExtractorDB(
+                codeql_path=codeql_path,
+                queries_dir=base_path / "config" / "queries" / "tools",
+                output_dir=output_dir,
+            )
+            results = extractor.extract_all(
+                output_dir=output_dir,
+                lang_filter=args.lang,
+                repo_filter=args.repo,
+                dry_run=args.dry_run,
+            )
+            process_names = {name for _, _, name in codeql_dbs}
+            all_results.extend(
+                (name, lang, qr) for name, lang, qr in results if name in process_names
+            )
+
+    # ── Tree-sitter extraction ────────────────────────────────────
+    if ts_repos:
+        ts_repos, skip = _skip_existing_context(output_dir, ts_repos, force)
+        total_skip += skip
+
+        if ts_repos:
+            print(f"Extracting context from {len(ts_repos)} repo(s) via tree-sitter\n")
+            ts_extractor = TreeSitterContextExtractor(
+                repos_dir=repos_dir,
+                output_dir=output_dir,
+            )
+            for _src_path, lang, repo_name in ts_repos:
+                query_results = ts_extractor.extract_for_repo(
+                    lang, repo_name, dry_run=args.dry_run,
+                )
+                all_results.append((repo_name, lang, query_results))
+
+    if not all_results and total_skip > 0:
+        print("\nDone. All repos skipped (use --force to re-extract).")
+        return 0
+
+    return _print_extraction_results(all_results, total_skip)
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
