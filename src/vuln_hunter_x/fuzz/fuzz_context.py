@@ -82,6 +82,109 @@ def load_includes(repo_context_dir: Path) -> dict[str, list[str]]:
     return result
 
 
+def load_structs(repo_context_dir: Path) -> dict[str, list[str]]:
+    """Load structs.csv; returns dict mapping struct name -> list of member names."""
+    path = Path(repo_context_dir) / "structs.csv"
+    if not path.is_file():
+        return {}
+    result: dict[str, list[str]] = {}
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                name = row.get("name", "")
+                member = row.get("member_name", "")
+                if name:
+                    if name not in result:
+                        result[name] = []
+                    if member:
+                        result[name].append(member)
+    except Exception:
+        pass
+    return result
+
+
+def load_globals(repo_context_dir: Path) -> list[dict]:
+    """Load globals.csv; returns list of dicts with name, file, type."""
+    path = Path(repo_context_dir) / "globals.csv"
+    if not path.is_file():
+        return []
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            return list(reader)
+    except Exception:
+        return []
+
+
+def load_macros(repo_context_dir: Path) -> dict[str, str]:
+    """Load macros.csv; returns dict mapping macro name -> body."""
+    path = Path(repo_context_dir) / "macros.csv"
+    if not path.is_file():
+        return {}
+    result: dict[str, str] = {}
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                name = row.get("name", "")
+                body = row.get("body", "")
+                if name:
+                    result[name] = body
+    except Exception:
+        pass
+    return result
+
+
+def load_callers(repo_context_dir: Path) -> dict[str, list[str]]:
+    """Load callers.csv; returns dict mapping callee_name -> list of unique caller names."""
+    path = Path(repo_context_dir) / "callers.csv"
+    if not path.is_file():
+        return {}
+    result: dict[str, list[str]] = {}
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                callee = row.get("callee_name", "")
+                caller = row.get("caller_name", "")
+                if callee and caller:
+                    if callee not in result:
+                        result[callee] = []
+                    if caller not in result[callee]:
+                        result[callee].append(caller)
+    except Exception:
+        pass
+    return result
+
+
+def build_type_context_string(repo_context_dir: Path, max_chars: int = 2000) -> str:
+    """Build compact C-like type definitions from structs, globals, macros. Truncated to max_chars."""
+    parts: list[str] = []
+
+    structs = load_structs(repo_context_dir)
+    for name, members in structs.items():
+        if members:
+            members_str = ";\n    ".join(members) + ";"
+            parts.append(f"struct {name} {{\n    {members_str}\n}};")
+        else:
+            parts.append(f"struct {name} {{}};")
+
+    for g in load_globals(repo_context_dir):
+        gtype = g.get("type", "")
+        gname = g.get("name", "")
+        if gtype and gname:
+            parts.append(f"{gtype} {gname};")
+
+    for name, body in load_macros(repo_context_dir).items():
+        parts.append(f"#define {name} {body}")
+
+    text = "\n\n".join(parts)
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n/* ... (truncated) */"
+    return text
+
+
 def get_target_context(
     target_function_info: dict,
     repo_context_dir: Path,
@@ -109,6 +212,15 @@ def get_target_context(
 
     includes = includes_map.get(file, [])
 
+    # Find struct definitions matching param types
+    all_structs = load_structs(repo_context_dir)
+    struct_defs: dict[str, list[str]] = {}
+    for p in params:
+        ptype = p.get("type", "")
+        base = ptype.replace("const", "").replace("struct", "").replace("*", "").strip()
+        if base in all_structs:
+            struct_defs[base] = all_structs[base]
+
     return {
         "name": name,
         "file": file,
@@ -116,4 +228,5 @@ def get_target_context(
         "end_line": end,
         "params": params,
         "includes": includes,
+        "struct_defs": struct_defs,
     }

@@ -15,8 +15,18 @@ from vuln_hunter_x.fuzz.target_selection import (
     select_targets,
     find_enclosing_function,
     load_verification_verdicts,
+    score_target,
 )
-from vuln_hunter_x.fuzz.fuzz_context import get_target_context, load_function_signatures, load_includes
+from vuln_hunter_x.fuzz.fuzz_context import (
+    get_target_context,
+    load_function_signatures,
+    load_includes,
+    load_structs,
+    load_globals,
+    load_macros,
+    load_callers,
+    build_type_context_string,
+)
 from vuln_hunter_x.fuzz.driver_generator import generate_harness
 from vuln_hunter_x.fuzz.generate_drivers import generate_fuzz_drivers, build_and_record
 from vuln_hunter_x.fuzz.driver_builder import build_harness, find_manifest_for_repo, write_harness_status
@@ -37,6 +47,12 @@ __all__ = [
     "get_target_context",
     "load_function_signatures",
     "load_includes",
+    "load_structs",
+    "load_globals",
+    "load_macros",
+    "load_callers",
+    "build_type_context_string",
+    "score_target",
     "generate_harness",
     "generate_fuzz_drivers",
     "build_and_record",
