@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Callable
 
 from vuln_hunter_x.core.types import Finding
-from vuln_hunter_x.fuzz.target_selection import select_targets
-from vuln_hunter_x.fuzz.fuzz_context import get_target_context
 from vuln_hunter_x.fuzz.driver_generator import generate_harness
+from vuln_hunter_x.fuzz.fuzz_context import build_type_context_string, get_target_context
+from vuln_hunter_x.fuzz.target_selection import select_targets
 from vuln_hunter_x.fuzz.driver_builder import (
     build_harness,
     find_manifest_for_repo,
@@ -97,7 +97,14 @@ def build_and_record(
 
     llm_fn: Callable[[str, str, str], str] | None = None
     if llm_fix:
-        llm_fn = make_llm_fix_fn(llm_provider, llm_model, llm_max_tokens)
+        # Build per-repo type context for LLM fix prompt; use first repo if mixed
+        _type_ctx = ""
+        for (lang, repo_name), _ in by_repo.items():
+            _ctx_dir = output_dir / lang / repo_name / "context"
+            _type_ctx = build_type_context_string(_ctx_dir)
+            if _type_ctx:
+                break
+        llm_fn = make_llm_fix_fn(llm_provider, llm_model, llm_max_tokens, type_context=_type_ctx)
 
     out: list[tuple[str, list[dict]]] = []
     for (lang, repo_name), items in by_repo.items():
