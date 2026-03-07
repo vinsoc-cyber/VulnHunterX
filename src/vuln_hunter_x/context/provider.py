@@ -66,6 +66,10 @@ class ContextProvider:
                 code = self._get_global_context(repo_name, lang, name)
             elif ctx_type == "macro":
                 code = self._get_macro_context(repo_name, lang, name)
+            elif ctx_type == "callees":
+                code = self._get_callees_context(repo_name, lang, name)
+            elif ctx_type == "all_callers":
+                code = self._get_all_callers_context(repo_name, lang, name)
             else:
                 code = f"[Unknown context type: {ctx_type}]"
             
@@ -210,3 +214,68 @@ class ContextProvider:
                 return f"// Macro: {macro_name}\n// File: {file_path}:{line}\n#define {macro_name} {body}"
         
         return f"[Macro not found: {macro_name}]"
+
+    def _get_callees_context(
+        self,
+        repo_name: str,
+        lang: str,
+        func_name: str,
+    ) -> str:
+        """Get the list of unique functions called by func_name."""
+        rows = self._load_csv(repo_name, lang, "callers")
+        seen: set[str] = set()
+        callees: list[str] = []
+        for row in rows:
+            if row.get("caller_name") == func_name:
+                callee = row.get("callee_name", "")
+                if callee and callee not in seen:
+                    seen.add(callee)
+                    callees.append(callee)
+
+        if not callees:
+            return f"[No callees found for: {func_name}]"
+        return f"// Functions called by {func_name}:\n" + "\n".join(f"  - {c}" for c in callees)
+
+    def _get_all_callers_context(
+        self,
+        repo_name: str,
+        lang: str,
+        callee_name: str,
+        max_callers: int = 10,
+    ) -> str:
+        """Get source code for ALL callers of callee_name (up to max_callers)."""
+        rows = self._load_csv(repo_name, lang, "callers")
+        # Deduplicate by (caller_name, caller_file, caller_start_line)
+        seen: set[tuple] = set()
+        caller_rows: list[dict] = []
+        for row in rows:
+            if row.get("callee_name") != callee_name:
+                continue
+            key = (row.get("caller_name"), row.get("caller_file"), row.get("caller_start_line"))
+            if key not in seen:
+                seen.add(key)
+                caller_rows.append(row)
+            if len(caller_rows) >= max_callers:
+                break
+
+        if not caller_rows:
+            return f"[No callers found for: {callee_name}]"
+
+        parts: list[str] = []
+        for row in caller_rows:
+            caller_file = row.get("caller_file", "")
+            caller_name = row.get("caller_name", "unknown")
+            try:
+                start = int(row.get("caller_start_line", 0))
+                end = int(row.get("caller_end_line", 0))
+            except ValueError:
+                continue
+            if start > 0 and end >= start:
+                code = self._read_lines(repo_name, lang, caller_file, start, end)
+                parts.append(
+                    f"// Caller: {caller_name}\n// File: {caller_file}\n{code}"
+                )
+
+        if not parts:
+            return f"[Could not read source for callers of: {callee_name}]"
+        return "\n\n".join(parts)
