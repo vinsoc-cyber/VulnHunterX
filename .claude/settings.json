@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(git -C /home/thientc/repos/VulnHunterX diff HEAD README.md)",
-      "Bash(git -C /home/thientc/repos/VulnHunterX diff HEAD src/vuln_hunter_x/semgrep/analyzer.py)"
+      "Bash(git -C /home/thientc/repos/VulnHunterX diff HEAD src/vuln_hunter_x/semgrep/analyzer.py)",
+      "Bash(uv pip install -e \".[dev]\" --python .venv/bin/python)",
+      "Bash(.venv/bin/python -m pytest tests/test_treesitter_extractor.py -v --no-header --tb=short)",
+      "Bash(.venv/bin/python -c \":*)",
+      "Bash(.venv/bin/python -m pytest tests/ -v --no-header --tb=short)",
+      "Bash(.venv/bin/ruff check src/vuln_hunter_x/context/treesitter_extractor.py src/vuln_hunter_x/cli/commands.py src/vuln_hunter_x/cli/main.py)",
+      "Bash(.venv/bin/ruff check src/vuln_hunter_x/context/treesitter_extractor.py src/vuln_hunter_x/cli/commands.py)",
+      "Bash(grep -E \"\\\\.ql$\")",
+      "Bash(wc -l /home/thientc/repos/VulnHunterX/src/vuln_hunter_x/**/*.py)"
     ]
   }
 }
