@@ -34,6 +34,48 @@ def _extract_dataflow_path(code_flows: list) -> list[str]:
         return []
 
 
+def _build_rule_lookup(run: dict) -> dict[str, dict]:
+    """Build a lookup dict of rule_id -> {precision, security_severity, tags} from run.tool.driver.rules."""
+    lookup: dict[str, dict] = {}
+    driver = (run.get("tool") or {}).get("driver") or {}
+    rules = driver.get("rules") or []
+    for rule in rules:
+        rule_id = rule.get("id") or ""
+        if not rule_id:
+            continue
+        props = rule.get("properties") or {}
+        tags = [t for t in (props.get("tags") or []) if isinstance(t, str)]
+        lookup[rule_id] = {
+            "precision": props.get("precision") or "",
+            "security_severity": props.get("security-severity") or "",
+            "tags": tags,
+        }
+    return lookup
+
+
+def _extract_related_locations(related_locs: list) -> list[str]:
+    """Format relatedLocations as 'file.c:42: message text'."""
+    formatted = []
+    for rl in related_locs or []:
+        loc = (rl.get("location") or {})
+        phys = loc.get("physicalLocation") or {}
+        uri = (phys.get("artifactLocation") or {}).get("uri") or ""
+        line = (phys.get("region") or {}).get("startLine") or 0
+        msg = (loc.get("message") or {}).get("text") or ""
+        if uri or line:
+            parts = []
+            if uri:
+                parts.append(uri)
+            if line:
+                parts[-1] = f"{parts[-1]}:{line}" if parts else str(line)
+            entry = parts[0] if parts else ""
+            if msg:
+                entry = f"{entry}: {msg}" if entry else msg
+            if entry:
+                formatted.append(entry)
+    return formatted
+
+
 class SarifParser:
     """Parser for SARIF (Static Analysis Results Interchange Format) files."""
 
@@ -98,6 +140,7 @@ class SarifParser:
 
         for run in self.get_runs():
             artifacts = {i: art for i, art in enumerate(run.get("artifacts", []))}
+            rule_lookup = _build_rule_lookup(run)
 
             # Extract tool name from SARIF standard field
             tool_name = (run.get("tool") or {}).get("driver", {}).get("name", "")
@@ -111,6 +154,20 @@ class SarifParser:
                 rule_id = result.get("ruleId") or ""
                 message = (result.get("message") or {}).get("text") or ""
                 dataflow_path = _extract_dataflow_path(result.get("codeFlows", []))
+                related_locations = _extract_related_locations(
+                    result.get("relatedLocations") or []
+                )
+
+                # Extract metadata from rule lookup
+                rule_meta = rule_lookup.get(rule_id) or {}
+                precision = rule_meta.get("precision") or ""
+                all_tags = rule_meta.get("tags") or []
+                cwe_ids = [t for t in all_tags if t.startswith("CWE-")]
+                non_cwe_tags = [t for t in all_tags if not t.startswith("CWE-")]
+                security_severity = rule_meta.get("security_severity") or ""
+
+                # Severity: prefer security-severity score, fallback to result level
+                severity = security_severity or result.get("level") or ""
 
                 locations = result.get("locations") or []
 
@@ -126,7 +183,7 @@ class SarifParser:
 
                     # Get line numbers (SARIF line numbers are 1-indexed)
                     region = phys.get("region") or {}
-                    start_line = region.get("startLine") or 0
+                    start_line = region.get("startLine") or 1
                     end_line = region.get("endLine") or start_line
 
                     findings.append(
@@ -141,6 +198,11 @@ class SarifParser:
                             sarif_path=str(self.sarif_path),
                             tool=tool_name,
                             dataflow_path=dataflow_path,
+                            severity=severity,
+                            precision=precision,
+                            cwe_ids=cwe_ids,
+                            tags=non_cwe_tags,
+                            related_locations=related_locations,
                         )
                     )
 
@@ -158,6 +220,11 @@ class SarifParser:
                             sarif_path=str(self.sarif_path),
                             tool=tool_name,
                             dataflow_path=dataflow_path,
+                            severity=severity,
+                            precision=precision,
+                            cwe_ids=cwe_ids,
+                            tags=non_cwe_tags,
+                            related_locations=related_locations,
                         )
                     )
 

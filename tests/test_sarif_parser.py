@@ -190,6 +190,206 @@ class TestSarifParserParsing:
         assert {f.rule_id for f in findings} == {f"cpp/rule-{i}" for i in range(5)}
 
 
+class TestSarifEnrichment:
+    """Tests for SARIF enrichment: precision, severity, CWE, relatedLocations."""
+
+    def _make_sarif_with_rules(self, rules: list, results: list) -> dict:
+        return {
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "tool": {
+                        "driver": {
+                            "name": "CodeQL",
+                            "rules": rules,
+                        }
+                    },
+                    "results": results,
+                }
+            ],
+        }
+
+    def test_rule_properties_extracted(self, tmp_path):
+        data = self._make_sarif_with_rules(
+            rules=[
+                {
+                    "id": "cpp/use-after-free",
+                    "properties": {
+                        "precision": "high",
+                        "security-severity": "9.8",
+                        "tags": ["CWE-416", "security", "correctness"],
+                    },
+                }
+            ],
+            results=[
+                {
+                    "ruleId": "cpp/use-after-free",
+                    "message": {"text": "Use after free"},
+                    "locations": [
+                        {
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": "src/buf.c"},
+                                "region": {"startLine": 10},
+                            }
+                        }
+                    ],
+                }
+            ],
+        )
+        sarif_file = tmp_path / "test.sarif"
+        _write_sarif(sarif_file, data)
+
+        findings = parse_sarif_file(sarif_file, "c", "repo")
+
+        assert len(findings) == 1
+        f = findings[0]
+        assert f.precision == "high"
+        assert f.severity == "9.8"
+        assert f.cwe_ids == ["CWE-416"]
+        assert "security" in f.tags
+        assert "CWE-416" not in f.tags
+
+    def test_related_locations_extracted(self, tmp_path):
+        data = self._make_sarif_with_rules(
+            rules=[],
+            results=[
+                {
+                    "ruleId": "cpp/use-after-free",
+                    "message": {"text": "Use after free"},
+                    "locations": [
+                        {
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": "src/buf.c"},
+                                "region": {"startLine": 42},
+                            }
+                        }
+                    ],
+                    "relatedLocations": [
+                        {
+                            "location": {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "src/buf.c"},
+                                    "region": {"startLine": 30},
+                                },
+                                "message": {"text": "pointer freed here"},
+                            }
+                        }
+                    ],
+                }
+            ],
+        )
+        sarif_file = tmp_path / "related.sarif"
+        _write_sarif(sarif_file, data)
+
+        findings = parse_sarif_file(sarif_file, "c", "repo")
+
+        assert len(findings) == 1
+        assert len(findings[0].related_locations) == 1
+        assert "src/buf.c:30" in findings[0].related_locations[0]
+        assert "pointer freed here" in findings[0].related_locations[0]
+
+    def test_result_level_as_severity_fallback(self, tmp_path):
+        data = {
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "results": [
+                        {
+                            "ruleId": "cpp/overflow",
+                            "level": "error",
+                            "message": {"text": "Buffer overflow"},
+                            "locations": [
+                                {
+                                    "physicalLocation": {
+                                        "artifactLocation": {"uri": "src/a.c"},
+                                        "region": {"startLine": 5},
+                                    }
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ],
+        }
+        sarif_file = tmp_path / "level.sarif"
+        _write_sarif(sarif_file, data)
+
+        findings = parse_sarif_file(sarif_file, "c", "repo")
+
+        assert findings[0].severity == "error"
+        assert findings[0].precision == ""
+        assert findings[0].cwe_ids == []
+
+    def test_no_rules_array_graceful(self, tmp_path):
+        """No crash or error when rules[] is absent."""
+        data = {
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "tool": {"driver": {"name": "CodeQL"}},
+                    "results": [
+                        {
+                            "ruleId": "cpp/overflow",
+                            "message": {"text": "Overflow"},
+                            "locations": [
+                                {
+                                    "physicalLocation": {
+                                        "artifactLocation": {"uri": "a.c"},
+                                        "region": {"startLine": 1},
+                                    }
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        sarif_file = tmp_path / "norules.sarif"
+        _write_sarif(sarif_file, data)
+
+        findings = parse_sarif_file(sarif_file, "c", "repo")
+
+        assert len(findings) == 1
+        f = findings[0]
+        assert f.severity == ""
+        assert f.precision == ""
+        assert f.cwe_ids == []
+        assert f.tags == []
+        assert f.related_locations == []
+
+    def test_security_severity_preferred_over_level(self, tmp_path):
+        data = self._make_sarif_with_rules(
+            rules=[
+                {
+                    "id": "cpp/uaf",
+                    "properties": {"security-severity": "8.1"},
+                }
+            ],
+            results=[
+                {
+                    "ruleId": "cpp/uaf",
+                    "level": "warning",
+                    "message": {"text": "UAF"},
+                    "locations": [
+                        {
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": "a.c"},
+                                "region": {"startLine": 1},
+                            }
+                        }
+                    ],
+                }
+            ],
+        )
+        sarif_file = tmp_path / "pref.sarif"
+        _write_sarif(sarif_file, data)
+
+        findings = parse_sarif_file(sarif_file, "c", "repo")
+
+        # security-severity score takes priority over SARIF level
+        assert findings[0].severity == "8.1"
+
+
 class TestDiscoverSarifFiles:
     def test_discovers_codeql_and_semgrep(self, tmp_path):
         repo_dir = tmp_path / "c" / "myrepo"
