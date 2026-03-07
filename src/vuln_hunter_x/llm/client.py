@@ -7,12 +7,22 @@ import os
 import re
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import litellm
 
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
 from vuln_hunter_x.llm.prompts import PromptBuilder
+
+
+def _validate_api_base_url(url: str, env_var: str) -> None:
+    """Raise ValueError if url is not a well-formed http(s) URL."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(
+            f"Invalid {env_var}: {url!r} — must be a full http(s)://host[:port] URL"
+        )
 
 
 class LLMClient:
@@ -38,10 +48,12 @@ class LLMClient:
         # Configure provider-specific settings
         if provider == "ollama":
             ollama_base = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
+            _validate_api_base_url(ollama_base, "OLLAMA_API_BASE")
             os.environ["OLLAMA_API_BASE"] = ollama_base
         elif provider == "anthropic":
             # LiteLLM reads ANTHROPIC_API_KEY from the environment automatically.
             # Prefix the model name so LiteLLM routes to the Anthropic backend.
+            # Guard against double-prefix when user already specifies "anthropic/<model>".
             if not self.model.startswith("anthropic/"):
                 self.model = "anthropic/" + self.model
 
@@ -142,8 +154,10 @@ class LLMClient:
                         os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
                     ).strip()
                     api_base = api_base.rstrip("/") if api_base else None
-                    if api_base and not model.startswith("openai/"):
-                        model = "openai/" + model
+                    if api_base:
+                        _validate_api_base_url(api_base, "OPENAI_BASE_URL / OPENAI_API_BASE")
+                        if not model.startswith("openai/"):
+                            model = "openai/" + model
                 kwargs = {
                     "model": model,
                     "messages": messages,

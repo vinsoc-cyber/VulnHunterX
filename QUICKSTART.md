@@ -30,15 +30,7 @@ vuln-hunter-x check-env
 
 ## Run Your First Analysis
 
-**Option A: Use example script (recommended)**
-
-```bash
-python examples/pipeline_python.py
-```
-
-This clones `pyyaml`, runs CodeQL analysis, and verifies findings with LLM.
-
-**Option B: Run commands individually**
+**Run commands individually**
 
 ```bash
 vuln-hunter-x clone --repo pyyaml

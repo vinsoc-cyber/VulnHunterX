@@ -48,10 +48,19 @@ class SarifParser:
             self._data = self._load()
         return self._data
 
+    _MAX_SARIF_SIZE = 100 * 1024 * 1024  # 100 MB
+
     def _load(self) -> dict[str, Any]:
         """Load SARIF file."""
         if not self.sarif_path.is_file():
             raise FileNotFoundError(f"SARIF file not found: {self.sarif_path}")
+
+        file_size = self.sarif_path.stat().st_size
+        if file_size > self._MAX_SARIF_SIZE:
+            raise ValueError(
+                f"SARIF file too large ({file_size:,} bytes, limit {self._MAX_SARIF_SIZE:,}): "
+                f"{self.sarif_path}"
+            )
 
         with open(self.sarif_path, encoding="utf-8") as f:
             data = json.load(f)
@@ -126,7 +135,7 @@ class SarifParser:
 
                     # Get line numbers (SARIF line numbers are 1-indexed)
                     region = phys.get("region") or {}
-                    start_line = region.get("startLine") or 0
+                    start_line = region.get("startLine") or 1
                     end_line = region.get("endLine") or start_line
 
                     findings.append(

@@ -21,6 +21,9 @@ A Python framework that combines static analysis (CodeQL, Semgrep) with Large La
 - [Configuration](#configuration)
 - [Project Structure](#project-structure)
 - [Benchmark](#benchmark)
+- [Configuration Reference](#configuration-reference)
+- [Troubleshooting](#troubleshooting)
+- [Security Considerations](#security-considerations)
 - [References](#references)
 
 ---
@@ -1111,6 +1114,114 @@ Produces `REPORT.md` in the run directory with:
 Each run also produces:
 - `benchmark.log` — full per-finding log (verdict, tokens, cost, latency)
 - `findings.jsonl` — one structured JSON line per finding; queryable with `jq`
+
+---
+
+## Configuration Reference
+
+All settings follow a 3-tier priority: **CLI args > environment variables > config file > built-in defaults**.
+
+### Core LLM Settings
+
+| Config Key | CLI Flag | Env Var | Default | Valid Values |
+|---|---|---|---|---|
+| `provider` | `--provider` | `LLM_PROVIDER` | `openai` | `openai`, `anthropic`, `ollama` |
+| `model` | `--model` | `LLM_MODEL` | `gpt-4o` | any LiteLLM model ID |
+| `temperature` | — | — | `0.2` | `0.0`–`1.0` |
+| `max_tokens` | — | — | `1500` | positive int |
+| `max_iterations` | `--max-iterations` | — | `3` | positive int |
+| `force_decision` | `--force-decision` / `--no-force-decision` | — | `true` | bool |
+
+### Tool Paths
+
+| Config Key | CLI Flag | Env Var | Default |
+|---|---|---|---|
+| `codeql_path` | `--codeql-path` | `CODEQL_PATH` | `codeql` (on PATH) |
+| — | — | `SEMGREP_PATH` | `semgrep` (on PATH) |
+| — | — | `OLLAMA_API_BASE` | `http://localhost:11434` |
+| — | — | `OPENAI_API_KEY` | — (required for OpenAI) |
+| — | — | `ANTHROPIC_API_KEY` | — (required for Anthropic) |
+| — | — | `OPENAI_BASE_URL` | — (custom OpenAI-compatible endpoint) |
+
+### Analysis Settings
+
+| Config Key | CLI Flag | Default | Description |
+|---|---|---|---|
+| `codeql_suite` | `--codeql-suite` | `security-extended` | CodeQL query suite |
+| `semgrep_configs` | `--semgrep-config` | `auto` | Semgrep config IDs (repeatable) |
+| `verbosity` | `--verbose` / `--quiet` | `normal` | `quiet`, `normal`, `verbose` |
+| `skip_tests` | `--include-tests` | `true` | Skip findings in test files |
+| `limit` | `--limit` | `0` (all) | Cap findings per run |
+
+### NMD Handling
+
+`force_decision: true` (default) means: if the LLM still returns "Needs More Data" after all iterations, force a False Positive verdict with Low confidence. Set `--no-force-decision` to preserve NMD verdicts.
+
+---
+
+## Troubleshooting
+
+### CodeQL Issues
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| `codeql: command not found` | CodeQL not on PATH | Set `CODEQL_PATH=/path/to/codeql` or add to PATH |
+| `Could not resolve module cpp` | Missing CodeQL packs | Run `codeql pack install` in the queries directory |
+| `Database creation failed` | Build command wrong or missing | Set `build_command` in `config/repos.yaml` for compiled languages |
+| Empty SARIF (0 results) | Wrong query suite or language | Check `--codeql-suite` and `--language`; try `security-extended` |
+
+### LLM / API Issues
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| `AuthenticationError` | Missing or wrong API key | Check `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` in `.env` |
+| `RateLimitError` | Too many concurrent requests | Reduce `--limit` or add delay via `--max-iterations 1` |
+| LLM always returns "Needs More Data" | Insufficient context / weak model | Increase `--max-iterations`; try a stronger model; check context CSVs exist |
+| `Invalid OPENAI_BASE_URL` | Malformed custom endpoint | URL must be `https://host[:port]` — no trailing slash, no path |
+| All verdicts are False Positive | `force_decision` override firing | Use `--no-force-decision` to preserve NMD verdicts |
+
+### Context Extraction Issues
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| `[File not found: ...]` in context | SARIF paths don't match repo layout | Ensure repos are cloned before running `extract-context` |
+| `context/` directory empty | Stage 3 not run | Run `vuln-hunter-x extract-context` before `verify` |
+| Poor LLM accuracy | Context too narrow | Check CSV files exist; increase `max_iterations` |
+
+### Benchmark Issues
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| `No benchmark results found` | Run interrupted | Use `--resume` flag to continue from checkpoint |
+| Cost unexpectedly high | Dataset too large | Use `--limit 20` for a quick test run |
+| Checkpoint drift warning | Model changed mid-resume | Acknowledge the warning or start a fresh run |
+
+---
+
+## Security Considerations
+
+### Output and Log Files
+
+**Log files contain sensitive information** — they include analyzed source code snippets and full LLM prompts.
+
+- `output/*/verification_results/*.json` — contains code context and LLM reasoning
+- `output/*/llm_analysis.log` — full prompt/response transcripts
+- `benchmarks/results/*/findings.jsonl` — per-finding analysis data
+
+**Recommendations:**
+- Do not commit `output/` or benchmark result directories to version control (already in `.gitignore`)
+- Restrict permissions on output directories: `chmod 700 output/`
+- Be aware that code submitted to LLM APIs (OpenAI, Anthropic) may be subject to their data handling policies
+
+### Analyzing Sensitive Repositories
+
+When running VulnHunterX on proprietary code:
+- Use a **local model** (Ollama) to keep code on-premises: `--provider ollama --model llama3`
+- The `OLLAMA_API_BASE` environment variable must be a `http://` or `https://` URL pointing to a trusted server
+
+### SARIF File Trust
+
+VulnHunterX parses SARIF files and embeds their content in LLM prompts. Only analyze SARIF files from trusted SAST tool runs. A maliciously crafted SARIF file could attempt to manipulate LLM output via prompt injection — the tool adds delimiters to mitigate this, but the risk cannot be fully eliminated.
 
 ---
 

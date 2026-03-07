@@ -590,6 +590,9 @@ def main() -> int:
         "datasets": datasets,
         "approaches": approaches,
         "dry_run": args.dry_run,
+        "force_decision": args.force_decision,
+        "sliced_context": args.sliced_context,
+        "juliet_per_cwe": args.juliet_per_cwe,
     }
     _save_run_config(run_dir, current_config)
     if args.resume:

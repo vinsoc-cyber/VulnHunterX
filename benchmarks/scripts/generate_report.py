@@ -30,6 +30,91 @@ def _num(val: float | int | None, decimals: int = 3) -> str:
     return f"{val:.{decimals}f}"
 
 
+def _load_run_config(run_dir: Path) -> dict:
+    """Load run_config.json from a run directory (empty dict if missing)."""
+    path = run_dir / "run_config.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _format_duration(seconds: float | None) -> str:
+    """Format seconds into human-readable duration."""
+    if seconds is None:
+        return "—"
+    s = int(seconds)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    parts = []
+    if h:
+        parts.append(f"{h}h")
+    if m:
+        parts.append(f"{m}m")
+    parts.append(f"{s}s")
+    return " ".join(parts)
+
+
+def _run_config_section(config: dict, summary_data: dict) -> str:
+    """Build the Run Configuration markdown section."""
+    if not config:
+        return ""
+
+    rows = [
+        "## Run Configuration",
+        "",
+        "| Parameter | Value |",
+        "|---|---|",
+    ]
+
+    field_map = [
+        ("Model", "model"),
+        ("Provider", "provider"),
+        ("Max Iterations", "max_iterations"),
+        ("NMD Handling", "nmd_handling"),
+        ("Force Decision", "force_decision"),
+        ("Sliced Context", "sliced_context"),
+        ("Dry Run", "dry_run"),
+    ]
+    for label, key in field_map:
+        if key in config:
+            val = config[key]
+            if isinstance(val, bool):
+                val = "Yes" if val else "No"
+            rows.append(f"| {label} | {val} |")
+
+    # List fields
+    if "datasets" in config:
+        rows.append(f"| Datasets | {', '.join(config['datasets'])} |")
+    if "approaches" in config:
+        rows.append(f"| Approaches | {', '.join(config['approaches'])} |")
+
+    limit = config.get("limit", 0)
+    rows.append(f"| Entry Limit | {limit if limit else 'All'} |")
+
+    if "juliet_per_cwe" in config:
+        rows.append(f"| Juliet Per-CWE | {config['juliet_per_cwe']} |")
+
+    if "started_at" in config:
+        rows.append(f"| Started At | {config['started_at']} |")
+
+    # From summary.json
+    wall = summary_data.get("wall_seconds")
+    if wall is not None:
+        rows.append(f"| Wall-Clock Time | {_format_duration(wall)} |")
+
+    # Total findings across all approaches (deduplicated by taking max)
+    summaries = summary_data.get("summary", [])
+    if summaries:
+        total = max(s.get("total_evaluated", 0) for s in summaries)
+        rows.append(f"| Total Findings Evaluated | {total} |")
+
+    rows.append("")
+    return "\n".join(rows)
+
+
 def _load_results(run_dir: Path) -> list[dict]:
     """Load all checkpoint JSON files from a run directory."""
     summaries = []
@@ -55,7 +140,8 @@ def _load_results(run_dir: Path) -> list[dict]:
 def _main_table(summaries: list[dict]) -> str:
     """Build the main Markdown comparison table."""
     headers = [
-        "Approach", "Dataset", "Precision", "Recall", "Eff. Recall", "F1",
+        "Approach", "Dataset", "Total",
+        "Precision", "Recall", "Eff. Recall", "F1",
         "FP Reduc.", "TP Pres.", "NMD Rate",
         "Tokens/Finding", "Cost (USD)", "Latency p95 (s)",
     ]
@@ -66,6 +152,7 @@ def _main_table(summaries: list[dict]) -> str:
         rows.append([
             s.get("approach", "?"),
             s.get("dataset", "?"),
+            str(s.get("total_evaluated", "?")),
             _pct(s.get("precision")),
             _pct(s.get("recall")),
             _pct(s.get("effective_recall")),
@@ -174,15 +261,32 @@ def generate_report(run_dir: Path, include_charts: bool = False) -> Path:
         logger.error("No benchmark results found in %s", run_dir)
         sys.exit(1)
 
+    run_config = _load_run_config(run_dir)
+    summary_file = run_dir / "summary.json"
+    summary_data = {}
+    if summary_file.exists():
+        try:
+            summary_data = json.loads(summary_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+
     chart_paths = _generate_charts(summaries, run_dir) if include_charts else []
+
+    config_section = _run_config_section(run_config, summary_data)
 
     lines = [
         "# VulnHunterX Benchmark Report",
         "",
         f"**Run directory**: `{run_dir}`",
         "",
-        "---",
-        "",
+    ]
+
+    if config_section:
+        lines += [config_section, "---", ""]
+    else:
+        lines += ["---", ""]
+
+    lines += [
         "## Summary Comparison",
         "",
         _main_table(summaries),

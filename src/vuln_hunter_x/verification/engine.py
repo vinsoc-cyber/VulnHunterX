@@ -304,6 +304,10 @@ class VerificationEngine:
         # Save per-repo under output/<lang>/<repo_name>/verification_results/
         for verdict in result.verdicts:
             finding = verdict.finding
+            # Path traversal guard: reject SARIF-sourced names containing traversal sequences
+            for field, value in [("repo_name", finding.repo_name), ("lang", finding.lang)]:
+                if ".." in value or (value.startswith("/") or value.startswith("\\")):
+                    raise ValueError(f"Invalid {field} in finding: {value!r}")
             repo_results_dir = output_dir / finding.lang / finding.repo_name / "verification_results"
             repo_results_dir.mkdir(parents=True, exist_ok=True)
             result_file = repo_results_dir / f"{finding.rule_id.replace('/', '_')}_{finding.start_line}.json"
