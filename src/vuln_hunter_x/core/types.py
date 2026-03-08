@@ -38,6 +38,11 @@ class Finding:
     sarif_path: str = ""
     tool: str = ""
     dataflow_path: list[str] = field(default_factory=list)
+    severity: str = ""
+    precision: str = ""
+    cwe_ids: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    related_locations: list[str] = field(default_factory=list)
 
     @property
     def location(self) -> str:
@@ -57,6 +62,11 @@ class Finding:
             "sarif_path": self.sarif_path,
             "tool": self.tool,
             "dataflow_path": self.dataflow_path,
+            "severity": self.severity,
+            "precision": self.precision,
+            "cwe_ids": self.cwe_ids,
+            "tags": self.tags,
+            "related_locations": self.related_locations,
         }
 
 
