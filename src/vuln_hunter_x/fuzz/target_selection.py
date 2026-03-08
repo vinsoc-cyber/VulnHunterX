@@ -10,7 +10,8 @@ import csv
 import json
 from pathlib import Path
 
-from vuln_hunter_x.core.types import Finding, Verdict
+from vuln_hunter_x.core.types import Finding
+from vuln_hunter_x.fuzz.fuzz_context import load_callers, load_structs
 
 # Verdict values we use for filtering
 VERDICT_TP = "True Positive"
@@ -177,6 +178,42 @@ def find_enclosing_function(
     return None
 
 
+def score_target(
+    target_info: dict,
+    struct_defs: dict[str, list[str]] | None = None,
+    callers_map: dict[str, list[str]] | None = None,
+) -> int:
+    """
+    Score a fuzz target by estimated fuzzability.
+
+    +10 per primitive param (int, char*, size_t, bool)
+    +2 per struct param with known definition
+    +2 per known caller
+    -3 if > 6 params
+    """
+    PRIMITIVE_TOKENS = {"int", "char", "size_t", "bool", "uint", "long", "short", "float", "double"}
+    params = target_info.get("params", [])
+    score = 0
+
+    for p in params:
+        ptype_orig = (p.get("type") or "")
+        ptype_lower = ptype_orig.lower()
+        base = ptype_orig.replace("const", "").replace("struct", "").replace("*", "").strip()
+        if any(tok in ptype_lower for tok in PRIMITIVE_TOKENS):
+            score += 10
+        elif struct_defs and base in struct_defs:
+            score += 2
+
+    if len(params) > 6:
+        score -= 3
+
+    func_name = target_info.get("name", "")
+    if callers_map and func_name in callers_map:
+        score += 2 * len(callers_map[func_name])
+
+    return score
+
+
 def select_targets(
     output_dir: Path,
     repo_filter: str | None = None,
@@ -230,4 +267,25 @@ def select_targets(
         if info is None:
             continue
         targets.append((finding, verdict, info))
+
+    # Score and sort by fuzzability (best targets first)
+    if targets:
+        # Build per-repo enrichment data for scoring
+        repo_structs: dict[tuple[str, str], dict] = {}
+        repo_callers: dict[tuple[str, str], dict] = {}
+        for finding, _verdict, _info in targets:
+            key = (finding.lang, finding.repo_name)
+            if key not in repo_structs:
+                repo_context_dir = output_dir / finding.lang / finding.repo_name / "context"
+                repo_structs[key] = load_structs(repo_context_dir)
+                repo_callers[key] = load_callers(repo_context_dir)
+        targets.sort(
+            key=lambda t: score_target(
+                t[2],
+                struct_defs=repo_structs.get((t[0].lang, t[0].repo_name)),
+                callers_map=repo_callers.get((t[0].lang, t[0].repo_name)),
+            ),
+            reverse=True,
+        )
+
     return targets
