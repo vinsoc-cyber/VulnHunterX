@@ -14,10 +14,10 @@ from benchmarks.approaches.base import (
     BenchmarkApproach,
     BenchmarkResult,
     _SnippetContextExtractor,
+    _dry_run_result,
     entry_to_finding,
     verdict_to_pred,
 )
-from benchmarks.approaches.single_shot import _dry_run_result
 
 # Default prompts directory containing all per-language *_questions.yaml files
 _PROMPTS_DIR = (

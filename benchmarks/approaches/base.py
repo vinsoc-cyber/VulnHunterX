@@ -180,3 +180,21 @@ class _SnippetContextExtractor(ContextExtractor):
             end_line=len(self._snippet.splitlines()),
             file_path=file_path,
         )
+
+
+def _dry_run_result(entry: GroundTruthEntry, approach_name: str) -> BenchmarkResult:
+    """Return a deterministic mock result for dry-run testing."""
+    import hashlib
+
+    seed = int(hashlib.md5(entry.id.encode()).hexdigest()[:4], 16) % 3  # noqa: S324
+    labels = ["TP", "FP", "NMD"]
+    return BenchmarkResult(
+        entry=entry,
+        predicted_label=labels[seed],
+        confidence="Medium",
+        reasoning=f"[dry-run] {approach_name} mock result",
+        elapsed_seconds=0.001,
+        tokens_used=0,
+        cost_usd=0.0,
+        iterations=1,
+    )

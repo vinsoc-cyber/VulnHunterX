@@ -9,7 +9,6 @@ Standalone benchmark framework comparing VulnHunterX against three baselines on 
 | Approach            | Description                                                                     |
 | ------------------- | ------------------------------------------------------------------------------- |
 | `raw-sast`          | Every SAST finding = TP, no LLM. Establishes upper-bound recall.                |
-| `single-shot`       | Single LLM call, generic questions, no multi-turn (SecLLMHolmes-style).         |
 | `generic-questions` | Multi-turn LLM with only `default_questions.yaml` (no rule-specific questions). |
 | `vulnhunterx`       | Full system: rule-specific guided questions + multi-turn context expansion.     |
 
@@ -127,7 +126,7 @@ python benchmarks/scripts/run_benchmark.py \
 
 ```
 --dataset           secllmholmes | juliet | cvefixes | diversevul | all  (default: secllmholmes)
---approach          One or more of: raw-sast single-shot generic-questions vulnhunterx all  (default: all)
+--approach          One or more of: raw-sast generic-questions vulnhunterx all  (default: all)
 --model             LLM model name  (default: read from LLM_MODEL in .env, fallback gpt-4o)
 --provider          openai | anthropic | ollama  (default: read from LLM_PROVIDER in .env)
 --limit             Max entries per dataset, 0=all  (default: 0)
