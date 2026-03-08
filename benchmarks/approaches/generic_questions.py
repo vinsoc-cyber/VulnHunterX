@@ -14,10 +14,10 @@ from benchmarks.approaches.base import (
     BenchmarkApproach,
     BenchmarkResult,
     _SnippetContextExtractor,
+    _dry_run_result,
     entry_to_finding,
     verdict_to_pred,
 )
-from benchmarks.approaches.single_shot import _dry_run_result
 
 # Path to just the fallback questions file (no language-specific rules)
 _DEFAULT_QUESTIONS_FILE = (
