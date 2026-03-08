@@ -59,7 +59,6 @@ from benchmarks.adapters.ground_truth import GroundTruthEntry, load_entries  # n
 from benchmarks.approaches.base import BenchmarkApproach, BenchmarkResult  # noqa: E402
 from benchmarks.approaches.generic_questions import GenericQuestionsApproach  # noqa: E402
 from benchmarks.approaches.raw_sast import RawSastApproach  # noqa: E402
-from benchmarks.approaches.single_shot import SingleShotApproach  # noqa: E402
 from benchmarks.approaches.vulnhunterx import VulnHunterXApproach  # noqa: E402
 from benchmarks.metrics.evaluator import ApproachMetrics, evaluate  # noqa: E402
 from benchmarks.scripts._progress import (  # noqa: E402
@@ -106,7 +105,7 @@ RESULTS_DIR = _REPO_ROOT / "benchmarks" / "results"
 
 # ── Dataset loaders ──────────────────────────────────────────────────────────
 
-def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20) -> list[GroundTruthEntry]:
+def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[str] | None = None) -> list[GroundTruthEntry]:
     """Load entries for a given dataset name."""
     # Check for fixture files first (for smoke tests)
     fixture = _REPO_ROOT / "benchmarks" / "fixtures" / f"{name}_sample.json"
@@ -151,7 +150,7 @@ def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20) -> list[Groun
                 break
         if db_path.exists():
             from benchmarks.adapters.cvefixes_adapter import CVEfixesAdapter
-            return CVEfixesAdapter(db_path).load(limit=limit)
+            return CVEfixesAdapter(db_path).load(limit=limit, langs=langs)
         if fixture.exists():
             logger.info("Using fixture file: %s", fixture)
             return load_entries(fixture)
@@ -190,8 +189,6 @@ def _build_approach(
     common = {"provider": provider, "model": model, "dry_run": dry_run}
     if name == "raw-sast":
         return RawSastApproach()
-    if name == "single-shot":
-        return SingleShotApproach(**common)
     if name == "generic-questions":
         return GenericQuestionsApproach(**common, max_iterations=max_iterations)
     if name == "vulnhunterx":
@@ -461,14 +458,25 @@ def main() -> int:
     parser.add_argument(
         "--approach",
         nargs="+",
-        choices=["raw-sast", "single-shot", "generic-questions", "vulnhunterx", "all"],
+        choices=["raw-sast", "generic-questions", "vulnhunterx", "all"],
         default=["all"],
         metavar="APPROACH",
-        help="One or more of: raw-sast single-shot generic-questions vulnhunterx all",
+        help="One or more of: raw-sast generic-questions vulnhunterx all",
     )
     parser.add_argument("--model", default=os.environ.get("LLM_MODEL", "gpt-4o"))
     parser.add_argument("--provider", default=os.environ.get("LLM_PROVIDER", "openai"))
     parser.add_argument("--limit", type=int, default=0, help="Cap entries per dataset (0=all)")
+    parser.add_argument(
+        "--lang",
+        nargs="+",
+        choices=["c", "cpp", "python", "javascript", "php", "java"],
+        default=None,
+        metavar="LANG",
+        help=(
+            "CVEfixes only: filter by language(s). "
+            "E.g. --lang c cpp python. Default: all languages."
+        ),
+    )
     parser.add_argument(
         "--juliet-per-cwe",
         type=int,
@@ -558,7 +566,7 @@ def main() -> int:
         if args.dataset == "all"
         else [args.dataset]
     )
-    _ALL_APPROACHES = ["raw-sast", "single-shot", "generic-questions", "vulnhunterx"]
+    _ALL_APPROACHES = ["raw-sast", "generic-questions", "vulnhunterx"]
     approaches = (
         _ALL_APPROACHES
         if "all" in args.approach
@@ -618,7 +626,7 @@ def main() -> int:
         for dataset_name in datasets:
             logger.info("Loading dataset: %s (limit=%d)", dataset_name, args.limit)
             try:
-                entries = _load_dataset(dataset_name, args.limit, juliet_per_cwe=args.juliet_per_cwe)
+                entries = _load_dataset(dataset_name, args.limit, juliet_per_cwe=args.juliet_per_cwe, langs=args.lang)
             except FileNotFoundError as exc:
                 logger.error("%s", exc)
                 continue

@@ -392,8 +392,8 @@ class TestGenerateReportCompat:
             results, metrics, status="completed",
         )
         _save_checkpoint(
-            tmp_path, "test_ds", "single-shot",
-            results[:2], evaluate(results[:2], "single-shot", "test_ds"),
+            tmp_path, "test_ds", "generic-questions",
+            results[:2], evaluate(results[:2], "generic-questions", "test_ds"),
             status="in_progress",
         )
 
@@ -404,7 +404,7 @@ class TestGenerateReportCompat:
         # Only the completed checkpoint should appear
         approaches = [s.get("approach") for s in summaries]
         assert "vulnhunterx" in approaches
-        assert "single-shot" not in approaches
+        assert "generic-questions" not in approaches
 
 
 # ── Tests: ProgressDisplay format ─────────────────────────────────────────────
