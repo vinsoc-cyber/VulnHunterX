@@ -76,10 +76,6 @@ class AblationApproach(BenchmarkApproach):
         if _DEFAULT_QUESTIONS_FILE.is_file():
             self._loader_generic.load_from_file(_DEFAULT_QUESTIONS_FILE)
 
-        # Variant C: zero-shot (empty question list — loader returns programmatic fallback
-        # but we override to empty)
-        self._loader_zero = QuestionsLoader(prompts_dir=None)  # no questions loaded
-
     def _make_config(self) -> Config:
         return Config.from_dict({
             "provider": self._provider,
