@@ -22,13 +22,13 @@
 js/sql-injection:
   short_description: "User input concatenated into SQL query"
   questions:
-    - "Where does the INPUT originate - req.query, req.body, req.params?"
-    - "Is the query built with STRING CONCATENATION or template literals?"
-    - "Or are PARAMETERIZED queries used with ? or $1 placeholders?"
-    - "If using an ORM, is raw() or literal() used to bypass safety?"
-    - "Trace the INPUT - is it ever SANITIZED before use?"
-    - "What DATABASE library is used (mysql, pg, sequelize)?"
-  context_hint: "Trace from request input through query construction."
+    - "Where does the INPUT originate — req.query, req.body, req.params, or another user-controlled source?"
+    - "Is the query built with STRING CONCATENATION or template literals (vulnerable), or are PARAMETERIZED queries used with ? or $1 placeholders (safe)?"
+    - "If using Sequelize, is sequelize.query() called with raw SQL and user input, or with model methods (.findAll(), .findOne()) using where-clause objects?"
+    - "If using Knex.js, is knex.raw() used with user input instead of the query builder API (.where(), .select())?"
+    - "If using TypeORM, is getRepository().query() or createQueryBuilder().where() used with string interpolation instead of parameterized :param bindings?"
+    - "Trace the INPUT through all assignments — is it passed through any sanitization, allowlist validation, or escaping before reaching the query?"
+  context_hint: "Trace from request input through query construction to execution."
   additional_context: ["caller"]
 
 js/xss:

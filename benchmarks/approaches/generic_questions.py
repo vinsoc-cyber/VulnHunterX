@@ -79,6 +79,8 @@ class GenericQuestionsApproach(BenchmarkApproach):
             context_provider=None,
         )
 
+        _, match_type = self._questions_loader.get_questions_with_match_info(finding.rule_id)
+
         result = engine.verify_findings([finding])
         elapsed = time.monotonic() - start
 
@@ -89,6 +91,7 @@ class GenericQuestionsApproach(BenchmarkApproach):
                 confidence="",
                 reasoning="No verdict returned",
                 elapsed_seconds=elapsed,
+                question_match_type=match_type,
             )
 
         v = result.verdicts[0]
@@ -102,4 +105,5 @@ class GenericQuestionsApproach(BenchmarkApproach):
             raw_response=v.raw_response,
             tokens_used=v.tokens_used,
             cost_usd=v.cost_usd,
+            question_match_type=match_type,
         )

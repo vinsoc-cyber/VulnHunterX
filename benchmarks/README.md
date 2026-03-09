@@ -1,6 +1,6 @@
 # VulnHunterX Benchmarks
 
-Standalone benchmark framework comparing VulnHunterX against three baselines on three ground-truth datasets. No CLI installation required — run directly as Python scripts.
+Standalone benchmark framework comparing VulnHunterX against baselines on four ground-truth datasets. No separate installation required — run directly as Python scripts from the repo root.
 
 ---
 
@@ -29,10 +29,11 @@ See [RESEARCH.md](RESEARCH.md) for the literature review that motivated dataset 
 
 ## Prerequisites
 
-- Python 3.12+ with VulnHunterX installed (`pip install -e .`)
+- Python 3.12+ with VulnHunterX installed (`uv pip install -e .`)
 - For LLM approaches: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or Ollama running locally
-- For chart generation: `pip install -e ".[benchmark]"`
+- For chart generation: `uv pip install -e ".[benchmark]"`
 - ~14 GB disk space for full datasets (SecLLMHolmes + Juliet + CVEfixes)
+- ~2 GB additional for DiverseVul
 - CodeQL CLI (optional; only needed for Juliet "full" mode)
 
 ---
@@ -64,14 +65,14 @@ python benchmarks/scripts/setup_datasets.py --list
 # Download a single dataset (~50 MB)
 python benchmarks/scripts/setup_datasets.py --dataset secllmholmes
 
-# Download all datasets (~14 GB total)
+# Download all datasets (~16 GB total)
 python benchmarks/scripts/setup_datasets.py --dataset all
 ```
 
 ### 4. Real benchmark run (small)
 
 ```bash
-# Single-shot baseline only, 50 entries, cheapest model
+# All approaches, 50 entries, cheapest model
 python benchmarks/scripts/run_benchmark.py \
     --dataset secllmholmes --approach all \
     --model gpt-4o-mini --limit 50
@@ -120,6 +121,112 @@ python benchmarks/scripts/run_benchmark.py \
 
 ---
 
+## Dataset Size Tiers
+
+Use these as starting points when choosing `--limit` and dataset-specific flags:
+
+| Dataset    | Small                        | Medium                        | Large                              |
+| ---------- | ---------------------------- | ----------------------------- | ---------------------------------- |
+| SecLLMHolmes | `--limit 20` (~20 entries) | `--limit 100`                 | `--limit 0` (all, ~228)            |
+| Juliet     | `--juliet-per-cwe 5` (~40)   | `--juliet-per-cwe 20` (~160)  | `--juliet-per-cwe 0` (all, ~64K)   |
+| CVEfixes   | `--limit 100`                | `--limit 1000`                | `--limit 0` (all, ~12K)            |
+| DiverseVul | `--limit 500`                | `--limit 5000`                | `--limit 0` (all, ~349K)           |
+
+> **Note:** For large DiverseVul runs, a local model (Ollama) is strongly recommended to keep costs manageable.
+
+---
+
+## Per-Dataset Examples
+
+### Juliet C/C++
+
+Juliet provides balanced synthetic TP/FP pairs per CWE. Use `--juliet-per-cwe` to control scale.
+
+```bash
+# Small — ~40 entries, quick sanity check
+python benchmarks/scripts/run_benchmark.py \
+    --dataset juliet --approach vulnhunterx \
+    --juliet-per-cwe 5 --model gpt-4o-mini --dry-run
+
+# Medium — ~160 entries, balanced TP/FP across 8 CWEs (standard run)
+python benchmarks/scripts/run_benchmark.py \
+    --dataset juliet --approach all \
+    --juliet-per-cwe 20 --model gpt-4o-mini
+
+# Large — all CWEs, no per-CWE cap (~64K entries, local model recommended)
+python benchmarks/scripts/run_benchmark.py \
+    --dataset juliet --approach vulnhunterx \
+    --juliet-per-cwe 0 --model ollama/llama3.2 \
+    --run-dir benchmarks/results/juliet_full
+
+# Iteration sweep — measure benefit of multi-turn on Juliet
+python benchmarks/scripts/run_benchmark.py \
+    --dataset juliet --approach vulnhunterx \
+    --juliet-per-cwe 10 --model gpt-4o-mini --iteration-sweep
+```
+
+### CVEfixes
+
+CVEfixes contains real CVE-fixing commits across multiple languages. Use `--lang` to focus on specific languages and `--limit` to control scale.
+
+```bash
+# Small — C only, 100 entries (dry-run, no API cost)
+python benchmarks/scripts/run_benchmark.py \
+    --dataset cvefixes --approach vulnhunterx \
+    --limit 100 --lang c --dry-run
+
+# Medium — C + Python, 1 000 entries
+python benchmarks/scripts/run_benchmark.py \
+    --dataset cvefixes --approach vulnhunterx \
+    --limit 1000 --lang c python --model gpt-4o-mini
+
+# Large — all languages (~12K entries)
+python benchmarks/scripts/run_benchmark.py \
+    --dataset cvefixes --approach vulnhunterx \
+    --limit 0 --lang c cpp python javascript php java \
+    --model gpt-4o --run-dir benchmarks/results/cvefixes_full
+
+# Per-language sweep — one run per language, 200 entries each
+for lang in c cpp python javascript php java; do
+  python benchmarks/scripts/run_benchmark.py \
+      --dataset cvefixes --approach vulnhunterx \
+      --limit 200 --lang $lang \
+      --run-dir benchmarks/results/cvefixes_$lang
+done
+```
+
+### DiverseVul
+
+DiverseVul is a large C/C++ dataset with real CVE-backed labels. Use `--limit` for scale and `--cwe` to target specific vulnerability classes.
+
+```bash
+# Small — 500 entries, memory-safety CWEs only (dry-run)
+python benchmarks/scripts/run_benchmark.py \
+    --dataset diversevul --approach vulnhunterx \
+    --limit 500 --cwe CWE-787 CWE-416 --dry-run
+
+# Medium — 5 000 entries, all CWEs
+python benchmarks/scripts/run_benchmark.py \
+    --dataset diversevul --approach vulnhunterx \
+    --limit 5000 --model gpt-4o-mini
+
+# Large — full dataset (~349K entries, local model strongly recommended)
+python benchmarks/scripts/run_benchmark.py \
+    --dataset diversevul --approach vulnhunterx \
+    --limit 0 --model ollama/llama3.2 \
+    --run-dir benchmarks/results/diversevul_full
+
+# Per-CWE sweep — 500 entries per top memory-safety CWE
+for cwe in CWE-787 CWE-416 CWE-476 CWE-125; do
+  python benchmarks/scripts/run_benchmark.py \
+      --dataset diversevul --approach vulnhunterx \
+      --limit 500 --cwe $cwe \
+      --run-dir benchmarks/results/diversevul_$cwe
+done
+```
+
+---
+
 ## CLI Reference
 
 ### `run_benchmark.py`
@@ -130,10 +237,11 @@ python benchmarks/scripts/run_benchmark.py \
 --model             LLM model name  (default: read from LLM_MODEL in .env, fallback gpt-4o)
 --provider          openai | anthropic | ollama  (default: read from LLM_PROVIDER in .env)
 --limit             Max entries per dataset, 0=all  (default: 0)
+--lang LANG [...]   CVEfixes only: filter by language(s): c cpp python javascript php java
+--cwe CWE [...]     DiverseVul only: filter by CWE ID(s), e.g. CWE-787 CWE-416
 --juliet-per-cwe N  Juliet only: max entries per CWE, balanced TP/FP.
-                    10=quick (80 entries, ~$2.70)  20=standard (160 entries, ~$5.50) [default]
-                    0=unlimited, all 15 CWEs (local model recommended)
---max-iterations    Multi-turn rounds for vulnhunterx/generic  (default: 5)
+                    5=small (~40)  20=standard (~160) [default]  0=all CWEs (~64K)
+--max-iterations    Multi-turn rounds for vulnhunterx/generic  (default: 10)
 --nmd-handling      exclude | fp  (default: exclude)
 --dry-run           Mock LLM responses — no API cost
 --resume            Skip completed pairs; continue in-progress pairs from last checkpoint
