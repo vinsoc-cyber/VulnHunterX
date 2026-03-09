@@ -336,7 +336,18 @@ def _question_coverage_table(summaries: list[dict]) -> str:
         prompts_dir = _repo_root / "config" / "prompts"
         loader = QuestionsLoader(prompts_dir=prompts_dir if prompts_dir.is_dir() else None)
         all_yaml_rules = set(loader.rules)
-    except Exception:
+    except (ImportError, ModuleNotFoundError) as exc:
+        logger.warning(
+            "Unable to import question rules for coverage table; falling back to seen rules only: %s",
+            exc,
+        )
+        all_yaml_rules = set()
+    except OSError as exc:
+        logger.warning(
+            "Filesystem error while loading question rules for coverage table; "
+            "falling back to seen rules only: %s",
+            exc,
+        )
         all_yaml_rules = set()
 
     if not all_yaml_rules:
