@@ -10,7 +10,15 @@
       "Bash(.venv/bin/ruff check src/vuln_hunter_x/context/treesitter_extractor.py src/vuln_hunter_x/cli/commands.py src/vuln_hunter_x/cli/main.py)",
       "Bash(.venv/bin/ruff check src/vuln_hunter_x/context/treesitter_extractor.py src/vuln_hunter_x/cli/commands.py)",
       "Bash(grep -E \"\\\\.ql$\")",
-      "Bash(wc -l /home/thientc/repos/VulnHunterX/src/vuln_hunter_x/**/*.py)"
+      "Bash(wc -l /home/thientc/repos/VulnHunterX/src/vuln_hunter_x/**/*.py)",
+      "Bash(python -m pytest tests/test_benchmark_resume.py -q -o \"addopts=\")",
+      "Bash(uv pip install matplotlib)",
+      "Bash(python benchmarks/scripts/generate_report.py --run-dir benchmarks/results/20260308_163624 --charts)",
+      "Bash(uv pip install pytest -q)",
+      "Bash(uv pip install pyyaml -q)",
+      "Bash(ls -la /home/thientc/repos/VulnHunterX/benchmarks/*.py)",
+      "Bash(python3:*)",
+      "WebSearch"
     ]
   }
 }

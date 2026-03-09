@@ -378,3 +378,29 @@ java/sensitive-data-exposure:
     - "Is this in a debug/trace log level that should be disabled in production?"
   context_hint: "Include the data source, the output mechanism, and any masking logic."
   additional_context: ["caller"]
+
+# ── Rules added to cover critical modern Java vulnerability classes ──
+
+java/jndi-injection:
+  short_description: "User-controlled input passed to JNDI lookup enabling remote class loading (Log4Shell pattern)"
+  questions:
+    - "Does InitialContext.lookup(), DirContext.lookup(), or any JNDI API receive user-controlled input directly or indirectly?"
+    - "Is the input validated against an allowlist of trusted JNDI provider URLs before the lookup?"
+    - "Is the JVM system property com.sun.jndi.rmi.object.trustURLCodebase explicitly set to false?"
+    - "Is this application using Log4j 2.x (versions 2.0–2.14.1) where JNDI lookups in log messages are enabled by default?"
+    - "What JNDI provider is in use (RMI, LDAP, DNS, CORBA) and what Java version is running — newer JDKs restrict remote class loading?"
+    - "Are there compensating controls — WAF rules blocking ${jndi:}, network egress filtering, or deserialization filters (JEP 290)?"
+  context_hint: "Check JNDI lookup call site, JVM system properties, and Log4j configuration."
+  additional_context: ["caller", "global"]
+
+java/certificate-validation-disabled:
+  short_description: "TLS configuration allowing weak protocols or disabled certificate verification"
+  questions:
+    - "Is SSLContext.getInstance('TLS') or SSLContext.getInstance('SSL') used without specifying a minimum TLS version?"
+    - "Is a custom TrustManager implemented that accepts ALL certificates (X509TrustManager with empty checkServerTrusted)?"
+    - "Is HostnameVerifier.ALLOW_ALL or a no-op hostname verifier used?"
+    - "What SENSITIVE DATA is sent over this connection — credentials, tokens, PII?"
+    - "Is this for DEVELOPMENT/TESTING only, or does it run in production?"
+    - "Could an attacker perform a MAN-IN-THE-MIDDLE attack by presenting a forged certificate?"
+  context_hint: "Include SSLContext setup, TrustManager, HostnameVerifier, and what data is transmitted."
+  additional_context: ["caller"]

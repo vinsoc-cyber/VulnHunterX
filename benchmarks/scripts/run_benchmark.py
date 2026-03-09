@@ -55,10 +55,25 @@ if str(_REPO_ROOT) not in sys.path:
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(_REPO_ROOT / ".env")
 
+# Load benchmark.yaml defaults (CLI flags override these)
+_BENCHMARK_CFG: dict = {}
+_BENCHMARK_YAML = _REPO_ROOT / "benchmarks" / "config" / "benchmark.yaml"
+if _BENCHMARK_YAML.exists():
+    try:
+        import yaml  # type: ignore[import-untyped]
+        _BENCHMARK_CFG = yaml.safe_load(_BENCHMARK_YAML.read_text()) or {}
+    except Exception:
+        pass  # yaml not installed or parse error — fall back to hard-coded defaults
+
+_DEFAULT_MAX_ITERATIONS: int = (
+    _BENCHMARK_CFG.get("verification", {}).get("max_iterations", 10)
+)
+
 from benchmarks.adapters.ground_truth import GroundTruthEntry, load_entries  # noqa: E402
 from benchmarks.approaches.base import BenchmarkApproach, BenchmarkResult  # noqa: E402
 from benchmarks.approaches.generic_questions import GenericQuestionsApproach  # noqa: E402
 from benchmarks.approaches.raw_sast import RawSastApproach  # noqa: E402
+from benchmarks.approaches.ablation import AblationApproach  # noqa: E402
 from benchmarks.approaches.vulnhunterx import VulnHunterXApproach  # noqa: E402
 from benchmarks.metrics.evaluator import ApproachMetrics, evaluate  # noqa: E402
 from benchmarks.scripts._progress import (  # noqa: E402
@@ -105,7 +120,30 @@ RESULTS_DIR = _REPO_ROOT / "benchmarks" / "results"
 
 # ── Dataset loaders ──────────────────────────────────────────────────────────
 
-def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[str] | None = None) -> list[GroundTruthEntry]:
+def _load_fixture(
+    fixture: Path,
+    limit: int = 0,
+    langs: list[str] | None = None,
+    cwes: list[str] | None = None,
+) -> list[GroundTruthEntry]:
+    """Load fixture file with filters applied. Warns that fixture data is being used."""
+    logger.warning(
+        "Dataset not downloaded — using fixture file (%s). "
+        "Download the full dataset for meaningful results.",
+        fixture.name,
+    )
+    entries = load_entries(fixture)
+    if langs:
+        entries = [e for e in entries if e.lang in langs]
+    if cwes:
+        cwe_set = set(cwes)
+        entries = [e for e in entries if e.cwe_id in cwe_set]
+    if limit:
+        entries = entries[:limit]
+    return entries
+
+
+def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[str] | None = None, cwes: list[str] | None = None) -> list[GroundTruthEntry]:
     """Load entries for a given dataset name."""
     # Check for fixture files first (for smoke tests)
     fixture = _REPO_ROOT / "benchmarks" / "fixtures" / f"{name}_sample.json"
@@ -116,8 +154,7 @@ def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[s
             from benchmarks.adapters.secllmholmes_adapter import SecLLMHolmesAdapter
             return SecLLMHolmesAdapter(ds_path).load(limit=limit)
         if fixture.exists():
-            logger.info("Using fixture file: %s", fixture)
-            return load_entries(fixture)
+            return _load_fixture(fixture, limit=limit, langs=langs, cwes=cwes)
         raise FileNotFoundError(
             f"SecLLMHolmes dataset not found at {ds_path}. "
             "Run: python benchmarks/scripts/setup_datasets.py --dataset secllmholmes"
@@ -134,8 +171,7 @@ def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[s
                 benchmark_cwes_only=(juliet_per_cwe > 0),
             )
         if fixture.exists():
-            logger.info("Using fixture file: %s", fixture)
-            return load_entries(fixture)
+            return _load_fixture(fixture, limit=limit, langs=langs, cwes=cwes)
         raise FileNotFoundError(
             f"Juliet dataset not found at {ds_path}. "
             "Run: python benchmarks/scripts/setup_datasets.py --dataset juliet"
@@ -152,8 +188,7 @@ def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[s
             from benchmarks.adapters.cvefixes_adapter import CVEfixesAdapter
             return CVEfixesAdapter(db_path).load(limit=limit, langs=langs)
         if fixture.exists():
-            logger.info("Using fixture file: %s", fixture)
-            return load_entries(fixture)
+            return _load_fixture(fixture, limit=limit, langs=langs, cwes=cwes)
         raise FileNotFoundError(
             f"CVEfixes DB not found at {db_path}. "
             "Run: python benchmarks/scripts/setup_datasets.py --dataset cvefixes"
@@ -163,10 +198,9 @@ def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[s
         ds_path = DATASETS_DIR / "diversevul"
         if ds_path.exists():
             from benchmarks.adapters.diversevul_adapter import DiverseVulAdapter
-            return DiverseVulAdapter(ds_path).load(limit=limit)
+            return DiverseVulAdapter(ds_path).load(limit=limit, cwes=cwes)
         if fixture.exists():
-            logger.info("Using fixture file: %s", fixture)
-            return load_entries(fixture)
+            return _load_fixture(fixture, limit=limit, langs=langs, cwes=cwes)
         raise FileNotFoundError(
             f"DiverseVul dataset not found at {ds_path}. "
             "Download from: https://github.com/wagner-group/diversevul"
@@ -196,6 +230,8 @@ def _build_approach(
             **common, max_iterations=max_iterations,
             force_decision=force_decision, use_slicing=use_slicing,
         )
+    if name == "ablation":
+        return AblationApproach(**common, max_iterations=max_iterations)
     raise ValueError(f"Unknown approach: {name!r}")
 
 
@@ -458,10 +494,10 @@ def main() -> int:
     parser.add_argument(
         "--approach",
         nargs="+",
-        choices=["raw-sast", "generic-questions", "vulnhunterx", "all"],
+        choices=["raw-sast", "generic-questions", "vulnhunterx", "ablation", "all"],
         default=["all"],
         metavar="APPROACH",
-        help="One or more of: raw-sast generic-questions vulnhunterx all",
+        help="One or more of: raw-sast generic-questions vulnhunterx ablation all",
     )
     parser.add_argument("--model", default=os.environ.get("LLM_MODEL", "gpt-4o"))
     parser.add_argument("--provider", default=os.environ.get("LLM_PROVIDER", "openai"))
@@ -478,6 +514,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--cwe",
+        nargs="+",
+        default=None,
+        metavar="CWE",
+        help=(
+            "DiverseVul only: filter by CWE ID(s). "
+            "E.g. --cwe CWE-787 CWE-416. Default: all CWEs."
+        ),
+    )
+    parser.add_argument(
         "--juliet-per-cwe",
         type=int,
         default=20,
@@ -489,7 +535,8 @@ def main() -> int:
             "Use 0 for all entries across all 15 target CWEs (local model recommended)."
         ),
     )
-    parser.add_argument("--max-iterations", type=int, default=10, help="Max iterations for multi-turn approaches (default: 10)")
+    parser.add_argument("--max-iterations", type=int, default=_DEFAULT_MAX_ITERATIONS,
+                        help=f"Max iterations for multi-turn approaches (default: {_DEFAULT_MAX_ITERATIONS}, from benchmarks/config/benchmark.yaml)")
     parser.add_argument(
         "--nmd-handling",
         choices=["exclude", "fp"],
@@ -566,7 +613,7 @@ def main() -> int:
         if args.dataset == "all"
         else [args.dataset]
     )
-    _ALL_APPROACHES = ["raw-sast", "generic-questions", "vulnhunterx"]
+    _ALL_APPROACHES = ["raw-sast", "generic-questions", "vulnhunterx", "ablation"]
     approaches = (
         _ALL_APPROACHES
         if "all" in args.approach
@@ -626,7 +673,7 @@ def main() -> int:
         for dataset_name in datasets:
             logger.info("Loading dataset: %s (limit=%d)", dataset_name, args.limit)
             try:
-                entries = _load_dataset(dataset_name, args.limit, juliet_per_cwe=args.juliet_per_cwe, langs=args.lang)
+                entries = _load_dataset(dataset_name, args.limit, juliet_per_cwe=args.juliet_per_cwe, langs=args.lang, cwes=args.cwe)
             except FileNotFoundError as exc:
                 logger.error("%s", exc)
                 continue

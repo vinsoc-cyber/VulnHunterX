@@ -37,11 +37,15 @@ class BenchmarkResult:
     cost_usd: float = 0.0
     iterations: int = 0
     raw_response: str = ""
+    question_match_type: str = ""  # "exact"|"normalized"|"prefix"|"lang_prefix"|"default"|"generic"
 
     def to_dict(self) -> dict:
         return {
             "entry_id": self.entry.id,
             "source_dataset": self.entry.source_dataset,
+            "cwe_id": self.entry.cwe_id,
+            "rule_id": self.entry.rule_id,
+            "lang": self.entry.lang,
             "ground_truth_label": self.entry.label,
             "predicted_label": self.predicted_label,
             "confidence": self.confidence,
@@ -50,6 +54,7 @@ class BenchmarkResult:
             "tokens_used": self.tokens_used,
             "cost_usd": self.cost_usd,
             "iterations": self.iterations,
+            "question_match_type": self.question_match_type,
         }
 
     @classmethod
@@ -86,6 +91,7 @@ class BenchmarkResult:
             tokens_used=int(data.get("tokens_used", 0)),
             cost_usd=float(data.get("cost_usd", 0.0)),
             iterations=int(data.get("iterations", 0)),
+            question_match_type=data.get("question_match_type", ""),
         )
 
 
