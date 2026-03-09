@@ -61,12 +61,41 @@ _BENCHMARK_YAML = _REPO_ROOT / "benchmarks" / "config" / "benchmark.yaml"
 if _BENCHMARK_YAML.exists():
     try:
         import yaml  # type: ignore[import-untyped]
-        _BENCHMARK_CFG = yaml.safe_load(_BENCHMARK_YAML.read_text()) or {}
-    except Exception:
-        pass  # yaml not installed or parse error — fall back to hard-coded defaults
+    except ImportError:
+        logging.getLogger(__name__).warning(
+            "PyYAML is not installed; using hard-coded benchmark defaults."
+        )
+    else:
+        try:
+            # safe_load to prevent arbitrary object instantiation
+            loaded_cfg = yaml.safe_load(_BENCHMARK_YAML.read_text(encoding="utf-8"))
+        except (yaml.YAMLError, OSError) as exc:
+            logging.getLogger(__name__).warning(
+                "Failed to load benchmark config from %s (%s); using hard-coded defaults.",
+                _BENCHMARK_YAML,
+                exc,
+            )
+        else:
+            if isinstance(loaded_cfg, dict):
+                _BENCHMARK_CFG = loaded_cfg
+            elif loaded_cfg is not None:
+                logging.getLogger(__name__).warning(
+                    "benchmark.yaml root must be a mapping, got %s; using hard-coded defaults.",
+                    type(loaded_cfg).__name__,
+                )
 
-_DEFAULT_MAX_ITERATIONS: int = (
-    _BENCHMARK_CFG.get("verification", {}).get("max_iterations", 10)
+
+def _coerce_int(value: object, default: int) -> int:
+    """Best-effort conversion of a value to int, falling back to default on error."""
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+_DEFAULT_MAX_ITERATIONS: int = _coerce_int(
+    (_BENCHMARK_CFG.get("verification") or {}).get("max_iterations", 10),
+    10,
 )
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry, load_entries  # noqa: E402
