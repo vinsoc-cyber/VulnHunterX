@@ -30,6 +30,8 @@ CWE_TO_RULES: dict[str, list[str]] = {
     "CWE-426": ["cpp/untrusted-search-path"],
 
     # Injection (all languages)
+    "CWE-77":  ["cpp/command-line-injection", "py/command-injection",
+                 "js/command-injection", "php/command-injection", "java/command-injection"],
     "CWE-78":  ["cpp/tainted-eval-uncontrolled", "py/command-line-injection",
                  "js/shell-command-injection-from-environment"],
     "CWE-89":  ["py/sql-injection", "js/sql-injection", "php/sql-injection"],

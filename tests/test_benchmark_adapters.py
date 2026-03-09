@@ -242,15 +242,12 @@ class TestSecLLMHolmesAdapter:
         """Adapter must parse bad/good directories into TP/FP entries."""
         from benchmarks.adapters.secllmholmes_adapter import SecLLMHolmesAdapter
 
-        # Build a synthetic dataset directory
-        cwe_dir = tmp_path / "CWE-416"
-        for label_dir, content in [
-            ("basic/bad", "void bad() { free(p); *p = 1; }"),
-            ("basic/good", "void good() { *p = 1; free(p); }"),
-        ]:
-            d = cwe_dir / label_dir
-            d.mkdir(parents=True)
-            (d / "sample.c").write_text(content)
+        # Adapter expects: dataset/CWE-*/file.c (files directly in CWE dir)
+        # FP = filename starts with "p_", TP = anything else
+        cwe_dir = tmp_path / "dataset" / "CWE-416"
+        cwe_dir.mkdir(parents=True)
+        (cwe_dir / "bad.c").write_text("void bad() { free(p); *p = 1; }")
+        (cwe_dir / "p_good.c").write_text("void good() { *p = 1; free(p); }")
 
         adapter = SecLLMHolmesAdapter(tmp_path)
         entries = adapter.load()
@@ -263,10 +260,9 @@ class TestSecLLMHolmesAdapter:
     def test_adapter_cwe_extraction(self, tmp_path):
         from benchmarks.adapters.secllmholmes_adapter import SecLLMHolmesAdapter
 
-        cwe_dir = tmp_path / "CWE-89"
-        bad = cwe_dir / "basic" / "bad"
-        bad.mkdir(parents=True)
-        (bad / "sqli.py").write_text("query = f'SELECT * FROM t WHERE id={x}'")
+        cwe_dir = tmp_path / "dataset" / "CWE-89"
+        cwe_dir.mkdir(parents=True)
+        (cwe_dir / "sqli.py").write_text("query = f'SELECT * FROM t WHERE id={x}'")
 
         adapter = SecLLMHolmesAdapter(tmp_path)
         entries = adapter.load()
@@ -277,9 +273,9 @@ class TestSecLLMHolmesAdapter:
         from benchmarks.adapters.secllmholmes_adapter import SecLLMHolmesAdapter
 
         for i in range(5):
-            d = tmp_path / f"CWE-41{i}" / "basic" / "bad"
-            d.mkdir(parents=True)
-            (d / f"f{i}.c").write_text("void bad() {}")
+            cwe_dir = tmp_path / "dataset" / f"CWE-41{i}"
+            cwe_dir.mkdir(parents=True)
+            (cwe_dir / f"f{i}.c").write_text("void bad() {}")
 
         adapter = SecLLMHolmesAdapter(tmp_path)
         entries = adapter.load(limit=3)
