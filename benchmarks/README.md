@@ -10,6 +10,7 @@ Standalone benchmark framework comparing VulnHunterX against baselines on four g
 | ------------------- | ------------------------------------------------------------------------------- |
 | `raw-sast`          | Every SAST finding = TP, no LLM. Establishes upper-bound recall.                |
 | `generic-questions` | Multi-turn LLM with only `default_questions.yaml` (no rule-specific questions). |
+| `ablation`          | Ablation variants of VulnHunterX with selected components disabled to measure their impact. |
 | `vulnhunterx`       | Full system: rule-specific guided questions + multi-turn context expansion.     |
 
 ---
