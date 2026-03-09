@@ -21,6 +21,17 @@ def _include_line(inc_text: str) -> str:
     return f'#include "{s}"'
 
 
+def _generate_struct_init(struct_name: str, members: list[str], var_name: str) -> list[str]:
+    """Generate zero-init + member population for a struct local variable."""
+    lines = [
+        f"  {struct_name} {var_name};",
+        f"  memset(&{var_name}, 0, sizeof({var_name}));",
+    ]
+    for member in members:
+        lines.append(f"  {var_name}.{member} = provider.ConsumeIntegral<uint32_t>();")
+    return lines
+
+
 def _param_to_consumption(param_type: str, param_name: str, provider_var: str = "provider") -> str:
     """
     Heuristic: map param type to FuzzedDataProvider consumption.
@@ -51,6 +62,11 @@ def _param_to_consumption(param_type: str, param_name: str, provider_var: str = 
     return f"{provider_var}.ConsumeIntegral<uint32_t>()"
 
 
+def _get_base_type(param_type: str) -> str:
+    """Strip qualifiers to get base struct/class name."""
+    return param_type.replace("const", "").replace("struct", "").replace("*", "").strip()
+
+
 def generate_harness(
     finding_rule_id: str,
     finding_file: str,
@@ -71,11 +87,13 @@ def generate_harness(
     name = target_context.get("name", "target")
     params = target_context.get("params", [])
     includes = target_context.get("includes", [])
+    struct_defs: dict[str, list[str]] = target_context.get("struct_defs", {})
 
     lines: list[str] = [
         "/* Fuzz harness generated for CodeQL finding */",
         "#include <cstdint>",
         "#include <cstdlib>",
+        "#include <cstring>",
         "#include <string>",
         "#include <fuzzer/FuzzedDataProvider.h>",
         "",
@@ -97,13 +115,31 @@ def generate_harness(
     # Build argument expressions for the target call
     args_list: list[str] = []
     string_locals: list[str] = []  # param names that need a std::string local
+    struct_init_lines: list[str] = []  # struct init blocks to emit before the call
+    struct_vars: dict[str, str] = {}  # base_type -> var_name
+
     for i, p in enumerate(params):
         ptype = p.get("type", "int")
         pname = p.get("name", f"arg{i}")
-        expr = _param_to_consumption(ptype, pname)
-        if "fuzz_str_" in expr:
-            string_locals.append(pname)
+        base_type = _get_base_type(ptype)
+
+        if base_type in struct_defs:
+            # Struct-aware: generate init block and pass by pointer or value
+            var_name = f"fuzz_struct_{base_type}"
+            if base_type not in struct_vars:
+                struct_vars[base_type] = var_name
+                struct_init_lines.extend(
+                    _generate_struct_init(base_type, struct_defs[base_type], var_name)
+                )
+            expr = f"&{var_name}" if "*" in ptype else var_name
+        else:
+            expr = _param_to_consumption(ptype, pname)
+            if "fuzz_str_" in expr:
+                string_locals.append(pname)
         args_list.append(expr)
+
+    # Emit struct inits
+    lines.extend(struct_init_lines)
     # Declare string locals so .c_str() is valid during the call
     for pname in string_locals:
         lines.append(f"  std::string fuzz_str_{pname} = provider.ConsumeBytesAsString(provider.ConsumeIntegralInRange(0u, static_cast<size_t>(size)));")

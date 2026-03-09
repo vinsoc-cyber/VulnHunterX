@@ -9,6 +9,8 @@ Computes per-dataset and per-CWE:
   - Cost: total tokens, estimated USD, tokens-per-finding
   - Latency: mean / median / p95 elapsed_seconds, total wall-clock time
   - Iterations: mean / max (for approaches that use multi-turn)
+  - Per-rule and per-language breakdowns
+  - Question match type distribution
 """
 
 from __future__ import annotations
@@ -31,6 +33,38 @@ class CWEMetrics:
     tp_missed: int = 0    # TP label, predicted FP (false negative)
     fp_caught: int = 0    # FP label, predicted FP (correctly identified)
     fp_missed: int = 0    # FP label, predicted TP (false positive kept)
+    nmd: int = 0
+    errors: int = 0
+
+    @property
+    def precision(self) -> float | None:
+        denom = self.tp_correct + self.fp_missed
+        return self.tp_correct / denom if denom else None
+
+    @property
+    def recall(self) -> float | None:
+        denom = self.tp_correct + self.tp_missed
+        return self.tp_correct / denom if denom else None
+
+    @property
+    def f1(self) -> float | None:
+        p, r = self.precision, self.recall
+        if p is None or r is None or (p + r) == 0:
+            return None
+        return 2 * p * r / (p + r)
+
+
+@dataclass
+class RuleMetrics:
+    """Metrics for a single CodeQL/Semgrep rule ID."""
+
+    rule_id: str
+    lang: str = ""
+    total: int = 0
+    tp_correct: int = 0
+    tp_missed: int = 0
+    fp_caught: int = 0
+    fp_missed: int = 0
     nmd: int = 0
     errors: int = 0
 
@@ -92,6 +126,15 @@ class ApproachMetrics:
 
     # Per-CWE breakdown
     cwe_metrics: dict[str, CWEMetrics] = field(default_factory=dict)
+
+    # Per-rule breakdown
+    rule_metrics: dict[str, RuleMetrics] = field(default_factory=dict)
+
+    # Per-language breakdown (reuses CWEMetrics structure, keyed by lang)
+    lang_metrics: dict[str, CWEMetrics] = field(default_factory=dict)
+
+    # Question match type distribution
+    question_match_counts: dict[str, int] = field(default_factory=dict)
 
     # Calibration
     calibration: dict[str, CalibrationBucket] = field(default_factory=dict)
@@ -235,6 +278,38 @@ class ApproachMetrics:
             )
         d["per_cwe"] = cwe_summary
 
+        # Per-rule
+        rule_summary = []
+        for rule_id, rm in sorted(self.rule_metrics.items()):
+            rule_summary.append(
+                {
+                    "rule_id": rule_id,
+                    "lang": rm.lang,
+                    "total": rm.total,
+                    "precision": _fmt(rm.precision),
+                    "recall": _fmt(rm.recall),
+                    "f1": _fmt(rm.f1),
+                }
+            )
+        d["per_rule"] = rule_summary
+
+        # Per-language
+        lang_summary = []
+        for lang, lm in sorted(self.lang_metrics.items()):
+            lang_summary.append(
+                {
+                    "lang": lang,
+                    "total": lm.total,
+                    "precision": _fmt(lm.precision),
+                    "recall": _fmt(lm.recall),
+                    "f1": _fmt(lm.f1),
+                }
+            )
+        d["per_lang"] = lang_summary
+
+        # Question match type distribution
+        d["question_match_counts"] = dict(self.question_match_counts)
+
         return d
 
 
@@ -263,6 +338,13 @@ def evaluate(
     )
 
     for r in results:
+        # Track question match type distribution for all results
+        match_type = getattr(r, "question_match_type", "") or ""
+        if match_type:
+            metrics.question_match_counts[match_type] = (
+                metrics.question_match_counts.get(match_type, 0) + 1
+            )
+
         # Resolve NMD based on nmd_handling policy
         pred = r.predicted_label
         if pred == PRED_NMD:
@@ -349,6 +431,40 @@ def evaluate(
                 cm.fp_caught += 1
             else:
                 cm.fp_missed += 1
+
+        # Per-rule metrics
+        rule = r.entry.rule_id or "unknown"
+        lang = r.entry.lang or "unknown"
+        if rule not in metrics.rule_metrics:
+            metrics.rule_metrics[rule] = RuleMetrics(rule_id=rule, lang=lang)
+        rm = metrics.rule_metrics[rule]
+        rm.total += 1
+        if gt_label == LABEL_TP:
+            if pred == PRED_TP:
+                rm.tp_correct += 1
+            else:
+                rm.tp_missed += 1
+        elif gt_label == LABEL_FP:
+            if pred == PRED_FP:
+                rm.fp_caught += 1
+            else:
+                rm.fp_missed += 1
+
+        # Per-language metrics (reuse CWEMetrics structure)
+        if lang not in metrics.lang_metrics:
+            metrics.lang_metrics[lang] = CWEMetrics(cwe_id=lang)
+        lm = metrics.lang_metrics[lang]
+        lm.total += 1
+        if gt_label == LABEL_TP:
+            if pred == PRED_TP:
+                lm.tp_correct += 1
+            else:
+                lm.tp_missed += 1
+        elif gt_label == LABEL_FP:
+            if pred == PRED_FP:
+                lm.fp_caught += 1
+            else:
+                lm.fp_missed += 1
 
         # Calibration
         confidence = r.confidence or "Unknown"

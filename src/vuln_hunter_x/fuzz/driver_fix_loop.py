@@ -95,7 +95,7 @@ The code must contain the function: extern "C" int LLVMFuzzerTestOneInput(const 
 Fix only the reported errors: add missing includes, fix types, fix link order or symbols. Preserve the harness structure."""
 
 
-def make_llm_fix_fn(provider: str, model: str, max_tokens: int = 4000) -> Callable[[str, str, str], str]:
+def make_llm_fix_fn(provider: str, model: str, max_tokens: int = 4000, type_context: str = "") -> Callable[[str, str, str], str]:
     """Build a completion function that calls the LLM with the fix prompt."""
     import litellm
 
@@ -103,6 +103,12 @@ def make_llm_fix_fn(provider: str, model: str, max_tokens: int = 4000) -> Callab
         model_id = f"ollama/{model}" if not model.startswith("ollama/") else model
     else:
         model_id = model
+
+    type_ctx_section = (
+        f"\nAvailable type definitions:\n{type_context[:2000]}\n"
+        if type_context
+        else ""
+    )
 
     def complete(source: str, errors: str, command: str) -> str:
         user = f"""Harness source:
@@ -117,7 +123,7 @@ Errors:
 ```
 {errors[:3500]}
 ```
-
+{type_ctx_section}
 Respond with the corrected full C++ source only (use a ```cpp ... ``` block or plain code)."""
         try:
             resp = litellm.completion(

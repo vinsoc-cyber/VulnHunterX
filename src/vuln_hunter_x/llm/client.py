@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -10,6 +11,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 import litellm
+
+logger = logging.getLogger(__name__)
 
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
@@ -285,13 +288,18 @@ class LLMClient:
 
             except Exception as e:
                 elapsed = time.time() - start_time
-                if verbose:
-                    print(f"    ERROR: {e}")
+                logger.error(
+                    "LLM call failed [%s] %s: %s",
+                    type(e).__name__,
+                    finding.rule_id or finding.file,
+                    e,
+                    exc_info=True,
+                )
                 return Verdict(
                     finding=finding,
                     verdict="Error",
                     confidence="Low",
-                    reasoning=f"LLM call failed: {e}",
+                    reasoning=f"LLM call failed [{type(e).__name__}]: {e}",
                     answers=[],
                     raw_response=str(e),
                     model=self.model,
@@ -326,8 +334,11 @@ class LLMClient:
                     tokens_used=total_tokens_used,
                     cost_usd=total_cost_usd,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "Force-decision failed [%s]: %s",
+                    type(e).__name__, e, exc_info=True,
+                )
 
         elapsed = time.time() - start_time
         return Verdict(

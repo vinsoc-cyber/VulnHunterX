@@ -242,11 +242,12 @@ class TestSecLLMHolmesAdapter:
         """Adapter must parse p_/non-p_ files in dataset/CWE-* dirs into FP/TP entries."""
         from benchmarks.adapters.secllmholmes_adapter import SecLLMHolmesAdapter
 
-        # SecLLMHolmes structure: dataset/CWE-*/{ *.c = TP, p_*.c = FP }
+        # Adapter expects: dataset/CWE-*/file.c (files directly in CWE dir)
+        # FP = filename starts with "p_", TP = anything else
         cwe_dir = tmp_path / "dataset" / "CWE-416"
         cwe_dir.mkdir(parents=True)
-        (cwe_dir / "1.c").write_text("void bad() { free(p); *p = 1; }")
-        (cwe_dir / "p_1.c").write_text("void good() { *p = 1; free(p); }")
+        (cwe_dir / "bad.c").write_text("void bad() { free(p); *p = 1; }")
+        (cwe_dir / "p_good.c").write_text("void good() { *p = 1; free(p); }")
 
         adapter = SecLLMHolmesAdapter(tmp_path)
         entries = adapter.load()
@@ -261,7 +262,7 @@ class TestSecLLMHolmesAdapter:
 
         cwe_dir = tmp_path / "dataset" / "CWE-89"
         cwe_dir.mkdir(parents=True)
-        (cwe_dir / "1.py").write_text("query = f'SELECT * FROM t WHERE id={x}'")
+        (cwe_dir / "sqli.py").write_text("query = f'SELECT * FROM t WHERE id={x}'")
 
         adapter = SecLLMHolmesAdapter(tmp_path)
         entries = adapter.load()
@@ -273,9 +274,9 @@ class TestSecLLMHolmesAdapter:
 
         dataset_dir = tmp_path / "dataset"
         for i in range(5):
-            d = dataset_dir / f"CWE-41{i}"
-            d.mkdir(parents=True)
-            (d / f"f{i}.c").write_text("void bad() {}")
+            cwe_dir = tmp_path / "dataset" / f"CWE-41{i}"
+            cwe_dir.mkdir(parents=True)
+            (cwe_dir / f"f{i}.c").write_text("void bad() {}")
 
         adapter = SecLLMHolmesAdapter(tmp_path)
         entries = adapter.load(limit=3)

@@ -670,3 +670,65 @@ cpp/exception-unsafe:
     - "Is the function marked noexcept but capable of throwing (undefined behavior)?"
   context_hint: "Include resource acquisition, potential throw site, and cleanup/destructor code."
   additional_context: ["caller", "struct"]
+
+# ── Rules added to cover Juliet benchmark CWEs with no prior specific questions ──
+
+cpp/null-pointer-dereference:
+  short_description: "Null pointer dereferenced without a NULL check"
+  questions:
+    - "Where is the pointer ASSIGNED — via malloc/calloc/new, function return value, or parameter?"
+    - "Is there a NULL check (if (ptr == NULL) / if (!ptr)) on ALL code paths BEFORE the flagged dereference?"
+    - "Could the pointer legitimately be NULL at the flagged location (e.g., malloc failure, empty container, optional return)?"
+    - "List ALL early returns or conditional branches between the pointer assignment and the dereference — does any path skip the NULL check?"
+    - "Is the pointer set to NULL explicitly anywhere between assignment and use (e.g., after free, reset)?"
+    - "Are there mitigating factors — assert() guards, internal-only API that guarantees non-null, or test code?"
+  context_hint: "Trace all code paths from pointer assignment to the dereference site."
+  additional_context: ["caller", "struct"]
+
+cpp/overflow-destination:
+  short_description: "Write operation overflows the destination buffer"
+  questions:
+    - "What is the SIZE of the destination buffer — declared size, computed size, or heap-allocated size?"
+    - "What is the SIZE or maximum length of the data being written into it?"
+    - "Is there a bounds check (e.g., if (len < sizeof(buf)) or if (n <= capacity)) on ALL paths BEFORE the write?"
+    - "Is the write length controlled by user input, a return value, or a computation that could overflow or wrap?"
+    - "Is memcpy/strcpy/sprintf/gets used instead of safer alternatives (memcpy_s, snprintf, strlcpy, strncpy with explicit bound)?"
+    - "Are there mitigating factors — ASLR, stack canaries, sanitizer in production, or test/internal-only code?"
+  context_hint: "Need the destination buffer declaration and all callers that supply the write length."
+  additional_context: ["caller", "struct"]
+
+cpp/overrunning-write:
+  short_description: "Write exceeds the allocated size of the target buffer"
+  questions:
+    - "Where is the TARGET buffer declared and what is its allocated size (in bytes)?"
+    - "What is the AMOUNT being written — is it derived from user input, a length field, or a computed value?"
+    - "Is the write amount VALIDATED against the buffer capacity before the write occurs?"
+    - "Could an integer overflow or truncation in the size computation cause the write amount to exceed the buffer?"
+    - "Is the write operation a loop accumulating data without checking remaining capacity?"
+    - "Are there mitigating factors — sanitizer protection, internal-only usage, or test harness code?"
+  context_hint: "Need buffer allocation site and all callers providing the write length."
+  additional_context: ["caller", "struct"]
+
+cpp/out-of-bounds-read:
+  short_description: "Read operation accesses memory beyond buffer bounds"
+  questions:
+    - "What is the SIZE of the buffer being read — declared, computed, or heap-allocated?"
+    - "What INDEX or OFFSET is used for the read — is it bounds-checked against the buffer size before use?"
+    - "Could the index or offset be influenced by user input, a function return value, or a computation that could exceed the buffer size?"
+    - "Is the result of the read used in a sensitive context (returned to user, written to network/file, used to control further memory access)?"
+    - "Are safer read idioms used (fgets with size, strnlen, memcpy with explicit size) instead of unbounded reads (gets, strcpy, sprintf)?"
+    - "Are there mitigating factors — ASLR, test code, sanitizer enabled in production, or internal-only use?"
+  context_hint: "Need buffer declaration and all callers providing the index or read length."
+  additional_context: ["caller", "struct"]
+
+cpp/use-of-uninitialized-variable:
+  short_description: "Variable read before being assigned a defined value"
+  questions:
+    - "On what code path is the variable DECLARED but NOT initialized before the flagged read?"
+    - "Is initialization CONDITIONAL — only happens in some branches? List the branches that skip initialization."
+    - "What is the IMPACT if the variable holds stack garbage — could it affect control flow, memory safety, or output?"
+    - "Is the variable a struct or array — if so, is only a portion of it uninitialized while the rest is used?"
+    - "Does the calling code zero-initialize the containing struct or buffer before passing it to this function?"
+    - "Are there mitigating factors — is the uninitialized read in a dead code branch, an assert, or test-only path?"
+  context_hint: "Trace all code paths from variable declaration to the flagged read."
+  additional_context: ["caller", "struct"]
