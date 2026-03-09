@@ -22,3 +22,10 @@ uv.lock
 # Benchmarks — large datasets and results are git-ignored
 benchmarks/datasets/
 benchmarks/results/
+
+# IDE and local tooling — not committed
+.claude/
+.cursor/
+CLAUDE.md
+docs/plans/
+.ruff_cache/
