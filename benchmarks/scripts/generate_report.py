@@ -108,6 +108,13 @@ def _key_findings(summaries: list[dict]) -> str:
 
     bullets: list[str] = []
 
+    if raw_sast is not None:
+        bullets.append(
+            "**Raw-SAST baseline**: "
+            f"F1={_pct(raw_sast.get('f1'))}, "
+            f"Precision={_pct(raw_sast.get('precision'))}, "
+            f"Recall={_pct(raw_sast.get('recall'))}."
+        )
     # Best F1 approach
     scored = [(s.get("f1") or 0, s) for s in llm_summaries if s.get("f1") is not None]
     if scored:
