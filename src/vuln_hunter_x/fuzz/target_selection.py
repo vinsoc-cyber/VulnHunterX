@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from pathlib import Path
 
 from vuln_hunter_x.core.types import Finding
 from vuln_hunter_x.fuzz.fuzz_context import load_callers, load_structs
+
+logger = logging.getLogger(__name__)
 
 # Verdict values we use for filtering
 VERDICT_TP = "True Positive"
@@ -81,6 +84,7 @@ def load_verification_verdicts(
                     finding = _finding_from_dict(data)
                     out.append((finding, verdict))
                 except Exception:
+                    logger.debug("Failed to load verdict from %s", json_file, exc_info=True)
                     continue
     return out
 
@@ -106,6 +110,7 @@ def get_findings_from_sarif(
         try:
             findings.extend(parse_sarif_file(sarif_path, lang, repo_name))
         except Exception:
+            logger.debug("Failed to parse SARIF %s", sarif_path, exc_info=True)
             continue
     return findings
 
@@ -148,7 +153,7 @@ def find_enclosing_function(
                     candidates.sort(key=lambda x: x[0])
                     return candidates[0][1]
         except Exception:
-            pass
+            logger.debug("Failed to read functions.csv in %s", repo_context_dir, exc_info=True)
 
     # Fallback: function_signatures.csv (group by name, file, start_line, end_line)
     sigs_csv = repo_ctx / "function_signatures.csv"
@@ -173,7 +178,7 @@ def find_enclosing_function(
                     candidates.sort(key=lambda x: x[0])
                     return candidates[0][1]
         except Exception:
-            pass
+            logger.debug("Failed to read function_signatures.csv in %s", repo_context_dir, exc_info=True)
 
     return None
 

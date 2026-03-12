@@ -14,19 +14,26 @@ from vuln_hunter_x.core.types import Finding, Verdict
 
 def cmd_check_env(args: argparse.Namespace) -> int:
     """Execute check-env command."""
-    from vuln_hunter_x.cli.env import run_env_check
+    from vuln_hunter_x.cli.env import load_config_for_check, run_env_check
 
     results = run_env_check()
 
     # Check if CodeQL is available (required)
     codeql_ok = results.get("codeql", (False, ""))[0]
+    config = load_config_for_check()
+    provider = (os.environ.get("LLM_PROVIDER") or config.get("provider", "openai")).lower()
+    provider_ok = results.get(provider, (False, "Not configured"))[0]
 
-    if codeql_ok:
-        print("Environment check passed. CodeQL is available.")
+    if codeql_ok and provider_ok:
+        print(f"Environment check passed. CodeQL and {provider} are available.")
         return 0
-    else:
+
+    if not codeql_ok:
         print("Environment check failed. CodeQL is required for analysis.")
         return 1
+
+    print(f"Environment check failed. Configured provider '{provider}' is not ready.")
+    return 1
 
 
 def cmd_clone(args: argparse.Namespace) -> int:

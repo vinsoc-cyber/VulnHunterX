@@ -88,6 +88,10 @@ repos:
     url: https://github.com/xiph/flac.git
     language: c
     build_command: "mkdir -p build && cd build && cmake .. && make"
+  - name: vorbis
+    url: https://github.com/xiph/vorbis.git
+    language: c
+    build_command: "./autogen.sh && ./configure && make"
 
   # --- C++ (OSS-Fuzz) ---
   - name: nghttp2
@@ -134,9 +138,9 @@ repos:
   # They are commented out to keep the default `vuln-hunter-x clone` run lightweight.
   # To include them, uncomment the desired entries.
   #
-  # - name: webgoat
-  #   url: https://github.com/WebGoat/WebGoat.git
-  #   language: java
+  - name: webgoat
+    url: https://github.com/WebGoat/WebGoat.git
+    language: java
 
   # --- Java (Intentionally Vulnerable) ---
   # - name: dvja
@@ -178,6 +182,9 @@ repos:
   - name: nodegoat
     url: https://github.com/OWASP/NodeGoat.git
     language: javascript
+  - name: dvwa
+    url: https://github.com/digininja/DVWA.git
+    language: php
   - name: dvpwa
     url: https://github.com/anxolerd/dvpwa.git
     language: python

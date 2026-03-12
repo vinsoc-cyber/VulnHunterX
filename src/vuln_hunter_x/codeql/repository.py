@@ -2,12 +2,28 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 import subprocess
 import shutil
 from pathlib import Path
 
 import yaml
+
+from vuln_hunter_x.core.validation import (
+    normalize_ollama_model,
+    openai_compat_kwargs,
+    validate_repo_name,
+)
+
+logger = logging.getLogger(__name__)
+
+# Pattern for validating git URLs (https, git, ssh protocols or local paths)
+_GIT_URL_RE = re.compile(
+    r"^(https?://|git://|ssh://|git@)[\w\.\-/~:@]+$"
+    r"|^/[\w\.\-/]+$"  # absolute local path
+)
 
 
 def load_repos_config(config_path: Path) -> list[dict]:
@@ -136,7 +152,7 @@ def ask_llm_for_build_help(
     
     use_ollama = not api_key or os.environ.get("LLM_PROVIDER", "").lower() == "ollama"
     if use_ollama:
-        model = ollama_model if ollama_model.startswith("ollama/") else f"ollama/{ollama_model}"
+        model = normalize_ollama_model(ollama_model)
     elif not api_key:
         return None
     
@@ -172,10 +188,18 @@ Be specific and actionable. Include exact commands to run."""
             kwargs["api_base"] = api_base.rstrip("/")
         if api_key and not use_ollama:
             kwargs["api_key"] = api_key
+            kwargs.update(
+                openai_compat_kwargs(
+                    provider="openai",
+                    model=model,
+                    stream=False,
+                )
+            )
         
         resp = litellm.completion(**kwargs)
         return (resp.choices[0].message.content or "").strip()
     except Exception:
+        logger.warning("LLM build help request failed for %s", repo_name, exc_info=True)
         return None
 
 
@@ -226,6 +250,11 @@ class RepositoryManager:
         Returns:
             Tuple of (success, message)
         """
+        try:
+            validate_repo_name(name)
+        except ValueError as e:
+            return False, str(e)
+
         repo_dir = (self.repos_dir / language / name).resolve()
         db_dir = (self.output_dir / language / name / "database").resolve()
         

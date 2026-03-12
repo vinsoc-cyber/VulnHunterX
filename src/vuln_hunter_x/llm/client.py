@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -10,7 +11,18 @@ from typing import Any
 
 import litellm
 
+logger = logging.getLogger(__name__)
+
 from vuln_hunter_x.context.provider import ContextProvider
+from vuln_hunter_x.core.validation import openai_compat_kwargs
+from vuln_hunter_x.core.constants import (
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_MODEL,
+    DEFAULT_LLM_PROVIDER,
+    DEFAULT_LLM_TEMPERATURE,
+    DEFAULT_MAX_ITERATIONS,
+    DEFAULT_OLLAMA_BASE_URL,
+)
 from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
 from vuln_hunter_x.llm.prompts import PromptBuilder
 
@@ -24,11 +36,19 @@ class LLMClient:
 
     def __init__(
         self,
-        provider: str = "openai",
-        model: str = "gpt-4o",
-        temperature: float = 0.2,
-        max_tokens: int = 1500,
+        provider: str = DEFAULT_LLM_PROVIDER,
+        model: str = DEFAULT_LLM_MODEL,
+        temperature: float = DEFAULT_LLM_TEMPERATURE,
+        max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
     ):
+        """Initialize the LLM client.
+
+        Args:
+            provider: LLM provider ("openai", "anthropic", or "ollama").
+            model: Model name (e.g. "gpt-4o", "claude-sonnet-4-20250514").
+            temperature: Sampling temperature for LLM responses.
+            max_tokens: Maximum tokens in LLM response.
+        """
         self.provider = provider
         self.model = model
         self.temperature = temperature
@@ -37,13 +57,42 @@ class LLMClient:
 
         # Configure provider-specific settings
         if provider == "ollama":
-            ollama_base = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
+            ollama_base = os.environ.get("OLLAMA_API_BASE", DEFAULT_OLLAMA_BASE_URL)
             os.environ["OLLAMA_API_BASE"] = ollama_base
         elif provider == "anthropic":
             # LiteLLM reads ANTHROPIC_API_KEY from the environment automatically.
             # Prefix the model name so LiteLLM routes to the Anthropic backend.
             if not self.model.startswith("anthropic/"):
                 self.model = "anthropic/" + self.model
+
+    def _build_completion_kwargs(self, messages: list[dict]) -> dict:
+        """Build kwargs for litellm.completion with provider-specific settings."""
+        model = self.model
+        api_base = None
+        if self.provider == "openai":
+            api_base = (
+                os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
+            ).strip()
+            api_base = api_base.rstrip("/") if api_base else None
+            if api_base and not model.startswith("openai/"):
+                model = "openai/" + model
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+        }
+        if api_base:
+            kwargs["api_base"] = api_base
+        kwargs.update(
+            openai_compat_kwargs(
+                provider=self.provider,
+                model=model,
+                api_base=api_base,
+                stream=False,
+            )
+        )
+        return kwargs
 
     def analyze(
         self,
@@ -135,23 +184,7 @@ class LLMClient:
                 print("    Calling LLM...", end="", flush=True)
 
             try:
-                model = self.model
-                api_base = None
-                if self.provider == "openai":
-                    api_base = (
-                        os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
-                    ).strip()
-                    api_base = api_base.rstrip("/") if api_base else None
-                    if api_base and not model.startswith("openai/"):
-                        model = "openai/" + model
-                kwargs = {
-                    "model": model,
-                    "messages": messages,
-                    "temperature": self.temperature,
-                    "max_tokens": self.max_tokens,
-                }
-                if api_base:
-                    kwargs["api_base"] = api_base
+                kwargs = self._build_completion_kwargs(messages)
                 response = litellm.completion(**kwargs)
                 if not response.choices:
                     raise ValueError("LLM returned empty choices list")
@@ -164,7 +197,7 @@ class LLMClient:
                 try:
                     total_cost_usd += litellm.completion_cost(completion_response=response)
                 except Exception:
-                    pass
+                    logger.debug("Could not compute completion cost", exc_info=True)
 
                 if not verbose and not quiet:
                     print(f" done ({len(raw_response)} chars)")
@@ -206,8 +239,7 @@ class LLMClient:
                             verdict = parsed.get("verdict", "False Positive")
                             iterations += 1
                         except Exception:
-                            # Force decision failed; keep original NMD
-                            pass
+                            logger.debug("Force decision turn failed", exc_info=True)
 
                     elapsed = time.time() - start_time
 
@@ -313,7 +345,7 @@ class LLMClient:
                     cost_usd=total_cost_usd,
                 )
             except Exception:
-                pass
+                logger.debug("Force decision after max iterations failed", exc_info=True)
 
         elapsed = time.time() - start_time
         return Verdict(
@@ -345,23 +377,7 @@ class LLMClient:
     ) -> tuple[dict[str, Any], str, int, float]:
         """Execute one forced-decision LLM turn. Returns (parsed, raw, tokens, cost)."""
         messages.append({"role": "user", "content": self._FORCE_DECISION_PROMPT})
-        model = self.model
-        api_base = None
-        if self.provider == "openai":
-            api_base = (
-                os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
-            ).strip()
-            api_base = api_base.rstrip("/") if api_base else None
-            if api_base and not model.startswith("openai/"):
-                model = "openai/" + model
-        kwargs = {
-            "model": model,
-            "messages": messages,
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-        }
-        if api_base:
-            kwargs["api_base"] = api_base
+        kwargs = self._build_completion_kwargs(messages)
         response = litellm.completion(**kwargs)
         raw = response.choices[0].message.content or "" if response.choices else ""
         all_raw_responses.append(raw)
@@ -370,7 +386,7 @@ class LLMClient:
         try:
             total_cost_usd += litellm.completion_cost(completion_response=response)
         except Exception:
-            pass
+            logger.debug("Could not compute completion cost for force decision", exc_info=True)
         parsed = self._parse_response(raw)
         # If still NMD, force to FP with Low confidence
         if parsed.get("verdict") == "Needs More Data":

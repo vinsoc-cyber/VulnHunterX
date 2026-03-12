@@ -55,6 +55,15 @@ class VerificationEngine:
         context_provider: ContextProvider | None = None,
         llm_client: LLMClient | None = None,
     ):
+        """Initialize the verification engine.
+
+        Args:
+            config: Application configuration.
+            questions_loader: Custom questions loader (default: auto-created from config).
+            context_extractor: Custom context extractor (default: auto-created from config).
+            context_provider: Custom CSV context provider (default: auto-created from config).
+            llm_client: Custom LLM client (default: auto-created from config).
+        """
         self.config = config
         
         # Initialize components

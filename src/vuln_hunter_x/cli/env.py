@@ -9,6 +9,8 @@ from pathlib import Path
 
 import yaml
 
+from vuln_hunter_x.core.validation import openai_compat_kwargs
+
 
 def load_config_for_check() -> dict:
     """Load config from confirm_findings.yaml for environment checks."""
@@ -169,6 +171,14 @@ def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[
         }
         if api_base:
             kwargs["api_base"] = api_base
+        kwargs.update(
+            openai_compat_kwargs(
+                provider="openai",
+                model=model,
+                api_base=api_base,
+                stream=False,
+            )
+        )
         resp = litellm.completion(**kwargs)
         text = (resp.choices[0].message.content or "").strip()
         return True, f"OpenAI ({model}): {text[:50]}"
@@ -199,9 +209,9 @@ def check_ollama(
     if not model:
         return False, "No Ollama model configured"
     
-    if not model.startswith("ollama/"):
-        model = f"ollama/{model}"
-    
+    from vuln_hunter_x.core.validation import normalize_ollama_model as _norm_ollama
+    model = _norm_ollama(model)
+
     api_base = api_base or os.environ.get("OLLAMA_API_BASE") or os.environ.get("OLLAMA_BASE_URL") or ""
     api_base = api_base.strip() or None
     
@@ -291,7 +301,8 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
 
     # Ollama - test if provider is ollama or model starts with ollama/
     if provider == "ollama" or model.startswith("ollama/"):
-        ollama_model = model if model.startswith("ollama/") else f"ollama/{model}"
+        from vuln_hunter_x.core.validation import normalize_ollama_model
+        ollama_model = normalize_ollama_model(model)
         ok, msg = check_ollama(model=ollama_model)
         results["ollama"] = (ok, msg)
         if not quiet:

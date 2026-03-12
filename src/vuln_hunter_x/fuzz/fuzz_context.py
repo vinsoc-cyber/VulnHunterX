@@ -7,7 +7,10 @@ Loads function_signatures.csv and includes.csv for harness generation.
 from __future__ import annotations
 
 import csv
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_path(p: str) -> str:
@@ -42,6 +45,7 @@ def load_function_signatures(repo_context_dir: Path) -> list[dict]:
                     "param_name": row.get("param_name", ""),
                 })
     except Exception:
+        logger.warning("Failed to load function_signatures.csv from %s", repo_context_dir, exc_info=True)
         return []
 
     out = []
@@ -78,7 +82,7 @@ def load_includes(repo_context_dir: Path) -> dict[str, list[str]]:
                 if inc and inc not in result[file]:
                     result[file].append(inc)
     except Exception:
-        pass
+        logger.warning("Failed to load includes.csv from %s", repo_context_dir, exc_info=True)
     return result
 
 
@@ -100,7 +104,7 @@ def load_structs(repo_context_dir: Path) -> dict[str, list[str]]:
                     if member:
                         result[name].append(member)
     except Exception:
-        pass
+        logger.warning("Failed to load structs.csv from %s", repo_context_dir, exc_info=True)
     return result
 
 
@@ -114,6 +118,7 @@ def load_globals(repo_context_dir: Path) -> list[dict]:
             reader = csv.DictReader(f)
             return list(reader)
     except Exception:
+        logger.warning("Failed to load globals.csv from %s", repo_context_dir, exc_info=True)
         return []
 
 
@@ -132,7 +137,7 @@ def load_macros(repo_context_dir: Path) -> dict[str, str]:
                 if name:
                     result[name] = body
     except Exception:
-        pass
+        logger.warning("Failed to load macros.csv from %s", repo_context_dir, exc_info=True)
     return result
 
 
@@ -154,7 +159,7 @@ def load_callers(repo_context_dir: Path) -> dict[str, list[str]]:
                     if caller not in result[callee]:
                         result[callee].append(caller)
     except Exception:
-        pass
+        logger.warning("Failed to load callers.csv from %s", repo_context_dir, exc_info=True)
     return result
 
 

@@ -688,6 +688,8 @@ Ready-to-run pipeline examples:
 | `examples/pipeline_cpp.py`        | C++        | re2        |
 | `examples/pipeline_python.py`     | Python     | pyyaml     |
 | `examples/pipeline_javascript.py` | JavaScript | minimist   |
+| `examples/pipeline_java.py`       | Java       | webgoat    |
+| `examples/pipeline_php.py`        | PHP        | dvwa       |
 
 All scripts support:
 

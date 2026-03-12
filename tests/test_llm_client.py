@@ -227,3 +227,25 @@ class TestLLMClientAnalyze:
 
         assert verdict.verdict == "Error"
         assert "Network unreachable" in verdict.reasoning
+
+
+class TestLLMClientKwargs:
+    """Tests for provider-specific completion kwargs."""
+
+    def test_build_completion_kwargs_openai_sets_enable_thinking_false(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
+        monkeypatch.delenv("OPENAI_ENABLE_THINKING", raising=False)
+        client = LLMClient(provider="openai", model="qwen3-8b")
+
+        kwargs = client._build_completion_kwargs([{"role": "user", "content": "ok"}])
+
+        assert kwargs["model"].startswith("openai/")
+        assert kwargs["enable_thinking"] is False
+
+    def test_build_completion_kwargs_respects_enable_thinking_env_override(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_ENABLE_THINKING", "true")
+        client = LLMClient(provider="openai", model="gpt-4o")
+
+        kwargs = client._build_completion_kwargs([{"role": "user", "content": "ok"}])
+
+        assert kwargs["enable_thinking"] is True

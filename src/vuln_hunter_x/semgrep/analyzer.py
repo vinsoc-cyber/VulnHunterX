@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import shutil
 import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# Semgrep configs must be: local file paths, "auto", or registry rules (e.g. "p/security-audit")
+_VALID_CONFIG_RE = re.compile(r"^(auto|p/[\w\-/]+|r/[\w\-/\.]+)$")
 
 
 class SemgrepAnalyzer:
@@ -24,6 +31,13 @@ class SemgrepAnalyzer:
         output_dir: Path | None = None,
         verbose: bool = False,
     ):
+        """Initialize the Semgrep analyzer.
+
+        Args:
+            semgrep_path: Path to the semgrep binary (default: from SEMGREP_PATH env or "semgrep").
+            output_dir: Base output directory for SARIF results.
+            verbose: Enable verbose logging output.
+        """
         self.semgrep_path = semgrep_path or os.environ.get("SEMGREP_PATH", "semgrep")
         self.output_dir = output_dir or Path("output")
         self.verbose = verbose
@@ -65,9 +79,21 @@ class SemgrepAnalyzer:
         if not shutil.which(self.semgrep_path):
             return False, None, "semgrep not found (set SEMGREP_PATH or install semgrep)"
 
+        # Validate configs: allow local paths, "auto", or known registry patterns
+        validated_configs = []
+        for c in configs:
+            if _VALID_CONFIG_RE.match(c):
+                validated_configs.append(c)
+            elif Path(c).is_file() or Path(c).is_dir():
+                validated_configs.append(str(Path(c).resolve()))
+            else:
+                logger.warning("Skipping invalid Semgrep config: %s", c)
+        if not validated_configs:
+            return False, None, "No valid Semgrep configs after validation"
+
         self._log(f"  Repo: {repo_path}")
         self._log(f"  Output: {sarif_path}")
-        self._log(f"  Configs: {configs}")
+        self._log(f"  Configs: {validated_configs}")
 
         argv = [
             self.semgrep_path,
@@ -75,7 +101,7 @@ class SemgrepAnalyzer:
             "--sarif",
             f"--sarif-output={sarif_path}",
         ]
-        for c in configs:
+        for c in validated_configs:
             argv.append("--config")
             argv.append(c)
         argv.append(str(repo_path.resolve()))

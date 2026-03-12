@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import csv
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class ContextProvider:
@@ -19,6 +22,12 @@ class ContextProvider:
     """
     
     def __init__(self, output_dir: Path, repos_dir: Path):
+        """Initialize the context provider.
+
+        Args:
+            output_dir: Base output directory containing pre-extracted CSV context files.
+            repos_dir: Base directory containing cloned repository source code.
+        """
         self.output_dir = Path(output_dir)
         self.repos_dir = Path(repos_dir)
         self._cache: dict[str, list[dict]] = {}
@@ -99,8 +108,9 @@ class ContextProvider:
             self._cache[cache_key] = rows
             return rows
         except Exception:
+            logger.warning("Failed to load CSV %s for %s/%s", csv_name, lang, repo_name, exc_info=True)
             return []
-    
+
     def _read_lines(
         self,
         repo_name: str,
@@ -110,18 +120,30 @@ class ContextProvider:
         end: int,
     ) -> str:
         """Read specific lines from a source file."""
+        base_dir = (self.repos_dir / lang).resolve()
         full_path = self.repos_dir / lang / repo_name / file_path
         if not full_path.is_file():
             # Try without repo_name in path
-            for repo_dir in (self.repos_dir / lang).iterdir():
-                candidate = repo_dir / file_path
-                if candidate.is_file():
-                    full_path = candidate
-                    break
-        
+            lang_dir = self.repos_dir / lang
+            if lang_dir.is_dir():
+                for repo_dir in lang_dir.iterdir():
+                    candidate = repo_dir / file_path
+                    if candidate.is_file():
+                        full_path = candidate
+                        break
+
+        # Guard against path traversal
+        try:
+            resolved = full_path.resolve()
+            if not resolved.is_relative_to(base_dir):
+                logger.warning("Path traversal blocked: %s escapes %s", file_path, base_dir)
+                return f"[Access denied: {file_path}]"
+        except (ValueError, OSError):
+            return f"[Invalid path: {file_path}]"
+
         if not full_path.is_file():
             return f"[File not found: {file_path}]"
-        
+
         try:
             lines = full_path.read_text(errors='replace').splitlines()
             start_idx = max(0, start - 1)

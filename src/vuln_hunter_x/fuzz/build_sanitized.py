@@ -8,12 +8,16 @@ and writes a manifest for linking fuzz harnesses.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 # Default sanitizer flags for C/C++
@@ -85,18 +89,14 @@ def run_sanitized_build(
     if not work_dir.is_dir():
         return False, f"Work directory does not exist: {work_dir}"
 
-    script = work_dir / ".sanitized_build.sh"
-    script_content = (
-        "#!/bin/sh\nset -e\n\n"
-        f'cd "{work_dir}"\n\n'
-        f"{build_command}\n"
-    )
-    script.write_text(script_content, encoding="utf-8")
-    script.chmod(0o755)
-
+    # Security note: build_command comes from repos.yaml which is a trusted,
+    # operator-controlled config file. We use shell=True because build commands
+    # are inherently shell expressions (e.g. "mkdir -p build && cd build && cmake ..").
+    # The shlex.quote on work_dir prevents injection via directory names.
     try:
         result = subprocess.run(
-            [str(script)],
+            f"set -e; cd {shlex.quote(str(work_dir))}; {build_command}",
+            shell=True,
             cwd=str(work_dir),
             env=env,
             capture_output=True,

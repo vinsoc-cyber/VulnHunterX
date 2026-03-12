@@ -62,6 +62,8 @@ Output shows verdicts (True Positive, False Positive, Needs More Data) with conf
 | `examples/pipeline_javascript.py` | JavaScript | Known vulnerabilities |
 | `examples/pipeline_c.py` | C | Requires build tools |
 | `examples/pipeline_cpp.py` | C++ | Requires CMake |
+| `examples/pipeline_java.py` | Java | Requires Java build tooling |
+| `examples/pipeline_php.py` | PHP | Web app security demo target |
 
 All scripts support: `--dry-run`, `--skip-clone`, `--api`
 

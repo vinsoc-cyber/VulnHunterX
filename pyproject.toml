@@ -24,16 +24,16 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
-    "litellm>=1.50.0",
-    "python-dotenv>=1.0.0",
-    "pyyaml>=6.0",
-    "tree-sitter>=0.23",
-    "tree-sitter-c>=0.23",
-    "tree-sitter-cpp>=0.23",
-    "tree-sitter-python>=0.23",
-    "tree-sitter-javascript>=0.23",
-    "tree-sitter-java>=0.23",
-    "tree-sitter-php>=0.23",
+    "litellm>=1.50.0,<2.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+    "pyyaml>=6.0,<7.0.0",
+    "tree-sitter>=0.23,<1.0.0",
+    "tree-sitter-c>=0.23,<1.0.0",
+    "tree-sitter-cpp>=0.23,<1.0.0",
+    "tree-sitter-python>=0.23,<1.0.0",
+    "tree-sitter-javascript>=0.23,<1.0.0",
+    "tree-sitter-java>=0.23,<1.0.0",
+    "tree-sitter-php>=0.23,<1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -53,11 +53,10 @@ benchmark = [
 [project.scripts]
 vuln-hunter-x = "vuln_hunter_x.cli.main:main"
 
-# [project.urls]
-# Update these URLs when publishing to a repository
-# Homepage = "https://github.com/vinsoc-cyber/VulnHunterX"
-# Documentation = "https://github.com/vinsoc-cyber/VulnHunterX#readme"
-# Repository = "https://github.com/vinsoc-cyber/VulnHunterX"
+[project.urls]
+Homepage = "https://github.com/vinsoc-cyber/VulnHunterX"
+Documentation = "https://github.com/vinsoc-cyber/VulnHunterX#readme"
+Repository = "https://github.com/vinsoc-cyber/VulnHunterX"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

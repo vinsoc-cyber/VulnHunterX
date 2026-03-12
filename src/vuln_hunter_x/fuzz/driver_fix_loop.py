@@ -7,9 +7,14 @@ replace file, re-run build; repeat up to max iterations.
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Callable
+
+from vuln_hunter_x.core.validation import normalize_ollama_model, openai_compat_kwargs
+
+logger = logging.getLogger(__name__)
 
 # Must appear in LLM output for us to accept it
 REQUIRED_ENTRY = "LLVMFuzzerTestOneInput"
@@ -100,7 +105,7 @@ def make_llm_fix_fn(provider: str, model: str, max_tokens: int = 4000, type_cont
     import litellm
 
     if provider == "ollama":
-        model_id = f"ollama/{model}" if not model.startswith("ollama/") else model
+        model_id = normalize_ollama_model(model)
     else:
         model_id = model
 
@@ -126,17 +131,28 @@ Errors:
 {type_ctx_section}
 Respond with the corrected full C++ source only (use a ```cpp ... ``` block or plain code)."""
         try:
-            resp = litellm.completion(
-                model=model_id,
-                messages=[
+            kwargs = {
+                "model": model_id,
+                "messages": [
                     {"role": "system", "content": FUZZ_FIX_SYSTEM},
                     {"role": "user", "content": user},
                 ],
-                max_tokens=max_tokens,
+                "max_tokens": max_tokens,
+            }
+            kwargs.update(
+                openai_compat_kwargs(
+                    provider=provider,
+                    model=model_id,
+                    stream=False,
+                )
+            )
+            resp = litellm.completion(
+                **kwargs,
             )
             content = (resp.choices or [{}])[0].get("message", {}).get("content") or ""
             return content
         except Exception:
+            logger.warning("LLM fix completion failed", exc_info=True)
             return ""
 
     return complete

@@ -9,15 +9,24 @@ from typing import Any
 
 import yaml
 
+from vuln_hunter_x.core.constants import (
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_MODEL,
+    DEFAULT_LLM_PROVIDER,
+    DEFAULT_LLM_TEMPERATURE,
+    DEFAULT_MAX_ITERATIONS,
+    DEFAULT_OLLAMA_BASE_URL,
+)
+
 
 @dataclass
 class LLMConfig:
     """LLM provider configuration."""
-    provider: str = "openai"
-    model: str = "gpt-4o"
-    temperature: float = 0.2
-    max_tokens: int = 1500
-    ollama_base_url: str = "http://localhost:11434"
+    provider: str = DEFAULT_LLM_PROVIDER
+    model: str = DEFAULT_LLM_MODEL
+    temperature: float = DEFAULT_LLM_TEMPERATURE
+    max_tokens: int = DEFAULT_LLM_MAX_TOKENS
+    ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
     
     @property
     def is_openai(self) -> bool:
@@ -35,7 +44,7 @@ class LLMConfig:
 @dataclass
 class VerificationConfig:
     """Verification configuration (LLM multi-turn only)."""
-    max_iterations: int = 3
+    max_iterations: int = DEFAULT_MAX_ITERATIONS
     force_decision: bool = True
 
 
@@ -119,18 +128,18 @@ class Config:
     def from_dict(cls, data: dict[str, Any], base_path: Path | None = None) -> Config:
         """Create config from dictionary."""
         # Ollama URL comes from environment only (not from YAML config)
-        ollama_url = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
-        
+        ollama_url = os.environ.get("OLLAMA_API_BASE", DEFAULT_OLLAMA_BASE_URL)
+
         llm = LLMConfig(
-            provider=data.get("provider", "openai"),
-            model=data.get("model", "gpt-4o"),
-            temperature=data.get("temperature", 0.2),
-            max_tokens=data.get("max_tokens", 1500),
+            provider=data.get("provider", DEFAULT_LLM_PROVIDER),
+            model=data.get("model", DEFAULT_LLM_MODEL),
+            temperature=data.get("temperature", DEFAULT_LLM_TEMPERATURE),
+            max_tokens=data.get("max_tokens", DEFAULT_LLM_MAX_TOKENS),
             ollama_base_url=ollama_url,
         )
         
         verification = VerificationConfig(
-            max_iterations=data.get("max_iterations", 3),
+            max_iterations=data.get("max_iterations", DEFAULT_MAX_ITERATIONS),
             force_decision=data.get("force_decision", True),
         )
         

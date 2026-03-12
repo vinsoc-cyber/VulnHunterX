@@ -80,6 +80,11 @@ class SarifParser:
     """Parser for SARIF (Static Analysis Results Interchange Format) files."""
 
     def __init__(self, sarif_path: Path):
+        """Initialize the SARIF parser.
+
+        Args:
+            sarif_path: Path to the SARIF file to parse.
+        """
         self.sarif_path = Path(sarif_path)
         self._data: dict | None = None
 
