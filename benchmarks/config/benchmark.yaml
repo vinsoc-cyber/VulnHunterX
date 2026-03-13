@@ -20,7 +20,7 @@ llm:
 
 # ── Verification settings ─────────────────────────────────────────────────────
 verification:
-  max_iterations: 3       # multi-turn rounds for vulnhunterx / generic-questions
+  max_iterations: 10      # multi-turn rounds for vulnhunterx / generic-questions
   # Iteration sweep: run vulnhunterx at each of these values to measure
   # the marginal accuracy gain per additional context round.
   # Enable via: python run_benchmark.py --iteration-sweep

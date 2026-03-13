@@ -37,11 +37,15 @@ class BenchmarkResult:
     cost_usd: float = 0.0
     iterations: int = 0
     raw_response: str = ""
+    question_match_type: str = ""  # "exact"|"normalized"|"prefix"|"lang_prefix"|"default"|"generic"
 
     def to_dict(self) -> dict:
         return {
             "entry_id": self.entry.id,
             "source_dataset": self.entry.source_dataset,
+            "cwe_id": self.entry.cwe_id,
+            "rule_id": self.entry.rule_id,
+            "lang": self.entry.lang,
             "ground_truth_label": self.entry.label,
             "predicted_label": self.predicted_label,
             "confidence": self.confidence,
@@ -50,6 +54,7 @@ class BenchmarkResult:
             "tokens_used": self.tokens_used,
             "cost_usd": self.cost_usd,
             "iterations": self.iterations,
+            "question_match_type": self.question_match_type,
         }
 
     @classmethod
@@ -86,6 +91,7 @@ class BenchmarkResult:
             tokens_used=int(data.get("tokens_used", 0)),
             cost_usd=float(data.get("cost_usd", 0.0)),
             iterations=int(data.get("iterations", 0)),
+            question_match_type=data.get("question_match_type", ""),
         )
 
 
@@ -180,3 +186,21 @@ class _SnippetContextExtractor(ContextExtractor):
             end_line=len(self._snippet.splitlines()),
             file_path=file_path,
         )
+
+
+def _dry_run_result(entry: GroundTruthEntry, approach_name: str) -> BenchmarkResult:
+    """Return a deterministic mock result for dry-run testing."""
+    import hashlib
+
+    seed = int(hashlib.md5(entry.id.encode()).hexdigest()[:4], 16) % 3  # noqa: S324
+    labels = ["TP", "FP", "NMD"]
+    return BenchmarkResult(
+        entry=entry,
+        predicted_label=labels[seed],
+        confidence="Medium",
+        reasoning=f"[dry-run] {approach_name} mock result",
+        elapsed_seconds=0.001,
+        tokens_used=0,
+        cost_usd=0.0,
+        iterations=1,
+    )
