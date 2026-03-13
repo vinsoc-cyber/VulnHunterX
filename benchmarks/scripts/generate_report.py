@@ -86,8 +86,8 @@ def _run_metadata(run_dir: Path, summaries: list[dict]) -> str:
     lines = [
         "## Run Info",
         "",
-        f"| | |",
-        f"| --- | --- |",
+        "| | |",
+        "| --- | --- |",
         f"| **Model** | {model_str}{' *(dry-run)*' if dry_run else ''} |",
         f"| **Datasets** | {', '.join(datasets)} |",
         f"| **Approaches** | {', '.join(approaches)} |",
@@ -104,7 +104,7 @@ def _key_findings(summaries: list[dict]) -> str:
         return ""
 
     llm_summaries = [s for s in summaries if s.get("approach") != "raw-sast"]
-    raw_sast = next((s for s in summaries if s.get("approach") == "raw-sast"), None)
+    next((s for s in summaries if s.get("approach") == "raw-sast"), None)
 
     bullets: list[str] = []
 
@@ -469,8 +469,8 @@ def _cost_table(summaries: list[dict]) -> str:
 def _generate_charts(summaries: list[dict], out_dir: Path) -> list[tuple[str, str]]:
     """Generate matplotlib charts if available. Returns list of (path, title) tuples."""
     try:
-        import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
+        import matplotlib.pyplot as plt
         import numpy as np
     except ImportError:
         logger.warning("matplotlib not installed; skipping charts. pip install matplotlib")
@@ -672,14 +672,14 @@ def _generate_charts(summaries: list[dict], out_dir: Path) -> list[tuple[str, st
         fig, ax = plt.subplots(figsize=(max(6, len(ms_approaches) * 1.5), 5))
         xpos = list(range(len(ms_approaches)))
         bottoms = [0.0] * len(ms_approaches)
-        for j, (mt_label, color) in enumerate(zip(match_labels, match_colors)):
+        for j, (mt_label, color) in enumerate(zip(match_labels, match_colors, strict=False)):
             vals = [pct_matrix[i][j] for i in range(len(ms_approaches))]
             if any(v > 0 for v in vals):
                 ax.bar(xpos, vals, bottom=bottoms, label=mt_label, color=color)
-                for i, (v, b) in enumerate(zip(vals, bottoms)):
+                for i, (v, b) in enumerate(zip(vals, bottoms, strict=False)):
                     if v > 5:
                         ax.text(i, b + v / 2, f"{v:.0f}%", ha="center", va="center", fontsize=7, color="white")
-                bottoms = [b + v for b, v in zip(bottoms, vals)]
+                bottoms = [b + v for b, v in zip(bottoms, vals, strict=False)]
         ax.set_xticks(xpos)
         ax.set_xticklabels(ms_approaches, rotation=20, ha="right")
         ax.set_ylabel("% of findings")

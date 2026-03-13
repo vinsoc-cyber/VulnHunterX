@@ -793,6 +793,15 @@ def main() -> int:
         run_dir, wall_elapsed, total_cost,
         quiet=args.quiet,
     )
+
+    # Auto-generate report with charts after run completes
+    try:
+        from benchmarks.scripts.generate_report import generate_report as _generate_report
+        report_path = _generate_report(run_dir, include_charts=True)
+        logger.info("Report generated: %s", report_path)
+    except Exception:
+        logger.warning("Report generation failed", exc_info=True)
+
     return 0
 
 
