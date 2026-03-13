@@ -92,19 +92,40 @@ class QuestionsLoader:
         Returns:
             GuidedQuestions for the rule
         """
+        questions, _ = self.get_questions_with_match_info(rule_id)
+        return questions
+
+    def get_questions_with_match_info(self, rule_id: str) -> tuple[GuidedQuestions, str]:
+        """
+        Get guided questions for a rule and the match type used to find them.
+
+        Match types (in order of preference):
+          "exact"      — direct key lookup
+          "normalized" — hyphens replaced with slashes
+          "prefix"     — bidirectional prefix match
+          "lang_prefix"— same language prefix, partial rule-name match
+          "default"    — fell back to default_questions.yaml
+          "generic"    — programmatically generated fallback
+
+        Args:
+            rule_id: The CodeQL rule ID (e.g., "cpp/use-after-free")
+
+        Returns:
+            (GuidedQuestions, match_type_str)
+        """
         # Try exact match
         if rule_id in self.questions:
-            return self.questions[rule_id]
+            return self.questions[rule_id], "exact"
 
         # Try normalized (replace - with /)
         normalized = rule_id.replace("-", "/")
         if normalized in self.questions:
-            return self.questions[normalized]
+            return self.questions[normalized], "normalized"
 
         # Try prefix match (e.g., "cpp/sql-injection" matches "cpp/sql")
         for key in self.questions:
             if rule_id.startswith(key) or key.startswith(rule_id):
-                return self.questions[key]
+                return self.questions[key], "prefix"
 
         # Try language prefix match
         parts = rule_id.split("/")
@@ -115,7 +136,7 @@ class QuestionsLoader:
             # Try to find similar rule in same language
             for key, q in self.questions.items():
                 if key.startswith(f"{lang}/") and rule_name in key:
-                    return q
+                    return q, "lang_prefix"
 
         # Return default or generate generic questions
         if self._default_questions:
@@ -125,10 +146,10 @@ class QuestionsLoader:
                 questions=self._default_questions.questions,
                 context_hint=self._default_questions.context_hint,
                 additional_context=self._default_questions.additional_context,
-            )
+            ), "default"
 
-        return self._generate_generic_questions(rule_id)
-
+        return self._generate_generic_questions(rule_id), "generic"
+    
     def _generate_generic_questions(self, rule_id: str) -> GuidedQuestions:
         """Generate generic questions for unknown rules."""
         return GuidedQuestions(

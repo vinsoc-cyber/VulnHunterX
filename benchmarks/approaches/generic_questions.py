@@ -14,10 +14,10 @@ from benchmarks.approaches.base import (
     BenchmarkApproach,
     BenchmarkResult,
     _SnippetContextExtractor,
+    _dry_run_result,
     entry_to_finding,
     verdict_to_pred,
 )
-from benchmarks.approaches.single_shot import _dry_run_result
 
 # Path to just the fallback questions file (no language-specific rules)
 _DEFAULT_QUESTIONS_FILE = (
@@ -79,6 +79,8 @@ class GenericQuestionsApproach(BenchmarkApproach):
             context_provider=None,
         )
 
+        _, match_type = self._questions_loader.get_questions_with_match_info(finding.rule_id)
+
         result = engine.verify_findings([finding])
         elapsed = time.monotonic() - start
 
@@ -89,6 +91,7 @@ class GenericQuestionsApproach(BenchmarkApproach):
                 confidence="",
                 reasoning="No verdict returned",
                 elapsed_seconds=elapsed,
+                question_match_type=match_type,
             )
 
         v = result.verdicts[0]
@@ -102,4 +105,5 @@ class GenericQuestionsApproach(BenchmarkApproach):
             raw_response=v.raw_response,
             tokens_used=v.tokens_used,
             cost_usd=v.cost_usd,
+            question_match_type=match_type,
         )
