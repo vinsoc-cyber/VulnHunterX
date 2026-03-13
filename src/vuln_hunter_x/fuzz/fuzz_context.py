@@ -39,25 +39,31 @@ def load_function_signatures(repo_context_dir: Path) -> list[dict]:
                 key = (name, file, start, end)
                 if key not in by_key:
                     by_key[key] = []
-                by_key[key].append({
-                    "param_index": int(row.get("param_index", 0)),
-                    "param_type": row.get("param_type", ""),
-                    "param_name": row.get("param_name", ""),
-                })
+                by_key[key].append(
+                    {
+                        "param_index": int(row.get("param_index", 0)),
+                        "param_type": row.get("param_type", ""),
+                        "param_name": row.get("param_name", ""),
+                    }
+                )
     except Exception:
-        logger.warning("Failed to load function_signatures.csv from %s", repo_context_dir, exc_info=True)
+        logger.warning(
+            "Failed to load function_signatures.csv from %s", repo_context_dir, exc_info=True
+        )
         return []
 
     out = []
     for (name, file, start, end), params in by_key.items():
         params.sort(key=lambda x: x["param_index"])
-        out.append({
-            "name": name,
-            "file": file,
-            "start_line": start,
-            "end_line": end,
-            "params": [{"type": p["param_type"], "name": p["param_name"]} for p in params],
-        })
+        out.append(
+            {
+                "name": name,
+                "file": file,
+                "start_line": start,
+                "end_line": end,
+                "params": [{"type": p["param_type"], "name": p["param_name"]} for p in params],
+            }
+        )
     return out
 
 

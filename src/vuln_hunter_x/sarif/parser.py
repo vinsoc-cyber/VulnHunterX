@@ -57,7 +57,7 @@ def _extract_related_locations(related_locs: list) -> list[str]:
     """Format relatedLocations as 'file.c:42: message text'."""
     formatted = []
     for rl in related_locs or []:
-        loc = (rl.get("location") or {})
+        loc = rl.get("location") or {}
         phys = loc.get("physicalLocation") or {}
         uri = (phys.get("artifactLocation") or {}).get("uri") or ""
         line = (phys.get("region") or {}).get("startLine") or 0
@@ -159,9 +159,7 @@ class SarifParser:
                 rule_id = result.get("ruleId") or ""
                 message = (result.get("message") or {}).get("text") or ""
                 dataflow_path = _extract_dataflow_path(result.get("codeFlows", []))
-                related_locations = _extract_related_locations(
-                    result.get("relatedLocations") or []
-                )
+                related_locations = _extract_related_locations(result.get("relatedLocations") or [])
 
                 # Extract metadata from rule lookup
                 rule_meta = rule_lookup.get(rule_id) or {}

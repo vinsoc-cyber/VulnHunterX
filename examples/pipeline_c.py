@@ -64,11 +64,19 @@ def run_command(cmd: list[str], dry_run: bool = False, timeout: int = 1800) -> t
     try:
         result = subprocess.run(
             cmd,
-            capture_output=False,
+            capture_output=True,
             text=True,
             timeout=timeout,
         )
-        return result.returncode == 0, ""
+        if result.returncode == 0:
+            return True, ""
+
+        output = ((result.stderr or "") + (result.stdout or "")).strip()
+        if not output:
+            output = f"Command failed with exit code {result.returncode}"
+        if len(output) > 2000:
+            output = output[:2000] + "\n... (truncated)"
+        return False, output
     except subprocess.TimeoutExpired:
         return False, "Command timed out"
     except Exception as e:
@@ -85,7 +93,7 @@ def stage_clone(dry_run: bool = False, skip: bool = False) -> bool:
     
     print(f"Repository: {REPO_NAME}")
     print(f"Language: {LANGUAGE}")
-    print(f"Build: CMake-based build system")
+    print("Build: configured in config/repos.yaml")
     print()
     
     success, error = run_command(

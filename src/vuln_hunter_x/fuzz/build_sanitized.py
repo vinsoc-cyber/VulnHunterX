@@ -209,7 +209,9 @@ def build_sanitized(
     # Copy repo to sanitized_build_dir/src (exclude .git)
     if src_copy.exists():
         shutil.rmtree(src_copy)
-    shutil.copytree(repo_src, src_copy, ignore=shutil.ignore_patterns(".git", "*.pyc", "__pycache__"))
+    shutil.copytree(
+        repo_src, src_copy, ignore=shutil.ignore_patterns(".git", "*.pyc", "__pycache__")
+    )
 
     ok, msg = run_sanitized_build(src_copy, build_cmd, env, timeout=timeout)
     if not ok:

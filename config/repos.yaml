@@ -91,7 +91,7 @@ repos:
   - name: vorbis
     url: https://github.com/xiph/vorbis.git
     language: c
-    build_command: "./autogen.sh && ./configure && make"
+    build_command: "/usr/bin/autoreconf -fi && ./configure && make"
 
   # --- C++ (OSS-Fuzz) ---
   - name: nghttp2

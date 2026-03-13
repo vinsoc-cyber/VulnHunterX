@@ -6,7 +6,6 @@ import os
 import re
 from pathlib import Path
 
-
 # Repo names: alphanumeric, hyphens, underscores, dots (common in GitHub repos)
 _REPO_NAME_RE = re.compile(r"^[\w\-\.]+$")
 
@@ -44,9 +43,7 @@ def validate_file_path(path: Path, base: Path) -> Path:
     resolved = path.resolve()
     base_resolved = base.resolve()
     if not resolved.is_relative_to(base_resolved):
-        raise ValueError(
-            f"Path traversal blocked: {path} resolves outside {base_resolved}"
-        )
+        raise ValueError(f"Path traversal blocked: {path} resolves outside {base_resolved}")
     return resolved
 
 

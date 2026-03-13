@@ -40,9 +40,9 @@ def _param_to_consumption(param_type: str, param_name: str, provider_var: str = 
     t = param_type.lower().strip()
     # Pointer + size patterns: prefer buffer then size
     if "char *" in param_type or "char*" in param_type or "char * const" in t:
-        return f'fuzz_str_{param_name}.c_str()'  # caller must declare fuzz_str_* and consume
+        return f"fuzz_str_{param_name}.c_str()"  # caller must declare fuzz_str_* and consume
     if "const char *" in param_type or "const char*" in param_type:
-        return f'fuzz_str_{param_name}.c_str()'
+        return f"fuzz_str_{param_name}.c_str()"
     if "unsigned char *" in t or "uint8_t *" in t or "void *" in t:
         # Buffer: need pointer + size; consume bytes and use data(), size()
         return f"reinterpret_cast<{param_type.strip()}>(const_cast<uint8_t*>({provider_var}.ConsumeRemainingBytes().data()))"
@@ -105,12 +105,14 @@ def generate_harness(
             lines.append(line)
     lines.append("")
 
-    lines.extend([
-        f"extern \"C\" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {{",
-        f"  if (size == 0) return 0;",
-        f"  FuzzedDataProvider provider(data, size);",
-        "",
-    ])
+    lines.extend(
+        [
+            'extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {',
+            "  if (size == 0) return 0;",
+            "  FuzzedDataProvider provider(data, size);",
+            "",
+        ]
+    )
 
     # Build argument expressions for the target call
     args_list: list[str] = []
@@ -142,7 +144,9 @@ def generate_harness(
     lines.extend(struct_init_lines)
     # Declare string locals so .c_str() is valid during the call
     for pname in string_locals:
-        lines.append(f"  std::string fuzz_str_{pname} = provider.ConsumeBytesAsString(provider.ConsumeIntegralInRange(0u, static_cast<size_t>(size)));")
+        lines.append(
+            f"  std::string fuzz_str_{pname} = provider.ConsumeBytesAsString(provider.ConsumeIntegralInRange(0u, static_cast<size_t>(size)));"
+        )
     if "&fuzz_size" in " ".join(args_list):
         lines.append("  size_t fuzz_size = provider.ConsumeIntegral<size_t>();")
     args_str = ", ".join(args_list)
@@ -154,5 +158,3 @@ def generate_harness(
     text = "\n".join(lines)
     output_path.write_text(text, encoding="utf-8")
     return output_path
-
-

@@ -101,11 +101,19 @@ def _count_params(node: tree_sitter.Node) -> int:
     count = 0
     for child in param_list.children:
         if child.type in (
-            "parameter_declaration", "parameter", "identifier",
-            "typed_parameter", "default_parameter", "typed_default_parameter",
-            "list_splat_pattern", "dictionary_splat_pattern",
-            "formal_parameter", "spread_element", "required_parameter",
-            "optional_parameter", "rest_parameter",
+            "parameter_declaration",
+            "parameter",
+            "identifier",
+            "typed_parameter",
+            "default_parameter",
+            "typed_default_parameter",
+            "list_splat_pattern",
+            "dictionary_splat_pattern",
+            "formal_parameter",
+            "spread_element",
+            "required_parameter",
+            "optional_parameter",
+            "rest_parameter",
         ):
             count += 1
     return count
@@ -113,8 +121,7 @@ def _count_params(node: tree_sitter.Node) -> int:
 
 def _find_param_list(node: tree_sitter.Node) -> tree_sitter.Node | None:
     """Find the parameter list node, searching recursively through declarators."""
-    param_types = ("parameter_list", "parameters", "formal_parameters",
-                   "simple_formal_parameters")
+    param_types = ("parameter_list", "parameters", "formal_parameters", "simple_formal_parameters")
     result = _find_child_by_type(node, *param_types)
     if result is not None:
         return result
@@ -132,8 +139,9 @@ def _get_func_name(node: tree_sitter.Node, lang: str) -> str | None:
     # Try declarator first (C/C++)
     declarator = _find_child_by_type(node, "function_declarator")
     if declarator:
-        name_node = _find_child_by_type(declarator, "identifier", "qualified_identifier",
-                                         "field_identifier", "destructor_name")
+        name_node = _find_child_by_type(
+            declarator, "identifier", "qualified_identifier", "field_identifier", "destructor_name"
+        )
         if name_node:
             return _get_node_text(name_node)
 
@@ -231,9 +239,7 @@ class TreeSitterContextExtractor:
             writer.writeheader()
             writer.writerows(rows)
 
-    def _parse_file(
-        self, parser: tree_sitter.Parser, file_path: Path
-    ) -> tree_sitter.Tree | None:
+    def _parse_file(self, parser: tree_sitter.Parser, file_path: Path) -> tree_sitter.Tree | None:
         """Parse a file and return its tree, or None on failure."""
         try:
             source = file_path.read_bytes()
@@ -270,13 +276,15 @@ class TreeSitterContextExtractor:
                 name = _get_func_name(node, lang)
                 if not name:
                     continue
-                rows.append({
-                    "name": name,
-                    "file": rel,
-                    "start_line": node.start_point.row + 1,
-                    "end_line": node.end_point.row + 1,
-                    "param_count": _count_params(node),
-                })
+                rows.append(
+                    {
+                        "name": name,
+                        "file": rel,
+                        "start_line": node.start_point.row + 1,
+                        "end_line": node.end_point.row + 1,
+                        "param_count": _count_params(node),
+                    }
+                )
         return rows
 
     # ── Caller extraction ────────────────────────────────────────────
@@ -324,14 +332,16 @@ class TreeSitterContextExtractor:
                 if callee_name in func_map:
                     callee_file = func_map[callee_name][0]
 
-                rows.append({
-                    "callee_name": callee_name,
-                    "callee_file": callee_file,
-                    "caller_name": caller_name,
-                    "caller_file": rel,
-                    "caller_start_line": enclosing.start_point.row + 1,
-                    "caller_end_line": enclosing.end_point.row + 1,
-                })
+                rows.append(
+                    {
+                        "callee_name": callee_name,
+                        "callee_file": callee_file,
+                        "caller_name": caller_name,
+                        "caller_file": rel,
+                        "caller_start_line": enclosing.start_point.row + 1,
+                        "caller_end_line": enclosing.end_point.row + 1,
+                    }
+                )
         return rows
 
     @staticmethod
@@ -348,14 +358,18 @@ class TreeSitterContextExtractor:
 
         # Member access: obj.method() or obj->method()
         if func_node.type in (
-            "member_expression", "field_expression",
-            "attribute", "scoped_identifier",
+            "member_expression",
+            "field_expression",
+            "attribute",
+            "scoped_identifier",
         ):
             # Get the rightmost identifier (the method name)
             for child in reversed(func_node.children):
                 if child.type in (
-                    "identifier", "property_identifier",
-                    "field_identifier", "name",
+                    "identifier",
+                    "property_identifier",
+                    "field_identifier",
+                    "name",
                 ):
                     return _get_node_text(child)
 
@@ -398,12 +412,14 @@ class TreeSitterContextExtractor:
                 name_node = _find_child_by_type(node, "identifier", "name")
                 if name_node is None:
                     continue
-                rows.append({
-                    "name": _get_node_text(name_node),
-                    "file": rel,
-                    "start_line": node.start_point.row + 1,
-                    "end_line": node.end_point.row + 1,
-                })
+                rows.append(
+                    {
+                        "name": _get_node_text(name_node),
+                        "file": rel,
+                        "start_line": node.start_point.row + 1,
+                        "end_line": node.end_point.row + 1,
+                    }
+                )
         return rows
 
     # ── Struct extraction (C/C++ only) ───────────────────────────────
@@ -435,19 +451,17 @@ class TreeSitterContextExtractor:
                 for field in body.children:
                     if field.type != "field_declaration":
                         continue
-                    field_name_node = _find_child_by_type(
-                        field, "field_identifier", "identifier"
+                    field_name_node = _find_child_by_type(field, "field_identifier", "identifier")
+                    member_name = _get_node_text(field_name_node) if field_name_node else ""
+                    rows.append(
+                        {
+                            "name": struct_name,
+                            "file": rel,
+                            "start_line": node.start_point.row + 1,
+                            "end_line": node.end_point.row + 1,
+                            "member_name": member_name,
+                        }
                     )
-                    member_name = (
-                        _get_node_text(field_name_node) if field_name_node else ""
-                    )
-                    rows.append({
-                        "name": struct_name,
-                        "file": rel,
-                        "start_line": node.start_point.row + 1,
-                        "end_line": node.end_point.row + 1,
-                        "member_name": member_name,
-                    })
         return rows
 
     # ── Global variable extraction (C/C++ only) ─────────────────────
@@ -471,8 +485,12 @@ class TreeSitterContextExtractor:
                     continue
                 # Extract type
                 type_node = _find_child_by_type(
-                    node, "primitive_type", "type_identifier", "sized_type_specifier",
-                    "struct_specifier", "enum_specifier",
+                    node,
+                    "primitive_type",
+                    "type_identifier",
+                    "sized_type_specifier",
+                    "struct_specifier",
+                    "enum_specifier",
                 )
                 type_text = _get_node_text(type_node) if type_node else ""
 
@@ -483,7 +501,9 @@ class TreeSitterContextExtractor:
 
                 # Extract declarator name
                 declarator = _find_child_by_type(
-                    node, "init_declarator", "identifier",
+                    node,
+                    "init_declarator",
+                    "identifier",
                 )
                 if declarator is None:
                     continue
@@ -495,13 +515,15 @@ class TreeSitterContextExtractor:
                 if name_node is None:
                     continue
 
-                rows.append({
-                    "name": _get_node_text(name_node),
-                    "file": rel,
-                    "start_line": node.start_point.row + 1,
-                    "end_line": node.end_point.row + 1,
-                    "type": type_text.strip(),
-                })
+                rows.append(
+                    {
+                        "name": _get_node_text(name_node),
+                        "file": rel,
+                        "start_line": node.start_point.row + 1,
+                        "end_line": node.end_point.row + 1,
+                        "type": type_text.strip(),
+                    }
+                )
         return rows
 
     # ── Macro extraction (C/C++ only) ────────────────────────────────
@@ -519,21 +541,21 @@ class TreeSitterContextExtractor:
             if tree is None:
                 continue
             rel = str(fpath.relative_to(repo_root))
-            for node in _walk_tree(
-                tree.root_node, "preproc_def", "preproc_function_def"
-            ):
+            for node in _walk_tree(tree.root_node, "preproc_def", "preproc_function_def"):
                 name_node = _find_child_by_type(node, "identifier")
                 if name_node is None:
                     continue
                 # Body is the preproc_arg child
                 body_node = _find_child_by_type(node, "preproc_arg")
                 body = _get_node_text(body_node).strip() if body_node else ""
-                rows.append({
-                    "name": _get_node_text(name_node),
-                    "file": rel,
-                    "line": node.start_point.row + 1,
-                    "body": body,
-                })
+                rows.append(
+                    {
+                        "name": _get_node_text(name_node),
+                        "file": rel,
+                        "line": node.start_point.row + 1,
+                        "body": body,
+                    }
+                )
         return rows
 
     # ── Orchestration ────────────────────────────────────────────────
@@ -571,9 +593,7 @@ class TreeSitterContextExtractor:
                 results["functions"] = (True, "[dry-run] would extract functions")
             else:
                 func_rows = self._extract_functions(parser, lang, source_files, repo_path)
-                self._write_csv(
-                    context_dir / "functions.csv", func_rows, CSV_FIELDS["functions"]
-                )
+                self._write_csv(context_dir / "functions.csv", func_rows, CSV_FIELDS["functions"])
                 results["functions"] = (True, f"{len(func_rows)} functions")
                 # Build func_map for caller resolution
                 for row in func_rows:
@@ -621,9 +641,7 @@ class TreeSitterContextExtractor:
         if lang_filter:
             repos = [(p, lg, n) for p, lg, n in repos if lg == lang_filter]
         if repo_filter:
-            repos = [
-                (p, lg, n) for p, lg, n in repos if n.lower() == repo_filter.lower()
-            ]
+            repos = [(p, lg, n) for p, lg, n in repos if n.lower() == repo_filter.lower()]
 
         all_results: list[tuple[str, str, dict[str, tuple[bool, str]]]] = []
         for _repo_path, lang, repo_name in repos:

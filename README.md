@@ -259,7 +259,7 @@ cd VulnHunterX
 
 uv venv --python python3.12 .venv
 source .venv/bin/activate
-pip install -e .  # use ".[dev]" to also install test/lint tools
+uv pip install -e .  # use ".[dev]" to also install test/lint tools
 ```
 
 ### 2. Configuration

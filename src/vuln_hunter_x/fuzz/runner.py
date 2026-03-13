@@ -100,56 +100,65 @@ def run_fuzzers_for_repo(
     results: list[dict] = []
     for h in harnesses:
         if h.get("status") != "compiled":
-            results.append({
-                "harness": h.get("harness", ""),
-                "status": h.get("status", "unknown"),
-                "crashed": False,
-                "crash_count": 0,
-                "crash_files": [],
-                "time_sec": 0,
-                "log_snippet": "",
-            })
+            results.append(
+                {
+                    "harness": h.get("harness", ""),
+                    "status": h.get("status", "unknown"),
+                    "crashed": False,
+                    "crash_count": 0,
+                    "crash_files": [],
+                    "time_sec": 0,
+                    "log_snippet": "",
+                }
+            )
             continue
         name = h.get("harness", "")
         stem = Path(name).stem if name else ""
         binary = targets_dir / stem  # no extension
         if not binary.is_file():
-            results.append({
-                "harness": name,
-                "status": "binary_missing",
-                "crashed": False,
-                "crash_count": 0,
-                "crash_files": [],
-                "time_sec": 0,
-                "log_snippet": "Binary not found",
-            })
+            results.append(
+                {
+                    "harness": name,
+                    "status": "binary_missing",
+                    "crashed": False,
+                    "crash_count": 0,
+                    "crash_files": [],
+                    "time_sec": 0,
+                    "log_snippet": "Binary not found",
+                }
+            )
             continue
         run_dir = results_dir / stem
         if dry_run:
-            results.append({
-                "harness": name,
-                "status": "compiled",
-                "crashed": False,
-                "crash_count": 0,
-                "crash_files": [],
-                "time_sec": 0,
-                "log_snippet": "[dry-run] would run fuzzer",
-            })
+            results.append(
+                {
+                    "harness": name,
+                    "status": "compiled",
+                    "crashed": False,
+                    "crash_count": 0,
+                    "crash_files": [],
+                    "time_sec": 0,
+                    "log_snippet": "[dry-run] would run fuzzer",
+                }
+            )
             continue
         crashed, crash_files, log, elapsed = run_fuzzer(
-            binary, run_dir,
+            binary,
+            run_dir,
             timeout_sec=timeout_per_harness,
             max_total_time=max_total_time,
         )
-        results.append({
-            "harness": name,
-            "status": "compiled",
-            "crashed": crashed,
-            "crash_count": len(crash_files),
-            "crash_files": [str(p) for p in crash_files],
-            "time_sec": round(elapsed, 2),
-            "log_snippet": log[-2000:] if log else "",
-        })
+        results.append(
+            {
+                "harness": name,
+                "status": "compiled",
+                "crashed": crashed,
+                "crash_count": len(crash_files),
+                "crash_files": [str(p) for p in crash_files],
+                "time_sec": round(elapsed, 2),
+                "log_snippet": log[-2000:] if log else "",
+            }
+        )
 
     results_dir.mkdir(parents=True, exist_ok=True)
     summary_path = results_dir / "summary.json"

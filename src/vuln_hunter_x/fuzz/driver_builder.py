@@ -63,7 +63,11 @@ def build_harness(
 
     source_root = Path(manifest.get("source_root", manifest_path.parent / "src"))
     include_dirs = manifest.get("include_dirs") or []
-    if include_dirs and isinstance(include_dirs[0], str) and not Path(include_dirs[0]).is_absolute():
+    if (
+        include_dirs
+        and isinstance(include_dirs[0], str)
+        and not Path(include_dirs[0]).is_absolute()
+    ):
         include_dirs = [source_root / d for d in include_dirs]
     else:
         include_dirs = [Path(d) for d in include_dirs]
@@ -128,7 +132,9 @@ def _normalize_errors(text: str, max_lines: int = MAX_ERROR_LINES) -> str:
     lines = [ln for ln in text.splitlines() if ln.strip()]
     # Optionally drop "note:" lines to save space
     if len(lines) > max_lines:
-        lines = [ln for ln in lines if "note:" not in ln.lower() or "error" in ln.lower()][:max_lines]
+        lines = [ln for ln in lines if "note:" not in ln.lower() or "error" in ln.lower()][
+            :max_lines
+        ]
     else:
         lines = lines[:max_lines]
     return "\n".join(lines)
@@ -155,10 +161,12 @@ def write_harness_status(
     # Serialize paths as str for JSON
     data = []
     for e in entries:
-        data.append({
-            "harness": str(e.get("harness", "")),
-            "status": e.get("status", "unknown"),
-            "errors": e.get("errors", "")[:2000],
-        })
+        data.append(
+            {
+                "harness": str(e.get("harness", "")),
+                "status": e.get("status", "unknown"),
+                "errors": e.get("errors", "")[:2000],
+            }
+        )
     path.write_text(json.dumps({"repo": repo_name, "harnesses": data}, indent=2), encoding="utf-8")
     return path
