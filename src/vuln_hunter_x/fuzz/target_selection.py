@@ -147,7 +147,17 @@ def find_enclosing_function(
                     start = int(row.get("start_line", 0))
                     end = int(row.get("end_line", 0))
                     if start <= line <= end:
-                        candidates.append((end - start, {"name": row.get("name", ""), "file": fn, "start_line": start, "end_line": end}))
+                        candidates.append(
+                            (
+                                end - start,
+                                {
+                                    "name": row.get("name", ""),
+                                    "file": fn,
+                                    "start_line": start,
+                                    "end_line": end,
+                                },
+                            )
+                        )
                 if candidates:
                     # Smallest containing range (innermost function)
                     candidates.sort(key=lambda x: x[0])
@@ -173,12 +183,24 @@ def find_enclosing_function(
                         key = (row.get("name", ""), fn, start, end)
                         if key not in seen:
                             seen.add(key)
-                            candidates.append((end - start, {"name": key[0], "file": fn, "start_line": start, "end_line": end}))
+                            candidates.append(
+                                (
+                                    end - start,
+                                    {
+                                        "name": key[0],
+                                        "file": fn,
+                                        "start_line": start,
+                                        "end_line": end,
+                                    },
+                                )
+                            )
                 if candidates:
                     candidates.sort(key=lambda x: x[0])
                     return candidates[0][1]
         except Exception:
-            logger.debug("Failed to read function_signatures.csv in %s", repo_context_dir, exc_info=True)
+            logger.debug(
+                "Failed to read function_signatures.csv in %s", repo_context_dir, exc_info=True
+            )
 
     return None
 
@@ -201,7 +223,7 @@ def score_target(
     score = 0
 
     for p in params:
-        ptype_orig = (p.get("type") or "")
+        ptype_orig = p.get("type") or ""
         ptype_lower = ptype_orig.lower()
         base = ptype_orig.replace("const", "").replace("struct", "").replace("*", "").strip()
         if any(tok in ptype_lower for tok in PRIMITIVE_TOKENS):
@@ -235,7 +257,9 @@ def select_targets(
     """
     output_dir = Path(output_dir)
     if verdict_filter.lower() == "all":
-        findings = get_findings_from_sarif(output_dir, repo_filter=repo_filter, lang_filter=lang_filter)
+        findings = get_findings_from_sarif(
+            output_dir, repo_filter=repo_filter, lang_filter=lang_filter
+        )
         verdicts_for_finding = [(f, "all") for f in findings]
     else:
         verdict_map = {"tp": [VERDICT_TP], "nmd": [VERDICT_NMD], "fp": [VERDICT_FP]}

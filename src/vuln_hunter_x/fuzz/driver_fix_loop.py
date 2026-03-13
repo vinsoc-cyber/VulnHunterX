@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from vuln_hunter_x.core.validation import normalize_ollama_model, openai_compat_kwargs
 
@@ -60,21 +60,19 @@ def fix_harness_with_llm(
     """
     harness_path = Path(harness_path)
     last_errors = ""
-    last_command = ""
 
     for iteration in range(max_iterations + 1):
         ok, err, cmd = build_fn()
         if ok:
             return "compiled", iteration, ""
         last_errors = err
-        last_command = cmd
         if iteration == max_iterations:
             break
         # Determine failure type for status
         if "undefined reference" in err or "ld returned" in err.lower() or "linker" in err.lower():
-            status_after = "link_failed"
+            pass
         else:
-            status_after = "compile_failed"
+            pass
 
         source = harness_path.read_text(encoding="utf-8")
         new_source = llm_completion_fn(source, err, cmd)
@@ -100,19 +98,16 @@ The code must contain the function: extern "C" int LLVMFuzzerTestOneInput(const 
 Fix only the reported errors: add missing includes, fix types, fix link order or symbols. Preserve the harness structure."""
 
 
-def make_llm_fix_fn(provider: str, model: str, max_tokens: int = 4000, type_context: str = "") -> Callable[[str, str, str], str]:
+def make_llm_fix_fn(
+    provider: str, model: str, max_tokens: int = 4000, type_context: str = ""
+) -> Callable[[str, str, str], str]:
     """Build a completion function that calls the LLM with the fix prompt."""
     import litellm
 
-    if provider == "ollama":
-        model_id = normalize_ollama_model(model)
-    else:
-        model_id = model
+    model_id = normalize_ollama_model(model) if provider == "ollama" else model
 
     type_ctx_section = (
-        f"\nAvailable type definitions:\n{type_context[:2000]}\n"
-        if type_context
-        else ""
+        f"\nAvailable type definitions:\n{type_context[:2000]}\n" if type_context else ""
     )
 
     def complete(source: str, errors: str, command: str) -> str:

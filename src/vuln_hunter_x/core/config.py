@@ -22,12 +22,13 @@ from vuln_hunter_x.core.constants import (
 @dataclass
 class LLMConfig:
     """LLM provider configuration."""
+
     provider: str = DEFAULT_LLM_PROVIDER
     model: str = DEFAULT_LLM_MODEL
     temperature: float = DEFAULT_LLM_TEMPERATURE
     max_tokens: int = DEFAULT_LLM_MAX_TOKENS
     ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
-    
+
     @property
     def is_openai(self) -> bool:
         return self.provider == "openai"
@@ -44,6 +45,7 @@ class LLMConfig:
 @dataclass
 class VerificationConfig:
     """Verification configuration (LLM multi-turn only)."""
+
     max_iterations: int = DEFAULT_MAX_ITERATIONS
     force_decision: bool = True
 
@@ -51,6 +53,7 @@ class VerificationConfig:
 @dataclass
 class RepoPaths:
     """Paths for a single repo under output/<lang>/<repo_name>/."""
+
     root: Path
     database: Path
     sarif_file: Path
@@ -64,11 +67,12 @@ class RepoPaths:
 @dataclass
 class PathsConfig:
     """Path configuration for project directories."""
+
     repos_dir: Path = field(default_factory=lambda: Path("repos"))
     output_dir: Path = field(default_factory=lambda: Path("output"))
     prompts_dir: Path = field(default_factory=lambda: Path("config/prompts"))
     queries_dir: Path = field(default_factory=lambda: Path("config/queries"))
-    
+
     def resolve(self, base_path: Path) -> PathsConfig:
         """Resolve all paths relative to a base path."""
         return PathsConfig(
@@ -77,7 +81,7 @@ class PathsConfig:
             prompts_dir=base_path / self.prompts_dir,
             queries_dir=base_path / self.queries_dir,
         )
-    
+
     def repo_paths(self, lang: str, repo_name: str) -> RepoPaths:
         """Return paths for a single repo under output/<lang>/<repo_name>/."""
         root = self.output_dir / lang / repo_name
@@ -96,13 +100,14 @@ class PathsConfig:
 @dataclass
 class OutputConfig:
     """Output and logging configuration."""
+
     verbosity: str = "normal"  # quiet, normal, verbose
     log_file: Path | None = None
-    
+
     @property
     def is_quiet(self) -> bool:
         return self.verbosity == "quiet"
-    
+
     @property
     def is_verbose(self) -> bool:
         return self.verbosity == "verbose"
@@ -111,19 +116,20 @@ class OutputConfig:
 @dataclass
 class Config:
     """Main configuration for the CodeQL + LLM verification framework."""
+
     llm: LLMConfig = field(default_factory=LLMConfig)
     verification: VerificationConfig = field(default_factory=VerificationConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
-    
+
     # Processing limits
     limit: int = 0
     languages: list[str] = field(default_factory=list)
     repositories: list[str] = field(default_factory=list)
-    
+
     # CodeQL settings
     codeql_path: str = "codeql"
-    
+
     @classmethod
     def from_dict(cls, data: dict[str, Any], base_path: Path | None = None) -> Config:
         """Create config from dictionary."""
@@ -137,31 +143,32 @@ class Config:
             max_tokens=data.get("max_tokens", DEFAULT_LLM_MAX_TOKENS),
             ollama_base_url=ollama_url,
         )
-        
+
         verification = VerificationConfig(
             max_iterations=data.get("max_iterations", DEFAULT_MAX_ITERATIONS),
             force_decision=data.get("force_decision", True),
         )
-        
+
         # Paths: support both top-level keys and paths.* for backward compatibility
         def _path(key: str, default: str) -> Path:
             p = (data.get("paths") or {}).get(key) or data.get(key)
             return Path(p if p is not None else default)
+
         paths = PathsConfig(
             repos_dir=_path("repos_dir", "repos"),
             output_dir=_path("output_dir", "output"),
             prompts_dir=_path("prompts_dir", "config/prompts"),
             queries_dir=_path("queries_dir", "config/queries"),
         )
-        
+
         if base_path:
             paths = paths.resolve(base_path)
-        
+
         output = OutputConfig(
             verbosity=data.get("verbosity", "normal"),
             log_file=Path(data["log_file"]) if data.get("log_file") else None,
         )
-        
+
         return cls(
             llm=llm,
             verification=verification,
@@ -172,21 +179,21 @@ class Config:
             repositories=data.get("repositories", []),
             codeql_path=data.get("codeql_path", "codeql"),
         )
-    
+
     @classmethod
     def from_file(cls, config_path: Path, base_path: Path | None = None) -> Config:
         """Load config from YAML file."""
         if not config_path.is_file():
             return cls()
-        
+
         with open(config_path) as f:
             data = yaml.safe_load(f) or {}
-        
+
         if base_path is None:
             base_path = config_path.parent.parent  # Assume config is in config/
-        
+
         return cls.from_dict(data, base_path)
-    
+
     @classmethod
     def from_env(cls, base_path: Path | None = None) -> Config:
         """Create config from environment variables only."""
@@ -195,7 +202,7 @@ class Config:
             # Note: ollama_base_url is read in from_dict via OLLAMA_API_BASE
         }
         return cls.from_dict(data, base_path)
-    
+
     def merge_with_args(self, **kwargs) -> Config:
         """Merge config with command-line arguments."""
         # Create a copy with updated values
@@ -206,17 +213,17 @@ class Config:
             max_tokens=kwargs.get("max_tokens", self.llm.max_tokens),
             ollama_base_url=kwargs.get("ollama_base_url", self.llm.ollama_base_url),
         )
-        
+
         verification = VerificationConfig(
             max_iterations=kwargs.get("max_iterations", self.verification.max_iterations),
             force_decision=kwargs.get("force_decision", self.verification.force_decision),
         )
-        
+
         output = OutputConfig(
             verbosity=kwargs.get("verbosity", self.output.verbosity),
             log_file=kwargs.get("log_file", self.output.log_file),
         )
-        
+
         return Config(
             llm=llm,
             verification=verification,
@@ -235,12 +242,12 @@ def load_config(
 ) -> Config:
     """
     Load configuration from file and environment.
-    
+
     Priority (highest to lowest):
     1. Environment variables (secrets + environment-specific)
     2. Config file (application settings)
     3. Defaults
-    
+
     Environment variables:
     - OPENAI_API_KEY: OpenAI API key (secret)
     - LLM_PROVIDER: LLM provider (openai or ollama)
@@ -250,17 +257,17 @@ def load_config(
     """
     # Start with defaults
     config = Config()
-    
+
     # Load from file if provided
     if config_path and config_path.is_file():
         config = Config.from_file(config_path, base_path)
-    
+
     # Override with environment variables (environment-specific settings)
     env_codeql = os.environ.get("CODEQL_PATH")
     env_ollama = os.environ.get("OLLAMA_API_BASE")
     env_provider = os.environ.get("LLM_PROVIDER")
     env_model = os.environ.get("LLM_MODEL")
-    
+
     if env_codeql:
         config.codeql_path = env_codeql
     if env_ollama:
@@ -269,5 +276,5 @@ def load_config(
         config.llm.provider = env_provider
     if env_model:
         config.llm.model = env_model
-    
+
     return config

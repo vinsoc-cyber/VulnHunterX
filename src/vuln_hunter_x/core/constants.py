@@ -15,13 +15,13 @@ DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_MAX_ITERATIONS = 3
 
 # ── Timeout defaults (seconds) ────────────────────────────────────────
-TIMEOUT_GIT_CLONE = 300          # 5 minutes
+TIMEOUT_GIT_CLONE = 300  # 5 minutes
 TIMEOUT_CODEQL_DB_CREATE = 1800  # 30 minutes
-TIMEOUT_CODEQL_ANALYSIS = 3600   # 1 hour
-TIMEOUT_CODEQL_QUERY = 600       # 10 minutes
-TIMEOUT_CODEQL_FINALIZE = 120    # 2 minutes
+TIMEOUT_CODEQL_ANALYSIS = 3600  # 1 hour
+TIMEOUT_CODEQL_QUERY = 600  # 10 minutes
+TIMEOUT_CODEQL_FINALIZE = 120  # 2 minutes
 TIMEOUT_SEMGREP_ANALYSIS = 3600  # 1 hour
-TIMEOUT_SANITIZED_BUILD = 1800   # 30 minutes
+TIMEOUT_SANITIZED_BUILD = 1800  # 30 minutes
 
 # ── Truncation limits (characters) ────────────────────────────────────
 TRUNCATION_VERBOSE_PROMPT = 1000

@@ -138,7 +138,6 @@ class PromptBuilder:
     ) -> str:
         """Build LLM mode prompt."""
         tool_label = finding.tool or "Static Analysis"
-        lang_tag = finding.lang or ""
         dataflow_section = ""
         if finding.dataflow_path:
             dataflow_lines = "\n".join(finding.dataflow_path)

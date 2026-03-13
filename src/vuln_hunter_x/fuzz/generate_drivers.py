@@ -6,19 +6,19 @@ Stage 7.4–7.6: Optionally build, LLM fix loop, write status.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from vuln_hunter_x.core.types import Finding
-from vuln_hunter_x.fuzz.driver_generator import generate_harness
-from vuln_hunter_x.fuzz.fuzz_context import build_type_context_string, get_target_context
-from vuln_hunter_x.fuzz.target_selection import select_targets
 from vuln_hunter_x.fuzz.driver_builder import (
     build_harness,
     find_manifest_for_repo,
     write_harness_status,
 )
 from vuln_hunter_x.fuzz.driver_fix_loop import fix_harness_with_llm, make_llm_fix_fn
+from vuln_hunter_x.fuzz.driver_generator import generate_harness
+from vuln_hunter_x.fuzz.fuzz_context import build_type_context_string, get_target_context
+from vuln_hunter_x.fuzz.target_selection import select_targets
 
 
 def _harness_basename(finding: Finding) -> str:
@@ -111,7 +111,11 @@ def build_and_record(
         manifest_path = find_manifest_for_repo(output_dir, lang, repo_name)
         repo_fuzz_targets = output_dir / lang / repo_name / "fuzz_targets"
         if not manifest_path:
-            entries = [{"harness": str(p), "status": "manifest_missing", "errors": "No manifest.json"} for _, _, p in items if p]
+            entries = [
+                {"harness": str(p), "status": "manifest_missing", "errors": "No manifest.json"}
+                for _, _, p in items
+                if p
+            ]
             write_harness_status(repo_name, entries, repo_fuzz_targets)
             out.append((repo_name, entries))
             continue
@@ -132,7 +136,15 @@ def build_and_record(
                 entries.append({"harness": harness_name, "status": status, "errors": last_errors})
             else:
                 ok, err, _cmd = build_harness(cc_path, manifest_path, binary_path)
-                status = "compiled" if ok else ("link_failed" if "undefined reference" in err or "ld returned" in err.lower() else "compile_failed")
+                status = (
+                    "compiled"
+                    if ok
+                    else (
+                        "link_failed"
+                        if "undefined reference" in err or "ld returned" in err.lower()
+                        else "compile_failed"
+                    )
+                )
                 entries.append({"harness": harness_name, "status": status, "errors": err})
         write_harness_status(repo_name, entries, repo_fuzz_targets)
         out.append((repo_name, entries))

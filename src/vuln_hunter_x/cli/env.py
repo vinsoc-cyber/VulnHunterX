@@ -62,10 +62,10 @@ def check_semgrep(semgrep_path: str = "semgrep") -> tuple[bool, str]:
 def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:
     """
     Verify CodeQL CLI is available and report version.
-    
+
     Args:
         codeql_path: Path to CodeQL executable
-        
+
     Returns:
         Tuple of (success, message)
     """
@@ -75,7 +75,7 @@ def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:
     else:
         if not shutil.which("codeql"):
             return False, "CodeQL not on PATH; set CODEQL_PATH or install CodeQL CLI."
-    
+
     try:
         out = subprocess.run(
             [codeql_path, "version", "--quiet"],
@@ -136,28 +136,30 @@ def check_anthropic(api_key: str | None = None, model: str | None = None) -> tup
 def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
     """
     Verify OpenAI API via LiteLLM.
-    
+
     Args:
         api_key: OpenAI API key (defaults to env var)
         model: Model name to test (defaults to gpt-4o-mini)
-        
+
     Returns:
         Tuple of (success, message)
     """
     api_key = api_key or os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key:
         return False, "OPENAI_API_KEY not set"
-    
+
     try:
         import litellm
     except ImportError:
         return False, "litellm not installed; run: pip install litellm"
-    
+
     # Use provided model, or default to gpt-4o-mini for testing
     model = model or "gpt-4o-mini"
 
     # Custom base URL for OpenAI-compatible endpoints (e.g. Z.ai)
-    api_base = (os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or "").strip()
+    api_base = (
+        os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
+    ).strip()
     api_base = api_base.rstrip("/") if api_base else None
     if api_base and not model.startswith("openai/"):
         model = "openai/" + model
@@ -192,11 +194,11 @@ def check_ollama(
 ) -> tuple[bool, str]:
     """
     Verify Ollama via LiteLLM.
-    
+
     Args:
         model: Ollama model name (from config)
         api_base: Ollama server URL (from env)
-        
+
     Returns:
         Tuple of (success, message)
     """
@@ -204,17 +206,20 @@ def check_ollama(
         import litellm
     except ImportError:
         return False, "litellm not installed; run: pip install litellm"
-    
+
     # Model comes from config, api_base from environment
     if not model:
         return False, "No Ollama model configured"
-    
+
     from vuln_hunter_x.core.validation import normalize_ollama_model as _norm_ollama
+
     model = _norm_ollama(model)
 
-    api_base = api_base or os.environ.get("OLLAMA_API_BASE") or os.environ.get("OLLAMA_BASE_URL") or ""
+    api_base = (
+        api_base or os.environ.get("OLLAMA_API_BASE") or os.environ.get("OLLAMA_BASE_URL") or ""
+    )
     api_base = api_base.strip() or None
-    
+
     try:
         kwargs: dict = {
             "model": model,
@@ -223,7 +228,7 @@ def check_ollama(
         }
         if api_base:
             kwargs["api_base"] = api_base.rstrip("/")
-        
+
         resp = litellm.completion(**kwargs)
         text = (resp.choices[0].message.content or "").strip()
         base_info = f" @ {api_base}" if api_base else ""
@@ -235,29 +240,29 @@ def check_ollama(
 def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
     """
     Run all environment checks.
-    
+
     Loads model/provider from env (LLM_PROVIDER, LLM_MODEL) or config file.
     Loads secrets (API keys, URLs) from environment variables.
-    
+
     Args:
         quiet: Suppress output
-        
+
     Returns:
         Dict mapping check name to (success, message)
     """
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
-    
+
     # Load config for model/provider (env overrides config file)
     config = load_config_for_check()
     provider = os.environ.get("LLM_PROVIDER") or config.get("provider", "openai")
     model = os.environ.get("LLM_MODEL") or config.get("model", "gpt-4o")
-    
+
     results: dict[str, tuple[bool, str]] = {}
-    
+
     if not quiet:
         print("Environment Check (CodeQL + LLM)\n")
         print(f"  Provider/Model: {provider}, {model}\n")
-    
+
     # CodeQL
     ok, msg = check_codeql(codeql_path)
     results["codeql"] = (ok, msg)
@@ -272,7 +277,7 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
     if not quiet:
         status = "OK" if ok else "SKIP/FAIL"
         print(f"  Semgrep: [{status}] {msg}")
-    
+
     # OpenAI - test if provider is openai or if we have an API key
     if provider == "openai" or os.environ.get("OPENAI_API_KEY"):
         openai_model = model if provider == "openai" and not model.startswith("ollama/") else None
@@ -302,6 +307,7 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
     # Ollama - test if provider is ollama or model starts with ollama/
     if provider == "ollama" or model.startswith("ollama/"):
         from vuln_hunter_x.core.validation import normalize_ollama_model
+
         ollama_model = normalize_ollama_model(model)
         ok, msg = check_ollama(model=ollama_model)
         results["ollama"] = (ok, msg)
@@ -312,8 +318,8 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
         results["ollama"] = (False, "Not configured")
         if not quiet:
             print("  Ollama: [SKIP] Not configured")
-    
+
     if not quiet:
         print()
-    
+
     return results

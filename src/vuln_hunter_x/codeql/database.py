@@ -11,10 +11,10 @@ from vuln_hunter_x.core.types import RepositoryInfo
 class DatabaseManager:
     """
     Manages CodeQL database creation and management.
-    
+
     Supports creating databases for C/C++, Python, and JavaScript.
     """
-    
+
     # Default build commands per language
     DEFAULT_BUILD_COMMANDS: dict[str, str] = {
         "c": "./configure && make",
@@ -24,7 +24,7 @@ class DatabaseManager:
         "php": "",  # No build needed
         "java": "",  # CodeQL auto-detects Maven/Gradle
     }
-    
+
     def __init__(
         self,
         codeql_path: str = "codeql",
@@ -34,7 +34,7 @@ class DatabaseManager:
         self.codeql_path = codeql_path
         self.repos_dir = repos_dir or Path("repos")
         self.output_dir = output_dir or Path("output")
-    
+
     def create_database(
         self,
         repo: RepositoryInfo,
@@ -42,30 +42,30 @@ class DatabaseManager:
     ) -> tuple[bool, str]:
         """
         Create a CodeQL database for a repository.
-        
+
         Args:
             repo: Repository information
             overwrite: Whether to overwrite existing database
-            
+
         Returns:
             Tuple of (success, message)
         """
         lang = repo.lang
         # C and C++ both use CodeQL's "cpp" language; all others map directly
         codeql_lang = "cpp" if lang in ("c", "cpp") else lang
-        
+
         source_root = repo.local_path or (self.repos_dir / lang / repo.name)
         db_path = repo.database_path or (self.output_dir / lang / repo.name / "database")
-        
+
         if not Path(source_root).is_dir():
             return False, f"Repository not found: {source_root}"
-        
+
         if Path(db_path).exists() and not overwrite:
             return True, f"Database already exists: {db_path}"
-        
+
         # Build command
         build_cmd = repo.build_command or self.DEFAULT_BUILD_COMMANDS.get(lang, "")
-        
+
         # Create database
         cmd = [
             self.codeql_path,
@@ -76,13 +76,13 @@ class DatabaseManager:
             f"--source-root={source_root}",
             "--overwrite" if overwrite else "",
         ]
-        
+
         if build_cmd:
             cmd.extend(["--command", build_cmd])
-        
+
         # Filter empty strings
         cmd = [c for c in cmd if c]
-        
+
         try:
             result = subprocess.run(
                 cmd,
@@ -91,29 +91,29 @@ class DatabaseManager:
                 text=True,
                 timeout=1800,  # 30 min timeout
             )
-            
+
             if result.returncode == 0:
                 return True, f"Database created: {db_path}"
             else:
                 return False, result.stderr or result.stdout
-                
+
         except subprocess.TimeoutExpired:
             return False, "Database creation timed out"
         except Exception as e:
             return False, str(e)
-    
+
     def finalize_database(self, db_path: Path) -> tuple[bool, str]:
         """
         Finalize an incomplete CodeQL database.
-        
+
         Args:
             db_path: Path to the database
-            
+
         Returns:
             Tuple of (success, message)
         """
         cmd = [self.codeql_path, "database", "finalize", str(db_path)]
-        
+
         try:
             result = subprocess.run(
                 cmd,
@@ -121,22 +121,23 @@ class DatabaseManager:
                 text=True,
                 timeout=600,
             )
-            
+
             if result.returncode == 0:
                 return True, "Database finalized"
             else:
                 return False, result.stderr or result.stdout
-                
+
         except Exception as e:
             return False, str(e)
-    
+
     def get_database_language(self, db_path: Path) -> str | None:
         """Get the language of a CodeQL database."""
         codeql_db_scheme = db_path / "codeql-database.yml"
         if not codeql_db_scheme.is_file():
             return None
-        
+
         import yaml
+
         try:
             with open(codeql_db_scheme) as f:
                 data = yaml.safe_load(f)
@@ -146,33 +147,33 @@ class DatabaseManager:
             return None
         except Exception:
             return None
-    
+
     def list_databases(
         self,
         lang_filter: str | None = None,
     ) -> list[tuple[Path, str, str]]:
         """
         List all databases under output_dir/<lang>/<repo_name>/database.
-        
+
         Args:
             lang_filter: Optional language filter
-            
+
         Returns:
             List of (db_path, lang, repo_name) tuples
         """
         databases: list[tuple[Path, str, str]] = []
-        
+
         if not self.output_dir.is_dir():
             return databases
-        
+
         for lang_dir in self.output_dir.iterdir():
             if not lang_dir.is_dir():
                 continue
-            
+
             lang = lang_dir.name
             if lang_filter and lang != lang_filter:
                 continue
-            
+
             for repo_dir in lang_dir.iterdir():
                 if not repo_dir.is_dir():
                     continue
@@ -180,5 +181,5 @@ class DatabaseManager:
                 db_dir = repo_dir / "database"
                 if (db_dir / "codeql-database.yml").is_file():
                     databases.append((db_dir, lang, repo_name))
-        
+
         return databases

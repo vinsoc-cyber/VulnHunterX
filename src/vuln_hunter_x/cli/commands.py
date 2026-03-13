@@ -71,7 +71,8 @@ def cmd_clone(args: argparse.Namespace) -> int:
 
     for name, ok, msg in results:
         status = "OK" if ok else "FAIL"
-        print(f"[{name}] [{status}] {msg[:100]}")
+        detail = msg[:100] if ok else msg if len(msg) <= 1200 else msg[:1200] + "... (truncated)"
+        print(f"[{name}] [{status}] {detail}")
 
     print(f"\nDone. {ok_count}/{len(results)} succeeded.")
     return 0 if ok_count == len(results) else 1
@@ -126,22 +127,20 @@ def _run_codeql_analyze(
         if sarif_path.exists() and not force:
             try:
                 import json
+
                 with open(sarif_path) as f:
                     sarif_data = json.load(f)
                 findings_count = sum(
-                    len(run.get("results", []))
-                    for run in sarif_data.get("runs", [])
+                    len(run.get("results", [])) for run in sarif_data.get("runs", [])
                 )
                 print(f"  [SKIP] SARIF already exists ({findings_count} findings)")
             except Exception:
-                print(f"  [SKIP] SARIF already exists")
+                print("  [SKIP] SARIF already exists")
             skip_count += 1
             ok_count += 1
             continue
         if getattr(args, "dry_run", False):
-            default_suite = analyzer.DEFAULT_SUITES.get(
-                "cpp" if lang in ("c", "cpp") else lang
-            )
+            default_suite = analyzer.DEFAULT_SUITES.get("cpp" if lang in ("c", "cpp") else lang)
             print(f"  [dry-run] Would analyze {db_path}")
             print(f"  [dry-run] Suite: {suite or default_suite}")
             print(f"  [dry-run] Output: {sarif_path}")
@@ -200,7 +199,9 @@ def _run_semgrep_analyze(
         repo_list = [(lang, name) for lang, name in repo_list if name.lower() == args.repo.lower()]
 
     if not repo_list:
-        print("No repositories found for Semgrep (check config and --lang/--repo).", file=sys.stderr)
+        print(
+            "No repositories found for Semgrep (check config and --lang/--repo).", file=sys.stderr
+        )
         return 1
 
     raw_configs = getattr(args, "semgrep_configs", None) or ["auto"]
@@ -234,17 +235,15 @@ def _run_semgrep_analyze(
         if semgrep_sarif.exists() and not force:
             try:
                 import json
+
                 with open(semgrep_sarif) as f:
                     data = json.load(f)
-                findings_count = sum(
-                    len(run.get("results", []))
-                    for run in data.get("runs", [])
-                )
+                findings_count = sum(len(run.get("results", [])) for run in data.get("runs", []))
                 print(f"[{name}] {lang}")
                 print(f"  [SKIP] Semgrep SARIF already exists ({findings_count} findings)")
             except Exception:
                 print(f"[{name}] {lang}")
-                print(f"  [SKIP] Semgrep SARIF already exists")
+                print("  [SKIP] Semgrep SARIF already exists")
             skip_count += 1
             ok_count += 1
             continue
@@ -275,6 +274,7 @@ def _run_semgrep_analyze(
 def _load_analyze_defaults(base_path: Path) -> tuple[str | None, list[str]]:
     """Load codeql_suite and semgrep_configs from config if present. Returns (suite, configs)."""
     import yaml
+
     config_path = base_path / "config" / "confirm_findings.yaml"
     if not config_path.is_file():
         return None, []
@@ -337,11 +337,7 @@ def _skip_existing_context(
         # item[-2] is lang, item[-1] is repo_name (works for both 3-tuple formats)
         lang, name = item[-2], item[-1]
         repo_context_dir = output_dir / lang / name / "context"
-        csv_files = (
-            list(repo_context_dir.glob("*.csv"))
-            if repo_context_dir.exists()
-            else []
-        )
+        csv_files = list(repo_context_dir.glob("*.csv")) if repo_context_dir.exists() else []
         if csv_files and not force:
             print(f"[{name}] {lang}")
             print(f"  [SKIP] Context already exists ({len(csv_files)} CSV files)")
@@ -459,7 +455,9 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
             )
             for _src_path, lang, repo_name in ts_repos:
                 query_results = ts_extractor.extract_for_repo(
-                    lang, repo_name, dry_run=args.dry_run,
+                    lang,
+                    repo_name,
+                    dry_run=args.dry_run,
                 )
                 all_results.append((repo_name, lang, query_results))
 
@@ -481,11 +479,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
         config = load_config(args.config, base_path)
     else:
         default_config = base_path / "config" / "confirm_findings.yaml"
-        config = (
-            load_config(default_config, base_path)
-            if default_config.exists()
-            else Config()
-        )
+        config = load_config(default_config, base_path) if default_config.exists() else Config()
 
     # Build overrides from args
     overrides = {}
@@ -526,14 +520,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
         sarif_files = discover_sarif_files(config.paths.output_dir)
         if args.lang:
-            sarif_files = [
-                (p, lang, n) for p, lang, n in sarif_files if lang == args.lang
-            ]
+            sarif_files = [(p, lang, n) for p, lang, n in sarif_files if lang == args.lang]
         if args.repo:
             sarif_files = [
-                (p, lang, n)
-                for p, lang, n in sarif_files
-                if n.lower() == args.repo.lower()
+                (p, lang, n) for p, lang, n in sarif_files if n.lower() == args.repo.lower()
             ]
 
         all_findings = []
@@ -606,11 +596,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     print(f"  Total: {result.total_findings}")
     for verdict_type, count in result.stats.items():
         if count > 0:
-            pct = (
-                count / result.total_findings * 100
-                if result.total_findings
-                else 0
-            )
+            pct = count / result.total_findings * 100 if result.total_findings else 0
             print(f"  {verdict_type}: {count} ({pct:.1f}%)")
     print(f"  Time: {result.total_time_seconds:.2f}s")
 
@@ -637,9 +623,7 @@ def cmd_build_sanitized(args: argparse.Namespace) -> int:
     if args.lang:
         repos = [r for r in repos if (r.get("language") or "").lower() == args.lang]
     if args.repo:
-        repos = [
-            r for r in repos if (r.get("name") or "").lower() == args.repo.lower()
-        ]
+        repos = [r for r in repos if (r.get("name") or "").lower() == args.repo.lower()]
 
     if not repos:
         print("No C/C++ repositories to build.", file=sys.stderr)
@@ -707,7 +691,7 @@ def cmd_extract_fuzz_context(args: argparse.Namespace) -> int:
         all_ok = all(v[0] for v in res.values())
         status = "OK" if all_ok else "FAIL"
         print(f"[{repo_name}] [{lang}] [{status}]")
-        for q, (ok, msg) in res.items():
+        for q, (_ok, msg) in res.items():
             print(f"  {q}: {msg}")
         if all_ok:
             ok_count += 1
@@ -737,9 +721,7 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
     )
 
     if not results:
-        print(
-            "No targets selected (run verify first and/or check --verdict, --repo, --lang)."
-        )
+        print("No targets selected (run verify first and/or check --verdict, --repo, --lang).")
         return 0
 
     print("Generate fuzz drivers (Stage 7.1–7.3)\n")
@@ -755,9 +737,7 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
             )
     print(f"\nDone. {len(results)} harness(es) generated.")
 
-    if args.build and not args.dry_run and any(
-        p for _, _, p in results if p is not None
-    ):
+    if args.build and not args.dry_run and any(p for _, _, p in results if p is not None):
         print("\nBuild harnesses (Stage 7.4–7.6)\n")
         build_results = build_and_record(
             results,
@@ -771,9 +751,7 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
         for repo_name, entries in build_results:
             for e in entries:
                 print(f"  [{repo_name}] {e['harness']}: {e['status']}")
-            print(
-                f"  -> output/<lang>/{repo_name}/fuzz_targets/status.json"
-            )
+            print(f"  -> output/<lang>/{repo_name}/fuzz_targets/status.json")
     return 0
 
 
@@ -793,9 +771,7 @@ def cmd_fuzz_run(args: argparse.Namespace) -> int:
     )
 
     if not results:
-        print(
-            "No repos with status.json (run generate-fuzz-drivers --build first)."
-        )
+        print("No repos with status.json (run generate-fuzz-drivers --build first).")
         return 0
 
     print("Fuzz run (Stage 8)\n")
@@ -844,7 +820,7 @@ def cmd_info(args: argparse.Namespace) -> int:
 
     print()
     print("Verification Settings:")
-    print(f"  Verification: LLM (multi-turn)")
+    print("  Verification: LLM (multi-turn)")
     print(f"  Max iterations: {config.verification.max_iterations}")
 
     print()

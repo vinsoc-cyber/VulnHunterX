@@ -11,20 +11,19 @@ from typing import Any
 
 import litellm
 
-logger = logging.getLogger(__name__)
-
 from vuln_hunter_x.context.provider import ContextProvider
-from vuln_hunter_x.core.validation import openai_compat_kwargs
 from vuln_hunter_x.core.constants import (
     DEFAULT_LLM_MAX_TOKENS,
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_PROVIDER,
     DEFAULT_LLM_TEMPERATURE,
-    DEFAULT_MAX_ITERATIONS,
     DEFAULT_OLLAMA_BASE_URL,
 )
 from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
+from vuln_hunter_x.core.validation import openai_compat_kwargs
 from vuln_hunter_x.llm.prompts import PromptBuilder
+
+logger = logging.getLogger(__name__)
 
 
 class LLMClient:
@@ -232,8 +231,10 @@ class LLMClient:
                             messages.append({"role": "assistant", "content": raw_response})
                             parsed, raw_response, total_tokens_used, total_cost_usd = (
                                 self._force_decision_turn(
-                                    messages, all_raw_responses,
-                                    total_tokens_used, total_cost_usd,
+                                    messages,
+                                    all_raw_responses,
+                                    total_tokens_used,
+                                    total_cost_usd,
                                 )
                             )
                             verdict = parsed.get("verdict", "False Positive")
@@ -322,12 +323,17 @@ class LLMClient:
         # Max iterations reached — try force decision
         if force_decision:
             try:
-                messages.append({"role": "assistant", "content": all_raw_responses[-1] if all_raw_responses else ""})
-                parsed, _, total_tokens_used, total_cost_usd = (
-                    self._force_decision_turn(
-                        messages, all_raw_responses,
-                        total_tokens_used, total_cost_usd,
-                    )
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": all_raw_responses[-1] if all_raw_responses else "",
+                    }
+                )
+                parsed, _, total_tokens_used, total_cost_usd = self._force_decision_turn(
+                    messages,
+                    all_raw_responses,
+                    total_tokens_used,
+                    total_cost_usd,
                 )
                 iterations += 1
                 elapsed = time.time() - start_time
@@ -392,7 +398,9 @@ class LLMClient:
         if parsed.get("verdict") == "Needs More Data":
             parsed["verdict"] = "False Positive"
             parsed["confidence"] = "Low"
-            parsed["reasoning"] = (parsed.get("reasoning") or "") + " [Forced decision: defaulted to FP]"
+            parsed["reasoning"] = (
+                parsed.get("reasoning") or ""
+            ) + " [Forced decision: defaulted to FP]"
         return parsed, raw, total_tokens_used, total_cost_usd
 
     def _parse_response(self, raw: str) -> dict[str, Any]:
