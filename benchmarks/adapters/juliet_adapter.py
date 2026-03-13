@@ -124,7 +124,7 @@ class JulietAdapter:
             mode: "offline" (from file/function naming) or "full" (requires CodeQL).
             limit: Overall cap on entries returned (0 = no cap). Applied after per-CWE
                    sampling, so the actual count may be less than this value.
-            per_cwe_limit: Max entries per CWE, balanced TP/FP (per_cwe_limit // 2 each).
+            per_cwe_limit: Max entries per CWE, balanced TP/FP (max(1, per_cwe_limit // 2) each).
                            0 = load all entries for each CWE.
                            Default 0 (unlimited). Recommended: 20 for standard runs.
             benchmark_cwes_only: When True (default), restrict to the 8-CWE BENCHMARK_CWES
@@ -219,7 +219,7 @@ class JulietAdapter:
 
             # Apply per-CWE balanced sampling
             if per_cwe_limit and cwe_entries:
-                half = per_cwe_limit // 2
+                half = max(1, per_cwe_limit // 2)
                 tp_entries = [e for e in cwe_entries if e.label == LABEL_TP][:half]
                 fp_entries = [e for e in cwe_entries if e.label == LABEL_FP][:half]
                 cwe_entries = tp_entries + fp_entries
