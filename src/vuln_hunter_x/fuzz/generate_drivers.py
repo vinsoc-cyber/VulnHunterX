@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from vuln_hunter_x.core.types import Finding
+from vuln_hunter_x.fuzz.build_sanitized import write_manifest
 from vuln_hunter_x.fuzz.driver_builder import (
     build_harness,
     find_manifest_for_repo,
@@ -110,6 +111,13 @@ def build_and_record(
     for (lang, repo_name), items in by_repo.items():
         manifest_path = find_manifest_for_repo(output_dir, lang, repo_name)
         repo_fuzz_targets = output_dir / lang / repo_name / "fuzz_targets"
+
+        # Refresh manifest to pick up any write_manifest() improvements (e.g. new include dirs)
+        if manifest_path:
+            source_root = manifest_path.parent / "src"
+            if source_root.is_dir():
+                write_manifest(source_root, manifest_path, source_root)
+
         if not manifest_path:
             entries = [
                 {"harness": str(p), "status": "manifest_missing", "errors": "No manifest.json"}

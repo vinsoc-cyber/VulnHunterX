@@ -86,25 +86,32 @@ def _run_codeql_analyze(
     force: bool,
 ) -> int:
     """Run CodeQL analysis on discovered databases. Returns exit code."""
+    import json
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from vuln_hunter_x.codeql.analysis import CodeQLAnalyzer
     from vuln_hunter_x.codeql.context_extractor import discover_databases
+    from vuln_hunter_x.core.constants import CODEQL_PARALLEL_JOBS
 
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
     suite = getattr(args, "codeql_suite", None)
-
-    analyzer = CodeQLAnalyzer(
-        codeql_path=codeql_path,
-        output_dir=output_dir,
-        verbose=verbose,
-    )
-    if verbose:
-        analyzer.set_logger(lambda msg: print(msg))
+    jobs = getattr(args, "jobs", None) or CODEQL_PARALLEL_JOBS
 
     dbs = discover_databases(output_dir)
     if args.lang:
         dbs = [(p, lang, n) for p, lang, n in dbs if lang == args.lang]
     if args.repo:
         dbs = [(p, lang, n) for p, lang, n in dbs if n.lower() == args.repo.lower()]
+
+    # Deduplicate by db_path to prevent concurrent access to same database
+    seen_paths: set[Path] = set()
+    unique_dbs = []
+    for db_path, lang, name in dbs:
+        resolved = db_path.resolve()
+        if resolved not in seen_paths:
+            seen_paths.add(resolved)
+            unique_dbs.append((db_path, lang, name))
+    dbs = unique_dbs
 
     if not dbs:
         print("No CodeQL databases found.", file=sys.stderr)
@@ -118,41 +125,70 @@ def _run_codeql_analyze(
             print(f"  - {lang}/{name}: {db_path}")
         print()
 
-    print(f"Running CodeQL analysis on {len(dbs)} database(s)\n")
-    ok_count = 0
-    skip_count = 0
-    for db_path, lang, name in dbs:
-        print(f"[{name}] {lang}")
+    print(f"Running CodeQL analysis on {len(dbs)} database(s) (--jobs {jobs})\n")
+
+    def _analyze_one(db_path: Path, lang: str, name: str) -> tuple[str, bool, Path | None, str, bool]:
+        """Analyze one database. Returns (name, ok, result_path, msg, skipped)."""
         sarif_path = output_dir / lang / name / f"{name}.sarif"
         if sarif_path.exists() and not force:
             try:
-                import json
-
                 with open(sarif_path) as f:
                     sarif_data = json.load(f)
                 findings_count = sum(
                     len(run.get("results", [])) for run in sarif_data.get("runs", [])
                 )
-                print(f"  [SKIP] SARIF already exists ({findings_count} findings)")
+                return name, True, sarif_path, f"[SKIP] SARIF already exists ({findings_count} findings)", True
             except Exception:
-                print("  [SKIP] SARIF already exists")
+                return name, True, sarif_path, "[SKIP] SARIF already exists", True
+        if getattr(args, "dry_run", False):
+            analyzer = CodeQLAnalyzer(codeql_path=codeql_path, output_dir=output_dir)
+            default_suite = analyzer.DEFAULT_SUITES.get("cpp" if lang in ("c", "cpp") else lang)
+            lines = [
+                f"  [dry-run] Would analyze {db_path}",
+                f"  [dry-run] Suite: {suite or default_suite}",
+                f"  [dry-run] Output: {sarif_path}",
+            ]
+            return name, True, sarif_path, "\n".join(lines), False
+        analyzer = CodeQLAnalyzer(
+            codeql_path=codeql_path,
+            output_dir=output_dir,
+            verbose=verbose,
+        )
+        if verbose:
+            lines: list[str] = []
+            analyzer.set_logger(lambda msg, _lines=lines: _lines.append(msg))
+        ok, result_path, msg = analyzer.run_analysis(db_path, lang, name, suite=suite)
+        if verbose and lines:
+            msg = "\n".join(lines) + "\n" + msg
+        return name, ok, result_path, msg, False
+
+    ok_count = 0
+    skip_count = 0
+    results: list[tuple[str, bool, Path | None, str, bool]] = []
+
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        future_to_name = {pool.submit(_analyze_one, db_path, lang, name): name for db_path, lang, name in dbs}
+        for fut in as_completed(future_to_name):
+            results.append(fut.result())
+
+    # Sort output by original db order for deterministic display
+    db_order = [name for _, _, name in dbs]
+    results.sort(key=lambda r: db_order.index(r[0]) if r[0] in db_order else 0)
+
+    for name, ok, result_path, msg, skipped in results:
+        print(f"[{name}]")
+        if skipped:
+            print(f"  {msg}")
             skip_count += 1
             ok_count += 1
-            continue
-        if getattr(args, "dry_run", False):
-            default_suite = analyzer.DEFAULT_SUITES.get("cpp" if lang in ("c", "cpp") else lang)
-            print(f"  [dry-run] Would analyze {db_path}")
-            print(f"  [dry-run] Suite: {suite or default_suite}")
-            print(f"  [dry-run] Output: {sarif_path}")
+        elif ok:
             ok_count += 1
-            continue
-        ok, result_path, msg = analyzer.run_analysis(db_path, lang, name, suite=suite)
-        if ok:
-            ok_count += 1
-            print(f"  -> {result_path}")
+            if result_path:
+                print(f"  -> {result_path}")
             print(f"  {msg}")
         else:
             print(f"  FAILED: {msg}", file=sys.stderr)
+
     if skip_count > 0:
         print(
             f"\nDone. {ok_count}/{len(dbs)} succeeded ({skip_count} skipped, use --force to re-analyze)."

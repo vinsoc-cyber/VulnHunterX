@@ -26,6 +26,7 @@ from pathlib import Path
 REPO_NAME = "insecure-coding-examples"
 LANGUAGE = "cpp"
 MAX_FINDINGS = 5  # Limit findings to process for demo
+MAX_ITERATIONS = 5  # LLM conversation rounds per finding
 
 _CLI = [sys.executable, "-m", "vuln_hunter_x.cli.main"]
 
@@ -76,38 +77,55 @@ def run_command(cmd: list[str], dry_run: bool = False, timeout: int = 1800) -> t
         return False, str(e)
 
 
-def stage_clone(dry_run: bool = False, skip: bool = False) -> bool:
-    """Stage 1: Clone repository and create CodeQL database."""
+def stage_clone(dry_run: bool = False, skip: bool = False) -> tuple[bool, bool]:
+    """Stage 1: Clone repository and create CodeQL database.
+
+    Returns:
+        (success, has_codeql_db) — success indicates repo is available,
+        has_codeql_db indicates whether a CodeQL database was created.
+    """
     print_header("Stage 1: Clone Repository & Create CodeQL Database")
-    
+
     if skip:
         print(f"[SKIP] Skipping clone for {REPO_NAME}")
-        return True
-    
+        db_path = Path(f"output/{LANGUAGE}/{REPO_NAME}/database/codeql-database.yml")
+        return True, db_path.exists()
+
     print(f"Repository: {REPO_NAME} (Intentionally Vulnerable C++ Examples)")
     print(f"Language: {LANGUAGE}")
     print(f"Build: CMake-based build system")
     print()
-    
+
     success, error = run_command(
         _CLI + ["clone", "--repo", REPO_NAME],
         dry_run,
     )
-    
+
     if success:
         print(f"\n[OK] Repository cloned and database created")
-    else:
-        print(f"\n[FAIL] Clone failed: {error}")
-        print("\nNote: C++ builds may fail due to missing dependencies.")
-        print("Try: sudo apt-get install cmake build-essential")
-    
-    return success
+        return True, True
+
+    # Fallback: clone without DB creation (CodeQL extractor may be missing)
+    print("\n[WARN] Clone with DB failed, retrying clone-only (--skip-db)...")
+    success, error = run_command(
+        _CLI + ["clone", "--repo", REPO_NAME, "--skip-db"],
+        dry_run,
+    )
+
+    if success:
+        print("\n[OK] Repository cloned (no CodeQL database)")
+        return True, False
+
+    print(f"\n[FAIL] Clone failed: {error}")
+    print("\nNote: C++ builds may fail due to missing dependencies.")
+    print("Try: sudo apt-get install cmake build-essential")
+    return False, False
 
 
-def stage_analyze(dry_run: bool = False) -> bool:
-    """Stage 2: Run CodeQL security analysis."""
-    print_header("Stage 2: Run CodeQL Security Analysis")
-    
+def stage_analyze(dry_run: bool = False, has_codeql_db: bool = True) -> bool:
+    """Stage 2: Run security analysis (CodeQL with Semgrep fallback)."""
+    print_header("Stage 2: Run Security Analysis")
+
     print(f"Running C++ security-extended query suite...")
     print("This includes checks for:")
     print("  - Buffer overflows")
@@ -116,24 +134,39 @@ def stage_analyze(dry_run: bool = False) -> bool:
     print("  - Memory leaks")
     print("  - Format string vulnerabilities")
     print()
-    
+
+    if has_codeql_db:
+        print("Trying CodeQL analysis...")
+        print()
+        success, error = run_command(
+            _CLI + ["analyze", "--repo", REPO_NAME, "-v"],
+            dry_run,
+        )
+        if success:
+            print("\n[OK] CodeQL analysis complete")
+            return True
+        print(f"\n[WARN] CodeQL analysis failed: {error}")
+
+    # Fallback to Semgrep
+    print("\nFalling back to Semgrep analysis...")
+    print()
     success, error = run_command(
-        _CLI + ["analyze", "--repo", REPO_NAME, "-v"],
+        _CLI + ["analyze", "--tool", "semgrep", "--repo", REPO_NAME, "-v"],
         dry_run,
     )
-    
+
     if success:
-        print(f"\n[OK] Analysis complete")
+        print("\n[OK] Semgrep analysis complete")
     else:
         print(f"\n[FAIL] Analysis failed: {error}")
-    
+
     return success
 
 
-def stage_extract_context(dry_run: bool = False) -> bool:
-    """Stage 3: Extract context CSVs for multi-turn verification."""
+def stage_extract_context(dry_run: bool = False, has_codeql_db: bool = True) -> bool:
+    """Stage 3: Extract context CSVs (CodeQL or tree-sitter fallback)."""
     print_header("Stage 3: Extract Context CSVs")
-    
+
     print("Extracting C++ specific context:")
     print("  - functions.csv: Function definitions with signatures")
     print("  - callers.csv: Call graph relationships")
@@ -141,17 +174,29 @@ def stage_extract_context(dry_run: bool = False) -> bool:
     print("  - globals.csv: Global and static variables")
     print("  - macros.csv: Preprocessor macro definitions")
     print()
-    
+
+    if has_codeql_db:
+        success, error = run_command(
+            _CLI + ["extract-context", "--repo", REPO_NAME],
+            dry_run,
+        )
+        if success:
+            print("\n[OK] Context extracted")
+            return True
+        print(f"\n[WARN] CodeQL extraction failed: {error}")
+
+    # Fallback to tree-sitter
+    print("\nFalling back to tree-sitter extraction...")
     success, error = run_command(
-        _CLI + ["extract-context", "--repo", REPO_NAME],
+        _CLI + ["extract-context", "--repo", REPO_NAME, "--backend", "treesitter"],
         dry_run,
     )
-    
+
     if success:
-        print(f"\n[OK] Context extracted")
+        print("\n[OK] Context extracted (tree-sitter)")
     else:
         print(f"\n[FAIL] Extraction failed: {error}")
-    
+
     return success
 
 
@@ -161,13 +206,14 @@ def stage_verify(dry_run: bool = False) -> bool:
     
     print("LLM mode: multi-turn with context expansion")
     print(f"Max findings: {MAX_FINDINGS}")
+    print(f"Max iterations per finding: {MAX_ITERATIONS}")
     print()
-    
+
     cmd = _CLI + [
         "verify",
         "--repo", REPO_NAME,
         "--limit", str(MAX_FINDINGS),
-        "--max-iterations", "5",
+        "--max-iterations", str(MAX_ITERATIONS),
         "-v",
     ]
     
@@ -392,22 +438,23 @@ def main():
     results: dict[str, bool] = {}
     
     # Stage 1: Clone
-    results["Clone & Create DB"] = stage_clone(dry_run, skip_clone)
-    
+    clone_ok, has_codeql_db = stage_clone(dry_run, skip_clone)
+    results["Clone & Create DB"] = clone_ok
+
     # Stage 2: Analyze
-    if results["Clone & Create DB"] or skip_clone:
-        results["CodeQL Analysis"] = stage_analyze(dry_run)
+    if clone_ok or skip_clone:
+        results["Security Analysis"] = stage_analyze(dry_run, has_codeql_db)
     else:
-        results["CodeQL Analysis"] = False
-    
+        results["Security Analysis"] = False
+
     # Stage 3: Extract Context
-    if results["CodeQL Analysis"]:
-        results["Extract Context"] = stage_extract_context(dry_run)
+    if results["Security Analysis"] or clone_ok:
+        results["Extract Context"] = stage_extract_context(dry_run, has_codeql_db)
     else:
         results["Extract Context"] = False
-    
+
     # Stage 4: Verify
-    if results["CodeQL Analysis"]:
+    if results["Security Analysis"]:
         results["LLM Verification"] = stage_verify(dry_run)
     else:
         results["LLM Verification"] = False

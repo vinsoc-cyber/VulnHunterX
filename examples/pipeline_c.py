@@ -25,6 +25,7 @@ from pathlib import Path
 REPO_NAME = "c-ares"
 LANGUAGE = "c"
 MAX_FINDINGS = 5  # Limit findings to process for demo
+MAX_ITERATIONS = 5  # LLM conversation rounds per finding
 
 _CLI = [sys.executable, "-m", "vuln_hunter_x.cli.main"]
 
@@ -83,73 +84,104 @@ def run_command(cmd: list[str], dry_run: bool = False, timeout: int = 1800) -> t
         return False, str(e)
 
 
-def stage_clone(dry_run: bool = False, skip: bool = False) -> bool:
-    """Stage 1: Clone repository and create CodeQL database."""
+def stage_clone(dry_run: bool = False, skip: bool = False) -> tuple[bool, bool]:
+    """Stage 1: Clone repository and create CodeQL database.
+
+    Returns:
+        (success, has_codeql_db) — success indicates repo is available,
+        has_codeql_db indicates whether a CodeQL database was created.
+    """
     print_header("Stage 1: Clone Repository & Create CodeQL Database")
-    
+
     if skip:
         print(f"[SKIP] Skipping clone for {REPO_NAME}")
-        return True
-    
+        db_path = Path(f"output/{LANGUAGE}/{REPO_NAME}/database/codeql-database.yml")
+        return True, db_path.exists()
+
     print(f"Repository: {REPO_NAME}")
     print(f"Language: {LANGUAGE}")
     print("Build: configured in config/repos.yaml")
     print()
-    
+
     success, error = run_command(
         _CLI + ["clone", "--repo", REPO_NAME],
         dry_run,
     )
-    
+
     if success:
         print(f"\n[OK] Repository cloned and database created")
-    else:
-        print(f"\n[FAIL] Clone failed: {error}")
-    
-    return success
+        return True, True
 
-
-def stage_analyze(dry_run: bool = False, tool: str = "both") -> bool:
-    """Stage 2: Run CodeQL and/or Semgrep security analysis."""
-    print_header("Stage 2: Run CodeQL & Semgrep Security Analysis")
-
-    if tool == "both":
-        print("Running both analyzers:")
-        print("  - CodeQL: C security-extended suite (buffer overflows, use-after-free, etc.)")
-        print("  - Semgrep: on source in repos/ (no DB required); writes <repo>_semgrep.sarif")
-    elif tool == "semgrep":
-        print("Running Semgrep only (on source in repos/).")
-    else:
-        print("Running CodeQL only (C security-extended query suite).")
-    print()
-    print("This includes checks for:")
-    print("  - Buffer overflows")
-    print("  - Use-after-free")
-    print("  - Integer overflows")
-    print("  - Memory leaks")
-    print("  - Format string vulnerabilities")
-    print()
-
+    # Fallback: clone without DB creation (CodeQL extractor may be missing)
+    print("\n[WARN] Clone with DB failed, retrying clone-only (--skip-db)...")
     success, error = run_command(
-        _CLI + ["analyze", "--tool", tool, "--repo", REPO_NAME, "-v"],
+        _CLI + ["clone", "--repo", REPO_NAME, "--skip-db"],
         dry_run,
     )
 
     if success:
+        print("\n[OK] Repository cloned (no CodeQL database)")
+        return True, False
+
+    print(f"\n[FAIL] Clone failed: {error}")
+    return False, False
+
+
+def stage_analyze(dry_run: bool = False, has_codeql_db: bool = True, tool: str = "both") -> bool:
+    """Stage 2: Run security analysis (CodeQL+Semgrep with Semgrep fallback)."""
+    print_header("Stage 2: Run Security Analysis")
+
+    if has_codeql_db:
         if tool == "both":
-            print(f"\n[OK] Analysis complete - CodeQL and Semgrep SARIF files generated")
+            print("Running both analyzers:")
+            print("  - CodeQL: C security-extended suite (buffer overflows, use-after-free, etc.)")
+            print("  - Semgrep: on source in repos/ (no DB required); writes <repo>_semgrep.sarif")
+        elif tool == "semgrep":
+            print("Running Semgrep only (on source in repos/).")
         else:
-            print(f"\n[OK] Analysis complete - SARIF file generated")
+            print("Running CodeQL only (C security-extended query suite).")
+        print()
+        print("This includes checks for:")
+        print("  - Buffer overflows")
+        print("  - Use-after-free")
+        print("  - Integer overflows")
+        print("  - Memory leaks")
+        print("  - Format string vulnerabilities")
+        print()
+
+        success, error = run_command(
+            _CLI + ["analyze", "--tool", tool, "--repo", REPO_NAME, "-v"],
+            dry_run,
+        )
+
+        if success:
+            if tool == "both":
+                print(f"\n[OK] Analysis complete - CodeQL and Semgrep SARIF files generated")
+            else:
+                print(f"\n[OK] Analysis complete - SARIF file generated")
+            return True
+        print(f"\n[WARN] Analysis failed: {error}")
+
+    # Fallback to Semgrep
+    print("\nFalling back to Semgrep analysis...")
+    print()
+    success, error = run_command(
+        _CLI + ["analyze", "--tool", "semgrep", "--repo", REPO_NAME, "-v"],
+        dry_run,
+    )
+
+    if success:
+        print("\n[OK] Semgrep analysis complete")
     else:
         print(f"\n[FAIL] Analysis failed: {error}")
 
     return success
 
 
-def stage_extract_context(dry_run: bool = False) -> bool:
-    """Stage 3: Extract context CSVs for multi-turn verification."""
+def stage_extract_context(dry_run: bool = False, has_codeql_db: bool = True) -> bool:
+    """Stage 3: Extract context CSVs (CodeQL or tree-sitter fallback)."""
     print_header("Stage 3: Extract Context CSVs")
-    
+
     print("Extracting structured context for LLM mode:")
     print("  - functions.csv: Function definitions")
     print("  - callers.csv: Caller-callee relationships")
@@ -157,17 +189,29 @@ def stage_extract_context(dry_run: bool = False) -> bool:
     print("  - globals.csv: Global variables")
     print("  - macros.csv: Macro definitions")
     print()
-    
+
+    if has_codeql_db:
+        success, error = run_command(
+            _CLI + ["extract-context", "--repo", REPO_NAME],
+            dry_run,
+        )
+        if success:
+            print(f"\n[OK] Context CSVs extracted to output/{LANGUAGE}/{REPO_NAME}/context/")
+            return True
+        print(f"\n[WARN] CodeQL extraction failed: {error}")
+
+    # Fallback to tree-sitter
+    print("\nFalling back to tree-sitter extraction...")
     success, error = run_command(
-        _CLI + ["extract-context", "--repo", REPO_NAME],
+        _CLI + ["extract-context", "--repo", REPO_NAME, "--backend", "treesitter"],
         dry_run,
     )
-    
+
     if success:
-        print(f"\n[OK] Context CSVs extracted to output/{LANGUAGE}/{REPO_NAME}/context/")
+        print("\n[OK] Context extracted (tree-sitter)")
     else:
-        print(f"\n[FAIL] Context extraction failed: {error}")
-    
+        print(f"\n[FAIL] Extraction failed: {error}")
+
     return success
 
 
@@ -177,13 +221,14 @@ def stage_verify(dry_run: bool = False) -> bool:
     
     print("LLM mode: multi-turn with context expansion")
     print(f"Max findings: {MAX_FINDINGS}")
+    print(f"Max iterations per finding: {MAX_ITERATIONS}")
     print()
-    
+
     cmd = _CLI + [
         "verify",
         "--repo", REPO_NAME,
         "--limit", str(MAX_FINDINGS),
-        "--max-iterations", "5",
+        "--max-iterations", str(MAX_ITERATIONS),
         "-v",
     ]
     
@@ -409,22 +454,23 @@ def main():
     results: dict[str, bool] = {}
     
     # Stage 1: Clone
-    results["Clone & Create DB"] = stage_clone(dry_run, skip_clone)
-    
+    clone_ok, has_codeql_db = stage_clone(dry_run, skip_clone)
+    results["Clone & Create DB"] = clone_ok
+
     # Stage 2: Analyze (CodeQL + Semgrep when --tool both)
-    if results["Clone & Create DB"] or skip_clone:
-        results["CodeQL & Semgrep Analysis"] = stage_analyze(dry_run, tool="both")
+    if clone_ok or skip_clone:
+        results["Security Analysis"] = stage_analyze(dry_run, has_codeql_db, tool="both")
     else:
-        results["CodeQL & Semgrep Analysis"] = False
-    
+        results["Security Analysis"] = False
+
     # Stage 3: Extract Context
-    if results["CodeQL & Semgrep Analysis"]:
-        results["Extract Context"] = stage_extract_context(dry_run)
+    if results["Security Analysis"] or clone_ok:
+        results["Extract Context"] = stage_extract_context(dry_run, has_codeql_db)
     else:
         results["Extract Context"] = False
 
     # Stage 4: Verify (discovers all SARIF: CodeQL + Semgrep)
-    if results["CodeQL & Semgrep Analysis"]:
+    if results["Security Analysis"]:
         results["LLM Verification"] = stage_verify(dry_run)
     else:
         results["LLM Verification"] = False

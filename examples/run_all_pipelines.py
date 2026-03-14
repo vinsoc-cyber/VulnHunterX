@@ -338,6 +338,7 @@ def stage_verify(
     repo_name: str,
     lang: str,
     limit: int = 10,
+    max_iterations: int = 5,
     force: bool = False,
     dry_run: bool = False,
     base_path: Path | None = None,
@@ -379,7 +380,7 @@ def stage_verify(
         "verify",
         "--repo", repo_name,
         "--limit", str(limit),
-        "--max-iterations", "5",
+        "--max-iterations", str(max_iterations),
         "-q",  # Quiet mode for batch processing
     ]
     
@@ -598,6 +599,7 @@ def run_pipeline(
                 name,
                 lang=lang,
                 limit=verify_limit,
+                max_iterations=args.max_iterations,
                 force=force or force_verify,
                 dry_run=dry_run,
                 base_path=base_path,
@@ -928,6 +930,12 @@ def main():
         type=int,
         default=10,
         help="Max findings to verify per repo (default: 10)",
+    )
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=5,
+        help="Max LLM conversation rounds per finding (default: 5)",
     )
     parser.add_argument(
         "--repo",

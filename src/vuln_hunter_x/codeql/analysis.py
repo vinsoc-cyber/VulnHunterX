@@ -6,6 +6,13 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from vuln_hunter_x.core.constants import (
+    CODEQL_QUERY_TIMEOUT_SEC,
+    CODEQL_RAM_MB,
+    CODEQL_THREADS,
+    TIMEOUT_CODEQL_ANALYSIS,
+)
+
 
 class CodeQLAnalyzer:
     """
@@ -29,15 +36,27 @@ class CodeQLAnalyzer:
         codeql_path: str = "codeql",
         output_dir: Path | None = None,
         verbose: bool = False,
+        threads: int = CODEQL_THREADS,
+        ram_mb: int = CODEQL_RAM_MB,
+        query_timeout: int = CODEQL_QUERY_TIMEOUT_SEC,
     ):
         self.codeql_path = codeql_path
         self.output_dir = output_dir or Path("output")
         self.verbose = verbose
+        self.threads = threads
+        self.ram_mb = ram_mb
+        self.query_timeout = query_timeout
         self._log: Callable[[str], None] = lambda msg: None
 
     def set_logger(self, log_func: Callable[[str], None]) -> None:
         """Set a logging function for verbose output."""
         self._log = log_func
+
+    def _clean_stale_locks(self, db_path: Path) -> None:
+        """Remove stale CodeQL cache lock files from a previous crashed run."""
+        for lock_file in db_path.rglob(".lock"):
+            self._log(f"  Removing stale lock: {lock_file}")
+            lock_file.unlink(missing_ok=True)
 
     def run_analysis(
         self,
@@ -72,6 +91,9 @@ class CodeQLAnalyzer:
         self._log(f"  Database: {db_path}")
         self._log(f"  Suite: {suite}")
         self._log(f"  Output: {sarif_path}")
+
+        # Clean stale lock files from previous crashed/timed-out runs
+        self._clean_stale_locks(db_path)
 
         # Check and finalize if needed
         self._log("  Checking database status...")
@@ -108,6 +130,9 @@ class CodeQLAnalyzer:
             "--format=sarifv2.1.0",
             f"--output={sarif_path}",
             "--sarif-add-snippets",
+            f"--threads={self.threads}",
+            f"--ram={self.ram_mb}",
+            f"--timeout={self.query_timeout}",
         ]
         self._log(f"  Command: {' '.join(cmd)}")
 
@@ -116,7 +141,7 @@ class CodeQLAnalyzer:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=3600,  # 1 hour
+                timeout=TIMEOUT_CODEQL_ANALYSIS,
             )
 
             if result.returncode == 0:
@@ -129,7 +154,7 @@ class CodeQLAnalyzer:
                 return False, None, error_msg
 
         except subprocess.TimeoutExpired:
-            return False, None, "Analysis timed out (1 hour limit)"
+            return False, None, f"Analysis timed out ({TIMEOUT_CODEQL_ANALYSIS}s limit)"
         except Exception as e:
             return False, None, str(e)
 

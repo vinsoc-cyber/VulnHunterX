@@ -183,6 +183,14 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
         "-f", "--force", action="store_true", help="Force re-analysis even if SARIF already exists"
     )
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Number of parallel CodeQL analyses (default: 2)",
+    )
 
 
 def _add_extract_args(parser: argparse.ArgumentParser) -> None:

@@ -152,6 +152,11 @@ def write_manifest(
         d = build_src_dir / sub
         if d.is_dir():
             include_dirs.append(str(d))
+    # Auto-discover directories containing header files (e.g. lib/, vorbis/)
+    for h in build_src_dir.rglob("*.h"):
+        hdir = str(h.parent)
+        if hdir not in include_dirs:
+            include_dirs.append(hdir)
     manifest = {
         "libs": sorted(libs),
         "objects": sorted(objects),

@@ -59,7 +59,11 @@ def _get_language(lang: str) -> tree_sitter.Language:
     import importlib
 
     mod = importlib.import_module(module_name)
-    return tree_sitter.Language(mod.language())
+    # tree-sitter-php exports language_php() instead of language()
+    lang_func = getattr(mod, "language", None) or getattr(mod, f"language_{lang}", None)
+    if lang_func is None:
+        raise ValueError(f"No language function found in {module_name}")
+    return tree_sitter.Language(lang_func())
 
 
 def _get_node_text(node: tree_sitter.Node) -> str:
@@ -192,9 +196,9 @@ def discover_repos_for_context(
             if not sarif_files:
                 continue
 
-            # Must NOT have a CodeQL database
+            # Must NOT have a valid CodeQL database (log/ alone may be from a failed attempt)
             db_dir = repo_dir / "database"
-            if (db_dir / "codeql-database.yml").exists() or (db_dir / "log").exists():
+            if (db_dir / "codeql-database.yml").exists():
                 continue
 
             # Must have source code
