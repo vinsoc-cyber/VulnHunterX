@@ -450,11 +450,11 @@ def main():
     else:
         results["Extract Context"] = False
 
-    # # Stage 4: Verify
-    # if results["Security Analysis"]:
-    #     results["LLM Verification"] = stage_verify(dry_run)
-    # else:
-    #     results["LLM Verification"] = False
+    # Stage 4: Verify
+    if results["Security Analysis"]:
+        results["LLM Verification"] = stage_verify(dry_run)
+    else:
+        results["LLM Verification"] = False
 
     # Stages 5-8 (fuzz): optional, run when --fuzz
     if run_fuzz:

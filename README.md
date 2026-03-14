@@ -6,6 +6,7 @@ A Python framework that combines static analysis (CodeQL, Semgrep) with Large La
 
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
+![SAST](https://img.shields.io/badge/SAST-CodeQL%20%7C%20Semgrep-orange.svg)
 
 ---
 
@@ -50,7 +51,12 @@ This framework automates the triage process by using LLMs to:
 | **Context Expansion**      | LLM can request callers, structs, globals                                                 |
 | **Multiple LLM Providers** | OpenAI (GPT-4), Anthropic (Claude), and Ollama (local models)                             |
 | **Dual SAST**              | CodeQL and Semgrep; choose analyzer(s) with `analyze --tool codeql`, `semgrep`, or `both` |
-| **Unified CLI**            | Single command-line tool for entire workflow                                              |
+| **Tree-sitter Fallback**   | Source-based context extraction when CodeQL is unavailable                                 |
+| **Fuzz Confirmation**      | Automated libFuzzer harness generation and crash detection (C/C++)                        |
+| **Parallel Analysis**      | Multi-repo CodeQL analysis with configurable parallelism (`--jobs`)                       |
+| **LLM Fix Loop**           | Automatic harness compilation fix using LLM (Stage 7.5)                                   |
+| **Benchmarking**           | Precision/recall evaluation across 4 ground-truth datasets                                |
+| **Unified CLI**            | Single command-line tool for entire 8-stage workflow                                      |
 | **Python API**             | Programmatic access for integration                                                       |
 
 ---
@@ -137,7 +143,7 @@ The framework follows the **Vulnhalla methodology** (CyberArk research), which i
 
 ## Pipeline Stages
 
-The framework consists of 4 main stages, each with a dedicated CLI command:
+The framework consists of 8 stages (4 core + 4 optional fuzz stages for C/C++), each with a dedicated CLI command:
 
 ### Stage Overview
 
@@ -316,6 +322,7 @@ vuln-hunter-x check-env
 - CodeQL CLI installed and accessible
 - Semgrep CLI (optional; for `analyze --tool semgrep` or `--tool both`)
 - OpenAI API key valid (if configured)
+- Anthropic API key valid (if configured)
 - Ollama server reachable (if configured)
 
 ---
@@ -373,6 +380,7 @@ vuln-hunter-x analyze [options]
 | `-v, --verbose`                | Show detailed output                                     | false             |
 | `--json`                       | Also output findings as JSON                             | false             |
 | `-f, --force`                  | Re-run even if SARIF exists                              | false             |
+| `-j, --jobs N`                 | Parallel CodeQL analyses                                 | 2                 |
 | `--dry-run`                    | Preview without executing                                | false             |
 
 **Examples:**
@@ -415,11 +423,13 @@ Extract context CSVs for multi-turn verification.
 vuln-hunter-x extract-context [options]
 ```
 
-| Option        | Description                     | Default       |
-| ------------- | ------------------------------- | ------------- |
-| `--repo NAME` | Extract for specific repository | All databases |
-| `--lang LANG` | Filter by language              | All           |
-| `--dry-run`   | Preview without executing       | false         |
+| Option                              | Description                                          | Default       |
+| ----------------------------------- | ---------------------------------------------------- | ------------- |
+| `--repo NAME`                       | Extract for specific repository                      | All databases |
+| `--lang LANG`                       | Filter by language                                   | All           |
+| `--backend {auto,codeql,treesitter}` | Extraction backend                                  | auto          |
+| `-f, --force`                       | Force re-extraction even if CSVs exist               | false         |
+| `--dry-run`                         | Preview without executing                            | false         |
 
 **Examples:**
 
@@ -429,7 +439,12 @@ vuln-hunter-x extract-context
 
 # Extract for specific repository
 vuln-hunter-x extract-context --repo libucl
+
+# Use tree-sitter when CodeQL database is unavailable
+vuln-hunter-x extract-context --repo dvwa --backend treesitter
 ```
+
+**Tree-sitter fallback:** When CodeQL databases are unavailable (e.g., missing language extractor), use `--backend treesitter` for pure source-based extraction. Supports all 6 languages. `auto` mode (default) uses CodeQL if a database exists, otherwise falls back to tree-sitter automatically.
 
 **Output files:**
 
@@ -533,10 +548,13 @@ vuln-hunter-x verify [options]
 | -------------------- | ------------------------------------------ | --------------- |
 | `--repo NAME`        | Verify specific repository                 | All SARIF files |
 | `--lang LANG`        | Filter by language                         | All             |
-| `--provider PROV`    | LLM provider: `openai` or `ollama`         | From config     |
+| `--provider PROV`    | LLM provider: `openai`, `anthropic`, or `ollama` | From config |
 | `--model MODEL`      | Model name (e.g., gpt-4o, ollama/llama3.2) | From config     |
 | `--max-iterations N` | Max conversation rounds (LLM mode)         | 3               |
+| `--temperature TEMP` | Sampling temperature (0.0-1.0)             | 0.2             |
+| `--max-tokens N`     | Max response tokens                        | 1500            |
 | `--limit N`          | Max findings to process                    | Unlimited       |
+| `--include-tests`    | Include findings in test/ directories      | false           |
 | `-v, --verbose`      | Show LLM requests and responses            | false           |
 | `-q, --quiet`        | Minimal output                             | false           |
 | `--log-file PATH`    | Save LLM conversations to file             | None            |
@@ -762,14 +780,17 @@ result = engine.verify_all_sarif()
 | `OPENAI_API_KEY`    | OpenAI API key      | For OpenAI                            |
 | `ANTHROPIC_API_KEY` | Anthropic API key   | For Claude                            |
 | `OLLAMA_API_BASE`   | Ollama server URL   | For Ollama                            |
-| `CODEQL_PATH`       | Path to CodeQL CLI  | If not on PATH                        |
-| `SEMGREP_PATH`      | Path to Semgrep CLI | If not on PATH (for Semgrep analysis) |
+| `LLM_PROVIDER`      | Default LLM provider | Override config default              |
+| `LLM_MODEL`         | Default LLM model    | Override config default              |
+| `OPENAI_BASE_URL`   | Custom OpenAI-compatible endpoint | For API-compatible services |
+| `CODEQL_PATH`       | Path to CodeQL CLI   | If not on PATH                       |
+| `SEMGREP_PATH`      | Path to Semgrep CLI  | If not on PATH (for Semgrep analysis)|
 
 ### Application Settings (`config/confirm_findings.yaml`)
 
 ```yaml
 # LLM Configuration
-provider: openai          # openai or ollama
+provider: openai          # openai, anthropic, or ollama
 model: gpt-4o             # Model name
 temperature: 0.2          # 0.0-1.0 (lower = more deterministic)
 max_tokens: 1500          # Max response length
@@ -818,6 +839,8 @@ repos:
 | `url`           | Git clone URL                                                           | Yes            |
 | `language`      | Programming language: `c`, `cpp`, `python`, `javascript`, `php`, `java` | Yes            |
 | `build_command` | Shell command to compile the code                                       | For C/C++ only |
+| `sanitizer_flags` | Custom sanitizer CFLAGS/LDFLAGS for fuzz build                        | No (Stage 5)   |
+| `sanitized_build_command` | Separate build command for sanitized build                    | No (Stage 5)   |
 
 **Adding a new repository:**
 
@@ -939,6 +962,8 @@ VulnHunterX/
 │   ├── llm/                  # LLM client
 │   ├── questions/            # Guided questions loader
 │   ├── sarif/                # SARIF parsing
+│   ├── semgrep/              # Semgrep integration
+│   ├── fuzz/                 # Fuzz stages 5-8 (C/C++ only)
 │   └── verification/         # Verification engine
 ├── config/
 │   ├── confirm_findings.yaml # Main config
@@ -997,6 +1022,9 @@ ruff check src/
 # Type check
 mypy src/
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and guidelines.
+See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ---
 
@@ -1084,6 +1112,10 @@ python benchmarks/scripts/run_benchmark.py \
 ```bash
 python benchmarks/scripts/generate_report.py \
     --run-dir benchmarks/results/<run_dir>
+
+# With charts (requires matplotlib)
+python benchmarks/scripts/generate_report.py \
+    --run-dir benchmarks/results/<run_dir> --charts
 ```
 
 Produces `REPORT.md` in the run directory with:
