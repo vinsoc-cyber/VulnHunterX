@@ -10,26 +10,56 @@ from typing import Any
 from vuln_hunter_x.core.types import Finding
 
 
+def _extract_thread_flow_locations(thread_flow: dict) -> list[str]:
+    """Extract location entries from a single thread flow."""
+    path: list[str] = []
+    for loc in thread_flow.get("locations", []):
+        phys = (loc.get("location") or {}).get("physicalLocation") or {}
+        line = (phys.get("region") or {}).get("startLine", 0)
+        msg = ((loc.get("location") or {}).get("message") or {}).get("text", "")
+        if line:
+            path.append(f"line {line}: {msg}" if msg else f"line {line}")
+    return path
+
+
 def _extract_dataflow_path(code_flows: list) -> list[str]:
     """Extract dataflow path from SARIF codeFlows.
+
+    Iterates ALL code flows and ALL thread flows to capture every
+    dataflow path the analysis found.  Multiple flows are separated
+    by ``--- Flow N ---`` markers.
 
     Returns a list of strings like "line 12: message text".
     """
     if not code_flows:
         return []
     try:
-        thread_flows = code_flows[0].get("threadFlows", [])
-        if not thread_flows:
+        all_paths: list[list[str]] = []
+        seen: set[tuple[str, ...]] = set()
+
+        for cf in code_flows:
+            for tf in cf.get("threadFlows", []):
+                path = _extract_thread_flow_locations(tf)
+                if not path:
+                    continue
+                key = tuple(path)
+                if key not in seen:
+                    seen.add(key)
+                    all_paths.append(path)
+
+        if not all_paths:
             return []
-        locations = thread_flows[0].get("locations", [])
-        path = []
-        for loc in locations:
-            phys = (loc.get("location") or {}).get("physicalLocation") or {}
-            line = (phys.get("region") or {}).get("startLine", 0)
-            msg = ((loc.get("location") or {}).get("message") or {}).get("text", "")
-            if line:
-                path.append(f"line {line}: {msg}" if msg else f"line {line}")
-        return path
+
+        # Single flow — return as flat list (backward compatible)
+        if len(all_paths) == 1:
+            return all_paths[0]
+
+        # Multiple flows — separate with markers
+        result: list[str] = []
+        for i, path in enumerate(all_paths):
+            result.append(f"--- Flow {i + 1} ---")
+            result.extend(path)
+        return result
     except (IndexError, AttributeError, TypeError):
         return []
 

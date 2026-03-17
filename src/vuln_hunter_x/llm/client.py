@@ -121,9 +121,12 @@ class LLMClient:
             verbose: Show detailed output
             log_file: Optional file to log conversations
             quiet: Suppress output
+            force_decision: If True and final verdict is still Needs More Data,
+                send a force-decision prompt asking the LLM to choose TP or FP.
+                Defaults to True.
 
         Returns:
-            Verdict with the analysis result
+            Verdict with the analysis result (includes confidence_score 0.0-1.0)
         """
         user_prompt = self.prompt_builder.build_user_prompt(finding, context, questions, func_name)
         sys_prompt = self.prompt_builder.get_system_prompt(
@@ -161,6 +164,7 @@ class LLMClient:
         all_raw_responses: list[str] = []
         total_tokens_used: int = 0
         total_cost_usd: float = 0.0
+        fulfilled_context: set[str] = set()  # Track already-provided context requests
 
         while iterations < max_iterations:
             iterations += 1
@@ -260,17 +264,34 @@ class LLMClient:
                         iterations=iterations,
                         tokens_used=total_tokens_used,
                         cost_usd=total_cost_usd,
+                        confidence_score=parsed.get("confidence_score", 0.3),
                     )
 
-                # Fetch additional context
+                # Deduplicate context requests against previously fulfilled ones
+                new_requests = [r for r in context_needed if r not in fulfilled_context]
+                if not new_requests:
+                    if verbose:
+                        print("    All requested context was already provided in previous turns.")
+                    # Tell LLM that context was already provided
+                    messages.append({"role": "assistant", "content": raw_response})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "All requested context was already provided in previous turns. "
+                            "Please provide your verdict based on available information."
+                        ),
+                    })
+                    continue
+
                 if verbose:
-                    print(f"    Fetching additional context: {context_needed}")
+                    print(f"    Fetching additional context: {new_requests}")
 
                 additional = context_provider.get_additional_context(
                     repo_name=finding.repo_name,
                     lang=finding.lang,
-                    context_requests=context_needed,
+                    context_requests=new_requests,
                 )
+                fulfilled_context.update(new_requests)
 
                 if not additional:
                     elapsed = time.time() - start_time
@@ -288,6 +309,7 @@ class LLMClient:
                         iterations=iterations,
                         tokens_used=total_tokens_used,
                         cost_usd=total_cost_usd,
+                        confidence_score=parsed.get("confidence_score", 0.3),
                     )
 
                 # Build follow-up
@@ -318,6 +340,7 @@ class LLMClient:
                     iterations=iterations,
                     tokens_used=total_tokens_used,
                     cost_usd=total_cost_usd,
+                    confidence_score=0.0,
                 )
 
         # Max iterations reached — try force decision
@@ -349,6 +372,7 @@ class LLMClient:
                     iterations=iterations,
                     tokens_used=total_tokens_used,
                     cost_usd=total_cost_usd,
+                    confidence_score=parsed.get("confidence_score", 0.3),
                 )
             except Exception:
                 logger.debug("Force decision after max iterations failed", exc_info=True)
@@ -366,12 +390,18 @@ class LLMClient:
             iterations=iterations,
             tokens_used=total_tokens_used,
             cost_usd=total_cost_usd,
+            confidence_score=0.0,
         )
 
     _FORCE_DECISION_PROMPT = (
-        "This is your final analysis attempt. Based on the code provided, you MUST choose "
-        "True Positive or False Positive. Low confidence is acceptable. Needs More Data is "
-        "NOT an acceptable final response. Give your best judgment."
+        "This is your final analysis attempt. Based on ALL the evidence you have seen so far, "
+        "which direction does the balance of evidence lean? You MUST choose True Positive or "
+        "False Positive. Low confidence is acceptable. Needs More Data is NOT an acceptable "
+        "final response.\n\n"
+        "GUIDELINE: If the code handles untrusted input and you see NO clear sanitization, "
+        "bounds checking, or framework protection, lean toward True Positive (conservative for "
+        "security). Only choose False Positive if you can point to a specific defense.\n\n"
+        "Provide your verdict in the same JSON format with reasoning."
     )
 
     def _force_decision_turn(
@@ -394,14 +424,53 @@ class LLMClient:
         except Exception:
             logger.debug("Could not compute completion cost for force decision", exc_info=True)
         parsed = self._parse_response(raw)
-        # If still NMD, force to FP with Low confidence
+        # If still NMD, try to infer direction from reasoning before defaulting
         if parsed.get("verdict") == "Needs More Data":
-            parsed["verdict"] = "False Positive"
-            parsed["confidence"] = "Low"
-            parsed["reasoning"] = (
-                parsed.get("reasoning") or ""
-            ) + " [Forced decision: defaulted to FP]"
+            reasoning = (parsed.get("reasoning") or "").lower()
+            raw_lower = raw.lower()
+            # Check for signals leaning toward vulnerable
+            tp_signals = ["likely vulnerable", "probably vulnerable", "appears vulnerable",
+                          "no sanitization", "no validation", "no bounds check",
+                          "unsafe", "exploitable", "unprotected"]
+            fp_signals = ["likely safe", "probably safe", "appears safe",
+                          "properly sanitized", "properly validated", "bounds checked",
+                          "protected", "mitigated", "not exploitable"]
+            tp_score = sum(1 for s in tp_signals if s in reasoning or s in raw_lower)
+            fp_score = sum(1 for s in fp_signals if s in reasoning or s in raw_lower)
+
+            if tp_score > fp_score:
+                parsed["verdict"] = "True Positive"
+                parsed["confidence"] = "Low"
+                parsed["reasoning"] = (
+                    parsed.get("reasoning") or ""
+                ) + " [Forced decision: evidence leans toward TP]"
+            else:
+                parsed["verdict"] = "False Positive"
+                parsed["confidence"] = "Low"
+                parsed["reasoning"] = (
+                    parsed.get("reasoning") or ""
+                ) + " [Forced decision: defaulted to FP]"
         return parsed, raw, total_tokens_used, total_cost_usd
+
+    _CONFIDENCE_SCORE_MAP = {"high": 0.85, "medium": 0.6, "low": 0.3}
+
+    @classmethod
+    def _ensure_confidence_score(cls, parsed: dict[str, Any]) -> dict[str, Any]:
+        """Ensure parsed response has a numeric confidence_score field."""
+        if "confidence_score" not in parsed or not isinstance(
+            parsed.get("confidence_score"), (int, float)
+        ):
+            confidence_value = parsed.get("confidence", "Low")
+            if isinstance(confidence_value, str):
+                normalized_confidence = confidence_value.strip().casefold()
+            else:
+                normalized_confidence = ""
+            score = cls._CONFIDENCE_SCORE_MAP.get(normalized_confidence)
+            if score is None:
+                # Default to low confidence when the label is unrecognized
+                score = 0.3
+            parsed["confidence_score"] = score
+        return parsed
 
     def _parse_response(self, raw: str) -> dict[str, Any]:
         """Parse JSON from LLM response."""
@@ -411,7 +480,7 @@ class LLMClient:
             try:
                 parsed = json.loads(json_match.group(1))
                 if isinstance(parsed, dict):
-                    return parsed
+                    return self._ensure_confidence_score(parsed)
             except json.JSONDecodeError:
                 pass
 
@@ -419,7 +488,7 @@ class LLMClient:
         try:
             parsed = json.loads(raw)
             if isinstance(parsed, dict):
-                return parsed
+                return self._ensure_confidence_score(parsed)
         except json.JSONDecodeError:
             pass
 
@@ -429,7 +498,7 @@ class LLMClient:
             try:
                 parsed = json.loads(brace_match.group())
                 if isinstance(parsed, dict):
-                    return parsed
+                    return self._ensure_confidence_score(parsed)
             except json.JSONDecodeError:
                 pass
 
@@ -441,8 +510,19 @@ class LLMClient:
             "reasoning": "",
         }
 
+        # Use word-boundary regex to avoid matching substrings like
+        # "this is NOT a true positive"
+        raw_lower = raw.lower()
+        negation_pattern = r"(?:not\s+a\s+|isn'?t\s+a\s+|is\s+not\s+a?\s*)"
         for v in ["True Positive", "False Positive", "Needs More Data"]:
-            if v.lower() in raw.lower():
+            v_lower = v.lower()
+            # Check for negated form first — skip if negated
+            neg_re = negation_pattern + re.escape(v_lower)
+            if re.search(neg_re, raw_lower):
+                continue
+            # Match with word boundaries
+            word_re = r"\b" + re.escape(v_lower) + r"\b"
+            if re.search(word_re, raw_lower):
                 result["verdict"] = v
                 break
 
@@ -452,7 +532,9 @@ class LLMClient:
                 break
 
         result["reasoning"] = raw[:500]
-        return result
+        # Penalize confidence when using fallback parsing (no valid JSON)
+        result["confidence"] = "Low"
+        return self._ensure_confidence_score(result)
 
     def _log_final_verdict(
         self,

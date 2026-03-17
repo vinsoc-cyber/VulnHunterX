@@ -156,14 +156,17 @@ class QuestionsLoader:
             rule_id=rule_id,
             short_description=f"CodeQL finding: {rule_id}",
             questions=[
-                "What is the source of the potentially dangerous data?",
-                "How does the data flow from source to the flagged sink?",
-                "Are there any validation, sanitization, or encoding steps on the path?",
-                "What is the security impact if this is exploited?",
-                "Are there any mitigating factors in the broader context?",
+                "Step 1: Where does the potentially DANGEROUS data originate — what is the ultimate SOURCE (user input, file, network, database)?",
+                "Step 2: TRACE the data through ALL assignments and transformations — list each variable and function it flows through with line numbers.",
+                "Step 3: At each step, is there any VALIDATION, SANITIZATION, or ENCODING applied? If so, is it sufficient for the specific vulnerability type?",
+                "Step 4: What is the SINK — where does the data end up being used unsafely? What operation makes it dangerous?",
+                "Step 5: Does the FRAMEWORK or LIBRARY provide automatic protections at this point (e.g., ORM parameterization, auto-escaping template engine, CSRF token)? If so, is it correctly configured and not bypassed?",
+                "Step 6: What PRIVILEGE LEVEL or AUTHENTICATION STATE does an attacker need to trigger this code path — unauthenticated, authenticated user, or admin only?",
+                "Step 7: What is the concrete SECURITY IMPACT if an attacker controls this data — RCE, data theft, privilege escalation, DoS?",
+                "Step 8: Considering your answers above, identify the single WEAKEST LINK in the defense chain. If no weak link exists, explain what makes the defense complete.",
             ],
-            context_hint="Include the full function and trace the data flow",
-            additional_context=["caller"],
+            context_hint="Must trace the complete data flow from source to sink. Include caller context.",
+            additional_context=["caller", "struct", "global"],
         )
 
     def add_questions(self, questions: GuidedQuestions) -> None:

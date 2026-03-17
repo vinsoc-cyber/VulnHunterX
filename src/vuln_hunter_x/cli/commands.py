@@ -804,6 +804,10 @@ def cmd_fuzz_run(args: argparse.Namespace) -> int:
         timeout_per_harness=args.timeout,
         max_total_time=args.max_fuzz_time,
         dry_run=args.dry_run,
+        triage=getattr(args, "triage", False),
+        parallel=getattr(args, "parallel", 1),
+        rss_limit_mb=getattr(args, "rss_limit", 0),
+        use_corpus=getattr(args, "corpus", False),
     )
 
     if not results:
@@ -820,10 +824,20 @@ def cmd_fuzz_run(args: argparse.Namespace) -> int:
                 continue
             crashed = r.get("crashed", False)
             count = r.get("crash_count", 0)
+            unique = r.get("unique_crash_count")
             elapsed = r.get("time_sec", 0)
+            crash_label = f"crashes={count}"
+            if unique is not None:
+                crash_label += f", unique={unique}"
             print(
-                f"  {r.get('harness', '?')}: {'CRASH' if crashed else 'ok'} (crashes={count}, time={elapsed}s)"
+                f"  {r.get('harness', '?')}: {'CRASH' if crashed else 'ok'} ({crash_label}, time={elapsed}s)"
             )
+            # Show triage details if available
+            for tc in r.get("triaged_crashes", []):
+                print(
+                    f"    [{tc.get('severity', '?')}] {tc.get('crash_type', '?')} "
+                    f"in {tc.get('faulting_function', '?')} (hash={tc.get('stack_hash', '?')[:8]})"
+                )
         print(f"  -> {summary_path}")
     print("\nDone.")
     return 0

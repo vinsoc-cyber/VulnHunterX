@@ -88,29 +88,79 @@ def fix_harness_with_llm(
     return "compile_failed", max_iterations, last_errors
 
 
+def _classify_errors(errors: str) -> str:
+    """Classify compiler/linker errors to provide targeted hints."""
+    err_lower = errors.lower()
+    if "undefined reference" in err_lower or "ld returned" in err_lower:
+        return "linker"
+    if "no such file or directory" in err_lower and "#include" in err_lower:
+        return "missing_include"
+    if "undeclared identifier" in err_lower or "use of undeclared" in err_lower:
+        return "undefined_symbol"
+    if "incompatible type" in err_lower or "cannot convert" in err_lower:
+        return "type_mismatch"
+    return "compilation"
+
+
+def _error_specific_hint(error_class: str) -> str:
+    """Return targeted hints based on error classification."""
+    hints = {
+        "linker": (
+            "HINT: This is a LINKER error. Check if extern \"C\" linkage is needed, "
+            "if the function is in a different translation unit, or if a library "
+            "needs to be linked. Do NOT change the function signature."
+        ),
+        "missing_include": (
+            "HINT: A required header file is missing. Add the appropriate #include "
+            "directive. Check the project's include paths for the correct header name."
+        ),
+        "undefined_symbol": (
+            "HINT: A symbol is not declared. Check if a header needs to be included, "
+            "if the symbol is in a specific namespace, or if a forward declaration is needed."
+        ),
+        "type_mismatch": (
+            "HINT: There is a type incompatibility. Check if a cast is needed, "
+            "if the correct type is being used, or if a const qualifier is missing."
+        ),
+        "compilation": "HINT: Fix the compilation errors. Add missing includes or fix type issues.",
+    }
+    return hints.get(error_class, "")
+
+
 FUZZ_FIX_SYSTEM = """You are a C++ build fix assistant. You will be given:
 1) A libFuzzer harness source that failed to compile or link.
 2) The compiler/linker command that was run.
 3) The compiler/linker error output.
+4) Optionally, previous fix attempts and their results.
 
 Respond with ONLY the corrected full C++ source file. No explanation, no markdown outside a code block.
 The code must contain the function: extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size).
-Fix only the reported errors: add missing includes, fix types, fix link order or symbols. Preserve the harness structure."""
+Fix only the reported errors: add missing includes, fix types, fix link order or symbols. Preserve the harness structure.
+If you have seen previous fix attempts that failed, do NOT repeat the same approach — try a different fix strategy."""
 
 
 def make_llm_fix_fn(
     provider: str, model: str, max_tokens: int = 4000, type_context: str = ""
 ) -> Callable[[str, str, str], str]:
-    """Build a completion function that calls the LLM with the fix prompt."""
+    """Build a multi-turn completion function that maintains conversation history."""
     import litellm
 
     model_id = normalize_ollama_model(model) if provider == "ollama" else model
 
+    # Filter type context to be more relevant (increased budget to 4000 chars)
     type_ctx_section = (
-        f"\nAvailable type definitions:\n{type_context[:2000]}\n" if type_context else ""
+        f"\nAvailable type definitions:\n{type_context[:4000]}\n" if type_context else ""
     )
 
+    # Maintain conversation history across iterations
+    message_history: list[dict[str, str]] = [
+        {"role": "system", "content": FUZZ_FIX_SYSTEM},
+    ]
+
     def complete(source: str, errors: str, command: str) -> str:
+        error_class = _classify_errors(errors)
+        hint = _error_specific_hint(error_class)
+
         user = f"""Harness source:
 ```cpp
 {source}
@@ -119,19 +169,21 @@ def make_llm_fix_fn(
 Command:
 {command}
 
-Errors:
+Errors ({error_class}):
 ```
 {errors[:3500]}
 ```
 {type_ctx_section}
+{hint}
+
 Respond with the corrected full C++ source only (use a ```cpp ... ``` block or plain code)."""
+
+        message_history.append({"role": "user", "content": user})
+
         try:
             kwargs = {
                 "model": model_id,
-                "messages": [
-                    {"role": "system", "content": FUZZ_FIX_SYSTEM},
-                    {"role": "user", "content": user},
-                ],
+                "messages": list(message_history),
                 "max_tokens": max_tokens,
             }
             kwargs.update(
@@ -141,10 +193,12 @@ Respond with the corrected full C++ source only (use a ```cpp ... ``` block or p
                     stream=False,
                 )
             )
-            resp = litellm.completion(
-                **kwargs,
-            )
+            resp = litellm.completion(**kwargs)
             content = (resp.choices or [{}])[0].get("message", {}).get("content") or ""
+
+            # Add assistant response to history for multi-turn context
+            message_history.append({"role": "assistant", "content": content})
+
             return content
         except Exception:
             logger.warning("LLM fix completion failed", exc_info=True)

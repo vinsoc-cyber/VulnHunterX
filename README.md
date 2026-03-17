@@ -48,11 +48,12 @@ This framework automates the triage process by using LLMs to:
 | **Multi-language Support** | C, C++, Python, JavaScript, PHP, Java                                                     |
 | **LLM verification**       | Multi-turn with context expansion                                                         |
 | **Guided Questions**       | Rule-specific questions for structured analysis                                           |
-| **Context Expansion**      | LLM can request callers, structs, globals                                                 |
+| **Context Expansion**      | LLM can request callers, structs, globals, typedefs, enums                                |
 | **Multiple LLM Providers** | OpenAI (GPT-4), Anthropic (Claude), and Ollama (local models)                             |
 | **Dual SAST**              | CodeQL and Semgrep; choose analyzer(s) with `analyze --tool codeql`, `semgrep`, or `both` |
 | **Tree-sitter Fallback**   | Source-based context extraction when CodeQL is unavailable                                 |
-| **Fuzz Confirmation**      | Automated libFuzzer harness generation and crash detection (C/C++)                        |
+| **Fuzz Confirmation**      | Type-aware libFuzzer harness generation, crash triage with stack dedup, parallel execution (C/C++) |
+| **Crash Triage**           | ASan/UBSan stack trace extraction, dedup by stack hash, severity classification            |
 | **Parallel Analysis**      | Multi-repo CodeQL analysis with configurable parallelism (`--jobs`)                       |
 | **LLM Fix Loop**           | Automatic harness compilation fix using LLM (Stage 7.5)                                   |
 | **Benchmarking**           | Precision/recall evaluation across 4 ground-truth datasets                                |
@@ -113,6 +114,7 @@ This framework automates the triage process by using LLMs to:
                          │   - Needs More Data (uncertain)    │
                          │                                    │
                          │   + Confidence: High/Medium/Low    │
+                         │   + Confidence Score: 0.0–1.0     │
                          │   + Reasoning explanation          │
                          │   + Answered guided questions      │
                          └────────────────────────────────────┘

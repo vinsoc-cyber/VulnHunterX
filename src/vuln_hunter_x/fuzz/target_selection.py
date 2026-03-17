@@ -10,6 +10,7 @@ import csv
 import json
 import logging
 from pathlib import Path
+from typing import TypedDict
 
 from vuln_hunter_x.core.types import Finding
 from vuln_hunter_x.fuzz.fuzz_context import load_callers, load_structs
@@ -205,22 +206,46 @@ def find_enclosing_function(
     return None
 
 
+# CWE IDs associated with memory corruption — high fuzz value
+_MEMORY_CORRUPTION_CWES = frozenset({
+    "CWE-119", "CWE-120", "CWE-121", "CWE-122", "CWE-125",
+    "CWE-416", "CWE-415", "CWE-787", "CWE-190", "CWE-193",
+})
+
+
+class StructMember(TypedDict):
+    """Typed representation of a struct member entry."""
+
+    name: str
+    type: str
+
+
+StructDefs = dict[str, list[str] | list[StructMember]]
+
+
 def score_target(
     target_info: dict,
-    struct_defs: dict[str, list[str]] | None = None,
+    struct_defs: StructDefs | None = None,
     callers_map: dict[str, list[str]] | None = None,
+    finding: Finding | None = None,
 ) -> int:
     """
     Score a fuzz target by estimated fuzzability.
 
-    +10 per primitive param (int, char*, size_t, bool)
+    +10 per primitive param (int, char*, size_t, bool, float, double)
     +2 per struct param with known definition
     +2 per known caller
+    +8 for buffer+length param pattern (char*/uint8_t* with size_t)
+    +15 for memory corruption CWE association
     -3 if > 6 params
+    -5 for single-caller private helpers (likely internal)
     """
     PRIMITIVE_TOKENS = {"int", "char", "size_t", "bool", "uint", "long", "short", "float", "double"}
     params = target_info.get("params", [])
     score = 0
+
+    has_buffer_param = False
+    has_size_param = False
 
     for p in params:
         ptype_orig = p.get("type") or ""
@@ -231,12 +256,31 @@ def score_target(
         elif struct_defs and base in struct_defs:
             score += 2
 
+        # Detect buffer+length pattern
+        if ("char *" in ptype_lower or "uint8_t *" in ptype_lower
+                or "void *" in ptype_lower or "unsigned char *" in ptype_lower):
+            has_buffer_param = True
+        if "size_t" in ptype_lower and "*" not in ptype_orig:
+            has_size_param = True
+
+    if has_buffer_param and has_size_param:
+        score += 8  # Natural fuzz entry point pattern
+
     if len(params) > 6:
         score -= 3
 
     func_name = target_info.get("name", "")
     if callers_map and func_name in callers_map:
-        score += 2 * len(callers_map[func_name])
+        num_callers = len(callers_map[func_name])
+        score += 2 * num_callers
+        # Penalize single-caller private helpers
+        if num_callers == 1 and func_name.startswith("_"):
+            score -= 5
+
+    # CWE-aware scoring bonus
+    if (finding and hasattr(finding, "cwe_ids") and finding.cwe_ids
+            and any(cwe in _MEMORY_CORRUPTION_CWES for cwe in finding.cwe_ids)):
+        score += 15
 
     return score
 
@@ -297,6 +341,20 @@ def select_targets(
             continue
         targets.append((finding, verdict, info))
 
+    # Deduplicate: multiple findings in same function → keep highest-severity
+    seen_functions: dict[tuple[str, str, int], tuple[Finding, str, dict]] = {}
+    for finding, verdict, info in targets:
+        func_key = (info["name"], info["file"], info["start_line"])
+        existing = seen_functions.get(func_key)
+        if existing is None:
+            seen_functions[func_key] = (finding, verdict, info)
+        else:
+            # Keep TP over NMD over FP
+            verdict_priority = {VERDICT_TP: 3, VERDICT_NMD: 2, VERDICT_FP: 1}
+            if verdict_priority.get(verdict, 0) > verdict_priority.get(existing[1], 0):
+                seen_functions[func_key] = (finding, verdict, info)
+    targets = list(seen_functions.values())
+
     # Score and sort by fuzzability (best targets first)
     if targets:
         # Build per-repo enrichment data for scoring
@@ -313,6 +371,7 @@ def select_targets(
                 t[2],
                 struct_defs=repo_structs.get((t[0].lang, t[0].repo_name)),
                 callers_map=repo_callers.get((t[0].lang, t[0].repo_name)),
+                finding=t[0],
             ),
             reverse=True,
         )

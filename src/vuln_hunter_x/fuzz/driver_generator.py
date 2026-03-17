@@ -21,14 +21,68 @@ def _include_line(inc_text: str) -> str:
     return f'#include "{s}"'
 
 
-def _generate_struct_init(struct_name: str, members: list[str], var_name: str) -> list[str]:
-    """Generate zero-init + member population for a struct local variable."""
+def _member_consumption(member_type: str, provider_var: str = "provider") -> str:
+    """Map a struct member's actual type to the correct FuzzedDataProvider call."""
+    t = member_type.lower().strip()
+    if "char *" in t or "char*" in t:
+        # String member — can't easily fuzz a pointer member, use nullptr
+        return "nullptr"
+    if "float" in t:
+        return f"{provider_var}.ConsumeFloatingPoint<float>()"
+    if "double" in t:
+        return f"{provider_var}.ConsumeFloatingPoint<double>()"
+    if "bool" in t:
+        return f"{provider_var}.ConsumeBool()"
+    if "uint8_t" in t or "unsigned char" in t:
+        return f"{provider_var}.ConsumeIntegral<uint8_t>()"
+    if "uint16_t" in t or "unsigned short" in t:
+        return f"{provider_var}.ConsumeIntegral<uint16_t>()"
+    if "uint64_t" in t or "unsigned long long" in t:
+        return f"{provider_var}.ConsumeIntegral<uint64_t>()"
+    if "int64_t" in t or "long long" in t:
+        return f"{provider_var}.ConsumeIntegral<int64_t>()"
+    if "uint32_t" in t or "unsigned int" in t or "unsigned" in t:
+        return f"{provider_var}.ConsumeIntegral<uint32_t>()"
+    if "int32_t" in t or t == "int":
+        return f"{provider_var}.ConsumeIntegral<int32_t>()"
+    if "int16_t" in t or "short" in t:
+        return f"{provider_var}.ConsumeIntegral<int16_t>()"
+    if "size_t" in t:
+        return f"{provider_var}.ConsumeIntegral<size_t>()"
+    if "long" in t:
+        return f"{provider_var}.ConsumeIntegral<long>()"
+    if "int" in t:
+        return f"{provider_var}.ConsumeIntegral<int>()"
+    if "*" in member_type:
+        return "nullptr"
+    # Default fallback
+    return f"{provider_var}.ConsumeIntegral<uint32_t>()"
+
+
+def _generate_struct_init(
+    struct_name: str,
+    members: list[dict[str, str]] | list[str],
+    var_name: str,
+) -> list[str]:
+    """Generate zero-init + type-aware member population for a struct local variable.
+
+    *members* may be a list of dicts ``{"name": ..., "type": ...}`` (new format)
+    or a plain list of member name strings (legacy format, defaults to uint32_t).
+    """
     lines = [
         f"  {struct_name} {var_name};",
         f"  memset(&{var_name}, 0, sizeof({var_name}));",
     ]
     for member in members:
-        lines.append(f"  {var_name}.{member} = provider.ConsumeIntegral<uint32_t>();")
+        if isinstance(member, dict):
+            mname = member.get("name", "")
+            mtype = member.get("type", "uint32_t")
+            consumption = _member_consumption(mtype)
+        else:
+            mname = member
+            consumption = "provider.ConsumeIntegral<uint32_t>()"
+        if mname:
+            lines.append(f"  {var_name}.{mname} = {consumption};")
     return lines
 
 
@@ -46,10 +100,18 @@ def _param_to_consumption(param_type: str, param_name: str, provider_var: str = 
     if "unsigned char *" in t or "uint8_t *" in t or "void *" in t:
         # Buffer: need pointer + size; consume bytes and use data(), size()
         return f"reinterpret_cast<{param_type.strip()}>(const_cast<uint8_t*>({provider_var}.ConsumeRemainingBytes().data()))"
+    if "file *" in t or "file*" in t:
+        # Avoid tmpfile() here to prevent missing includes and FILE* lifetime issues.
+        # Many APIs tolerate a nullptr FILE*; this is safer for generated harnesses.
+        return "nullptr"
     if "size_t" in t or "size_t *" in t:
         if "*" in param_type:
             return "&fuzz_size"
         return f"{provider_var}.ConsumeIntegral<size_t>()"
+    if "float" in t and "*" not in param_type:
+        return f"{provider_var}.ConsumeFloatingPoint<float>()"
+    if "double" in t and "*" not in param_type:
+        return f"{provider_var}.ConsumeFloatingPoint<double>()"
     if "int" in t and "*" not in param_type:
         return f"{provider_var}.ConsumeIntegral<int>()"
     if "long" in t:

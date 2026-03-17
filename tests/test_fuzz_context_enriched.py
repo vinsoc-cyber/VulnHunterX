@@ -55,8 +55,8 @@ class TestLoadStructs:
             ],
         )
         result = load_structs(ctx_dir)
-        assert result["Foo"] == ["x", "y"]
-        assert result["Bar"] == ["z"]
+        assert result["Foo"] == [{"name": "x", "type": "uint32_t"}, {"name": "y", "type": "uint32_t"}]
+        assert result["Bar"] == [{"name": "z", "type": "uint32_t"}]
 
     def test_missing_csv_returns_empty(self, ctx_dir):
         assert load_structs(ctx_dir) == {}
@@ -182,7 +182,7 @@ class TestGetTargetContextWithStructs:
             ctx_dir,
         )
         assert "Config" in ctx["struct_defs"]
-        assert ctx["struct_defs"]["Config"] == ["timeout", "retries"]
+        assert ctx["struct_defs"]["Config"] == [{"name": "timeout", "type": "uint32_t"}, {"name": "retries", "type": "uint32_t"}]
 
     def test_struct_defs_empty_when_no_match(self, ctx_dir):
         _write_csv(
@@ -197,14 +197,99 @@ class TestGetTargetContextWithStructs:
         assert ctx["struct_defs"] == {}
 
 
+# ── _param_to_consumption ───────────────────────────────────────────────────
+
+class TestParamToConsumption:
+    """Cover each type branch in _param_to_consumption(), including new ones."""
+
+    def test_char_pointer_returns_fuzz_str(self):
+        assert _param_to_consumption("char *", "buf") == "fuzz_str_buf.c_str()"
+
+    def test_const_char_pointer_returns_fuzz_str(self):
+        assert _param_to_consumption("const char *", "name") == "fuzz_str_name.c_str()"
+
+    def test_char_star_const_returns_fuzz_str(self):
+        assert _param_to_consumption("char * const", "s") == "fuzz_str_s.c_str()"
+
+    def test_uint8_pointer_returns_buffer_cast(self):
+        result = _param_to_consumption("uint8_t *", "data")
+        assert "ConsumeRemainingBytes" in result
+        assert "reinterpret_cast" in result
+
+    def test_void_pointer_returns_buffer_cast(self):
+        result = _param_to_consumption("void *", "ptr")
+        assert "ConsumeRemainingBytes" in result
+
+    def test_file_pointer_returns_nullptr(self):
+        assert _param_to_consumption("FILE *", "fp") == "nullptr"
+
+    def test_file_pointer_lowercase(self):
+        # Lower-cased variant should still match
+        assert _param_to_consumption("file *", "fp") == "nullptr"
+
+    def test_size_t_returns_integral(self):
+        assert _param_to_consumption("size_t", "sz") == "provider.ConsumeIntegral<size_t>()"
+
+    def test_size_t_pointer_returns_ref(self):
+        assert _param_to_consumption("size_t *", "sz") == "&fuzz_size"
+
+    def test_float_returns_floating_point(self):
+        assert _param_to_consumption("float", "val") == "provider.ConsumeFloatingPoint<float>()"
+
+    def test_float_pointer_does_not_use_floating_point(self):
+        # float* should fall through to nullptr (pointer fallback), not ConsumeFloatingPoint
+        result = _param_to_consumption("float *", "fptr")
+        assert "ConsumeFloatingPoint" not in result
+        assert result == "nullptr"
+
+    def test_double_returns_floating_point(self):
+        assert _param_to_consumption("double", "val") == "provider.ConsumeFloatingPoint<double>()"
+
+    def test_double_pointer_does_not_use_floating_point(self):
+        # double* should fall through to nullptr (pointer fallback), not ConsumeFloatingPoint
+        result = _param_to_consumption("double *", "dptr")
+        assert "ConsumeFloatingPoint" not in result
+        assert result == "nullptr"
+
+    def test_int_returns_integral(self):
+        assert _param_to_consumption("int", "n") == "provider.ConsumeIntegral<int>()"
+
+    def test_int_pointer_returns_nullptr(self):
+        assert _param_to_consumption("int *", "ip") == "nullptr"
+
+    def test_long_returns_integral(self):
+        assert _param_to_consumption("long", "l") == "provider.ConsumeIntegral<long>()"
+
+    def test_bool_returns_consume_bool(self):
+        assert _param_to_consumption("bool", "flag") == "provider.ConsumeBool()"
+
+    def test_generic_pointer_returns_nullptr(self):
+        assert _param_to_consumption("struct Foo *", "foo") == "nullptr"
+
+    def test_unknown_type_returns_uint32_integral(self):
+        assert _param_to_consumption("MyCustomType", "x") == "provider.ConsumeIntegral<uint32_t>()"
+
+    def test_custom_provider_var(self):
+        result = _param_to_consumption("float", "val", provider_var="fdp")
+        assert result == "fdp.ConsumeFloatingPoint<float>()"
+
+
 # ── _generate_struct_init ───────────────────────────────────────────────────
 
 class TestGenerateStructInit:
     def test_generates_memset_and_member_assignments(self):
-        lines = _generate_struct_init("Config", ["timeout", "retries"], "fuzz_struct_Config")
+        members = [{"name": "timeout", "type": "uint32_t"}, {"name": "retries", "type": "int"}]
+        lines = _generate_struct_init("Config", members, "fuzz_struct_Config")
         code = "\n".join(lines)
         assert "Config fuzz_struct_Config;" in code
         assert "memset(&fuzz_struct_Config, 0, sizeof(fuzz_struct_Config));" in code
+        assert "fuzz_struct_Config.timeout" in code
+        assert "fuzz_struct_Config.retries" in code
+
+    def test_legacy_string_members(self):
+        """Backward compatibility: plain string member names default to uint32_t."""
+        lines = _generate_struct_init("Config", ["timeout", "retries"], "fuzz_struct_Config")
+        code = "\n".join(lines)
         assert "fuzz_struct_Config.timeout = provider.ConsumeIntegral<uint32_t>();" in code
         assert "fuzz_struct_Config.retries = provider.ConsumeIntegral<uint32_t>();" in code
 
@@ -225,7 +310,7 @@ class TestGenerateHarnessWithStructs:
             "end_line": 10,
             "params": [{"type": "struct Cfg *", "name": "cfg"}],
             "includes": [],
-            "struct_defs": {"Cfg": ["size", "flags"]},
+            "struct_defs": {"Cfg": [{"name": "size", "type": "size_t"}, {"name": "flags", "type": "uint32_t"}]},
         }
         out = generate_harness("rule/test", "a.c", 5, ctx, tmp_path / "harness.cc", "repo")
         code = out.read_text()
@@ -249,6 +334,100 @@ class TestGenerateHarnessWithStructs:
         assert "LLVMFuzzerTestOneInput" in code
 
 
+# ── _param_to_consumption ───────────────────────────────────────────────────
+
+class TestParamToConsumption:
+    """Unit tests for _param_to_consumption() type-dispatch logic."""
+
+    # --- char pointer variants ---
+    def test_char_pointer(self):
+        result = _param_to_consumption("char *", "buf")
+        assert result == "fuzz_str_buf.c_str()"
+
+    def test_char_pointer_no_space(self):
+        result = _param_to_consumption("char*", "buf")
+        assert result == "fuzz_str_buf.c_str()"
+
+    def test_const_char_pointer(self):
+        result = _param_to_consumption("const char *", "name")
+        assert result == "fuzz_str_name.c_str()"
+
+    # --- FILE* ---
+    def test_file_pointer_with_space(self):
+        result = _param_to_consumption("FILE *", "fp")
+        assert result == "nullptr"
+
+    def test_file_pointer_no_space(self):
+        result = _param_to_consumption("FILE*", "fp")
+        assert result == "nullptr"
+
+    # --- float (non-pointer) ---
+    def test_float_scalar(self):
+        result = _param_to_consumption("float", "val")
+        assert result == "provider.ConsumeFloatingPoint<float>()"
+
+    def test_float_with_custom_provider_var(self):
+        result = _param_to_consumption("float", "val", provider_var="fdp")
+        assert result == "fdp.ConsumeFloatingPoint<float>()"
+
+    def test_float_pointer_does_not_match_float_branch(self):
+        # float* should fall through to the nullptr default (pointer, not scalar)
+        result = _param_to_consumption("float *", "fptr")
+        assert result == "nullptr"
+
+    # --- double (non-pointer) ---
+    def test_double_scalar(self):
+        result = _param_to_consumption("double", "val")
+        assert result == "provider.ConsumeFloatingPoint<double>()"
+
+    def test_double_with_custom_provider_var(self):
+        result = _param_to_consumption("double", "val", provider_var="fdp")
+        assert result == "fdp.ConsumeFloatingPoint<double>()"
+
+    def test_double_pointer_does_not_match_double_branch(self):
+        # double* should fall through to the nullptr default (pointer, not scalar)
+        result = _param_to_consumption("double *", "dptr")
+        assert result == "nullptr"
+
+    # --- size_t ---
+    def test_size_t_scalar(self):
+        result = _param_to_consumption("size_t", "sz")
+        assert result == "provider.ConsumeIntegral<size_t>()"
+
+    def test_size_t_pointer(self):
+        result = _param_to_consumption("size_t *", "sz_ptr")
+        assert result == "&fuzz_size"
+
+    # --- int / long / bool ---
+    def test_int_scalar(self):
+        result = _param_to_consumption("int", "n")
+        assert result == "provider.ConsumeIntegral<int>()"
+
+    def test_long_scalar(self):
+        result = _param_to_consumption("long", "l")
+        assert result == "provider.ConsumeIntegral<long>()"
+
+    def test_bool_scalar(self):
+        result = _param_to_consumption("bool", "flag")
+        assert result == "provider.ConsumeBool()"
+
+    # --- generic pointer fallback ---
+    def test_generic_pointer_returns_nullptr(self):
+        # void* should generate a reinterpret_cast buffer expression
+        result = _param_to_consumption("void *", "ptr")
+        assert "reinterpret_cast" in result
+
+    def test_unknown_pointer_type_returns_nullptr(self):
+        result = _param_to_consumption("struct Foo *", "foo")
+        assert result == "nullptr"
+
+    # --- default integral fallback ---
+    def test_unknown_scalar_returns_uint32_integral(self):
+        # A type that matches none of the named branches falls back to ConsumeIntegral<uint32_t>
+        result = _param_to_consumption("custom_type", "x")
+        assert result == "provider.ConsumeIntegral<uint32_t>()"
+
+
 # ── score_target ────────────────────────────────────────────────────────────
 
 class TestScoreTarget:
@@ -262,7 +441,7 @@ class TestScoreTarget:
 
     def test_struct_param_with_known_def(self):
         info = {"name": "fn", "params": [{"type": "Config *", "name": "cfg"}]}
-        score = score_target(info, struct_defs={"Config": ["x", "y"]})
+        score = score_target(info, struct_defs={"Config": [{"name": "x", "type": "int"}, {"name": "y", "type": "int"}]})
         assert score >= 2
 
     def test_struct_param_without_known_def_scores_zero(self):

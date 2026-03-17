@@ -651,3 +651,55 @@ py/insecure-tls-context:
     - "Is this context used only for INTERNAL services with self-signed certs, or for public-facing connections?"
   context_hint: "Include the SSLContext creation, option settings, and where it is used for connections."
   additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Resource Exhaustion, Authentication, Privilege, Authorization
+# ==============================================================================
+
+py/resource-exhaustion:
+  short_description: "Unbounded resource allocation from user-controlled input enabling DoS (CWE-770)"
+  questions:
+    - "Is a LIST, DICT, or BUFFER sized by user input without an upper bound (e.g., [None] * int(request.args['size']))?"
+    - "Could an attacker send an extremely large value to exhaust server memory or cause MemoryError?"
+    - "Is there a MAXIMUM enforced — validator, min/max clamp, or framework-level limit (e.g., DATA_UPLOAD_MAX_MEMORY_SIZE)?"
+    - "Is file content read entirely into memory (file.read()) without a size limit for user-uploaded files?"
+    - "Could recursive or deeply nested input (JSON, XML, pickle) cause stack overflow or exponential processing?"
+    - "Is pagination enforced on database queries — could a user request limit=999999 to dump the entire table?"
+  context_hint: "Include the allocation site, user input source, and any size validation."
+  additional_context: ["caller"]
+
+py/missing-authentication:
+  short_description: "View or endpoint accessible without authentication performing privileged actions (CWE-306)"
+  questions:
+    - "Does this view perform a PRIVILEGED action — data modification, admin operation, sensitive data access?"
+    - "Is @login_required (Django), @jwt_required (Flask-JWT), or IsAuthenticated (DRF) applied to this view?"
+    - "Could an UNAUTHENTICATED user reach this endpoint by directly calling its URL?"
+    - "Is this endpoint in a URL namespace that is supposed to be protected by a middleware/decorator?"
+    - "Is this intentionally public (login page, health check, public API) or was authentication accidentally omitted?"
+    - "Is there a global authentication middleware that should protect this path but has an exclusion?"
+  context_hint: "Include the view function/class, URL configuration, and any authentication decorators."
+  additional_context: ["caller", "classes"]
+
+py/improper-privilege-management:
+  short_description: "Privilege escalation via role manipulation or missing privilege boundary (CWE-269)"
+  questions:
+    - "Can a user MODIFY their own role or is_staff/is_superuser field through an API endpoint?"
+    - "Is the role assignment endpoint protected — only admins can grant admin roles?"
+    - "Could a serializer (DRF) or form include role/privilege fields not intended for user modification?"
+    - "Is there a privilege boundary between user types that is consistently enforced across all endpoints?"
+    - "Could os.setuid()/os.seteuid() calls in the application drop privileges incorrectly?"
+    - "Are Django's @permission_required or DRF's IsAdminUser permissions used to guard privilege-changing operations?"
+  context_hint: "Include the user update view, serializer fields, and permission checks."
+  additional_context: ["caller", "classes"]
+
+py/incorrect-authorization:
+  short_description: "Authorization check on wrong object or with incorrect logic (CWE-863)"
+  questions:
+    - "Does the authorization check verify the user OWNS the specific resource they are accessing (object-level permission)?"
+    - "Could an attacker change the resource ID in the URL to access ANOTHER user's data (IDOR)?"
+    - "Is get_object_or_404() used with a filter on the current user, or does it fetch any object by ID?"
+    - "Are DRF object-level permissions (has_object_permission) implemented, or only view-level permissions?"
+    - "Is the authorization logic consistent across all HTTP methods (GET, PUT, DELETE) for this resource?"
+    - "Could a race condition between the permission check and the action allow bypass?"
+  context_hint: "Include the view, object lookup, permission class, and queryset filtering."
+  additional_context: ["caller", "classes"]
