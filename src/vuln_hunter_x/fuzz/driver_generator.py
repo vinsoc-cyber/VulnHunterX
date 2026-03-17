@@ -101,7 +101,9 @@ def _param_to_consumption(param_type: str, param_name: str, provider_var: str = 
         # Buffer: need pointer + size; consume bytes and use data(), size()
         return f"reinterpret_cast<{param_type.strip()}>(const_cast<uint8_t*>({provider_var}.ConsumeRemainingBytes().data()))"
     if "file *" in t or "file*" in t:
-        return "tmpfile()"
+        # Avoid tmpfile() here to prevent missing includes and FILE* lifetime issues.
+        # Many APIs tolerate a nullptr FILE*; this is safer for generated harnesses.
+        return "nullptr"
     if "size_t" in t or "size_t *" in t:
         if "*" in param_type:
             return "&fuzz_size"
