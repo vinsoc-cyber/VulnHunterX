@@ -126,8 +126,18 @@ def _run_single_harness(
             unique_crashes = triage_and_dedup(binary, crash_files)
             result["triaged_crashes"] = [c.to_dict() for c in unique_crashes]
             result["unique_crash_count"] = len(unique_crashes)
+        except subprocess.TimeoutExpired as exc:
+            logger.warning("Crash triage timed out for harness %s: %s", name, exc)
+        except FileNotFoundError as exc:
+            logger.warning(
+                "Crash triage tool not found while triaging harness %s: %s",
+                name,
+                exc,
+            )
         except Exception:
-            logger.debug("Crash triage failed for %s", name, exc_info=True)
+            # Log a concise error by default, with full traceback only at debug level.
+            logger.error("Unexpected error during crash triage for harness %s", name)
+            logger.debug("Crash triage failure details for %s", name, exc_info=True)
 
     return result
 
