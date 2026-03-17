@@ -522,3 +522,107 @@ php/insecure-tls-version:
     - "Is this for connecting to LEGACY systems where upgrading TLS is not feasible?"
   context_hint: "Include the curl/stream setup and TLS version configuration."
   additional_context: ["caller"]
+
+# ==============================================================================
+# PHP - Resource Exhaustion, Authentication, Privilege, Authorization
+# ==============================================================================
+
+php/resource-exhaustion:
+  short_description: "Unbounded resource allocation from user-controlled input enabling DoS (CWE-770)"
+  questions:
+    - "Is an ARRAY size, string length, or loop count controlled by user input without an upper bound?"
+    - "Could an attacker send an extremely large value to exhaust server memory (e.g., str_repeat($input, $_GET['count']))?"
+    - "Is there a MAXIMUM enforced — validation rule, ini_get('memory_limit'), or framework-level limit?"
+    - "Is file content read entirely into memory (file_get_contents()) without a size limit for user-uploaded files?"
+    - "Could recursive or deeply nested input (JSON, XML) cause stack overflow or exponential processing?"
+    - "Is upload_max_filesize, post_max_size, and max_input_vars configured to limit resource consumption?"
+  context_hint: "Include the allocation site, user input source, and any size validation."
+  additional_context: ["caller"]
+
+php/missing-authentication:
+  short_description: "Controller action accessible without authentication performing privileged actions (CWE-306)"
+  questions:
+    - "Does this action perform a PRIVILEGED operation — data modification, admin action, sensitive data access?"
+    - "Is session_start() called and is $_SESSION['user_id'] or similar checked before the action?"
+    - "In Laravel: is the 'auth' middleware applied to this route or controller?"
+    - "In Symfony: is the access_control or @IsGranted annotation configured for this path?"
+    - "Could an UNAUTHENTICATED user reach this endpoint by directly calling its URL?"
+    - "Is this intentionally public (login page, password reset, public API) or was authentication accidentally omitted?"
+  context_hint: "Include the controller method, route definition, and any authentication middleware."
+  additional_context: ["caller"]
+
+php/improper-privilege-management:
+  short_description: "Privilege escalation via role manipulation or missing privilege boundary (CWE-269)"
+  questions:
+    - "Can a user MODIFY their own role or admin status through a form submission or API request?"
+    - "Is the role field included in $request->all() or $request->input() and mass-assigned to the user model?"
+    - "In Laravel: is the 'role' field in the model's $fillable array (allowing mass assignment) or properly in $guarded?"
+    - "Is the role assignment endpoint protected — only admins can change roles?"
+    - "Could an attacker add a hidden 'is_admin=1' field to a registration or profile update form?"
+    - "Are authorization gates/policies (Laravel Gate, Symfony Voter) used to guard privilege-changing operations?"
+  context_hint: "Include the user update controller, model $fillable/$guarded, and authorization checks."
+  additional_context: ["caller", "classes"]
+
+php/incorrect-authorization:
+  short_description: "Authorization check on wrong object or with incorrect logic (CWE-863)"
+  questions:
+    - "Does the authorization check verify the user OWNS the specific resource they are accessing?"
+    - "Could an attacker change the resource ID in the URL to access ANOTHER user's data (IDOR)?"
+    - "Is the database query filtered by the authenticated user's ID (WHERE user_id = Auth::id()), or does it fetch any record?"
+    - "In Laravel: is a Policy with authorize() or Gate::allows() used for object-level authorization?"
+    - "Is the authorization check consistent across all controller methods (show, edit, update, destroy)?"
+    - "Could route model binding (Laravel) or ParamConverter (Symfony) bypass authorization by auto-resolving any model?"
+  context_hint: "Include the controller method, query/model lookup, and authorization check."
+  additional_context: ["caller", "classes"]
+
+# ==============================================================================
+# PHP - Web-Specific (Mass Assignment, Race Condition, CORS, Zip Slip)
+# ==============================================================================
+
+php/mass-assignment:
+  short_description: "Laravel model mass assignment allowing attacker to set unintended fields (CWE-915)"
+  questions:
+    - "Is $request->all(), $request->input(), or $request->only() passed directly to Model::create() or $model->update()?"
+    - "Is the model's $fillable array configured to include ONLY the fields that should be user-modifiable?"
+    - "Or is $guarded set — if $guarded = [], ALL fields are fillable including role, is_admin, email_verified?"
+    - "Could an attacker add extra fields (role=admin, is_admin=1, email_verified_at=now) to the request?"
+    - "Is $request->validated() from a FormRequest used (safe — only passes validated fields)?"
+    - "What is the impact — privilege escalation, data tampering, bypassing email verification?"
+  context_hint: "Include the controller method, model $fillable/$guarded, and the request handling."
+  additional_context: ["caller", "classes"]
+
+php/race-condition:
+  short_description: "TOCTOU race condition in file operations or session-based checks (CWE-362)"
+  questions:
+    - "Is there a CHECK (file_exists, is_file, filesize) followed by a separate USE (fopen, unlink, rename) of the same path?"
+    - "Could another process or request modify the file BETWEEN the check and the use?"
+    - "Is the operation performed on a SHARED resource (temp directory, upload directory, session file)?"
+    - "Is file locking (flock) used to prevent concurrent access?"
+    - "Could a symlink race allow an attacker to redirect the file operation to a different target?"
+    - "Is this in a web context where multiple concurrent requests could trigger the race condition?"
+  context_hint: "Include the check operation, the use operation, and any locking mechanism."
+  additional_context: ["caller"]
+
+php/cors-misconfiguration:
+  short_description: "Overly permissive CORS configuration allowing cross-origin attacks (CWE-942)"
+  questions:
+    - "Is Access-Control-Allow-Origin set to '*' or dynamically reflecting the request's Origin header without validation?"
+    - "Is Access-Control-Allow-Credentials set to 'true' together with a permissive origin (browsers reject * with credentials, but reflected origin bypasses this)?"
+    - "In Laravel: is the cors.php config's 'allowed_origins' set to ['*'] or using a wildcard pattern?"
+    - "What sensitive operations are exposed — API endpoints that modify data, return user info, or perform actions?"
+    - "Could an attacker's website make authenticated cross-origin requests to steal data or perform actions?"
+    - "Should origins be restricted to a specific allowlist of trusted domains?"
+  context_hint: "Include CORS middleware configuration, header settings, and the endpoints exposed."
+  additional_context: []
+
+php/zip-slip:
+  short_description: "Archive extraction without validating entry paths allowing directory traversal (CWE-22)"
+  questions:
+    - "Is ZipArchive::extractTo() or a manual extraction loop used to extract user-uploaded archives?"
+    - "Is each entry's getName() checked for '../' or absolute path components before extraction?"
+    - "Is the resolved extraction path validated to be WITHIN the intended destination directory (realpath comparison)?"
+    - "Could an attacker craft a ZIP with entries like '../../../config/database.php' to overwrite application files?"
+    - "Is realpath() used after extraction to verify the file ended up in the expected directory?"
+    - "What is the impact — overwriting config files, writing a PHP webshell, or replacing application code?"
+  context_hint: "Include the archive extraction code, entry path handling, and destination directory."
+  additional_context: ["caller"]

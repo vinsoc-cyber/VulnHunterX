@@ -19,6 +19,10 @@ class ContextProvider:
     - struct:type_name - Get struct/class definition
     - global:var_name - Get global variable definition
     - macro:MACRO_NAME - Get macro definition
+    - callees:function_name - Get list of functions called by function_name
+    - all_callers:function_name - Get ALL callers of a function (up to 10)
+    - typedef:type_name - Get typedef or type alias definition
+    - enum:enum_name - Get enum definition with enumerator values
     """
 
     def __init__(self, output_dir: Path, repos_dir: Path):
@@ -79,6 +83,10 @@ class ContextProvider:
                 code = self._get_callees_context(repo_name, lang, name)
             elif ctx_type == "all_callers":
                 code = self._get_all_callers_context(repo_name, lang, name)
+            elif ctx_type == "typedef":
+                code = self._get_typedef_context(repo_name, lang, name)
+            elif ctx_type == "enum":
+                code = self._get_enum_context(repo_name, lang, name)
             else:
                 code = f"[Unknown context type: {ctx_type}]"
 
@@ -175,7 +183,19 @@ class ContextProvider:
                     caller_name = row.get("caller_name", "unknown")
                     return f"// Caller function: {caller_name}\n// File: {caller_file}\n{code}"
 
-        return f"[No caller found for: {callee_name}]"
+        # Diagnostic: check if function exists but has no callers
+        func_rows = self._load_csv(repo_name, lang, "functions")
+        func_exists = any(r.get("name") == callee_name for r in func_rows)
+        if func_exists:
+            return (
+                f"[No callers found for: {callee_name} — function exists but has no "
+                f"recorded callers in the analyzed codebase. It may be called via "
+                f"function pointers, callbacks, or from code outside the analysis scope.]"
+            )
+        return (
+            f"[No caller found for: {callee_name} — function not found in the "
+            f"analysis scope. It may be defined in an external library or header.]"
+        )
 
     def _get_struct_context(
         self,
@@ -198,7 +218,10 @@ class ContextProvider:
                     code = self._read_lines(repo_name, lang, file_path, start, end)
                     return f"// Struct/Class: {struct_name}\n// File: {file_path}\n{code}"
 
-        return f"[Struct/Class not found: {struct_name}]"
+        return (
+            f"[Struct/Class not found: {struct_name} — it may be a typedef alias. "
+            f"Try typedef:{struct_name} to resolve the underlying type.]"
+        )
 
     def _get_global_context(
         self,
@@ -301,3 +324,47 @@ class ContextProvider:
         if not parts:
             return f"[Could not read source for callers of: {callee_name}]"
         return "\n\n".join(parts)
+
+    def _get_typedef_context(
+        self,
+        repo_name: str,
+        lang: str,
+        type_name: str,
+    ) -> str:
+        """Get typedef/type alias definition."""
+        rows = self._load_csv(repo_name, lang, "typedefs")
+        for row in rows:
+            if row.get("name") == type_name:
+                file_path = row.get("file", "")
+                line = row.get("line", "?")
+                underlying = row.get("underlying_type", "")
+                return (
+                    f"// Typedef: {type_name} = {underlying}\n"
+                    f"// File: {file_path}:{line}"
+                )
+
+        return f"[Typedef not found: {type_name}]"
+
+    def _get_enum_context(
+        self,
+        repo_name: str,
+        lang: str,
+        enum_name: str,
+    ) -> str:
+        """Get enum definition with enumerator values."""
+        rows = self._load_csv(repo_name, lang, "enums")
+        matches = [r for r in rows if r.get("name") == enum_name]
+        if not matches:
+            return f"[Enum not found: {enum_name}]"
+
+        parts: list[str] = []
+        file_path = matches[0].get("file", "")
+        parts.append(f"// Enum: {enum_name}")
+        parts.append(f"// File: {file_path}")
+        for row in matches:
+            member = row.get("member", "")
+            value = row.get("value", "")
+            if member:
+                parts.append(f"  {member} = {value}" if value else f"  {member}")
+
+        return "\n".join(parts)

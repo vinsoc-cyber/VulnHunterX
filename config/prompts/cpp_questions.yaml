@@ -732,3 +732,43 @@ cpp/use-of-uninitialized-variable:
     - "Are there mitigating factors — is the uninitialized read in a dead code branch, an assert, or test-only path?"
   context_hint: "Trace all code paths from variable declaration to the flagged read."
   additional_context: ["caller", "struct"]
+
+# ==============================================================================
+# C/C++ - Resource Exhaustion, Privilege, Authorization (CWE-770, CWE-269, CWE-863)
+# ==============================================================================
+
+cpp/resource-exhaustion:
+  short_description: "Unbounded memory allocation or loop count from user-controlled input (CWE-770)"
+  questions:
+    - "Is the SIZE argument to malloc(), calloc(), realloc(), new[], or mmap() derived from user-controlled input?"
+    - "Is there an UPPER BOUND check on the size before allocation — e.g., if (size > MAX_ALLOWED) reject?"
+    - "Could an attacker supply SIZE=0xFFFFFFFF to exhaust memory or cause integer overflow in size calculation?"
+    - "Is a loop count or iteration limit controlled by user input without a maximum bound?"
+    - "Is the allocation size multiplied by a user-controlled count (size * count) without overflow checking?"
+    - "What is the impact — OOM crash, system-wide resource exhaustion, or denial of service to other processes?"
+  context_hint: "Include the allocation call, size computation, user input source, and any bounds checks."
+  additional_context: ["caller", "macro"]
+
+cpp/improper-privilege-management:
+  short_description: "Privilege escalation via misuse of setuid/setgid or incomplete privilege drop (CWE-269)"
+  questions:
+    - "Is setuid(), setgid(), seteuid(), or setegid() called to DROP privileges after startup?"
+    - "Is the RETURN VALUE of setuid/setgid checked — failure to drop privileges silently continues with elevated rights?"
+    - "Are supplementary groups cleared with setgroups(0, NULL) before dropping to the target user?"
+    - "Is the privilege drop performed in the correct ORDER — setgid() first, then setuid() (cannot call setgid after dropping root)?"
+    - "After dropping privileges, is there a VERIFICATION that getuid()/getgid() return the expected non-root values?"
+    - "Could an attacker exploit the window between startup and privilege drop to perform unauthorized actions?"
+  context_hint: "Include all setuid/setgid calls, their return value checks, and the order of operations."
+  additional_context: ["caller"]
+
+cpp/incorrect-authorization:
+  short_description: "Authorization check on wrong UID/GID or capability allowing privilege bypass (CWE-863)"
+  questions:
+    - "Is the authorization check comparing the correct USER ID or GROUP ID against the expected value?"
+    - "Is getuid() vs geteuid() used correctly — geteuid() reflects setuid bit, getuid() reflects real user?"
+    - "Could the check be bypassed by manipulating supplementary groups, capabilities, or setuid binaries?"
+    - "Is the authorization check performed BEFORE the privileged operation, or could the operation complete before the check?"
+    - "Are file permission checks using access() (which checks real UID) vs the actual open() (which uses effective UID) — TOCTOU risk?"
+    - "Is there a consistent authorization model, or do different code paths use different checks?"
+  context_hint: "Include the authorization check, UID/GID comparison, and the privileged operation."
+  additional_context: ["caller", "macro"]

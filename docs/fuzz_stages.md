@@ -39,9 +39,14 @@ Runs CodeQL queries to produce CSVs used when generating fuzz harnesses: functio
 
 ### Sub-stages
 
-- **6.1 CodeQL queries**: `config/queries/tools/cpp/function_signatures.ql` (one row per parameter), `config/queries/tools/cpp/includes.ql`.
+- **6.1 CodeQL queries**: `function_signatures.ql` (one row per parameter), `includes.ql`, `structs.ql` (with member types), `enums.ql`, `typedefs.ql`.
 - **6.2 Run extraction**: For each C/C++ database, run these queries via CodeQL CLI and decode BQRS to CSV.
-- **6.3 Emit CSVs**: Write `output/<lang>/<repo>/context/function_signatures.csv` and `output/<lang>/<repo>/context/includes.csv`.
+- **6.3 Emit CSVs**: Write to `output/<lang>/<repo>/context/`:
+  - `function_signatures.csv` — function name, file, line range, parameter types and names
+  - `includes.csv` — file path to include directives
+  - `structs.csv` — struct name, member name, **member type** (new: enables type-aware harness generation)
+  - `enums.csv` — enum name, enumerator names and values (new)
+  - `typedefs.csv` — typedef name and underlying type (new)
 
 ### CLI
 
@@ -66,9 +71,9 @@ Generate libFuzzer harness source (`.cc`) from verified findings, then compile/l
 
 ### Sub-stages 7.1–7.3 (this command)
 
-- **7.1 Select targets**: From verification results (or SARIF if `--verdict all`), filter by verdict (default: True Positive, Needs More Data). Resolve (file, line) → enclosing function via `functions.csv` or `function_signatures.csv`.
+- **7.1 Select targets**: From verification results (or SARIF if `--verdict all`), filter by verdict (default: True Positive, Needs More Data). Resolve (file, line) → enclosing function via `functions.csv` or `function_signatures.csv`. Targets are scored by fuzzability: +10 per primitive param, +8 for buffer+length pattern, +15 for memory corruption CWEs (119, 120, 416, 787), +2 per known caller, −5 for single-caller private helpers. Multiple findings in the same function are deduplicated (highest-severity kept).
 - **7.2 Gather per-target context**: For each target, load signature (params) and includes from Stage 6 CSVs.
-- **7.3 Generate harness source**: For each target, write a `.cc` with `#include` from context, `FuzzedDataProvider`, and `LLVMFuzzerTestOneInput` calling the target function. Output: `output/<lang>/<repo>/fuzz_targets/<rule>_<file>_<line>.cc`.
+- **7.3 Generate harness source**: For each target, write a `.cc` with `#include` from context, `FuzzedDataProvider`, and `LLVMFuzzerTestOneInput` calling the target function. **Type-aware generation**: struct members are initialized using their actual type (int, float, uint8_t, etc.) instead of always uint32_t. Supported param types include `char*` (string), `uint8_t*`/`void*` (buffer), `size_t`, `int`, `long`, `bool`, `float`/`double` (`ConsumeFloatingPoint`), `FILE*` (`tmpfile()`). Output: `output/<lang>/<repo>/fuzz_targets/<rule>_<file>_<line>.cc`.
 
 ### CLI (generation only)
 
@@ -88,7 +93,7 @@ vuln-hunter-x generate-fuzz-drivers --dry-run
 ### Sub-stages 7.4–7.6 (compile, LLM fix, status)
 
 - **7.4 Compile and link**: For each harness, run `clang++ -c -fsanitize=fuzzer,address -g -O2 -I... harness.cc` then link with Stage 5 manifest (objects/libs from `build_sanitized`). Capture stderr and normalize for LLM.
-- **7.5 LLM fix loop (optional)**: If `--llm-fix` and build failed, send harness source + command + errors to LLM; replace source; re-run 7.4; repeat up to `--max-fix-iterations`. Response must contain `LLVMFuzzerTestOneInput`.
+- **7.5 LLM fix loop (optional)**: If `--llm-fix` and build failed, send harness source + command + errors to LLM; replace source; re-run 7.4; repeat up to `--max-fix-iterations`. Response must contain `LLVMFuzzerTestOneInput`. The fix loop uses **multi-turn conversation** (message history preserved across iterations so the LLM knows what it already tried). Errors are **classified** (linker, missing_include, undefined_symbol, type_mismatch) with targeted hints. Type context budget is 4000 chars.
 - **7.6 Record status**: Per harness: `compiled`, `compile_failed`, `link_failed`, `llm_fix_failed`, or `manifest_missing`. Write `output/<lang>/<repo>/fuzz_targets/status.json`.
 
 ### CLI (with build)
@@ -112,9 +117,10 @@ Run libFuzzer for each harness that reached `compiled` in Stage 7; collect crash
 
 ### Sub-stages
 
-- **8.1 Compile (if needed)**: Binaries are produced in Stage 7.4 next to each `.cc` (no extension). No extra compile step.
-- **8.2 Run libFuzzer**: For each binary, run with `-max_total_time=N`, `-artifact_prefix=crash-`, and `ASAN_OPTIONS=abort_on_error=1`. Crashes are written under `output/<lang>/<repo>/fuzz_results/<harness_stem>/`.
-- **8.3 Summarize**: Write `output/<lang>/<repo>/fuzz_results/summary.json` with per-harness: `crashed`, `crash_count`, `crash_files`, `time_sec`, `log_snippet`. Map finding → crash yes/no for reporting.
+- **8.1 Ensure binaries**: Binaries are produced in Stage 7.4 next to each `.cc` (no extension). No extra compile step.
+- **8.2 Run libFuzzer**: For each binary, run with `-max_total_time=N`, `-artifact_prefix=crash-`, and `ASAN_OPTIONS=abort_on_error=1`. Optionally pass a persistent corpus directory and `-rss_limit_mb=N`. Crashes are written under `output/<lang>/<repo>/fuzz_results/<harness_stem>/`. Supports **parallel execution** via `ProcessPoolExecutor`.
+- **8.3 Crash triage (optional)**: When `--triage` is enabled, each crash input is re-run against the binary to extract the ASan/UBSan stack trace. Crashes are **deduplicated by stack hash** (top 5 frames) and **classified by severity** (e.g. heap-buffer-overflow → Critical, null-dereference → Medium). Results are added to summary.json.
+- **8.4 Summarize**: Write `output/<lang>/<repo>/fuzz_results/summary.json` with per-harness: `crashed`, `crash_count`, `crash_files`, `time_sec`, `log_snippet`, and optionally `unique_crash_count` and `triaged_crashes` (each with `crash_type`, `stack_hash`, `faulting_function`, `severity`).
 
 ### CLI
 
@@ -122,6 +128,8 @@ Run libFuzzer for each harness that reached `compiled` in Stage 7; collect crash
 vuln-hunter-x fuzz-run
 vuln-hunter-x fuzz-run --repo libucl
 vuln-hunter-x fuzz-run --timeout 120 --max-fuzz-time 60
+vuln-hunter-x fuzz-run --triage --parallel 4
+vuln-hunter-x fuzz-run --corpus --rss-limit 2048
 vuln-hunter-x fuzz-run --dry-run
 ```
 
@@ -131,6 +139,10 @@ vuln-hunter-x fuzz-run --dry-run
 | `--timeout N` | Subprocess timeout per harness in seconds (default 60) |
 | `--max-fuzz-time N` | libFuzzer `-max_total_time` (default 30) |
 | `--dry-run` | Print actions only |
+| `--triage` | Triage crashes: extract stack traces, deduplicate by hash, classify severity |
+| `--parallel N` | Run N harnesses in parallel (default 1) |
+| `--corpus` | Use persistent corpus directories under `fuzz_corpus/` |
+| `--rss-limit N` | RSS memory limit per fuzzer in MB (0 = unlimited) |
 
 ### Prerequisites
 
