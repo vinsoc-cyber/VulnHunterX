@@ -534,7 +534,7 @@ class LLMClient:
         result["reasoning"] = raw[:500]
         # Penalize confidence when using fallback parsing (no valid JSON)
         result["confidence"] = "Low"
-        return result
+        return self._ensure_confidence_score(result)
 
     def _log_final_verdict(
         self,
