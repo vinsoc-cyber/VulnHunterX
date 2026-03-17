@@ -622,3 +622,43 @@ js/electron-node-integration:
     - "Is webSecurity disabled, allowing the window to load file:// or cross-origin resources?"
   context_hint: "Include the BrowserWindow creation, webPreferences, and what URLs are loaded."
   additional_context: ["caller"]
+
+# ==============================================================================
+# JavaScript - Missing Authentication, Privilege, Authorization (CWE-306, CWE-269, CWE-863)
+# ==============================================================================
+
+js/missing-authentication:
+  short_description: "Express/API route accessible without authentication performing privileged actions (CWE-306)"
+  questions:
+    - "Does this route perform a PRIVILEGED action — data modification, admin operation, sensitive data access?"
+    - "Is authentication middleware (passport.authenticate, express-jwt, custom auth check) applied to this route or router?"
+    - "Could an UNAUTHENTICATED user reach this endpoint by directly calling its URL?"
+    - "Is this route in a router group that should have auth middleware applied but was accidentally excluded?"
+    - "Is this intentionally public (login, health check, webhook) or was authentication accidentally omitted?"
+    - "Is there a global auth middleware in app.use() that should protect this path?"
+  context_hint: "Include the route handler, middleware chain, and router configuration."
+  additional_context: ["caller"]
+
+js/improper-privilege-management:
+  short_description: "Privilege escalation via role manipulation or missing privilege boundary (CWE-269)"
+  questions:
+    - "Can a user MODIFY their own role or admin status through an API endpoint (e.g., setting role in profile update body)?"
+    - "Is the role assignment endpoint protected — only admins can grant admin roles?"
+    - "Could request body fields (role, isAdmin, permissions) be mass-assigned to the user model without filtering?"
+    - "Is there a privilege boundary between user types (user, moderator, admin) consistently enforced?"
+    - "Are role checks performed using middleware or inline if-checks that could be missed on some routes?"
+    - "Could an attacker create an account with elevated privileges by including role fields in the registration request?"
+  context_hint: "Include the user update route, model schema, and role-checking middleware."
+  additional_context: ["caller"]
+
+js/incorrect-authorization:
+  short_description: "Authorization check on wrong object or with incorrect logic (CWE-863)"
+  questions:
+    - "Does the authorization check verify the user OWNS the specific resource they are accessing?"
+    - "Could an attacker change the resource ID in the URL (e.g., /api/users/OTHER_ID/data) to access another user's data?"
+    - "Is the database query filtered by the authenticated user's ID, or does it fetch any record by the provided ID?"
+    - "Are compound conditions (role AND ownership) implemented with correct boolean logic (&&, not ||)?"
+    - "Is the authorization check consistent across all HTTP methods (GET, PUT, DELETE) for this resource?"
+    - "Could a timing difference in the authorization check reveal whether a resource exists (information leak)?"
+  context_hint: "Include the route handler, resource lookup query, and authorization check."
+  additional_context: ["caller"]

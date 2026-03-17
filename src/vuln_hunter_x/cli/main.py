@@ -269,6 +269,18 @@ def _add_fuzz_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--dry-run", action="store_true", help="Print actions only, do not run fuzzers"
     )
+    parser.add_argument(
+        "--triage", action="store_true", help="Triage crashes: extract stack traces and deduplicate"
+    )
+    parser.add_argument(
+        "--parallel", type=int, default=1, help="Run N harnesses in parallel (default 1)"
+    )
+    parser.add_argument(
+        "--corpus", action="store_true", help="Use persistent corpus directories"
+    )
+    parser.add_argument(
+        "--rss-limit", type=int, default=0, help="RSS memory limit per fuzzer in MB (0=unlimited)"
+    )
 
 
 def _add_verify_args(parser: argparse.ArgumentParser) -> None:

@@ -109,7 +109,13 @@ class CodeContext:
 
 @dataclass
 class Verdict:
-    """LLM verdict for a finding."""
+    """LLM verdict for a finding.
+
+    Attributes:
+        confidence_score: Numeric confidence (0.0-1.0). Extracted from LLM response
+            if available; otherwise mapped from categorical confidence
+            (High=0.85, Medium=0.6, Low=0.3).
+    """
 
     finding: Finding
     verdict: str
@@ -124,6 +130,7 @@ class Verdict:
     iterations: int = 1
     tokens_used: int = 0
     cost_usd: float = 0.0
+    confidence_score: float = 0.0
 
     @property
     def is_true_positive(self) -> bool:
@@ -146,6 +153,7 @@ class Verdict:
             "finding": self.finding.to_dict(),
             "verdict": self.verdict,
             "confidence": self.confidence,
+            "confidence_score": self.confidence_score,
             "reasoning": self.reasoning,
             "answers": self.answers,
             "context_needed": self.context_needed,

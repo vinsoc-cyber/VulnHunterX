@@ -279,7 +279,14 @@ def stage_fuzz_run(
     timeout: int = 60,
     max_fuzz_time: int = 30,
 ) -> bool:
-    """Stage 8 (fuzz): Run libFuzzer for compiled harnesses, collect crashes."""
+    """Stage 8 (fuzz): Run libFuzzer for compiled harnesses, collect crashes.
+
+    Additional options available via CLI:
+        --triage       Triage crashes: extract stack traces, deduplicate by hash
+        --parallel N   Run N harnesses in parallel
+        --corpus       Use persistent corpus directories for incremental fuzzing
+        --rss-limit N  RSS memory limit per fuzzer in MB
+    """
     print_header("Stage 8: Run Fuzzers")
     print(f"Running libFuzzer (timeout={timeout}s per harness, max_fuzz_time={max_fuzz_time}s)...")
     print()
@@ -289,6 +296,7 @@ def stage_fuzz_run(
             "--repo", REPO_NAME,
             "--timeout", str(timeout),
             "--max-fuzz-time", str(max_fuzz_time),
+            # Optional: add "--triage", "--parallel", "4", "--corpus" for enhanced mode
         ],
         dry_run,
         timeout=600,

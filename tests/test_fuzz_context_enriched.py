@@ -55,8 +55,8 @@ class TestLoadStructs:
             ],
         )
         result = load_structs(ctx_dir)
-        assert result["Foo"] == ["x", "y"]
-        assert result["Bar"] == ["z"]
+        assert result["Foo"] == [{"name": "x", "type": "uint32_t"}, {"name": "y", "type": "uint32_t"}]
+        assert result["Bar"] == [{"name": "z", "type": "uint32_t"}]
 
     def test_missing_csv_returns_empty(self, ctx_dir):
         assert load_structs(ctx_dir) == {}
@@ -182,7 +182,7 @@ class TestGetTargetContextWithStructs:
             ctx_dir,
         )
         assert "Config" in ctx["struct_defs"]
-        assert ctx["struct_defs"]["Config"] == ["timeout", "retries"]
+        assert ctx["struct_defs"]["Config"] == [{"name": "timeout", "type": "uint32_t"}, {"name": "retries", "type": "uint32_t"}]
 
     def test_struct_defs_empty_when_no_match(self, ctx_dir):
         _write_csv(
@@ -201,10 +201,18 @@ class TestGetTargetContextWithStructs:
 
 class TestGenerateStructInit:
     def test_generates_memset_and_member_assignments(self):
-        lines = _generate_struct_init("Config", ["timeout", "retries"], "fuzz_struct_Config")
+        members = [{"name": "timeout", "type": "uint32_t"}, {"name": "retries", "type": "int"}]
+        lines = _generate_struct_init("Config", members, "fuzz_struct_Config")
         code = "\n".join(lines)
         assert "Config fuzz_struct_Config;" in code
         assert "memset(&fuzz_struct_Config, 0, sizeof(fuzz_struct_Config));" in code
+        assert "fuzz_struct_Config.timeout" in code
+        assert "fuzz_struct_Config.retries" in code
+
+    def test_legacy_string_members(self):
+        """Backward compatibility: plain string member names default to uint32_t."""
+        lines = _generate_struct_init("Config", ["timeout", "retries"], "fuzz_struct_Config")
+        code = "\n".join(lines)
         assert "fuzz_struct_Config.timeout = provider.ConsumeIntegral<uint32_t>();" in code
         assert "fuzz_struct_Config.retries = provider.ConsumeIntegral<uint32_t>();" in code
 
@@ -225,7 +233,7 @@ class TestGenerateHarnessWithStructs:
             "end_line": 10,
             "params": [{"type": "struct Cfg *", "name": "cfg"}],
             "includes": [],
-            "struct_defs": {"Cfg": ["size", "flags"]},
+            "struct_defs": {"Cfg": [{"name": "size", "type": "size_t"}, {"name": "flags", "type": "uint32_t"}]},
         }
         out = generate_harness("rule/test", "a.c", 5, ctx, tmp_path / "harness.cc", "repo")
         code = out.read_text()
@@ -262,7 +270,7 @@ class TestScoreTarget:
 
     def test_struct_param_with_known_def(self):
         info = {"name": "fn", "params": [{"type": "Config *", "name": "cfg"}]}
-        score = score_target(info, struct_defs={"Config": ["x", "y"]})
+        score = score_target(info, struct_defs={"Config": [{"name": "x", "type": "int"}, {"name": "y", "type": "int"}]})
         assert score >= 2
 
     def test_struct_param_without_known_def_scores_zero(self):

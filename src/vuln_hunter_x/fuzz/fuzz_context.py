@@ -92,23 +92,29 @@ def load_includes(repo_context_dir: Path) -> dict[str, list[str]]:
     return result
 
 
-def load_structs(repo_context_dir: Path) -> dict[str, list[str]]:
-    """Load structs.csv; returns dict mapping struct name -> list of member names."""
+def load_structs(repo_context_dir: Path) -> dict[str, list[dict[str, str]]]:
+    """Load structs.csv; returns dict mapping struct name -> list of member dicts.
+
+    Each member dict has ``name`` and ``type`` keys.  If the CSV lacks a
+    ``member_type`` column (older extraction), the type defaults to
+    ``"uint32_t"`` for backward compatibility.
+    """
     path = Path(repo_context_dir) / "structs.csv"
     if not path.is_file():
         return {}
-    result: dict[str, list[str]] = {}
+    result: dict[str, list[dict[str, str]]] = {}
     try:
         with open(path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 name = row.get("name", "")
                 member = row.get("member_name", "")
+                member_type = row.get("member_type", "uint32_t")
                 if name:
                     if name not in result:
                         result[name] = []
                     if member:
-                        result[name].append(member)
+                        result[name].append({"name": member, "type": member_type})
     except Exception:
         logger.warning("Failed to load structs.csv from %s", repo_context_dir, exc_info=True)
     return result
@@ -169,17 +175,74 @@ def load_callers(repo_context_dir: Path) -> dict[str, list[str]]:
     return result
 
 
-def build_type_context_string(repo_context_dir: Path, max_chars: int = 2000) -> str:
-    """Build compact C-like type definitions from structs, globals, macros. Truncated to max_chars."""
+def load_enums(repo_context_dir: Path) -> dict[str, list[dict[str, str]]]:
+    """Load enums.csv; returns dict mapping enum name -> list of {member, value}."""
+    path = Path(repo_context_dir) / "enums.csv"
+    if not path.is_file():
+        return {}
+    result: dict[str, list[dict[str, str]]] = {}
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                name = row.get("name", "")
+                member = row.get("member", "")
+                value = row.get("value", "")
+                if name:
+                    if name not in result:
+                        result[name] = []
+                    if member:
+                        result[name].append({"member": member, "value": value})
+    except Exception:
+        logger.warning("Failed to load enums.csv from %s", repo_context_dir, exc_info=True)
+    return result
+
+
+def load_typedefs(repo_context_dir: Path) -> dict[str, str]:
+    """Load typedefs.csv; returns dict mapping typedef name -> underlying type."""
+    path = Path(repo_context_dir) / "typedefs.csv"
+    if not path.is_file():
+        return {}
+    result: dict[str, str] = {}
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                name = row.get("name", "")
+                underlying = row.get("underlying_type", "")
+                if name:
+                    result[name] = underlying
+    except Exception:
+        logger.warning("Failed to load typedefs.csv from %s", repo_context_dir, exc_info=True)
+    return result
+
+
+def build_type_context_string(repo_context_dir: Path, max_chars: int = 4000) -> str:
+    """Build compact C-like type definitions from structs, enums, globals, macros.
+
+    Truncated to *max_chars* (default raised to 4000 for richer type info).
+    """
     parts: list[str] = []
 
     structs = load_structs(repo_context_dir)
     for name, members in structs.items():
         if members:
-            members_str = ";\n    ".join(members) + ";"
+            members_str = ";\n    ".join(
+                f"{m['type']} {m['name']}" for m in members
+            ) + ";"
             parts.append(f"struct {name} {{\n    {members_str}\n}};")
         else:
             parts.append(f"struct {name} {{}};")
+
+    for enum_name, enumerators in load_enums(repo_context_dir).items():
+        vals = ", ".join(
+            f"{e['member']} = {e['value']}" if e["value"] else e["member"]
+            for e in enumerators
+        )
+        parts.append(f"enum {enum_name} {{ {vals} }};")
+
+    for td_name, underlying in load_typedefs(repo_context_dir).items():
+        parts.append(f"typedef {underlying} {td_name};")
 
     for g in load_globals(repo_context_dir):
         gtype = g.get("type", "")
@@ -225,7 +288,7 @@ def get_target_context(
 
     # Find struct definitions matching param types
     all_structs = load_structs(repo_context_dir)
-    struct_defs: dict[str, list[str]] = {}
+    struct_defs: dict[str, list[dict[str, str]]] = {}
     for p in params:
         ptype = p.get("type", "")
         base = ptype.replace("const", "").replace("struct", "").replace("*", "").strip()
