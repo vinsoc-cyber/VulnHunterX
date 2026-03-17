@@ -10,6 +10,7 @@ import csv
 import json
 import logging
 from pathlib import Path
+from typing import TypedDict
 
 from vuln_hunter_x.core.types import Finding
 from vuln_hunter_x.fuzz.fuzz_context import load_callers, load_structs
@@ -212,9 +213,19 @@ _MEMORY_CORRUPTION_CWES = frozenset({
 })
 
 
+class StructMember(TypedDict):
+    """Typed representation of a struct member entry."""
+
+    name: str
+    type: str
+
+
+StructDefs = dict[str, list[str] | list[StructMember]]
+
+
 def score_target(
     target_info: dict,
-    struct_defs: dict[str, list] | None = None,
+    struct_defs: StructDefs | None = None,
     callers_map: dict[str, list[str]] | None = None,
     finding: Finding | None = None,
 ) -> int:
