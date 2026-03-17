@@ -197,6 +197,83 @@ class TestGetTargetContextWithStructs:
         assert ctx["struct_defs"] == {}
 
 
+# ── _param_to_consumption ───────────────────────────────────────────────────
+
+class TestParamToConsumption:
+    """Cover each type branch in _param_to_consumption(), including new ones."""
+
+    def test_char_pointer_returns_fuzz_str(self):
+        assert _param_to_consumption("char *", "buf") == "fuzz_str_buf.c_str()"
+
+    def test_const_char_pointer_returns_fuzz_str(self):
+        assert _param_to_consumption("const char *", "name") == "fuzz_str_name.c_str()"
+
+    def test_char_star_const_returns_fuzz_str(self):
+        assert _param_to_consumption("char * const", "s") == "fuzz_str_s.c_str()"
+
+    def test_uint8_pointer_returns_buffer_cast(self):
+        result = _param_to_consumption("uint8_t *", "data")
+        assert "ConsumeRemainingBytes" in result
+        assert "reinterpret_cast" in result
+
+    def test_void_pointer_returns_buffer_cast(self):
+        result = _param_to_consumption("void *", "ptr")
+        assert "ConsumeRemainingBytes" in result
+
+    def test_file_pointer_returns_nullptr(self):
+        assert _param_to_consumption("FILE *", "fp") == "nullptr"
+
+    def test_file_pointer_lowercase(self):
+        # Lower-cased variant should still match
+        assert _param_to_consumption("file *", "fp") == "nullptr"
+
+    def test_size_t_returns_integral(self):
+        assert _param_to_consumption("size_t", "sz") == "provider.ConsumeIntegral<size_t>()"
+
+    def test_size_t_pointer_returns_ref(self):
+        assert _param_to_consumption("size_t *", "sz") == "&fuzz_size"
+
+    def test_float_returns_floating_point(self):
+        assert _param_to_consumption("float", "val") == "provider.ConsumeFloatingPoint<float>()"
+
+    def test_float_pointer_does_not_use_floating_point(self):
+        # float* should fall through to nullptr (pointer fallback), not ConsumeFloatingPoint
+        result = _param_to_consumption("float *", "fptr")
+        assert "ConsumeFloatingPoint" not in result
+        assert result == "nullptr"
+
+    def test_double_returns_floating_point(self):
+        assert _param_to_consumption("double", "val") == "provider.ConsumeFloatingPoint<double>()"
+
+    def test_double_pointer_does_not_use_floating_point(self):
+        # double* should fall through to nullptr (pointer fallback), not ConsumeFloatingPoint
+        result = _param_to_consumption("double *", "dptr")
+        assert "ConsumeFloatingPoint" not in result
+        assert result == "nullptr"
+
+    def test_int_returns_integral(self):
+        assert _param_to_consumption("int", "n") == "provider.ConsumeIntegral<int>()"
+
+    def test_int_pointer_returns_nullptr(self):
+        assert _param_to_consumption("int *", "ip") == "nullptr"
+
+    def test_long_returns_integral(self):
+        assert _param_to_consumption("long", "l") == "provider.ConsumeIntegral<long>()"
+
+    def test_bool_returns_consume_bool(self):
+        assert _param_to_consumption("bool", "flag") == "provider.ConsumeBool()"
+
+    def test_generic_pointer_returns_nullptr(self):
+        assert _param_to_consumption("struct Foo *", "foo") == "nullptr"
+
+    def test_unknown_type_returns_uint32_integral(self):
+        assert _param_to_consumption("MyCustomType", "x") == "provider.ConsumeIntegral<uint32_t>()"
+
+    def test_custom_provider_var(self):
+        result = _param_to_consumption("float", "val", provider_var="fdp")
+        assert result == "fdp.ConsumeFloatingPoint<float>()"
+
+
 # ── _generate_struct_init ───────────────────────────────────────────────────
 
 class TestGenerateStructInit:
