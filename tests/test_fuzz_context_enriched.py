@@ -257,6 +257,100 @@ class TestGenerateHarnessWithStructs:
         assert "LLVMFuzzerTestOneInput" in code
 
 
+# ── _param_to_consumption ───────────────────────────────────────────────────
+
+class TestParamToConsumption:
+    """Unit tests for _param_to_consumption() type-dispatch logic."""
+
+    # --- char pointer variants ---
+    def test_char_pointer(self):
+        result = _param_to_consumption("char *", "buf")
+        assert result == "fuzz_str_buf.c_str()"
+
+    def test_char_pointer_no_space(self):
+        result = _param_to_consumption("char*", "buf")
+        assert result == "fuzz_str_buf.c_str()"
+
+    def test_const_char_pointer(self):
+        result = _param_to_consumption("const char *", "name")
+        assert result == "fuzz_str_name.c_str()"
+
+    # --- FILE* ---
+    def test_file_pointer_with_space(self):
+        result = _param_to_consumption("FILE *", "fp")
+        assert result == "nullptr"
+
+    def test_file_pointer_no_space(self):
+        result = _param_to_consumption("FILE*", "fp")
+        assert result == "nullptr"
+
+    # --- float (non-pointer) ---
+    def test_float_scalar(self):
+        result = _param_to_consumption("float", "val")
+        assert result == "provider.ConsumeFloatingPoint<float>()"
+
+    def test_float_with_custom_provider_var(self):
+        result = _param_to_consumption("float", "val", provider_var="fdp")
+        assert result == "fdp.ConsumeFloatingPoint<float>()"
+
+    def test_float_pointer_does_not_match_float_branch(self):
+        # float* should fall through to the nullptr default (pointer, not scalar)
+        result = _param_to_consumption("float *", "fptr")
+        assert result == "nullptr"
+
+    # --- double (non-pointer) ---
+    def test_double_scalar(self):
+        result = _param_to_consumption("double", "val")
+        assert result == "provider.ConsumeFloatingPoint<double>()"
+
+    def test_double_with_custom_provider_var(self):
+        result = _param_to_consumption("double", "val", provider_var="fdp")
+        assert result == "fdp.ConsumeFloatingPoint<double>()"
+
+    def test_double_pointer_does_not_match_double_branch(self):
+        # double* should fall through to the nullptr default (pointer, not scalar)
+        result = _param_to_consumption("double *", "dptr")
+        assert result == "nullptr"
+
+    # --- size_t ---
+    def test_size_t_scalar(self):
+        result = _param_to_consumption("size_t", "sz")
+        assert result == "provider.ConsumeIntegral<size_t>()"
+
+    def test_size_t_pointer(self):
+        result = _param_to_consumption("size_t *", "sz_ptr")
+        assert result == "&fuzz_size"
+
+    # --- int / long / bool ---
+    def test_int_scalar(self):
+        result = _param_to_consumption("int", "n")
+        assert result == "provider.ConsumeIntegral<int>()"
+
+    def test_long_scalar(self):
+        result = _param_to_consumption("long", "l")
+        assert result == "provider.ConsumeIntegral<long>()"
+
+    def test_bool_scalar(self):
+        result = _param_to_consumption("bool", "flag")
+        assert result == "provider.ConsumeBool()"
+
+    # --- generic pointer fallback ---
+    def test_generic_pointer_returns_nullptr(self):
+        # void* should generate a reinterpret_cast buffer expression
+        result = _param_to_consumption("void *", "ptr")
+        assert "reinterpret_cast" in result
+
+    def test_unknown_pointer_type_returns_nullptr(self):
+        result = _param_to_consumption("struct Foo *", "foo")
+        assert result == "nullptr"
+
+    # --- default integral fallback ---
+    def test_unknown_scalar_returns_uint32_integral(self):
+        # A type that matches none of the named branches falls back to ConsumeIntegral<uint32_t>
+        result = _param_to_consumption("custom_type", "x")
+        assert result == "provider.ConsumeIntegral<uint32_t>()"
+
+
 # ── score_target ────────────────────────────────────────────────────────────
 
 class TestScoreTarget:
