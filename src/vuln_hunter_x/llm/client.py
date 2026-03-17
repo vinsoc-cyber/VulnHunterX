@@ -452,7 +452,7 @@ class LLMClient:
                 ) + " [Forced decision: defaulted to FP]"
         return parsed, raw, total_tokens_used, total_cost_usd
 
-    _CONFIDENCE_SCORE_MAP = {"High": 0.85, "Medium": 0.6, "Low": 0.3}
+    _CONFIDENCE_SCORE_MAP = {"high": 0.85, "medium": 0.6, "low": 0.3}
 
     @classmethod
     def _ensure_confidence_score(cls, parsed: dict[str, Any]) -> dict[str, Any]:
@@ -460,8 +460,16 @@ class LLMClient:
         if "confidence_score" not in parsed or not isinstance(
             parsed.get("confidence_score"), (int, float)
         ):
-            confidence = parsed.get("confidence", "Low")
-            parsed["confidence_score"] = cls._CONFIDENCE_SCORE_MAP.get(confidence, 0.3)
+            confidence_value = parsed.get("confidence", "Low")
+            if isinstance(confidence_value, str):
+                normalized_confidence = confidence_value.strip().casefold()
+            else:
+                normalized_confidence = ""
+            score = cls._CONFIDENCE_SCORE_MAP.get(normalized_confidence)
+            if score is None:
+                # Default to low confidence when the label is unrecognized
+                score = 0.3
+            parsed["confidence_score"] = score
         return parsed
 
     def _parse_response(self, raw: str) -> dict[str, Any]:
