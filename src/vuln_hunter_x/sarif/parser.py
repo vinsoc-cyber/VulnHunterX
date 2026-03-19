@@ -181,9 +181,13 @@ class SarifParser:
             tool_name = (run.get("tool") or {}).get("driver", {}).get("name", "")
             if not tool_name:
                 # Fallback: infer from file name
-                tool_name = (
-                    "Semgrep" if self.sarif_path.name.endswith("_semgrep.sarif") else "CodeQL"
-                )
+                fname = self.sarif_path.name
+                if fname.endswith("_semgrep.sarif"):
+                    tool_name = "Semgrep"
+                elif fname.endswith("_opengrep.sarif"):
+                    tool_name = "OpenGrep"
+                else:
+                    tool_name = "CodeQL"
 
             for result in run.get("results", []):
                 rule_id = result.get("ruleId") or ""
