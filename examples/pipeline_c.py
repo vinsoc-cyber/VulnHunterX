@@ -281,7 +281,7 @@ def stage_generate_fuzz_drivers(dry_run: bool = False) -> bool:
     print("Generating libFuzzer harnesses from verified findings and building...")
     print()
     success, error = run_command(
-        _CLI + ["generate-fuzz-drivers", "--repo", REPO_NAME, "--verdict", "tp,nmd", "--build"],
+        _CLI + ["generate-fuzz-drivers", "--repo", REPO_NAME, "--verdict", "tp,nmd", "--build", "--llm-fix"],
         dry_run,
         timeout=600,
     )

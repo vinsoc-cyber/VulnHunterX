@@ -83,3 +83,26 @@ output_dir: output
 # codeql_suite: "path/to/custom.qls"   # CodeQL query suite (built-in ref or .qls path)
 # semgrep_configs: ["auto", "p/security-audit"]  # Semgrep configs (registry or paths)
 # semgrep_config: "auto"   # Alternative: single Semgrep config
+
+# =============================================================================
+# Fuzz Pipeline Settings (Stages 5-8, C/C++ only)
+# =============================================================================
+
+fuzz:
+  # Max LLM fix attempts for compile/link errors in fuzz harnesses (Stage 7.5)
+  max_fix_iterations: 5
+
+  # Extra include directories for harness compilation (-I flags)
+  extra_include_dirs: []
+
+  # Extra library directories for harness linking (-L flags)
+  extra_lib_dirs: []
+
+  # Extra libraries to link (-l flags, e.g. ["m", "pthread"])
+  extra_link_libs: []
+
+  # Extra compiler flags for harness compilation
+  extra_cflags: []
+
+  # Extra linker flags for harness linking
+  extra_ldflags: []
