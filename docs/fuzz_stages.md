@@ -10,7 +10,7 @@ Builds the repository with AddressSanitizer and UBSan in a **separate** director
 
 - **5.1 Prepare build env**: Sets `CC=clang`, `CXX=clang++`, `CFLAGS`/`CXXFLAGS`/`LDFLAGS` with sanitizer flags. Build command comes from `sanitized_build_command` or `build_command` in `config/repos.yaml`.
 - **5.2 Run sanitized build**: Copies repo to `output/<lang>/<repo>/sanitized_build/src` and runs the build there (out-of-tree dir `build_sanitized` used when applicable).
-- **5.3 Write manifest**: Writes `output/<lang>/<repo>/sanitized_build/manifest.json` with `libs`, `objects`, `include_dirs`, and `source_root`.
+- **5.3 Write manifest**: Writes `output/<lang>/<repo>/sanitized_build/manifest.json` with `libs`, `objects`, `include_dirs`, `source_root`, `system_libs`, `compiler_defines` (auto-discovered from `compile_commands.json` or `config.h`), and `manifest_version`. Object files that define a `main()` symbol are automatically filtered out using `nm` to prevent "multiple definition of `main`" link errors with libFuzzer.
 
 ### CLI
 
@@ -71,7 +71,7 @@ Generate libFuzzer harness source (`.cc`) from verified findings, then compile/l
 
 ### Sub-stages 7.1–7.3 (this command)
 
-- **7.1 Select targets**: From verification results (or SARIF if `--verdict all`), filter by verdict (default: True Positive, Needs More Data). Resolve (file, line) → enclosing function via `functions.csv` or `function_signatures.csv`. Targets are scored by fuzzability: +10 per primitive param, +8 for buffer+length pattern, +15 for memory corruption CWEs (119, 120, 416, 787), +2 per known caller, −5 for single-caller private helpers. Multiple findings in the same function are deduplicated (highest-severity kept).
+- **7.1 Select targets**: From verification results (or SARIF if `--verdict all`), filter by verdict (default: True Positive, Needs More Data). Resolve (file, line) → enclosing function via `functions.csv` or `function_signatures.csv`. Functions named `main` are automatically excluded (program entry points are not fuzzable library APIs). Targets are scored by fuzzability: +10 per primitive param, +8 for buffer+length pattern, +15 for memory corruption CWEs (119, 120, 416, 787), +2 per known caller, −5 for single-caller private helpers. Multiple findings in the same function are deduplicated (highest-severity kept).
 - **7.2 Gather per-target context**: For each target, load signature (params) and includes from Stage 6 CSVs.
 - **7.3 Generate harness source**: For each target, write a `.cc` with `#include` from context, `FuzzedDataProvider`, and `LLVMFuzzerTestOneInput` calling the target function. **Type-aware generation**: struct members are initialized using their actual type (int, float, uint8_t, etc.) instead of always uint32_t. Supported param types include `char*` (string), `uint8_t*`/`void*` (buffer), `size_t`, `int`, `long`, `bool`, `float`/`double` (`ConsumeFloatingPoint`), `FILE*` (`tmpfile()`). Output: `output/<lang>/<repo>/fuzz_targets/<rule>_<file>_<line>.cc`.
 
@@ -92,7 +92,7 @@ vuln-hunter-x generate-fuzz-drivers --dry-run
 
 ### Sub-stages 7.4–7.6 (compile, LLM fix, status)
 
-- **7.4 Compile and link**: For each harness, run `clang++ -c -fsanitize=fuzzer,address -g -O2 -I... harness.cc` then link with Stage 5 manifest (objects/libs from `build_sanitized`). Capture stderr and normalize for LLM.
+- **7.4 Compile and link**: For each harness, run `clang++ -c -fsanitize=fuzzer,address -g -O2 -D... -I... harness.cc` then link with Stage 5 manifest (objects/libs from `build_sanitized`). Compiler defines from the manifest (`compiler_defines`) are automatically included. Extra include/library paths can be specified via config or CLI. Capture stderr and normalize for LLM.
 - **7.5 LLM fix loop (optional)**: If `--llm-fix` and build failed, send harness source + command + errors to LLM; replace source; re-run 7.4; repeat up to `--max-fix-iterations`. Response must contain `LLVMFuzzerTestOneInput`. The fix loop uses **multi-turn conversation** (message history preserved across iterations so the LLM knows what it already tried). Errors are **classified** (linker, missing_include, undefined_symbol, type_mismatch) with targeted hints. Type context budget is 4000 chars.
 - **7.6 Record status**: Per harness: `compiled`, `compile_failed`, `link_failed`, `llm_fix_failed`, or `manifest_missing`. Write `output/<lang>/<repo>/fuzz_targets/status.json`.
 
@@ -107,7 +107,36 @@ vuln-hunter-x generate-fuzz-drivers --build --llm-fix --max-fix-iterations 5
 |--------|-------------|
 | `--build` | Compile and link after generating; write status.json |
 | `--llm-fix` | Use LLM to fix compile/link errors (Stage 7.5) |
-| `--max-fix-iterations N` | Max LLM fix attempts (default 3) |
+| `--max-fix-iterations N` | Max LLM fix attempts (default: from config `fuzz.max_fix_iterations`, fallback 5) |
+| `--extra-include-dir PATH` | Extra `-I` path for harness compilation (repeatable) |
+| `--extra-lib-dir PATH` | Extra `-L` path for harness linking (repeatable) |
+| `--extra-link-lib LIB` | Extra `-l` library for harness linking (repeatable) |
+
+### Configuration
+
+Fuzz pipeline settings can be configured in `config/confirm_findings.yaml` under the `fuzz:` section:
+
+```yaml
+fuzz:
+  max_fix_iterations: 5        # Max LLM fix attempts (Stage 7.5)
+  extra_include_dirs: []        # Extra -I paths for harness compilation
+  extra_lib_dirs: []            # Extra -L paths for harness linking
+  extra_link_libs: []           # Extra -l libraries (e.g. ["m", "pthread"])
+  extra_cflags: []              # Extra compiler flags
+  extra_ldflags: []             # Extra linker flags
+```
+
+Environment variable: `MAX_FIX_ITERATIONS` overrides `fuzz.max_fix_iterations`.
+
+Priority: CLI args > env vars > config file > defaults.
+
+> **Note:** The `--llm-fix` loop uses the same LLM provider/model configured in `.env`
+> (`LLM_PROVIDER`, `LLM_MODEL`). For OpenAI-compatible endpoints (DashScope, Azure, etc.),
+> set `OPENAI_BASE_URL` — the fix loop will automatically prefix the model with `openai/`.
+
+> **Important:** If harnesses show type errors (e.g. assigning scalars to array/struct members),
+> re-run Stage 3 (`extract-context`) to regenerate context CSVs with the latest CodeQL queries.
+> The `structs.csv` must include the `member_type` column for type-aware harness generation.
 
 ---
 
