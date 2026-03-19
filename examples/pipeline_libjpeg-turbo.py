@@ -2,7 +2,7 @@
 """
 Full Pipeline Example: C Repository (libucl)
 
-This script demonstrates the complete CodeQL + LLM verification pipeline
+This script demonstrates the complete CodeQL + Semgrep + OpenGrep + LLM verification pipeline
 for a C repository, covering all stages from cloning to LLM verification.
 
 Usage:

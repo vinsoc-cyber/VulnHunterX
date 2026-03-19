@@ -62,7 +62,7 @@ Examples:
     # Check-env command
     subparsers.add_parser(
         "check-env",
-        help="Check environment (CodeQL, OpenAI, Anthropic, Ollama)",
+        help="Check tools (CodeQL, Semgrep, OpenGrep) and LLM providers (OpenAI, Anthropic, Ollama)",
     )
 
     # Clone command
