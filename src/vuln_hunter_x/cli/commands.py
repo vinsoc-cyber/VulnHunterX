@@ -127,7 +127,9 @@ def _run_codeql_analyze(
 
     print(f"Running CodeQL analysis on {len(dbs)} database(s) (--jobs {jobs})\n")
 
-    def _analyze_one(db_path: Path, lang: str, name: str) -> tuple[str, bool, Path | None, str, bool]:
+    def _analyze_one(
+        db_path: Path, lang: str, name: str
+    ) -> tuple[str, bool, Path | None, str, bool]:
         """Analyze one database. Returns (name, ok, result_path, msg, skipped)."""
         sarif_path = output_dir / lang / name / f"{name}.sarif"
         if sarif_path.exists() and not force:
@@ -137,7 +139,13 @@ def _run_codeql_analyze(
                 findings_count = sum(
                     len(run.get("results", [])) for run in sarif_data.get("runs", [])
                 )
-                return name, True, sarif_path, f"[SKIP] SARIF already exists ({findings_count} findings)", True
+                return (
+                    name,
+                    True,
+                    sarif_path,
+                    f"[SKIP] SARIF already exists ({findings_count} findings)",
+                    True,
+                )
             except Exception:
                 return name, True, sarif_path, "[SKIP] SARIF already exists", True
         if getattr(args, "dry_run", False):
@@ -167,7 +175,9 @@ def _run_codeql_analyze(
     results: list[tuple[str, bool, Path | None, str, bool]] = []
 
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        future_to_name = {pool.submit(_analyze_one, db_path, lang, name): name for db_path, lang, name in dbs}
+        future_to_name = {
+            pool.submit(_analyze_one, db_path, lang, name): name for db_path, lang, name in dbs
+        }
         for fut in as_completed(future_to_name):
             results.append(fut.result())
 
@@ -690,7 +700,15 @@ def cmd_build_sanitized(args: argparse.Namespace) -> int:
             force=args.force,
         )
         status = "OK" if ok else "FAIL"
-        print(f"[{name}] [{status}] {msg[:80]}")
+        first_line = msg.splitlines()[0][:120] if msg else ""
+        print(f"[{name}] [{status}] {first_line}")
+        if not ok and msg:
+            # Show last 5 non-warning lines for diagnosis (real errors are at the end)
+            err_lines = [
+                ln for ln in msg.splitlines() if ln.strip() and "warning:" not in ln.lower()
+            ]
+            for ln in err_lines[-5:]:
+                print(f"  | {ln[:200]}")
         if ok and manifest_path:
             print(f"  -> {manifest_path}")
         if ok:
@@ -745,7 +763,7 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
     base_path = Path.cwd()
     output_dir = base_path / "output"
     config_path = args.config or base_path / "config" / "confirm_findings.yaml"
-    config = load_config(config_path, base_path) if config_path.exists() else None
+    config = load_config(config_path, base_path) if config_path.exists() else Config()
 
     results = generate_fuzz_drivers(
         output_dir=output_dir,
@@ -775,19 +793,76 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
 
     if args.build and not args.dry_run and any(p for _, _, p in results if p is not None):
         print("\nBuild harnesses (Stage 7.4–7.6)\n")
+        # Resolve fuzz config: CLI args override config file
+        max_fix_iters = (
+            args.max_fix_iterations
+            if args.max_fix_iterations is not None
+            else config.fuzz.max_fix_iterations
+        )
+        extra_inc = args.extra_include_dirs or config.fuzz.extra_include_dirs
+        extra_lib_dirs = args.extra_lib_dirs or config.fuzz.extra_lib_dirs
+        extra_link_libs = args.extra_link_libs or config.fuzz.extra_link_libs
+
         build_results = build_and_record(
             results,
             output_dir=output_dir,
             llm_fix=args.llm_fix,
-            max_fix_iterations=args.max_fix_iterations,
-            llm_provider=config.llm.provider if config else "openai",
-            llm_model=config.llm.model if config else "gpt-4o",
-            llm_max_tokens=config.llm.max_tokens if config else 4000,
+            max_fix_iterations=max_fix_iters,
+            llm_provider=config.llm.provider,
+            llm_model=config.llm.model,
+            llm_max_tokens=config.llm.max_tokens,
+            extra_include_dirs=extra_inc,
+            extra_lib_dirs=extra_lib_dirs,
+            extra_link_libs=extra_link_libs,
         )
+        verbose = getattr(args, "verbose", False)
         for repo_name, entries in build_results:
             for e in entries:
-                print(f"  [{repo_name}] {e['harness']}: {e['status']}")
-            print(f"  -> output/<lang>/{repo_name}/fuzz_targets/status.json")
+                status = e["status"]
+                phase = e.get("phase_failed", "")
+                err_class = e.get("error_class", "")
+                fix_iters = e.get("fix_iterations_count", 0)
+
+                # Build status detail string
+                parts = [status]
+                if phase:
+                    parts.append(f"({phase})")
+                if err_class:
+                    parts.append(f"[{err_class}]")
+                if fix_iters:
+                    parts.append(f"fix_iterations={fix_iters}")
+                status_detail = " ".join(parts)
+
+                print(f"  [{repo_name}] {e['harness']}: {status_detail}")
+
+                if status != "compiled" and e.get("errors"):
+                    # Show failing command
+                    if phase == "compile" and e.get("compile_command"):
+                        print(f"    cmd: {e['compile_command'][:200]}")
+                    elif phase == "link" and e.get("link_command"):
+                        print(f"    cmd: {e['link_command'][:200]}")
+
+                    max_err_lines = 10 if verbose else 3
+                    for err_line in e["errors"].strip().splitlines()[:max_err_lines]:
+                        print(f"    | {err_line}")
+
+                # Show LLM fix iteration summary in verbose mode
+                if verbose and e.get("iteration_history"):
+                    for rec in e["iteration_history"]:
+                        it = (
+                            rec.iteration
+                            if hasattr(rec, "iteration")
+                            else rec.get("iteration", "?")
+                        )
+                        ec = (
+                            rec.error_class
+                            if hasattr(rec, "error_class")
+                            else rec.get("error_class", "?")
+                        )
+                        rs = rec.result if hasattr(rec, "result") else rec.get("result", "?")
+                        print(f"    [fix #{it}] {ec} -> {rs}")
+
+            print(f"  -> output/<lang>/{repo_name}/fuzz_targets/status.json + build_log.json")
     return 0
 
 

@@ -14,7 +14,10 @@ DEFAULT_LLM_MAX_TOKENS = 1500
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
 # ── Verification defaults ─────────────────────────────────────────────
-DEFAULT_MAX_ITERATIONS = 3
+DEFAULT_MAX_ITERATIONS = 10
+
+# ── Fuzz fix-loop defaults ───────────────────────────────────────────
+DEFAULT_MAX_FIX_ITERATIONS = 5
 
 # ── Timeout defaults (seconds) ────────────────────────────────────────
 TIMEOUT_GIT_CLONE = 300  # 5 minutes
@@ -37,3 +40,7 @@ TRUNCATION_VERBOSE_MESSAGE = 2000
 TRUNCATION_TYPE_CONTEXT = 2000
 TRUNCATION_REASONING = 500
 TRUNCATION_ERROR_OUTPUT = 2000
+
+# ── Build log limits (characters) ────────────────────────────────────
+BUILD_LOG_LLM_PREVIEW_CHARS = 500  # LLM response preview per fix iteration
+BUILD_LOG_MAX_ERROR_CHARS = 10000  # full error text in build_log.json
