@@ -252,7 +252,37 @@ def _add_generate_fuzz_drivers_args(parser: argparse.ArgumentParser) -> None:
         "--llm-fix", action="store_true", help="Use LLM to fix compile/link errors (Stage 7.5)"
     )
     parser.add_argument(
-        "--max-fix-iterations", type=int, default=3, help="Max LLM fix attempts (default 3)"
+        "--max-fix-iterations",
+        type=int,
+        default=None,
+        help="Max LLM fix attempts (default: from config, fallback 5)",
+    )
+    parser.add_argument(
+        "--extra-include-dir",
+        action="append",
+        dest="extra_include_dirs",
+        default=None,
+        help="Extra -I path for harness compilation (repeatable)",
+    )
+    parser.add_argument(
+        "--extra-lib-dir",
+        action="append",
+        dest="extra_lib_dirs",
+        default=None,
+        help="Extra -L path for harness linking (repeatable)",
+    )
+    parser.add_argument(
+        "--extra-link-lib",
+        action="append",
+        dest="extra_link_libs",
+        default=None,
+        help="Extra -l library for harness linking (repeatable)",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show detailed build errors, commands, and LLM fix iterations",
     )
 
 
@@ -275,9 +305,7 @@ def _add_fuzz_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--parallel", type=int, default=1, help="Run N harnesses in parallel (default 1)"
     )
-    parser.add_argument(
-        "--corpus", action="store_true", help="Use persistent corpus directories"
-    )
+    parser.add_argument("--corpus", action="store_true", help="Use persistent corpus directories")
     parser.add_argument(
         "--rss-limit", type=int, default=0, help="RSS memory limit per fuzzer in MB (0=unlimited)"
     )

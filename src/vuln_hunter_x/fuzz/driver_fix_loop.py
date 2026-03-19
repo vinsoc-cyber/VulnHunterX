@@ -8,13 +8,41 @@ replace file, re-run build; repeat up to max iterations.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from vuln_hunter_x.core.constants import BUILD_LOG_LLM_PREVIEW_CHARS, DEFAULT_MAX_FIX_ITERATIONS
 from vuln_hunter_x.core.validation import normalize_ollama_model, openai_compat_kwargs
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class FixIterationRecord:
+    """Detail of a single LLM fix iteration."""
+
+    iteration: int
+    errors: str
+    error_class: str
+    llm_response_preview: str  # first N chars of LLM response
+    result: str  # "still_failing" | "fixed" | "llm_rejected" | "linker_bail"
+
+
+@dataclass
+class FixResult:
+    """Rich result from fix_harness_with_llm(); backward-compatible with tuple unpacking."""
+
+    status: str
+    iterations_used: int
+    last_errors: str
+    iteration_history: list[FixIterationRecord] = field(default_factory=list)
+
+    def __iter__(self):  # type: ignore[override]
+        return iter((self.status, self.iterations_used, self.last_errors))
+
 
 # Must appear in LLM output for us to accept it
 REQUIRED_ENTRY = "LLVMFuzzerTestOneInput"
@@ -34,17 +62,26 @@ def _extract_cpp_block(text: str) -> str | None:
     return text.strip()
 
 
+_REQUIRED_INCLUDES = ("cstdint", "cstdlib", "cstring")
+
+
 def _validate_harness_source(source: str) -> bool:
-    """Ensure source contains the required entry point."""
-    return REQUIRED_ENTRY in source
+    """Ensure source contains required entry point and essential C++ includes."""
+    if REQUIRED_ENTRY not in source:
+        return False
+    # Reject sources missing critical headers (prevents LLM from gutting harness)
+    for inc in _REQUIRED_INCLUDES:
+        if f"#include <{inc}>" not in source and f"#include<{inc}>" not in source:
+            return False
+    return True
 
 
 def fix_harness_with_llm(
     harness_path: Path,
     build_fn: Callable[[], tuple[bool, str, str]],
     llm_completion_fn: Callable[[str, str, str], str],
-    max_iterations: int = 3,
-) -> tuple[str, int, str]:
+    max_iterations: int = DEFAULT_MAX_FIX_ITERATIONS,
+) -> FixResult:
     """
     Run fix loop: on build failure, send source + errors to LLM, replace source, retry.
 
@@ -55,40 +92,105 @@ def fix_harness_with_llm(
         max_iterations: Max fix attempts.
 
     Returns:
-        (final_status, iterations_used, last_errors)
-        final_status: "compiled" | "compile_failed" | "link_failed" | "llm_fix_failed"
+        FixResult (supports tuple unpacking as (status, iterations_used, last_errors)).
     """
     harness_path = Path(harness_path)
+    original_source = harness_path.read_text(encoding="utf-8")
     last_errors = ""
+    history: list[FixIterationRecord] = []
 
     for iteration in range(max_iterations + 1):
         ok, err, cmd = build_fn()
         if ok:
-            return "compiled", iteration, ""
+            history.append(
+                FixIterationRecord(
+                    iteration=iteration,
+                    errors="",
+                    error_class="",
+                    llm_response_preview="",
+                    result="fixed",
+                )
+            )
+            return FixResult("compiled", iteration, "", history)
         last_errors = err
+        err_class = classify_errors(err)
+
         if iteration == max_iterations:
+            history.append(
+                FixIterationRecord(
+                    iteration=iteration,
+                    errors=err,
+                    error_class=err_class,
+                    llm_response_preview="",
+                    result="still_failing",
+                )
+            )
             break
-        # Determine failure type for status
-        if "undefined reference" in err or "ld returned" in err.lower() or "linker" in err.lower():
-            pass
-        else:
-            pass
+
+        # Linker errors (undefined reference) can't be fixed in source — stop early
+        if "undefined reference" in err or "ld returned" in err.lower():
+            history.append(
+                FixIterationRecord(
+                    iteration=iteration,
+                    errors=err,
+                    error_class=err_class,
+                    llm_response_preview="",
+                    result="linker_bail",
+                )
+            )
+            harness_path.write_text(original_source, encoding="utf-8")
+            return FixResult("link_failed", iteration, last_errors, history)
 
         source = harness_path.read_text(encoding="utf-8")
         new_source = llm_completion_fn(source, err, cmd)
+        llm_preview = (new_source or "")[:BUILD_LOG_LLM_PREVIEW_CHARS]
+
         if not new_source:
-            return "llm_fix_failed", iteration + 1, last_errors
+            history.append(
+                FixIterationRecord(
+                    iteration=iteration,
+                    errors=err,
+                    error_class=err_class,
+                    llm_response_preview=llm_preview,
+                    result="llm_rejected",
+                )
+            )
+            harness_path.write_text(original_source, encoding="utf-8")
+            return FixResult("llm_fix_failed", iteration + 1, last_errors, history)
+
         extracted = _extract_cpp_block(new_source)
         if not extracted or not _validate_harness_source(extracted):
-            return "llm_fix_failed", iteration + 1, last_errors
+            history.append(
+                FixIterationRecord(
+                    iteration=iteration,
+                    errors=err,
+                    error_class=err_class,
+                    llm_response_preview=llm_preview,
+                    result="llm_rejected",
+                )
+            )
+            harness_path.write_text(original_source, encoding="utf-8")
+            return FixResult("llm_fix_failed", iteration + 1, last_errors, history)
+
+        history.append(
+            FixIterationRecord(
+                iteration=iteration,
+                errors=err,
+                error_class=err_class,
+                llm_response_preview=llm_preview,
+                result="still_failing",
+            )
+        )
         harness_path.write_text(extracted, encoding="utf-8")
 
+    # Exhausted iterations — restore original so .cc file isn't corrupted
+    harness_path.write_text(original_source, encoding="utf-8")
     if "undefined reference" in last_errors or "ld returned" in last_errors.lower():
-        return "link_failed", max_iterations, last_errors
-    return "compile_failed", max_iterations, last_errors
+        return FixResult("link_failed", max_iterations, last_errors, history)
+    return FixResult("compile_failed", max_iterations, last_errors, history)
 
 
-def _classify_errors(errors: str) -> str:
+def classify_errors(errors: str) -> str:
     """Classify compiler/linker errors to provide targeted hints."""
     err_lower = errors.lower()
     if "undefined reference" in err_lower or "ld returned" in err_lower:
@@ -102,11 +204,15 @@ def _classify_errors(errors: str) -> str:
     return "compilation"
 
 
+# Backward-compatible alias
+_classify_errors = classify_errors
+
+
 def _error_specific_hint(error_class: str) -> str:
     """Return targeted hints based on error classification."""
     hints = {
         "linker": (
-            "HINT: This is a LINKER error. Check if extern \"C\" linkage is needed, "
+            'HINT: This is a LINKER error. Check if extern "C" linkage is needed, '
             "if the function is in a different translation unit, or if a library "
             "needs to be linked. Do NOT change the function signature."
         ),
@@ -136,7 +242,21 @@ FUZZ_FIX_SYSTEM = """You are a C++ build fix assistant. You will be given:
 Respond with ONLY the corrected full C++ source file. No explanation, no markdown outside a code block.
 The code must contain the function: extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size).
 Fix only the reported errors: add missing includes, fix types, fix link order or symbols. Preserve the harness structure.
-If you have seen previous fix attempts that failed, do NOT repeat the same approach — try a different fix strategy."""
+If you have seen previous fix attempts that failed, do NOT repeat the same approach — try a different fix strategy.
+
+COMMON FIX PATTERNS:
+- If a C header uses C++ reserved words (like `class` as an identifier), wrap the #include in `extern "C" { }`.
+- If you see "multiple definition" linker errors, do NOT change the source — this is a link manifest issue, not a code issue. Comment out duplicate #includes or remove redundant object references if possible.
+- If struct members are structs/arrays/function pointers, leave them zero-initialized (from memset) instead of assigning scalar values. Remove the offending assignment line entirely.
+- If "array type is not assignable" (e.g. int[256]), remove the assignment line — memset already zeroed it.
+- If "no viable overloaded '='" for a struct-valued member, remove the assignment — memset handles it.
+- If "incompatible integer to pointer conversion", the member is a pointer — assign nullptr instead of ConsumeIntegral.
+- Prefer removing broken lines over adding complex workarounds — a memset-zeroed struct is a valid fuzz input.
+
+CRITICAL RULES:
+- NEVER remove #include directives for standard C++ headers (<cstdint>, <cstdlib>, <cstring>, <cmath>, <string>, <fuzzer/FuzzedDataProvider.h>). These are REQUIRED.
+- NEVER simplify the harness by removing the target function call. The purpose is to fuzz that specific function.
+- If a linker error occurs (undefined reference), do NOT modify the source — linker errors require changes to the build system, not the source code. Return the source unchanged."""
 
 
 def make_llm_fix_fn(
@@ -145,7 +265,21 @@ def make_llm_fix_fn(
     """Build a multi-turn completion function that maintains conversation history."""
     import litellm
 
-    model_id = normalize_ollama_model(model) if provider == "ollama" else model
+    # Normalize model ID and resolve api_base — mirrors LLMClient._build_completion_kwargs()
+    api_base: str | None = None
+    if provider == "ollama":
+        model_id = normalize_ollama_model(model)
+    elif provider == "openai":
+        model_id = model
+        api_base = (
+            os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
+        ).strip().rstrip("/") or None
+        if api_base and not model_id.startswith("openai/"):
+            model_id = "openai/" + model_id
+    elif provider == "anthropic":
+        model_id = model if model.startswith("anthropic/") else "anthropic/" + model
+    else:
+        model_id = model
 
     # Filter type context to be more relevant (increased budget to 4000 chars)
     type_ctx_section = (
@@ -158,7 +292,7 @@ def make_llm_fix_fn(
     ]
 
     def complete(source: str, errors: str, command: str) -> str:
-        error_class = _classify_errors(errors)
+        error_class = classify_errors(errors)
         hint = _error_specific_hint(error_class)
 
         user = f"""Harness source:
@@ -186,10 +320,13 @@ Respond with the corrected full C++ source only (use a ```cpp ... ``` block or p
                 "messages": list(message_history),
                 "max_tokens": max_tokens,
             }
+            if api_base:
+                kwargs["api_base"] = api_base
             kwargs.update(
                 openai_compat_kwargs(
                     provider=provider,
                     model=model_id,
+                    api_base=api_base,
                     stream=False,
                 )
             )
