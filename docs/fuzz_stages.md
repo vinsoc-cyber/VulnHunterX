@@ -1,6 +1,6 @@
 # Fuzz-Based Vulnerability Confirmation (Stages 5–8)
 
-Optional pipeline stages to confirm **SAST (CodeQL/Semgrep) and LLM** findings by building with sanitizers and generating fuzz drivers. The framework uses static analysis (CodeQL and Semgrep) to identify vulnerabilities and the LLM to verify them; stages 5–8 add fuzz-based confirmation for C/C++. **C/C++ only.**
+Optional pipeline stages to confirm **SAST (CodeQL/Semgrep/OpenGrep) and LLM** findings by building with sanitizers and generating fuzz drivers. The framework uses static analysis (CodeQL, Semgrep, and OpenGrep) to identify vulnerabilities and the LLM to verify them; stages 5–8 add fuzz-based confirmation for C/C++. **C/C++ only.**
 
 ## Stage 5: Build with sanitizers
 
