@@ -59,6 +59,41 @@ def check_semgrep(semgrep_path: str = "semgrep") -> tuple[bool, str]:
         return False, str(e)
 
 
+def check_opengrep(opengrep_path: str = "opengrep") -> tuple[bool, str]:
+    """
+    Verify OpenGrep CLI is available (for analyze --tool opengrep or all).
+
+    Args:
+        opengrep_path: Path to opengrep executable (from OPENGREP_PATH or default).
+
+    Returns:
+        Tuple of (success, message)
+    """
+    if opengrep_path != "opengrep":
+        if not os.path.isfile(opengrep_path) and not shutil.which(opengrep_path):
+            return False, f"OPENGREP_PATH set but not found: {opengrep_path}"
+    else:
+        if not shutil.which("opengrep"):
+            return False, "OpenGrep not on PATH; set OPENGREP_PATH or install opengrep."
+    try:
+        out = subprocess.run(
+            [opengrep_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if out.returncode != 0:
+            return False, f"opengrep --version failed: {out.stderr or out.stdout}"
+        version = (out.stdout or out.stderr or "").strip().split("\n")[0] or "unknown"
+        return True, version
+    except subprocess.TimeoutExpired:
+        return False, "opengrep --version timed out"
+    except FileNotFoundError:
+        return False, f"OpenGrep executable not found: {opengrep_path}"
+    except Exception as e:
+        return False, str(e)
+
+
 def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:
     """
     Verify CodeQL CLI is available and report version.
@@ -277,6 +312,14 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
     if not quiet:
         status = "OK" if ok else "SKIP/FAIL"
         print(f"  Semgrep: [{status}] {msg}")
+
+    # OpenGrep (optional; used for analyze --tool opengrep or all)
+    opengrep_path = os.environ.get("OPENGREP_PATH", "opengrep")
+    ok, msg = check_opengrep(opengrep_path)
+    results["opengrep"] = (ok, msg)
+    if not quiet:
+        status = "OK" if ok else "SKIP/FAIL"
+        print(f"  OpenGrep: [{status}] {msg}")
 
     # OpenAI - test if provider is openai or if we have an API key
     if provider == "openai" or os.environ.get("OPENAI_API_KEY"):
