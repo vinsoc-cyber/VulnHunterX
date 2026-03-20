@@ -479,3 +479,60 @@ class TestToolNameFallback:
         _write_sarif(sarif_file, self.SARIF_NO_TOOL_NAME)
         findings = parse_sarif_file(sarif_file, "c", "myrepo")
         assert findings[0].tool == "OpenGrep"
+
+
+def _sarif_with_driver_name(driver_name: str) -> dict:
+    """Return a minimal SARIF dict with tool.driver.name set to *driver_name*."""
+    return {
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {"driver": {"name": driver_name}},
+                "results": [
+                    {
+                        "ruleId": "test-rule",
+                        "message": {"text": "test"},
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "src/foo.c"},
+                                    "region": {"startLine": 1},
+                                }
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+class TestToolNameNormalization:
+    """Test that raw tool.driver.name values are normalized to canonical labels."""
+
+    @pytest.mark.parametrize(
+        "raw_name,expected",
+        [
+            ("opengrep", "OpenGrep"),
+            ("OpenGrep", "OpenGrep"),
+            ("OPENGREP", "OpenGrep"),
+            ("semgrep", "Semgrep"),
+            ("Semgrep", "Semgrep"),
+            ("SEMGREP", "Semgrep"),
+            ("codeql", "CodeQL"),
+            ("CodeQL", "CodeQL"),
+            ("CODEQL", "CodeQL"),
+        ],
+    )
+    def test_known_tool_names_normalized(self, tmp_path, raw_name: str, expected: str):
+        sarif_file = tmp_path / "myrepo.sarif"
+        _write_sarif(sarif_file, _sarif_with_driver_name(raw_name))
+        findings = parse_sarif_file(sarif_file, "c", "myrepo")
+        assert findings[0].tool == expected
+
+    def test_unknown_tool_name_preserved(self, tmp_path):
+        """Unknown tool names are kept as-is rather than silently dropped."""
+        sarif_file = tmp_path / "myrepo.sarif"
+        _write_sarif(sarif_file, _sarif_with_driver_name("MyCustomTool"))
+        findings = parse_sarif_file(sarif_file, "c", "myrepo")
+        assert findings[0].tool == "MyCustomTool"
