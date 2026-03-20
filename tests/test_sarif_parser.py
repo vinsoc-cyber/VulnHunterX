@@ -391,18 +391,20 @@ class TestSarifEnrichment:
 
 
 class TestDiscoverSarifFiles:
-    def test_discovers_codeql_and_semgrep(self, tmp_path):
+    def test_discovers_codeql_semgrep_and_opengrep(self, tmp_path):
         repo_dir = tmp_path / "c" / "myrepo"
         repo_dir.mkdir(parents=True)
         (repo_dir / "myrepo.sarif").write_text("{}")
         (repo_dir / "myrepo_semgrep.sarif").write_text("{}")
+        (repo_dir / "myrepo_opengrep.sarif").write_text("{}")
 
         results = discover_sarif_files(tmp_path)
 
-        assert len(results) == 2
+        assert len(results) == 3
         names = {r[0].name for r in results}
         assert "myrepo.sarif" in names
         assert "myrepo_semgrep.sarif" in names
+        assert "myrepo_opengrep.sarif" in names
         for _, lang, repo_name in results:
             assert lang == "c"
             assert repo_name == "myrepo"
@@ -433,3 +435,104 @@ class TestDiscoverSarifFiles:
         assert len(results) == 3
         langs = {r[1] for r in results}
         assert langs == {"c", "python", "javascript"}
+
+
+class TestToolNameFallback:
+    """Test that tool name is correctly inferred from filename when SARIF lacks tool.driver.name."""
+
+    SARIF_NO_TOOL_NAME = {
+        "version": "2.1.0",
+        "runs": [
+            {
+                "results": [
+                    {
+                        "ruleId": "test-rule",
+                        "message": {"text": "test"},
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "src/foo.c"},
+                                    "region": {"startLine": 1},
+                                }
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    def test_codeql_sarif_fallback(self, tmp_path):
+        sarif_file = tmp_path / "myrepo.sarif"
+        _write_sarif(sarif_file, self.SARIF_NO_TOOL_NAME)
+        findings = parse_sarif_file(sarif_file, "c", "myrepo")
+        assert findings[0].tool == "CodeQL"
+
+    def test_semgrep_sarif_fallback(self, tmp_path):
+        sarif_file = tmp_path / "myrepo_semgrep.sarif"
+        _write_sarif(sarif_file, self.SARIF_NO_TOOL_NAME)
+        findings = parse_sarif_file(sarif_file, "c", "myrepo")
+        assert findings[0].tool == "Semgrep"
+
+    def test_opengrep_sarif_fallback(self, tmp_path):
+        sarif_file = tmp_path / "myrepo_opengrep.sarif"
+        _write_sarif(sarif_file, self.SARIF_NO_TOOL_NAME)
+        findings = parse_sarif_file(sarif_file, "c", "myrepo")
+        assert findings[0].tool == "OpenGrep"
+
+
+def _sarif_with_driver_name(driver_name: str) -> dict:
+    """Return a minimal SARIF dict with tool.driver.name set to *driver_name*."""
+    return {
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {"driver": {"name": driver_name}},
+                "results": [
+                    {
+                        "ruleId": "test-rule",
+                        "message": {"text": "test"},
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "src/foo.c"},
+                                    "region": {"startLine": 1},
+                                }
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+class TestToolNameNormalization:
+    """Test that raw tool.driver.name values are normalized to canonical labels."""
+
+    @pytest.mark.parametrize(
+        "raw_name,expected",
+        [
+            ("opengrep", "OpenGrep"),
+            ("OpenGrep", "OpenGrep"),
+            ("OPENGREP", "OpenGrep"),
+            ("semgrep", "Semgrep"),
+            ("Semgrep", "Semgrep"),
+            ("SEMGREP", "Semgrep"),
+            ("codeql", "CodeQL"),
+            ("CodeQL", "CodeQL"),
+            ("CODEQL", "CodeQL"),
+        ],
+    )
+    def test_known_tool_names_normalized(self, tmp_path, raw_name: str, expected: str):
+        sarif_file = tmp_path / "myrepo.sarif"
+        _write_sarif(sarif_file, _sarif_with_driver_name(raw_name))
+        findings = parse_sarif_file(sarif_file, "c", "myrepo")
+        assert findings[0].tool == expected
+
+    def test_unknown_tool_name_preserved(self, tmp_path):
+        """Unknown tool names are kept as-is rather than silently dropped."""
+        sarif_file = tmp_path / "myrepo.sarif"
+        _write_sarif(sarif_file, _sarif_with_driver_name("MyCustomTool"))
+        findings = parse_sarif_file(sarif_file, "c", "myrepo")
+        assert findings[0].tool == "MyCustomTool"

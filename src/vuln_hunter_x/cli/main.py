@@ -62,7 +62,7 @@ Examples:
     # Check-env command
     subparsers.add_parser(
         "check-env",
-        help="Check environment (CodeQL, OpenAI, Anthropic, Ollama)",
+        help="Check tools (CodeQL, Semgrep, OpenGrep) and LLM providers (OpenAI, Anthropic, Ollama)",
     )
 
     # Clone command
@@ -150,9 +150,9 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for analyze command."""
     parser.add_argument(
         "--tool",
-        choices=["codeql", "semgrep", "both"],
+        choices=["codeql", "semgrep", "opengrep", "both", "all"],
         default="codeql",
-        help="Analyzer(s) to run (default: codeql)",
+        help="Analyzer(s) to run: codeql, semgrep, opengrep, both (codeql+semgrep), all (default: codeql)",
     )
     parser.add_argument(
         "--semgrep-config",
@@ -161,13 +161,19 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
         help="Semgrep config, repeatable (default: auto)",
     )
     parser.add_argument(
+        "--opengrep-config",
+        action="append",
+        dest="opengrep_configs",
+        help="OpenGrep config, repeatable (default: auto)",
+    )
+    parser.add_argument(
         "--codeql-suite",
         help="CodeQL query suite (built-in ref or path to .qls)",
     )
     parser.add_argument(
         "--config",
         type=Path,
-        help="Path to repos.yaml (for Semgrep repo list)",
+        help="Path to repos.yaml (for Semgrep/OpenGrep repo list)",
     )
     parser.add_argument(
         "--lang",

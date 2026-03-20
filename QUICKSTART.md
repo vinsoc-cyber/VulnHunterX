@@ -1,12 +1,13 @@
 # Quick Start Guide
 
-Get **SAST (CodeQL / Semgrep)** + LLM bug verification running in 5 minutes.
+Get **SAST (CodeQL / Semgrep / OpenGrep)** + LLM bug verification running in 5 minutes.
 
 ## Prerequisites
 
 - **Python 3.12+**
 - **CodeQL CLI 2.15+** ([install guide](https://codeql.github.com/docs/codeql-cli/getting-started-with-the-codeql-cli/))
 - **Semgrep** (optional, for Semgrep-based analysis; [install](https://semgrep.dev/docs/getting-started/))
+- **OpenGrep** (optional; see [installation instructions](https://github.com/opengrep/opengrep#installation) and review any install script before running)
 - **Git**
 - **OpenAI API key**, **Anthropic API key**, or **Ollama** installed locally
 
@@ -103,6 +104,7 @@ vuln-hunter-x verify --repo my-app
 |-------|----------|
 | `CodeQL CLI not found` | Add to PATH or set `CODEQL_PATH` in `.env` |
 | `Semgrep CLI not found` | Add to PATH or set `SEMGREP_PATH` in `.env` (when using Semgrep) |
+| `OpenGrep CLI not found` | Add to PATH or set `OPENGREP_PATH` in `.env` (when using OpenGrep) |
 | `OpenAI API key not configured` | Add `OPENAI_API_KEY=sk-...` to `.env` |
 | `could not resolve module cpp` | Run `codeql pack install config/queries/tools/cpp` |
 | `Database is already finalized` | Normal - analysis proceeds automatically |

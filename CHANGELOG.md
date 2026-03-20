@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- OpenGrep integration as third SAST tool (`--tool opengrep`, `--tool all`)
+- `OpenGrepAnalyzer` subclass inheriting from `SemgrepAnalyzer`
+- `--opengrep-config` CLI flag for OpenGrep rule configuration
+- `OPENGREP_PATH` environment variable support
+- OpenGrep binary check in `check-env` command
+- SARIF parser fallback detection for `_opengrep.sarif` files
 - `CONTRIBUTING.md` with development workflow and PR guidelines
 - `CHANGELOG.md` for tracking project changes
 - `core/constants.py` centralizing all default values (models, timeouts, URLs)

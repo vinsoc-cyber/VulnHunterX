@@ -23,7 +23,16 @@ class SemgrepAnalyzer:
     Runs Semgrep analysis on source trees.
 
     Writes SARIF to output/<lang>/<repo_name>/<repo_name>_semgrep.sarif.
+
+    Subclasses (e.g. OpenGrepAnalyzer) override class constants to
+    reuse the same logic with a different binary.
     """
+
+    TOOL_NAME: str = "semgrep"
+    TOOL_LABEL: str = "Semgrep"
+    SARIF_SUFFIX: str = "_semgrep"
+    ENV_VAR: str = "SEMGREP_PATH"
+    DEFAULT_BINARY: str = "semgrep"
 
     def __init__(
         self,
@@ -31,14 +40,14 @@ class SemgrepAnalyzer:
         output_dir: Path | None = None,
         verbose: bool = False,
     ):
-        """Initialize the Semgrep analyzer.
+        """Initialize the analyzer.
 
         Args:
-            semgrep_path: Path to the semgrep binary (default: from SEMGREP_PATH env or "semgrep").
+            semgrep_path: Path to the binary (default: from ENV_VAR or DEFAULT_BINARY).
             output_dir: Base output directory for SARIF results.
             verbose: Enable verbose logging output.
         """
-        self.semgrep_path = semgrep_path or os.environ.get("SEMGREP_PATH", "semgrep")
+        self.binary_path = semgrep_path or os.environ.get(self.ENV_VAR, self.DEFAULT_BINARY)
         self.output_dir = output_dir or Path("output")
         self.verbose = verbose
         self._log: Callable[[str], None] = lambda msg: None
@@ -73,11 +82,15 @@ class SemgrepAnalyzer:
 
         out_dir = output_dir / lang / repo_name
         out_dir.mkdir(parents=True, exist_ok=True)
-        sarif_path = out_dir / f"{repo_name}_semgrep.sarif"
+        sarif_path = out_dir / f"{repo_name}{self.SARIF_SUFFIX}.sarif"
 
-        # Check semgrep is available (which or --version)
-        if not shutil.which(self.semgrep_path):
-            return False, None, "semgrep not found (set SEMGREP_PATH or install semgrep)"
+        # Check binary is available
+        if not shutil.which(self.binary_path):
+            return (
+                False,
+                None,
+                f"{self.TOOL_NAME} not found (set {self.ENV_VAR} or install {self.TOOL_NAME})",
+            )
 
         # Validate configs: allow local paths, "auto", or known registry patterns
         validated_configs = []
@@ -96,7 +109,7 @@ class SemgrepAnalyzer:
         self._log(f"  Configs: {validated_configs}")
 
         argv = [
-            self.semgrep_path,
+            self.binary_path,
             "scan",
             "--sarif",
             f"--sarif-output={sarif_path}",
@@ -123,14 +136,14 @@ class SemgrepAnalyzer:
                 combined = (result.stdout or "") + (result.stderr or "")
                 lines = combined.strip().splitlines()
                 last_n = lines[-40:] if len(lines) > 40 else lines
-                self._log("  Semgrep output (last 40 lines):")
+                self._log(f"  {self.TOOL_LABEL} output (last 40 lines):")
                 for line in last_n:
                     self._log(f"    {line}")
 
             if result.returncode == 0:
                 findings_count = self._count_sarif_results(sarif_path)
                 rules_count = self._count_sarif_rules(sarif_path)
-                msg = f"Semgrep completed in {elapsed:.1f}s ({findings_count} findings"
+                msg = f"{self.TOOL_LABEL} completed in {elapsed:.1f}s ({findings_count} findings"
                 if rules_count > 0:
                     msg += f", {rules_count} rules"
                 msg += ")"
@@ -139,7 +152,7 @@ class SemgrepAnalyzer:
             self._log(f"  Error: {error_msg[:500]}")
             return False, None, error_msg
         except subprocess.TimeoutExpired:
-            return False, None, "Semgrep timed out (1 hour limit)"
+            return False, None, f"{self.TOOL_LABEL} timed out (1 hour limit)"
         except Exception as e:
             return False, None, str(e)
 

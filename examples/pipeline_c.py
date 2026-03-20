@@ -2,8 +2,8 @@
 """
 Full Pipeline Example: C Repository (libucl)
 
-This script demonstrates the complete CodeQL + Semgrep + LLM verification pipeline
-for a C repository. Stage 2 runs both CodeQL and Semgrep (--tool both); verify discovers all SARIF files.
+This script demonstrates the complete CodeQL + Semgrep + OpenGrep + LLM verification pipeline
+for a C repository. Stage 2 runs CodeQL and Semgrep (--tool both); use --tool all to include OpenGrep.
 
 Usage:
     python examples/pipeline_c.py              # Run full pipeline (CodeQL + Semgrep)

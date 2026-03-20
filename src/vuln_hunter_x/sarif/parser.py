@@ -9,6 +9,20 @@ from typing import Any
 
 from vuln_hunter_x.core.types import Finding
 
+# Canonical tool name labels keyed by lowercase binary/driver name.
+# Applied after extracting tool.driver.name to ensure consistent naming
+# regardless of how the SARIF producer emits the driver name.
+_TOOL_NAME_MAP: dict[str, str] = {
+    "codeql": "CodeQL",
+    "semgrep": "Semgrep",
+    "opengrep": "OpenGrep",
+}
+
+
+def _normalize_tool_name(raw: str) -> str:
+    """Return the canonical tool label for *raw*, or *raw* unchanged if unknown."""
+    return _TOOL_NAME_MAP.get(raw.lower(), raw)
+
 
 def _extract_thread_flow_locations(thread_flow: dict) -> list[str]:
     """Extract location entries from a single thread flow."""
@@ -179,11 +193,19 @@ class SarifParser:
 
             # Extract tool name from SARIF standard field
             tool_name = (run.get("tool") or {}).get("driver", {}).get("name", "")
-            if not tool_name:
+            if tool_name:
+                # Normalize known binary/driver names to canonical labels
+                # (e.g. "opengrep" -> "OpenGrep", "semgrep" -> "Semgrep")
+                tool_name = _normalize_tool_name(tool_name)
+            else:
                 # Fallback: infer from file name
-                tool_name = (
-                    "Semgrep" if self.sarif_path.name.endswith("_semgrep.sarif") else "CodeQL"
-                )
+                fname = self.sarif_path.name
+                if fname.endswith("_semgrep.sarif"):
+                    tool_name = "Semgrep"
+                elif fname.endswith("_opengrep.sarif"):
+                    tool_name = "OpenGrep"
+                else:
+                    tool_name = "CodeQL"
 
             for result in run.get("results", []):
                 rule_id = result.get("ruleId") or ""

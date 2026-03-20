@@ -1,12 +1,12 @@
 # VulnHunterX
 
-**SAST (CodeQL, Semgrep) + fuzzing + LLM vulnerability hunting and verification**
+**SAST (CodeQL, Semgrep, OpenGrep) + fuzzing + LLM vulnerability hunting and verification**
 
-A Python framework that combines static analysis (CodeQL, Semgrep) with Large Language Model (LLM) verification to reduce false positives in security findings. Implements the Vulnhalla methodology for intelligent, multi-turn bug confirmation.
+A Python framework that combines static analysis (CodeQL, Semgrep, OpenGrep) with Large Language Model (LLM) verification to reduce false positives in security findings. Implements the Vulnhalla methodology for intelligent, multi-turn bug confirmation.
 
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
-![SAST](https://img.shields.io/badge/SAST-CodeQL%20%7C%20Semgrep-orange.svg)
+![SAST](https://img.shields.io/badge/SAST-CodeQL%20%7C%20Semgrep%20%7C%20OpenGrep-orange.svg)
 
 ---
 
@@ -30,7 +30,7 @@ A Python framework that combines static analysis (CodeQL, Semgrep) with Large La
 
 ### The Problem
 
-Static analysis tools like **CodeQL and Semgrep** produce many findings, but a significant portion are **false positives**. Security teams spend considerable time manually reviewing each finding to determine if it's a real vulnerability.
+Static analysis tools like **CodeQL, Semgrep, and OpenGrep** produce many findings, but a significant portion are **false positives**. Security teams spend considerable time manually reviewing each finding to determine if it's a real vulnerability.
 
 ### The Solution
 
@@ -50,7 +50,7 @@ This framework automates the triage process by using LLMs to:
 | **Guided Questions**       | Rule-specific questions for structured analysis                                           |
 | **Context Expansion**      | LLM can request callers, structs, globals, typedefs, enums                                |
 | **Multiple LLM Providers** | OpenAI (GPT-4), Anthropic (Claude), and Ollama (local models)                             |
-| **Dual SAST**              | CodeQL and Semgrep; choose analyzer(s) with `analyze --tool codeql`, `semgrep`, or `both` |
+| **Multi SAST**             | CodeQL, Semgrep, and OpenGrep; choose with `--tool codeql`, `semgrep`, `opengrep`, `both`, or `all` |
 | **Tree-sitter Fallback**   | Source-based context extraction when CodeQL is unavailable                                 |
 | **Fuzz Confirmation**      | Type-aware libFuzzer harness generation, crash triage with stack dedup, parallel execution (C/C++) |
 | **Crash Triage**           | ASan/UBSan stack trace extraction, dedup by stack hash, severity classification            |
@@ -68,14 +68,15 @@ This framework automates the triage process by using LLMs to:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                  SAST (CodeQL / Semgrep) + LLM VERIFICATION PIPELINE        │
+│             SAST (CodeQL / Semgrep / OpenGrep) + LLM VERIFICATION PIPELINE  │
 └─────────────────────────────────────────────────────────────────────────────┘
 
      ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
      │   SOURCE     │     │   STATIC     │     │    SARIF     │
      │   REPOSITORY │────>│   ANALYSIS   │────>│   FINDINGS   │
      │   (GitHub)   │     │ (CodeQL/     │     │              │
-     └──────────────┘     │  Semgrep)    │     └──────────────┘
+     └──────────────┘     │  Semgrep/    │     └──────────────┘
+                          │  OpenGrep)   │
             │             └──────────────┘
      ┌──────┴──────┐             │                    │
      │  STAGE 1    │      ┌──────┴──────┐      ┌──────┴──────┐
@@ -120,19 +121,19 @@ This framework automates the triage process by using LLMs to:
                          └────────────────────────────────────┘
 ```
 
-The pipeline has four core stages: **clone** (Stage 1) clones the repository and creates a CodeQL database (for compiled languages, this traces the build); **analyze** (Stage 2) runs CodeQL on the database and/or Semgrep on source, producing SARIF; **extract-context** (Stage 3, optional but recommended) pre-extracts structured context (functions, callers, structs) from the CodeQL database into CSV files for multi-turn expansion; **verify** (Stage 4) reads all SARIF files and uses an LLM to confirm or dismiss each finding.
+The pipeline has four core stages: **clone** (Stage 1) clones the repository and creates a CodeQL database (for compiled languages, this traces the build); **analyze** (Stage 2) runs CodeQL on the database and/or Semgrep/OpenGrep on source, producing SARIF; **extract-context** (Stage 3, optional but recommended) pre-extracts structured context (functions, callers, structs) from the CodeQL database into CSV files for multi-turn expansion; **verify** (Stage 4) reads all SARIF files and uses an LLM to confirm or dismiss each finding.
 
 ### What Makes This Different
 
 **Traditional Approach:**
 ```
-SAST finding (CodeQL or Semgrep) -> Manual Review -> Decision
+SAST finding (CodeQL/Semgrep/OpenGrep) -> Manual Review -> Decision
                                     (time-consuming)
 ```
 
 **This Framework:**
 ```
-SAST finding (CodeQL or Semgrep) -> Guided Questions -> LLM Analysis -> Verdict
+SAST finding (CodeQL/Semgrep/OpenGrep) -> Guided Questions -> LLM Analysis -> Verdict
                                                     (automated)
 ```
 
@@ -175,17 +176,17 @@ The framework consists of 8 stages (4 core + 4 optional fuzz stages for C/C++), 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ STAGE 2: analyze                                                            │
 │ ────────────────                                                            │
-│ Purpose: Run CodeQL and/or Semgrep security analysis (CodeQL on DB,         │
-│          Semgrep on source in repos/)                                       │
+│ Purpose: Run CodeQL, Semgrep, and/or OpenGrep security analysis             │
+│          (CodeQL on DB; Semgrep/OpenGrep on source in repos/)               │
 │ Input:   output/<lang>/<name>/database/ (CodeQL); repos/<lang>/<name>/      │
-│          (Semgrep)                                                          │
+│          (Semgrep/OpenGrep)                                                 │
 │ Output:  output/<lang>/<name>/<name>.sarif (CodeQL); optionally             │
-│          <name>_semgrep.sarif (Semgrep)                                     │
+│          <name>_semgrep.sarif, <name>_opengrep.sarif                        │
 │                                                                             │
 │ This stage:                                                                 │
 │   1. [CodeQL] Finalizes the database (if not already finalized)             │
 │   2. [CodeQL] Runs the security-extended query suite                        │
-│   3. [Semgrep] Scans source; no database required                           │
+│   3. [Semgrep/OpenGrep] Scans source; no database required                  │
 │   4. Produces SARIF file(s) with all security findings                      │
 │                                                                             │
 │ SARIF (Static Analysis Results Interchange Format) contains:                │
@@ -223,7 +224,7 @@ The framework consists of 8 stages (4 core + 4 optional fuzz stages for C/C++), 
 │ STAGE 4: verify                                                             │
 │ ───────────────                                                             │
 │ Purpose: Verify each finding using LLM analysis                             │
-│ Input:   output/<lang>/<name>/*.sarif (CodeQL and Semgrep)                  │
+│ Input:   output/<lang>/<name>/*.sarif (CodeQL, Semgrep, OpenGrep)           │
 │          output/<lang>/<name>/context/*.csv (for LLM mode)                  │
 │ Output:  output/<lang>/<name>/verification_results/*.json                   │
 │          output/<lang>/<name>/verification_results/summary_*.json           │
@@ -243,7 +244,7 @@ The framework consists of 8 stages (4 core + 4 optional fuzz stages for C/C++), 
 | Stage     | Command                 | Input                                   | Output                                              |
 | --------- | ----------------------- | --------------------------------------- | --------------------------------------------------- |
 | 1         | `clone`                 | Repository URL                          | Source code + CodeQL database                       |
-| 2         | `analyze`               | CodeQL database and/or source (Semgrep) | SARIF (e.g. `<name>.sarif`, `<name>_semgrep.sarif`) |
+| 2         | `analyze`               | CodeQL database and/or source (Semgrep/OpenGrep) | SARIF (e.g. `<name>.sarif`, `<name>_semgrep.sarif`, `<name>_opengrep.sarif`) |
 | 3         | `extract-context`       | CodeQL database                         | CSV files with context                              |
 | 4         | `verify`                | SARIF + CSVs                            | JSON with verdicts                                  |
 | 5 (C/C++) | `build-sanitized`       | Repo + config                           | Sanitized build + manifest                          |
@@ -253,7 +254,7 @@ The framework consists of 8 stages (4 core + 4 optional fuzz stages for C/C++), 
 
 See [Fuzz-based confirmation](docs/fuzz_stages.md) for stages 5–8.
 
-VulnHunterX supports **CodeQL** and **Semgrep**. CodeQL requires building a database (stage 1) and runs on that database; Semgrep scans the cloned source and does not need a CodeQL database. You can run one or both; both output SARIF. The verify stage reads all SARIF files and applies the same LLM verification. Context expansion (extract-context) uses the CodeQL database, so for full multi-turn context when using Semgrep, run CodeQL at least once for that repo (e.g. `--tool both`).
+VulnHunterX supports **CodeQL**, **Semgrep**, and **OpenGrep**. CodeQL requires building a database (stage 1) and runs on that database; Semgrep and OpenGrep scan the cloned source and do not need a CodeQL database. OpenGrep is an open-source fork of Semgrep (LGPL 2.1) with the same rule format and CLI. You can run any combination; all output SARIF. The verify stage reads all SARIF files and applies the same LLM verification. Context expansion (extract-context) uses the CodeQL database, so for full multi-turn context when using Semgrep/OpenGrep only, run CodeQL at least once for that repo (e.g. `--tool both` or `--tool all`).
 
 ---
 
@@ -323,6 +324,7 @@ vuln-hunter-x check-env
 **What it checks:**
 - CodeQL CLI installed and accessible
 - Semgrep CLI (optional; for `analyze --tool semgrep` or `--tool both`)
+- OpenGrep CLI (optional; for `analyze --tool opengrep` or `--tool all`)
 - OpenAI API key valid (if configured)
 - Anthropic API key valid (if configured)
 - Ollama server reachable (if configured)
@@ -365,7 +367,7 @@ vuln-hunter-x clone --repo libucl --skip-db
 
 ### analyze
 
-Run CodeQL and/or Semgrep security analysis. Use `--tool` to choose which analyzer(s) run. Both produce SARIF under `output/<lang>/<repo_name>/`; the verify stage reads all SARIF files (CodeQL and Semgrep).
+Run CodeQL, Semgrep, and/or OpenGrep security analysis. Use `--tool` to choose which analyzer(s) run. All produce SARIF under `output/<lang>/<repo_name>/`; the verify stage reads all SARIF files.
 
 ```bash
 vuln-hunter-x analyze [options]
@@ -373,8 +375,9 @@ vuln-hunter-x analyze [options]
 
 | Option                         | Description                                              | Default           |
 | ------------------------------ | -------------------------------------------------------- | ----------------- |
-| `--tool {codeql,semgrep,both}` | Analyzer(s) to run                                       | codeql            |
+| `--tool {codeql,semgrep,opengrep,both,all}` | Analyzer(s) to run (`both`=CodeQL+Semgrep, `all`=all three) | codeql |
 | `--semgrep-config CONFIG`      | Semgrep config (repeatable); e.g. auto, p/security-audit | auto              |
+| `--opengrep-config CONFIG`     | OpenGrep config (repeatable; same format as Semgrep)     | auto              |
 | `--codeql-suite SUITE`         | CodeQL query suite (built-in ref or path to .qls)        | language default  |
 | `--config PATH`                | Path to repos.yaml (for Semgrep repo list)               | config/repos.yaml |
 | `--repo NAME`                  | Analyze specific repository                              | All               |
@@ -399,19 +402,28 @@ vuln-hunter-x analyze --tool semgrep --semgrep-config auto --semgrep-config p/se
 # Both: CodeQL then Semgrep (both SARIF files per repo)
 vuln-hunter-x analyze --tool both --repo c-ares
 
+# OpenGrep only (Semgrep fork; runs on source, no CodeQL DB required)
+vuln-hunter-x analyze --tool opengrep --repo pyyaml
+
+# All: CodeQL then Semgrep then OpenGrep
+vuln-hunter-x analyze --tool all --repo c-ares
+
 # Custom CodeQL suite
 vuln-hunter-x analyze --codeql-suite path/to/custom.qls
 ```
 
-**Semgrep integration:** Semgrep runs on the cloned source in `repos/<lang>/<name>/` and writes `output/<lang>/<name>/<name>_semgrep.sarif`. Verify reads all `*.sarif` in each repo directory (CodeQL and Semgrep). Semgrep does not require a CodeQL database.
+**Semgrep integration:** Semgrep runs on the cloned source in `repos/<lang>/<name>/` and writes `output/<lang>/<name>/<name>_semgrep.sarif`. Verify reads all `*.sarif` in each repo directory. Semgrep does not require a CodeQL database.
+
+**OpenGrep integration:** OpenGrep is an open-source fork of Semgrep (LGPL 2.1) with the same rule format and CLI. It writes `output/<lang>/<name>/<name>_opengrep.sarif`. For installation, refer to the [official OpenGrep releases page](https://github.com/opengrep/opengrep/releases) and download a pinned release for your platform. Avoid piping install scripts directly to a shell (`curl ... | bash`) — instead, download the script first, inspect it, and then execute it, or install a specific tagged release binary directly. Use `--opengrep-config` the same way as `--semgrep-config`.
 
 **Adding more security rules**
 
 - **CodeQL:** Use `--codeql-suite` with a custom `.qls` file that references the standard security-extended suite and adds extra queries or packs. You can also set `codeql_suite` in `config/confirm_findings.yaml`.
 - **Semgrep:** Pass multiple `--semgrep-config` (e.g. `auto`, `p/security-audit`, or paths to YAML rule files). Comma-separated in one flag is supported: `--semgrep-config "auto,p/security-audit"`. Optional defaults: `semgrep_configs` or `semgrep_config` in `config/confirm_findings.yaml`.
+- **OpenGrep:** Same config format as Semgrep. Pass `--opengrep-config` (e.g. `auto`, `p/security-audit`). Optional defaults: `opengrep_configs` or `opengrep_config` in `config/confirm_findings.yaml`.
 
 **Verbose output includes:**
-- Database path and status (CodeQL) or repo path (Semgrep)
+- Database path and status (CodeQL) or repo path (Semgrep/OpenGrep)
 - Query suite or Semgrep configs
 - Number of findings detected
 
@@ -540,7 +552,7 @@ vuln-hunter-x fuzz-run --dry-run
 
 ### verify
 
-Verify findings from SARIF using LLM analysis. Discovers all `*.sarif` under `output/<lang>/<repo_name>/` (CodeQL and Semgrep).
+Verify findings from SARIF using LLM analysis. Discovers all `*.sarif` under `output/<lang>/<repo_name>/` (CodeQL, Semgrep, and OpenGrep).
 
 ```bash
 vuln-hunter-x verify [options]
@@ -787,6 +799,7 @@ result = engine.verify_all_sarif()
 | `OPENAI_BASE_URL`   | Custom OpenAI-compatible endpoint | For API-compatible services |
 | `CODEQL_PATH`       | Path to CodeQL CLI   | If not on PATH                       |
 | `SEMGREP_PATH`      | Path to Semgrep CLI  | If not on PATH (for Semgrep analysis)|
+| `OPENGREP_PATH`     | Path to OpenGrep CLI | If not on PATH (for OpenGrep analysis)|
 
 ### Application Settings (`config/confirm_findings.yaml`)
 
@@ -911,7 +924,7 @@ The LLM system prompt is loaded from `config/prompts/system_prompt.yaml`. It use
 
 | Placeholder   | Filled with                               | Example                     |
 | ------------- | ----------------------------------------- | --------------------------- |
-| `{tool_name}` | SAST tool that produced the finding       | `CodeQL`, `Semgrep`         |
+| `{tool_name}` | SAST tool that produced the finding       | `CodeQL`, `Semgrep`, `OpenGrep` |
 | `{lang}`      | Programming language of the analyzed code | `c`, `python`, `javascript` |
 
 The prompt instructs the LLM to follow a structured analysis methodology: identify the vulnerability class, answer guided questions with line references, trace data flow from source to sink, evaluate reachability, then provide a verdict.

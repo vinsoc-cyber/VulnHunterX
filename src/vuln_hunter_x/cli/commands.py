@@ -317,27 +317,144 @@ def _run_semgrep_analyze(
     return 0 if ok_count == len(repo_list) else 1
 
 
-def _load_analyze_defaults(base_path: Path) -> tuple[str | None, list[str]]:
-    """Load codeql_suite and semgrep_configs from config if present. Returns (suite, configs)."""
+def _run_opengrep_analyze(
+    args: argparse.Namespace,
+    base_path: Path,
+    output_dir: Path,
+    repos_dir: Path,
+    verbose: bool,
+    force: bool,
+) -> int:
+    """Run OpenGrep analysis on repos from config. Returns exit code."""
+    from vuln_hunter_x.codeql.repository import load_repos_config
+    from vuln_hunter_x.opengrep.analyzer import OpenGrepAnalyzer
+
+    config_path = getattr(args, "config", None) or base_path / "config" / "repos.yaml"
+    if not config_path.is_file():
+        print(f"Config not found: {config_path}", file=sys.stderr)
+        return 1
+
+    repos = load_repos_config(Path(config_path))
+    supported_langs = {"c", "cpp", "python", "javascript", "php", "java"}
+    repo_list: list[tuple[str, str]] = []
+    for r in repos:
+        name = r.get("name")
+        if not name:
+            continue
+        raw_lang = (r.get("language") or "c").lower()
+        lang = "cpp" if raw_lang == "cpp" else raw_lang
+        if lang not in supported_langs:
+            continue
+        repo_list.append((lang, name))
+
+    if args.lang:
+        repo_list = [(lang, name) for lang, name in repo_list if lang == args.lang]
+    if args.repo:
+        repo_list = [(lang, name) for lang, name in repo_list if name.lower() == args.repo.lower()]
+
+    if not repo_list:
+        print(
+            "No repositories found for OpenGrep (check config and --lang/--repo).", file=sys.stderr
+        )
+        return 1
+
+    raw_configs = getattr(args, "opengrep_configs", None) or ["auto"]
+    configs: list[str] = []
+    for c in raw_configs:
+        if isinstance(c, str):
+            configs.extend(s.strip() for s in c.split(",") if s.strip())
+        else:
+            configs.append(c)
+    if not configs:
+        configs = ["auto"]
+    opengrep_path = os.environ.get("OPENGREP_PATH", "opengrep")
+    analyzer = OpenGrepAnalyzer(
+        semgrep_path=opengrep_path,
+        output_dir=output_dir,
+        verbose=verbose,
+    )
+    if verbose:
+        analyzer.set_logger(lambda msg: print(msg))
+
+    print(f"Running OpenGrep analysis on {len(repo_list)} repo(s)\n")
+    ok_count = 0
+    skip_count = 0
+    for lang, name in repo_list:
+        repo_path = repos_dir / lang / name
+        if not repo_path.is_dir():
+            print(f"[{name}] {lang} - [SKIP] repo dir not found: {repo_path}")
+            continue
+        opengrep_sarif = output_dir / lang / name / f"{name}_opengrep.sarif"
+        if opengrep_sarif.exists() and not force:
+            try:
+                import json
+
+                with open(opengrep_sarif) as f:
+                    data = json.load(f)
+                findings_count = sum(len(run.get("results", [])) for run in data.get("runs", []))
+                print(f"[{name}] {lang}")
+                print(f"  [SKIP] OpenGrep SARIF already exists ({findings_count} findings)")
+            except Exception:
+                print(f"[{name}] {lang}")
+                print("  [SKIP] OpenGrep SARIF already exists")
+            skip_count += 1
+            ok_count += 1
+            continue
+        print(f"[{name}] {lang}")
+        if getattr(args, "dry_run", False):
+            print(f"  [dry-run] Would run OpenGrep on {repo_path}")
+            print(f"  [dry-run] Output: {opengrep_sarif}")
+            ok_count += 1
+            continue
+        ok, result_path, msg = analyzer.run_analysis(
+            repo_path, lang, name, output_dir, configs=configs
+        )
+        if ok:
+            ok_count += 1
+            print(f"  -> {result_path}")
+            print(f"  {msg}")
+        else:
+            print(f"  FAILED: {msg}", file=sys.stderr)
+    if skip_count > 0:
+        print(
+            f"\nDone. {ok_count}/{len(repo_list)} succeeded ({skip_count} skipped, use --force to re-analyze)."
+        )
+    else:
+        print(f"\nDone. {ok_count}/{len(repo_list)} succeeded.")
+    return 0 if ok_count == len(repo_list) else 1
+
+
+def _load_analyze_defaults(base_path: Path) -> tuple[str | None, list[str], list[str]]:
+    """Load codeql_suite, semgrep_configs, and opengrep_configs from config if present."""
     import yaml
 
     config_path = base_path / "config" / "confirm_findings.yaml"
     if not config_path.is_file():
-        return None, []
+        return None, [], []
     try:
         with open(config_path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
     except Exception:
-        return None, []
+        return None, [], []
     suite = data.get("codeql_suite")
-    configs = data.get("semgrep_configs")
-    if isinstance(configs, list):
+
+    semgrep_configs = data.get("semgrep_configs")
+    if isinstance(semgrep_configs, list):
         pass
     elif data.get("semgrep_config"):
-        configs = [data["semgrep_config"]]
+        semgrep_configs = [data["semgrep_config"]]
     else:
-        configs = []
-    return suite, configs
+        semgrep_configs = []
+
+    opengrep_configs = data.get("opengrep_configs")
+    if isinstance(opengrep_configs, list):
+        pass
+    elif data.get("opengrep_config"):
+        opengrep_configs = [data["opengrep_config"]]
+    else:
+        opengrep_configs = []
+
+    return suite, semgrep_configs, opengrep_configs
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
@@ -350,21 +467,35 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     tool = getattr(args, "tool", "codeql")
 
     # Optional: defaults from config (CLI overrides)
-    default_suite, default_semgrep_configs = _load_analyze_defaults(base_path)
+    default_suite, default_semgrep_configs, default_opengrep_configs = _load_analyze_defaults(
+        base_path
+    )
     if getattr(args, "codeql_suite", None) is None and default_suite:
         args.codeql_suite = default_suite
     if not getattr(args, "semgrep_configs", None) and default_semgrep_configs:
         args.semgrep_configs = default_semgrep_configs
+    if not getattr(args, "opengrep_configs", None) and default_opengrep_configs:
+        args.opengrep_configs = default_opengrep_configs
 
     if tool == "codeql":
         return _run_codeql_analyze(args, base_path, output_dir, verbose, force)
     if tool == "semgrep":
         return _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
+    if tool == "opengrep":
+        return _run_opengrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
     if tool == "both":
         code = _run_codeql_analyze(args, base_path, output_dir, verbose, force)
         if code != 0:
             return code
         return _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
+    if tool == "all":
+        code = _run_codeql_analyze(args, base_path, output_dir, verbose, force)
+        if code != 0:
+            return code
+        code = _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
+        if code != 0:
+            return code
+        return _run_opengrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
     return 1
 
 
