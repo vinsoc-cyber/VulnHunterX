@@ -456,7 +456,7 @@ def stage_generate_fuzz_drivers(
     """
     cmd = _CLI + ["generate-fuzz-drivers", "--repo", repo_name, "--verdict", "tp,nmd"]
     if build:
-        cmd.append("--build")
+        cmd.extend(["--build", "--llm-fix"])
     if dry_run:
         return "DRY-RUN", "Would generate (and build) fuzz drivers"
     success, output = run_command(cmd, timeout=600)

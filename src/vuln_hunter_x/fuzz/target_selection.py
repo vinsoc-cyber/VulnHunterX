@@ -207,10 +207,20 @@ def find_enclosing_function(
 
 
 # CWE IDs associated with memory corruption — high fuzz value
-_MEMORY_CORRUPTION_CWES = frozenset({
-    "CWE-119", "CWE-120", "CWE-121", "CWE-122", "CWE-125",
-    "CWE-416", "CWE-415", "CWE-787", "CWE-190", "CWE-193",
-})
+_MEMORY_CORRUPTION_CWES = frozenset(
+    {
+        "CWE-119",
+        "CWE-120",
+        "CWE-121",
+        "CWE-122",
+        "CWE-125",
+        "CWE-416",
+        "CWE-415",
+        "CWE-787",
+        "CWE-190",
+        "CWE-193",
+    }
+)
 
 
 class StructMember(TypedDict):
@@ -257,8 +267,12 @@ def score_target(
             score += 2
 
         # Detect buffer+length pattern
-        if ("char *" in ptype_lower or "uint8_t *" in ptype_lower
-                or "void *" in ptype_lower or "unsigned char *" in ptype_lower):
+        if (
+            "char *" in ptype_lower
+            or "uint8_t *" in ptype_lower
+            or "void *" in ptype_lower
+            or "unsigned char *" in ptype_lower
+        ):
             has_buffer_param = True
         if "size_t" in ptype_lower and "*" not in ptype_orig:
             has_size_param = True
@@ -278,8 +292,12 @@ def score_target(
             score -= 5
 
     # CWE-aware scoring bonus
-    if (finding and hasattr(finding, "cwe_ids") and finding.cwe_ids
-            and any(cwe in _MEMORY_CORRUPTION_CWES for cwe in finding.cwe_ids)):
+    if (
+        finding
+        and hasattr(finding, "cwe_ids")
+        and finding.cwe_ids
+        and any(cwe in _MEMORY_CORRUPTION_CWES for cwe in finding.cwe_ids)
+    ):
         score += 15
 
     return score
@@ -338,6 +356,10 @@ def select_targets(
             repo_context_dir,
         )
         if info is None:
+            continue
+        # Skip main() — it's a program entry point, not a library API to fuzz.
+        # Fuzzing main() would conflict with libFuzzer's own main().
+        if info["name"] == "main":
             continue
         targets.append((finding, verdict, info))
 
