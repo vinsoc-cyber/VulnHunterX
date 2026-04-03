@@ -2,6 +2,8 @@
 Stage 7.1: Select fuzz targets from SARIF and verification results.
 
 Resolves (file, line) → enclosing function via functions.csv or function_signatures.csv.
+Classifies targets by *linkability* (library-exported, object-global, static,
+executable-source) so that unfuzzable targets are skipped with a logged warning.
 """
 
 from __future__ import annotations
@@ -16,6 +18,13 @@ from vuln_hunter_x.core.types import Finding
 from vuln_hunter_x.fuzz.fuzz_context import load_callers, load_structs
 
 logger = logging.getLogger(__name__)
+
+# Linkability classification constants
+LINKABILITY_LIBRARY_EXPORTED = "library_exported"
+LINKABILITY_OBJECT_GLOBAL = "object_global"
+LINKABILITY_STATIC = "static"
+LINKABILITY_EXECUTABLE_SOURCE = "executable_source"
+LINKABILITY_UNKNOWN = "unknown"
 
 # Verdict values we use for filtering
 VERDICT_TP = "True Positive"
@@ -148,6 +157,9 @@ def find_enclosing_function(
                     start = int(row.get("start_line", 0))
                     end = int(row.get("end_line", 0))
                     if start <= line <= end:
+                        # is_static column added by updated functions.ql
+                        is_static_raw = row.get("is_static", "")
+                        is_static = is_static_raw.lower() in ("true", "1", "yes")
                         candidates.append(
                             (
                                 end - start,
@@ -156,6 +168,7 @@ def find_enclosing_function(
                                     "file": fn,
                                     "start_line": start,
                                     "end_line": end,
+                                    "is_static": is_static,
                                 },
                             )
                         )
@@ -223,6 +236,72 @@ _MEMORY_CORRUPTION_CWES = frozenset(
 )
 
 
+def _file_has_main(file_path: str, repo_context_dir: Path) -> bool:
+    """Check whether *file_path* contains a ``main()`` function via functions.csv."""
+    funcs_csv = Path(repo_context_dir) / "functions.csv"
+    if not funcs_csv.is_file():
+        return False
+    file_norm = _normalize_path(file_path)
+    try:
+        with open(funcs_csv, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if row.get("name") == "main" and _normalize_path(row.get("file", "")) == file_norm:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def classify_target_linkability(
+    func_name: str,
+    func_file: str,
+    manifest: dict,
+    *,
+    is_static_from_codeql: bool | None = None,
+    repo_context_dir: Path | None = None,
+) -> str:
+    """Classify a function's linkability for fuzz target generation.
+
+    Uses the enriched manifest (symbol maps, library exports) and optionally
+    the ``is_static`` column from CodeQL.
+
+    Returns one of:
+        - ``"library_exported"``: symbol in a .a library (ideal for fuzzing)
+        - ``"object_global"``: global in a .o but not in any library
+        - ``"static"``: file-local / static (not linkable from external harness)
+        - ``"executable_source"``: in a source file that contains main()
+        - ``"unknown"``: no symbol info available
+    """
+    lib_exports = manifest.get("lib_exports") or {}
+    static_symbols = set(manifest.get("static_symbols") or [])
+    symbol_to_objects = manifest.get("symbol_to_objects") or {}
+
+    # 1. Check library exports first (ideal)
+    if func_name in lib_exports:
+        return LINKABILITY_LIBRARY_EXPORTED
+
+    # 2. Check if CodeQL flagged it as static
+    if is_static_from_codeql is True:
+        return LINKABILITY_STATIC
+
+    # 3. Check nm-based static symbols
+    if func_name in static_symbols:
+        return LINKABILITY_STATIC
+
+    # 4. Check if it's a global symbol in an object file
+    if func_name in symbol_to_objects:
+        # Check if the containing source file has main() → executable source
+        if repo_context_dir is not None and _file_has_main(func_file, repo_context_dir):
+            return LINKABILITY_EXECUTABLE_SOURCE
+        return LINKABILITY_OBJECT_GLOBAL
+
+    # 5. Fallback: if the file has main(), it's likely an executable source
+    if repo_context_dir is not None and _file_has_main(func_file, repo_context_dir):
+        return LINKABILITY_EXECUTABLE_SOURCE
+
+    return LINKABILITY_UNKNOWN
+
+
 class StructMember(TypedDict):
     """Typed representation of a struct member entry."""
 
@@ -238,17 +317,22 @@ def score_target(
     struct_defs: StructDefs | None = None,
     callers_map: dict[str, list[str]] | None = None,
     finding: Finding | None = None,
+    linkability: str = LINKABILITY_UNKNOWN,
 ) -> int:
     """
     Score a fuzz target by estimated fuzzability.
 
+    +20 for library-exported linkability (ideal fuzz target)
     +10 per primitive param (int, char*, size_t, bool, float, double)
+    +5 for object-global linkability
     +2 per struct param with known definition
     +2 per known caller
     +8 for buffer+length param pattern (char*/uint8_t* with size_t)
     +15 for memory corruption CWE association
     -3 if > 6 params
     -5 for single-caller private helpers (likely internal)
+    -15 for static linkability
+    -25 for executable-source linkability
     """
     PRIMITIVE_TOKENS = {"int", "char", "size_t", "bool", "uint", "long", "short", "float", "double"}
     params = target_info.get("params", [])
@@ -267,6 +351,12 @@ def score_target(
             score += 2
 
         # Detect buffer+length pattern
+        if (
+            "char *" in ptype_lower
+            or "uint8_t *" in ptype_lower
+            or "void *" in ptype_lower
+            or "unsigned char *" in ptype_lower
+        ):
         if (
             "char *" in ptype_lower
             or "uint8_t *" in ptype_lower
@@ -298,7 +388,23 @@ def score_target(
         and finding.cwe_ids
         and any(cwe in _MEMORY_CORRUPTION_CWES for cwe in finding.cwe_ids)
     ):
+    if (
+        finding
+        and hasattr(finding, "cwe_ids")
+        and finding.cwe_ids
+        and any(cwe in _MEMORY_CORRUPTION_CWES for cwe in finding.cwe_ids)
+    ):
         score += 15
+
+    # Linkability scoring
+    linkability_bonus = {
+        LINKABILITY_LIBRARY_EXPORTED: 20,
+        LINKABILITY_OBJECT_GLOBAL: 5,
+        LINKABILITY_STATIC: -15,
+        LINKABILITY_EXECUTABLE_SOURCE: -25,
+        LINKABILITY_UNKNOWN: 0,
+    }
+    score += linkability_bonus.get(linkability, 0)
 
     return score
 
@@ -377,6 +483,65 @@ def select_targets(
                 seen_functions[func_key] = (finding, verdict, info)
     targets = list(seen_functions.values())
 
+    # Classify linkability and filter unfuzzable targets
+    from vuln_hunter_x.fuzz.driver_builder import find_manifest_for_repo, load_manifest
+
+    repo_manifests: dict[tuple[str, str], dict] = {}
+    skipped_targets: list[dict] = []
+
+    for finding, _verdict, info in list(targets):
+        key = (finding.lang, finding.repo_name)
+        if key not in repo_manifests:
+            manifest_path = find_manifest_for_repo(output_dir, finding.lang, finding.repo_name)
+            repo_manifests[key] = load_manifest(manifest_path) if manifest_path else {}
+
+        manifest = repo_manifests[key]
+        repo_context_dir = output_dir / finding.lang / finding.repo_name / "context"
+
+        linkability = classify_target_linkability(
+            func_name=info["name"],
+            func_file=info["file"],
+            manifest=manifest,
+            is_static_from_codeql=info.get("is_static"),
+            repo_context_dir=repo_context_dir,
+        )
+        info["linkability"] = linkability
+
+    # Separate fuzzable from unfuzzable
+    fuzzable: list[tuple[Finding, str, dict]] = []
+    for finding, verdict, info in targets:
+        linkability = info.get("linkability", LINKABILITY_UNKNOWN)
+        if linkability in (LINKABILITY_STATIC, LINKABILITY_EXECUTABLE_SOURCE):
+            reason = (
+                "static function, not linkable from external harness"
+                if linkability == LINKABILITY_STATIC
+                else "executable-local function (file contains main())"
+            )
+            logger.warning(
+                "Skipping '%s' (%s:%d): %s",
+                info["name"],
+                info["file"],
+                info["start_line"],
+                reason,
+            )
+            skipped_targets.append(
+                {
+                    "function": info["name"],
+                    "file": info["file"],
+                    "line": info["start_line"],
+                    "reason": reason,
+                    "linkability": linkability,
+                }
+            )
+        else:
+            fuzzable.append((finding, verdict, info))
+    targets = fuzzable
+
+    # Store skipped targets for status.json (accessible via the returned list)
+    # We attach them to the output_dir via a side-channel JSON
+    if skipped_targets:
+        _write_skipped_targets(output_dir, skipped_targets)
+
     # Score and sort by fuzzability (best targets first)
     if targets:
         # Build per-repo enrichment data for scoring
@@ -394,8 +559,38 @@ def select_targets(
                 struct_defs=repo_structs.get((t[0].lang, t[0].repo_name)),
                 callers_map=repo_callers.get((t[0].lang, t[0].repo_name)),
                 finding=t[0],
+                linkability=t[2].get("linkability", LINKABILITY_UNKNOWN),
             ),
             reverse=True,
         )
 
     return targets
+
+
+def _write_skipped_targets(output_dir: Path, skipped: list[dict]) -> None:
+    """Write skipped (unfuzzable) targets to a JSON file for status reporting."""
+    # Group by repo
+    by_repo: dict[str, list[dict]] = {}
+    for entry in skipped:
+        # Derive repo from file path or use a generic key
+        by_repo.setdefault("_all", []).append(entry)
+
+    # Write to each repo's fuzz_targets dir
+    for lang_dir in output_dir.iterdir():
+        if not lang_dir.is_dir() or lang_dir.name not in ("c", "cpp"):
+            continue
+        for repo_dir in lang_dir.iterdir():
+            if not repo_dir.is_dir():
+                continue
+            fuzz_dir = repo_dir / "fuzz_targets"
+            fuzz_dir.mkdir(parents=True, exist_ok=True)
+            skip_path = fuzz_dir / "skipped_targets.json"
+            # Filter skipped targets for this repo
+            repo_skipped = [
+                s for s in skipped if any(s["file"].startswith(prefix) for prefix in ("src/", ""))
+            ]
+            if repo_skipped:
+                skip_path.write_text(
+                    json.dumps({"skipped_targets": repo_skipped}, indent=2),
+                    encoding="utf-8",
+                )

@@ -280,6 +280,20 @@ class VerificationEngine:
             finding.lang,
         )
 
+        # Pre-fetch additional context declared by guided questions
+        prefetched_context: dict[str, str] = {}
+        if questions.additional_context and self.context_provider:
+            prefetch_requests = self._build_prefetch_requests(
+                questions.additional_context,
+                context_result.function_name,
+            )
+            if prefetch_requests:
+                prefetched_context = self.context_provider.get_additional_context(
+                    repo_name=finding.repo_name,
+                    lang=finding.lang,
+                    context_requests=prefetch_requests,
+                )
+
         # Call LLM
         verdict = self.llm_client.analyze(
             finding=finding,
@@ -291,9 +305,34 @@ class VerificationEngine:
             verbose=self.config.output.is_verbose,
             quiet=self.config.output.is_quiet,
             force_decision=self.config.verification.force_decision,
+            prefetched_context=prefetched_context,
         )
 
         return verdict
+
+    @staticmethod
+    def _build_prefetch_requests(
+        context_types: list[str],
+        func_name: str,
+    ) -> list[str]:
+        """Build concrete context request strings from additional_context types.
+
+        Only types that can be keyed off func_name are pre-fetched (caller,
+        callees, all_callers). Types needing specific names (struct, global,
+        macro, typedef, enum) remain reactive — the LLM requests them at runtime.
+        """
+        requests: list[str] = []
+        if not func_name:
+            return requests
+        for ctx_type in context_types:
+            ctx_type = ctx_type.lower().strip()
+            if ctx_type == "caller":
+                requests.append(f"caller:{func_name}")
+            elif ctx_type == "callees":
+                requests.append(f"callees:{func_name}")
+            elif ctx_type == "all_callers":
+                requests.append(f"all_callers:{func_name}")
+        return requests
 
     def save_results(
         self,

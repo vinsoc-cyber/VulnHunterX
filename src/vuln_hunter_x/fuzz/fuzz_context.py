@@ -227,17 +227,14 @@ def build_type_context_string(repo_context_dir: Path, max_chars: int = 4000) -> 
     structs = load_structs(repo_context_dir)
     for name, members in structs.items():
         if members:
-            members_str = ";\n    ".join(
-                f"{m['type']} {m['name']}" for m in members
-            ) + ";"
+            members_str = ";\n    ".join(f"{m['type']} {m['name']}" for m in members) + ";"
             parts.append(f"struct {name} {{\n    {members_str}\n}};")
         else:
             parts.append(f"struct {name} {{}};")
 
     for enum_name, enumerators in load_enums(repo_context_dir).items():
         vals = ", ".join(
-            f"{e['member']} = {e['value']}" if e["value"] else e["member"]
-            for e in enumerators
+            f"{e['member']} = {e['value']}" if e["value"] else e["member"] for e in enumerators
         )
         parts.append(f"enum {enum_name} {{ {vals} }};")
 

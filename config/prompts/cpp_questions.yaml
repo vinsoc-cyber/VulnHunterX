@@ -29,7 +29,7 @@ cpp/overflow-buffer:
     - "Are there any CHECKS or CONSTRAINTS on source size, destination size, or the copy length BEFORE the copy?"
     - "What other OPERATIONS act on these buffers between declaration and the flagged copy?"
   context_hint: "Must include buffer declarations. May need caller function if sizes come from parameters."
-  additional_context: ["caller", "struct"]
+  additional_context: ["caller", "struct", "global", "macro"]
 
 cpp/overflowing-snprintf:
   short_description: "snprintf size argument derived from its own return value"
@@ -41,7 +41,7 @@ cpp/overflowing-snprintf:
     - "Are there any BOUNDS checks on the size before snprintf is called?"
     - "Could repeated calls cause the size argument to exceed the buffer?"
   context_hint: "Include buffer declaration and all snprintf calls in sequence."
-  additional_context: ["caller"]
+  additional_context: ["caller", "global", "macro"]
 
 cpp/invalid-pointer-deref:
   short_description: "Pointer dereference that may be out of bounds"
@@ -62,14 +62,15 @@ cpp/invalid-pointer-deref:
 cpp/use-after-free:
   short_description: "Use of pointer after memory has been freed"
   questions:
-    - "Where is the pointer ALLOCATED (malloc, calloc, new) and what variable holds it?"
-    - "Where is the pointer FREED (free, delete) - list ALL free() calls for this pointer?"
-    - "Is the pointer set to NULL immediately after being freed?"
-    - "List ALL code paths from the free() to the flagged use - can ANY path reach the use?"
-    - "If the pointer is REASSIGNED between free and use, where and to what value?"
-    - "Are there any ALIAS pointers that point to the same memory?"
-  context_hint: "Must trace all paths between free and use. May need caller if pointer passed as parameter."
-  additional_context: ["caller"]
+    - "Where is the pointer ALLOCATED (malloc, calloc, new, strdup, custom allocator) and what variable holds it? If the allocation is in a DIFFERENT function, identify that function."
+    - "List ALL free()/delete calls for this pointer AND its aliases — include the function name, file, and line number for EACH. Are any frees conditional (inside if/switch/error paths)?"
+    - "Is the pointer set to NULL immediately after EACH free? If not, what value does it hold?"
+    - "For EACH free-to-use pair: enumerate ALL possible execution paths. Can the flagged use be reached WITHOUT passing through a reassignment or NULL check? Consider: loops, goto, longjmp, signal handlers, and callbacks."
+    - "Does the pointer escape this function — is it stored in a struct field, global, returned, or passed to another function that retains it? If so, who is responsible for its lifetime?"
+    - "Are there ALIAS pointers (copies, struct members, array entries, void* casts) that reference the same memory? Could one alias free while another still holds a reference?"
+    - "If the pointer is REASSIGNED between free and use, where and to what value — a new allocation, NULL, or another pointer?"
+  context_hint: "TRACE: allocation -> free -> flagged_use | NEED: caller(ptr_origin), struct(ptr_type_members), callees(functions_ptr_passed_to)"
+  additional_context: ["caller", "struct", "callees", "all_callers"]
 
 cpp/double-free:
   short_description: "Memory freed more than once"
@@ -81,7 +82,7 @@ cpp/double-free:
     - "If set to NULL, is there a NULL check before the SECOND free?"
     - "Are there ALIAS pointers that could cause the same memory to be freed via different variables?"
   context_hint: "Include all control flow paths between free calls."
-  additional_context: ["caller"]
+  additional_context: ["caller", "struct"]
 
 cpp/stack-address-escape:
   short_description: "Address of stack variable escapes function scope"
@@ -109,19 +110,20 @@ cpp/uninitialized-local:
     - "Are there any EARLY RETURNS or GOTO statements that skip initialization?"
     - "If the variable is a struct, are ALL fields initialized before use?"
   context_hint: "Include all control flow paths from declaration to use."
-  additional_context: []
+  additional_context: ["caller", "struct"]
 
 cpp/integer-overflow:
   short_description: "Integer overflow in arithmetic operation"
   questions:
-    - "What are the TYPES of the operands (int, size_t, unsigned, etc.)?"
-    - "What are the MAXIMUM possible values of each operand?"
-    - "Where do the operand VALUES come from - user input, file, network, constants?"
-    - "Is there a CHECK for overflow BEFORE the arithmetic operation?"
-    - "Is the RESULT used in a security-sensitive context (buffer allocation, array index, loop bound)?"
-    - "Would the overflow cause wrapping (unsigned) or undefined behavior (signed)?"
-  context_hint: "Include operand declarations and how their values are derived."
-  additional_context: ["caller"]
+    - "What are the exact TYPES of each operand (int, unsigned int, size_t, int32_t, uint64_t)? What is the maximum value each type can hold?"
+    - "Where do the operand VALUES originate — user input, file header, network packet, function parameter, or compile-time constant? Can an attacker control either operand?"
+    - "Write out the arithmetic: MAX_VAL_OF_TYPE_A <op> MAX_VAL_OF_TYPE_B = ?. Does the result exceed the RESULT TYPE's range? What is the result type after implicit promotion rules?"
+    - "Is there a CHECK for overflow BEFORE the operation? Valid checks: comparing against (TYPE_MAX - b) before a+b, or using __builtin_add_overflow / safe_math helpers. An after-the-fact check on the RESULT is too late for signed overflow (UB)."
+    - "How is the RESULT used — as malloc/calloc size, array index, loop bound, comparison operand, or return value? If used in allocation, could a small-seeming value cause a tiny allocation followed by a large copy?"
+    - "For UNSIGNED types: wrapping is defined behavior but is it INTENTIONAL here? A wrapped-to-small allocation size followed by a large write is a heap overflow."
+    - "For SIGNED types: overflow is undefined behavior — could the compiler optimize away subsequent checks that assume no overflow occurred?"
+  context_hint: "TRACE: operand_sources -> arithmetic_op -> result_use | NEED: caller(operand_origins), macro(MAX_CONSTANTS), typedef(operand_types)"
+  additional_context: ["caller", "macro", "typedef"]
 
 cpp/weak-cryptographic-algorithm:
   short_description: "Use of weak or broken cryptographic algorithm"
@@ -133,7 +135,7 @@ cpp/weak-cryptographic-algorithm:
     - "Is this code in a security-critical path or test/legacy code?"
     - "Is this algorithm used in a protocol negotiation or interop path where the peer mandates it?"
   context_hint: "Include the crypto function call and its context."
-  additional_context: []
+  additional_context: ["caller"]
 
 # ==============================================================================
 # C/C++ Injection Vulnerabilities
@@ -185,7 +187,7 @@ cpp/format-string-injection:
     - "Is the input VALIDATED to contain only safe characters?"
     - "Is the format string argument identical across all invocations, or does it vary based on external input?"
   context_hint: "Include the printf-family call with all arguments."
-  additional_context: []
+  additional_context: ["caller"]
 
 # ==============================================================================
 # C/C++ - Scanf and Return Value Checks
@@ -282,14 +284,15 @@ cpp/resource-leak:
 cpp/memory-leak:
   short_description: "Heap memory allocated but not freed on all code paths"
   questions:
-    - "Where is memory ALLOCATED (malloc, calloc, new, strdup) and assigned to what variable?"
-    - "Is there a corresponding free()/delete on ALL code paths (success and error)?"
-    - "Are there early returns, breaks, or goto statements that skip the free()?"
-    - "Is there an ALIAS of the pointer that outlives the original - could double-free result from fixing this?"
-    - "Is this in a loop where each iteration allocates but the free is outside the loop?"
-    - "Is this allocation in a function called frequently (loop, request handler) where leaks accumulate over time?"
-  context_hint: "Include allocation site, all code paths, and any deallocation."
-  additional_context: ["caller"]
+    - "Where is memory ALLOCATED (malloc, calloc, new, strdup, custom allocator) and what variable holds the returned pointer?"
+    - "Draw the CONTROL FLOW of this function: list every return statement, break, continue, goto, and throw with line numbers. For EACH exit point, is the allocated memory freed?"
+    - "Is the pointer stored in a struct/object field, global, or returned to the caller? If so, is ownership TRANSFERRED (caller is now responsible for free) or is this a leak?"
+    - "If there are ERROR PATHS (function call failures, validation failures), does each error path free the allocation before returning? List each error path explicitly."
+    - "Is this allocation inside a LOOP? If so, is each iteration's allocation freed before the next iteration or after the loop, or does each iteration leak?"
+    - "Is RAII used (std::unique_ptr, std::shared_ptr, std::vector, scope guard) to guarantee deallocation? If raw pointers are used, is there a documented ownership convention?"
+    - "Is this in a function called frequently (loop body, request handler, callback) where leaks accumulate over time?"
+  context_hint: "TRACE: alloc_site -> all_return_paths -> dealloc_sites | NEED: caller(who_calls_this), callees(wrapped_alloc_funcs), struct(ownership_fields)"
+  additional_context: ["caller", "callees", "struct"]
 
 # ==============================================================================
 # C/C++ - Type Safety
@@ -305,7 +308,7 @@ cpp/type-confusion:
     - "Could an attacker control the value being cast to cause unintended behavior?"
     - "Would using memcpy to copy bytes (safe for aliasing) or a union with proper semantics fix this?"
   context_hint: "Include the cast expression and the types involved."
-  additional_context: ["struct"]
+  additional_context: ["struct", "typedef", "caller"]
 
 cpp/signed-overflow:
   short_description: "Signed integer overflow which is undefined behavior in C/C++"
@@ -354,14 +357,15 @@ cpp/unsafe-functions:
 cpp/null-deref:
   short_description: "Null pointer dereference — pointer used without null check"
   questions:
-    - "Where is the POINTER obtained — return value of malloc/calloc/fopen/API call that can return NULL?"
-    - "Is the pointer checked for NULL BEFORE it is dereferenced?"
-    - "On ALL code paths from assignment to dereference, is there a null guard?"
-    - "If the null check exists, is it on the CORRECT variable (not an alias or unrelated variable)?"
-    - "What is the impact of the null dereference — crash, denial of service, or exploitable control flow?"
-    - "Is this in a signal handler or interrupt context where recovery is not possible?"
-  context_hint: "Include pointer assignment and all dereference sites."
-  additional_context: ["caller"]
+    - "Where is the POINTER assigned — via malloc/calloc/new, function return value, parameter, or struct member access? Which of these CAN return NULL?"
+    - "Enumerate ALL dereference sites of this pointer — not just the flagged one. List each with its line number."
+    - "For EACH dereference site, is there a NULL check on a path that DOMINATES it (i.e., every possible execution path to the dereference MUST pass through the check)? A check in a sibling branch does NOT protect a different branch."
+    - "If a NULL check exists, verify it checks the EXACT SAME variable (not an alias, not a different pointer, not a stale copy). Does the pointer get reassigned between the check and the dereference?"
+    - "Could the pointer become NULL AFTER the check — via a function call, callback, signal handler, or concurrent modification between check and use?"
+    - "Is this in an error-handling path where NULL is expected (e.g., malloc failure) and the dereference is the bug, or is this a logic error where NULL should never occur?"
+    - "What is the impact — guaranteed crash (DoS), or could an attacker exploit the null dereference for control flow hijacking?"
+  context_hint: "TRACE: ptr_assign -> null_check_paths -> deref_site | NEED: caller(ptr_param_source), struct(type_with_nullable_fields), all_callers(who_passes_null)"
+  additional_context: ["caller", "struct", "all_callers"]
 
 cpp/dangling-pointer:
   short_description: "Pointer used after the lifetime of the object it references has ended"
@@ -449,7 +453,7 @@ cpp/comparison-always-true:
     - "Is this intentional (e.g., a compile-time constant check) or accidental?"
     - "Does the dead branch guard a security-critical check (bounds, auth, null) that now never executes?"
   context_hint: "Include the comparison expression and operand type declarations."
-  additional_context: []
+  additional_context: ["macro", "typedef"]
 
 # ==============================================================================
 # C/C++ - Stack Exhaustion
@@ -581,7 +585,7 @@ cpp/uncontrolled-allocation-size:
     - "Is the size value multiplied by another factor (e.g., count * element_size) that could overflow before the allocation?"
     - "What is the maximum reasonable size for this allocation, and is it enforced?"
   context_hint: "Include the allocation call, size parameter origin, and any bounds checks."
-  additional_context: ["caller"]
+  additional_context: ["caller", "global", "macro"]
 
 # ==============================================================================
 # C/C++ - Additional Memory and Safety Rules
@@ -597,7 +601,7 @@ cpp/off-by-one:
     - "Is a null terminator written or expected — does the buffer have room for it?"
     - "What data is written at the boundary index — could it corrupt adjacent memory?"
   context_hint: "Include buffer declaration, loop, and any index arithmetic."
-  additional_context: ["caller"]
+  additional_context: ["caller", "global", "macro"]
 
 cpp/use-after-move:
   short_description: "Use of C++ object after std::move has transferred ownership"
@@ -657,7 +661,7 @@ cpp/heap-buffer-overflow:
     - "Are there any BOUNDS CHECKS between allocation and access?"
     - "Could this overflow corrupt heap metadata, adjacent objects, or function pointers?"
   context_hint: "Include allocation, size computation, and the out-of-bounds access."
-  additional_context: ["caller", "struct"]
+  additional_context: ["caller", "struct", "global", "macro"]
 
 cpp/exception-unsafe:
   short_description: "Resource leak or undefined behavior when exception is thrown (RAII violation)"
@@ -676,14 +680,15 @@ cpp/exception-unsafe:
 cpp/null-pointer-dereference:
   short_description: "Null pointer dereferenced without a NULL check"
   questions:
-    - "Where is the pointer ASSIGNED — via malloc/calloc/new, function return value, or parameter?"
-    - "Is there a NULL check (if (ptr == NULL) / if (!ptr)) on ALL code paths BEFORE the flagged dereference?"
-    - "Could the pointer legitimately be NULL at the flagged location (e.g., malloc failure, empty container, optional return)?"
-    - "List ALL early returns or conditional branches between the pointer assignment and the dereference — does any path skip the NULL check?"
-    - "Is the pointer set to NULL explicitly anywhere between assignment and use (e.g., after free, reset)?"
-    - "Are there mitigating factors — assert() guards, internal-only API that guarantees non-null, or test code?"
-  context_hint: "Trace all code paths from pointer assignment to the dereference site."
-  additional_context: ["caller", "struct"]
+    - "Where is the POINTER assigned — via malloc/calloc/new, function return value, parameter, or struct member access? Which of these CAN return NULL?"
+    - "Enumerate ALL dereference sites of this pointer — not just the flagged one. List each with its line number."
+    - "For EACH dereference site, is there a NULL check on a path that DOMINATES it (i.e., every possible execution path to the dereference MUST pass through the check)? A check in a sibling branch does NOT protect a different branch."
+    - "If a NULL check exists, verify it checks the EXACT SAME variable (not an alias, not a different pointer, not a stale copy). Does the pointer get reassigned between the check and the dereference?"
+    - "Could the pointer become NULL AFTER the check — via a function call, callback, signal handler, or concurrent modification between check and use?"
+    - "Is this in an error-handling path where NULL is expected (e.g., malloc failure) and the dereference is the bug, or is this a logic error where NULL should never occur?"
+    - "What is the impact — guaranteed crash (DoS), or could an attacker exploit the null dereference for control flow hijacking?"
+  context_hint: "TRACE: ptr_assign -> null_check_paths -> deref_site | NEED: caller(ptr_param_source), struct(type_with_nullable_fields), all_callers(who_passes_null)"
+  additional_context: ["caller", "struct", "all_callers"]
 
 cpp/overflow-destination:
   short_description: "Write operation overflows the destination buffer"
@@ -695,7 +700,7 @@ cpp/overflow-destination:
     - "Is memcpy/strcpy/sprintf/gets used instead of safer alternatives (memcpy_s, snprintf, strlcpy, strncpy with explicit bound)?"
     - "Are there mitigating factors — ASLR, stack canaries, sanitizer in production, or test/internal-only code?"
   context_hint: "Need the destination buffer declaration and all callers that supply the write length."
-  additional_context: ["caller", "struct"]
+  additional_context: ["caller", "struct", "global", "macro"]
 
 cpp/overrunning-write:
   short_description: "Write exceeds the allocated size of the target buffer"
@@ -707,7 +712,7 @@ cpp/overrunning-write:
     - "Is the write operation a loop accumulating data without checking remaining capacity?"
     - "Are there mitigating factors — sanitizer protection, internal-only usage, or test harness code?"
   context_hint: "Need buffer allocation site and all callers providing the write length."
-  additional_context: ["caller", "struct"]
+  additional_context: ["caller", "struct", "global", "macro"]
 
 cpp/out-of-bounds-read:
   short_description: "Read operation accesses memory beyond buffer bounds"
@@ -719,7 +724,7 @@ cpp/out-of-bounds-read:
     - "Are safer read idioms used (fgets with size, strnlen, memcpy with explicit size) instead of unbounded reads (gets, strcpy, sprintf)?"
     - "Are there mitigating factors — ASLR, test code, sanitizer enabled in production, or internal-only use?"
   context_hint: "Need buffer declaration and all callers providing the index or read length."
-  additional_context: ["caller", "struct"]
+  additional_context: ["caller", "struct", "global", "macro"]
 
 cpp/use-of-uninitialized-variable:
   short_description: "Variable read before being assigned a defined value"

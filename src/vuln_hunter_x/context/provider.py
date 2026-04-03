@@ -73,7 +73,7 @@ class ContextProvider:
 
             if ctx_type == "caller":
                 code = self._get_caller_context(repo_name, lang, name)
-            elif ctx_type in ("struct", "class"):
+            elif ctx_type in ("struct", "class", "classes"):
                 code = self._get_struct_context(repo_name, lang, name)
             elif ctx_type == "global":
                 code = self._get_global_context(repo_name, lang, name)

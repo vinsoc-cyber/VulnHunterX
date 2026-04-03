@@ -83,7 +83,7 @@ js/unsafe-deserialization:
   short_description: "Deserializing untrusted data with eval or unserialize"
   questions:
     - "Where does the SERIALIZED DATA come from - request body, cookie?"
-    - "Is eval(), new Function(), or a vulnerable unserialize library used?"
+    - "Is eval(), new Function(), node-serialize's unserialize(), or serialize-javascript's deserialize() used on user-controlled data?"
     - "Could an attacker CRAFT the serialized data?"
     - "Does the deserialized data trigger code execution (eval, Function constructor, class instantiation)?"
     - "Is there any VALIDATION of the data structure before use?"

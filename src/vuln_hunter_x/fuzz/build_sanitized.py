@@ -3,6 +3,12 @@ Stage 5: Build with sanitizers (sub-stages 5.1–5.3).
 
 Produces a sanitized build (debug + ASan/UBSan) in a separate directory
 and writes a manifest for linking fuzz harnesses.
+
+The manifest includes symbol visibility maps (via ``nm``), library export
+tables, and ``compile_commands.json`` data when available.  This enables
+downstream stages to classify targets by linkability and resolve minimal
+link dependencies — inspired by the Futag project's approach to
+dependency-aware fuzz target generation.
 """
 
 from __future__ import annotations
@@ -60,6 +66,15 @@ def build_sanitized_env(
     # For cmake/make out-of-tree builds, use build_sanitized dir so we don't clash with CodeQL build
     if "build" in build_cmd and ("cmake" in build_cmd or "make" in build_cmd):
         build_cmd = re.sub(r"\bbuild\b", "build_sanitized", build_cmd)
+
+    # Inject compile_commands.json generation for CMake builds
+    if "cmake" in build_cmd and "CMAKE_EXPORT_COMPILE_COMMANDS" not in build_cmd:
+        build_cmd = re.sub(
+            r"(cmake\s+)",
+            r"\1-DCMAKE_EXPORT_COMPILE_COMMANDS=ON ",
+            build_cmd,
+            count=1,
+        )
 
     return env, build_cmd.strip()
 
@@ -183,191 +198,132 @@ def _find_artifacts(root: Path) -> tuple[list[str], list[str]]:
     return libs, objects
 
 
-def _inject_install_step(build_cmd: str, install_dir: Path) -> str:
-    """Append a ``make install`` step so that built artifacts land in *install_dir*.
+def _build_symbol_map(root: Path) -> tuple[dict[str, list[str]], set[str]]:
+    """Build symbol-to-object mapping and identify static (file-local) symbols.
 
-    For **autotools** (``./configure && make``): inject ``--prefix=<install_dir>``
-    into the ``./configure`` call and append ``&& make install``.
+    Runs ``nm`` on every ``.o`` file under *root*.  Uppercase ``T`` in the
+    nm output marks a globally visible text symbol; lowercase ``t`` marks a
+    file-local (static) symbol.
 
-    For **CMake** (``cmake`` present): inject ``-DCMAKE_INSTALL_PREFIX=<install_dir>``
-    and append ``&& cmake --install <build_dir>``.
-
-    If the build system is unrecognised, return the original command unchanged.
+    Returns:
+        (symbol_to_objects, static_symbols)
+        - symbol_to_objects: global symbol name → list of .o relative paths
+        - static_symbols: set of symbol names that are *only* file-local
     """
-    prefix = str(install_dir)
+    symbol_to_objects: dict[str, list[str]] = {}
+    static_symbols: set[str] = set()
+    global_symbols: set[str] = set()
 
-    if "./configure" in build_cmd:
-        # Autotools: inject --prefix into configure invocation
-        cmd = build_cmd.replace("./configure", f"./configure --prefix={prefix}", 1)
-        # Install is best-effort — if it fails (libtool issues, missing dirs),
-        # the build still succeeds and write_manifest() falls back to in-tree artifacts
-        cmd += " && (make install || true)"
-        return cmd
-
-    if "cmake" in build_cmd.lower():
-        # CMake: inject CMAKE_INSTALL_PREFIX
-        # Find the cmake configure call (e.g. "cmake .." or "cmake -S . -B build")
-        cmd = re.sub(
-            r"(cmake\s)",
-            rf"\1-DCMAKE_INSTALL_PREFIX={prefix} ",
-            build_cmd,
-            count=1,
-        )
-        # Try to find the build dir for cmake --install
-        m = re.search(r"-B\s+(\S+)", cmd)
-        cmake_build_dir = m.group(1) if m else "build_sanitized"
-        cmd += f" && (cmake --install {cmake_build_dir} || true)"
-        return cmd
-
-    # Meson: inject --prefix
-    if "meson setup" in build_cmd:
-        cmd = build_cmd.replace("meson setup", f"meson setup --prefix={prefix}", 1)
-        m = re.search(r"meson setup\s+\S+\s+(\S+)", cmd)
-        meson_build_dir = m.group(1) if m else "build"
-        cmd += f" && (meson install -C {meson_build_dir} || true)"
-        return cmd
-
-    # Unknown build system — try appending make install as best-effort
-    if "make" in build_cmd:
-        return build_cmd + f" && (make install prefix={prefix} || true)"
-
-    return build_cmd
-
-
-# Well-known symbol patterns → Debian/Ubuntu package suggestions
-_COMMON_DEPS: dict[str, str] = {
-    "oggpack_": "libogg-dev",
-    "ogg_stream": "libogg-dev",
-    "png_": "libpng-dev",
-    "deflate": "zlib1g-dev",
-    "compress": "zlib1g-dev",
-    "SSL_": "libssl-dev",
-    "jpeg_": "libjpeg-dev",
-    "FLAC__": "libflac-dev",
-    "snd_": "libasound2-dev",
-    "curl_": "libcurl4-openssl-dev",
-    "xml": "libxml2-dev",
-}
-
-
-def suggest_missing_deps(errors: str) -> list[str]:
-    """Suggest system packages based on undefined-reference patterns in *errors*."""
-    suggestions: list[str] = []
-    lower = errors.lower()
-    for pattern, pkg in _COMMON_DEPS.items():
-        if pattern.lower() in lower and pkg not in suggestions:
-            suggestions.append(pkg)
-    return suggestions
-
-
-def _discover_system_libs(source_root: Path) -> list[str]:
-    """Discover **external** library dependencies by parsing .pc files in the build tree.
-
-    Only extracts ``-l`` flags from ``Libs.private:`` (external deps like ``-lm``)
-    — **not** ``Libs:`` which contains the project's own ``-l`` flags (those are
-    already linked directly via ``.a`` files in the manifest).
-
-    Also resolves ``Requires:`` / ``Requires.private:`` dependencies via system
-    pkg-config.  Falls back gracefully if pkg-config is unavailable.
-    """
-    system_libs: list[str] = []
-    seen_pkgs: set[str] = set()
-
-    for pc in source_root.rglob("*.pc"):
-        # Skip -uninstalled variants
-        if "uninstalled" in pc.stem:
-            continue
+    for obj_path in root.rglob("*.o"):
         try:
-            text = pc.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            rel = str(obj_path.relative_to(root))
+        except ValueError:
             continue
-        for line in text.splitlines():
-            # Only collect from Libs.private (external deps like -lm, -lpthread)
-            # Skip Libs: — those are the project's OWN libs already in the manifest as .a files
-            if line.startswith("Libs.private:"):
-                for token in line.split()[1:]:
-                    if token.startswith("-l") and token not in system_libs:
-                        system_libs.append(token)
-            # Collect Requires dependencies (e.g. "ogg" for vorbis)
-            if line.startswith("Requires") and ":" in line:
-                deps = line.split(":", 1)[1].strip()
-                for dep in re.split(r"[,\s]+", deps):
-                    dep = dep.strip()
-                    if dep and not dep[0].isdigit() and dep not in (">=", "<=", "=", ">", "<"):
-                        seen_pkgs.add(dep)
-
-    # Try to resolve required packages via system pkg-config
-    for pkg in seen_pkgs:
         try:
             result = subprocess.run(
-                ["pkg-config", "--libs", pkg],
+                ["nm", "--defined-only", str(obj_path)],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=30,
             )
-            if result.returncode == 0:
-                for token in result.stdout.strip().split():
-                    if token.startswith("-l") and token not in system_libs:
-                        system_libs.append(token)
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
+            if result.returncode != 0:
+                continue
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            continue
 
-    return system_libs
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            sym_type, sym_name = parts[1], parts[2]
+            if sym_type == "T":
+                global_symbols.add(sym_name)
+                symbol_to_objects.setdefault(sym_name, []).append(rel)
+            elif sym_type == "t":
+                static_symbols.add(sym_name)
+
+    # A symbol is truly static only if it never appears as global anywhere
+    static_symbols -= global_symbols
+    return symbol_to_objects, static_symbols
 
 
-def _discover_compiler_defines(source_root: Path) -> list[str]:
-    """Extract -D compiler defines from compile_commands.json or config.h.
+def _build_library_exports(root: Path, libs: list[str]) -> dict[str, list[str]]:
+    """Map globally exported symbols to the ``.a`` libraries that define them.
 
-    Strategy 1: Parse compile_commands.json (CMake projects) for -D flags.
-    Strategy 2: Scan config.h for ``#define HAVE_*`` patterns.
-    Always includes ``-DHAVE_CONFIG_H`` if any config.h exists.
+    Runs ``nm -g --defined-only`` on each static library.
+
+    Returns:
+        lib_exports: symbol name → list of .a relative paths
     """
-    defines: list[str] = []
-    seen: set[str] = set()
-
-    # Strategy 1: compile_commands.json (CMake projects)
-    for ccj in source_root.rglob("compile_commands.json"):
+    lib_exports: dict[str, list[str]] = {}
+    for lib_rel in libs:
+        lib_path = root / lib_rel
+        if not lib_path.is_file():
+            continue
         try:
-            entries = json.loads(ccj.read_text(encoding="utf-8"))
-            for entry in entries:
-                cmd = entry.get("command") or entry.get("arguments", "")
-                tokens = cmd if isinstance(cmd, list) else cmd.split()
-                for token in tokens:
-                    if (
-                        token.startswith("-D")
-                        and token not in seen
-                        and "sanitize" not in token.lower()
-                    ):
-                        seen.add(token)
-                        defines.append(token)
-        except Exception:
-            pass
-        break  # only use first compile_commands.json found
+            result = subprocess.run(
+                ["nm", "-g", "--defined-only", str(lib_path)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                continue
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            continue
 
-    # Strategy 2: config.h for #define HAVE_* patterns
-    if not defines:
-        for cfg_h in source_root.rglob("config.h"):
-            try:
-                for line in cfg_h.read_text(encoding="utf-8", errors="replace").splitlines():
-                    line = line.strip()
-                    if line.startswith("#define HAVE_") or line.startswith("#define PACKAGE_"):
-                        parts = line.split(None, 2)
-                        if len(parts) >= 2:
-                            name = parts[1]
-                            val = parts[2] if len(parts) > 2 else None
-                            flag = f"-D{name}={val}" if val else f"-D{name}"
-                            if flag not in seen:
-                                seen.add(flag)
-                                defines.append(flag)
-            except Exception:
-                pass
-            break  # only use first config.h found
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            sym_type, sym_name = parts[1], parts[2]
+            if sym_type == "T":
+                lib_exports.setdefault(sym_name, []).append(lib_rel)
+    return lib_exports
 
-    # Always add -DHAVE_CONFIG_H if config.h exists in the tree
-    if any(source_root.rglob("config.h")) and "-DHAVE_CONFIG_H" not in seen:
-        defines.insert(0, "-DHAVE_CONFIG_H")
 
-    return defines
+def _load_compile_commands(root: Path) -> dict[str, dict]:
+    """Find and parse ``compile_commands.json`` under *root*.
+
+    Searches common locations (``build_sanitized/``, ``build/``, root).
+    Returns a mapping of source file path (relative to *root*) to its
+    compile command entry ``{"directory": ..., "command": ..., "file": ...}``.
+    """
+    candidates = [
+        root / "build_sanitized" / "compile_commands.json",
+        root / "build" / "compile_commands.json",
+        root / "compile_commands.json",
+    ]
+    cc_path = None
+    for p in candidates:
+        if p.is_file():
+            cc_path = p
+            break
+    if cc_path is None:
+        return {}
+
+    try:
+        entries = json.loads(cc_path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug("Failed to parse compile_commands.json at %s", cc_path, exc_info=True)
+        return {}
+
+    result: dict[str, dict] = {}
+    for entry in entries:
+        file_path = entry.get("file", "")
+        if not file_path:
+            continue
+        try:
+            rel = str(Path(file_path).relative_to(root))
+        except ValueError:
+            # file_path might already be relative
+            rel = file_path
+        result[rel] = {
+            "directory": entry.get("directory", ""),
+            "command": entry.get("command", ""),
+            "file": file_path,
+        }
+    return result
 
 
 def write_manifest(
@@ -386,73 +342,33 @@ def write_manifest(
 
     Falls back to in-tree artifact scraping when no install prefix is present.
     """
-    install_dir = manifest_path.parent / "install"
-    use_install = (install_dir / "lib").is_dir() or (install_dir / "usr" / "local" / "lib").is_dir()
+    libs, objects = _find_artifacts(build_src_dir)
+    # Include dirs: repo root and common build subdirs
+    include_dirs = [str(repo_root_for_includes)]
+    for sub in ("build_sanitized", "build", "include", "src"):
+        d = build_src_dir / sub
+        if d.is_dir():
+            include_dirs.append(str(d))
+    # Auto-discover directories containing header files (e.g. lib/, vorbis/)
+    for h in build_src_dir.rglob("*.h"):
+        hdir = str(h.parent)
+        if hdir not in include_dirs:
+            include_dirs.append(hdir)
 
-    if use_install:
-        # Resolve the actual root (some installs land in install/usr/local/)
-        if (install_dir / "usr" / "local" / "lib").is_dir():
-            effective_root = install_dir / "usr" / "local"
-        elif (install_dir / "usr" / "lib").is_dir():
-            effective_root = install_dir / "usr"
-        else:
-            effective_root = install_dir
-
-        # Libs: only .a from the install prefix (clean, no test objects)
-        libs = []
-        for p in sorted((effective_root / "lib").rglob("*.a")):
-            try:
-                libs.append(str(p.relative_to(effective_root)))
-            except ValueError:
-                libs.append(str(p))
-        objects: list[str] = []  # no raw .o needed when using installed .a
-
-        # Include dirs: install prefix includes + build tree headers (for internal headers)
-        include_dirs: list[str] = []
-        inc_root = effective_root / "include"
-        if inc_root.is_dir():
-            include_dirs.append(str(inc_root))
-            for d in inc_root.iterdir():
-                if d.is_dir():
-                    include_dirs.append(str(d))
-        # Also keep build tree headers for internal headers not installed
-        include_dirs.append(str(repo_root_for_includes))
-        for h in build_src_dir.rglob("*.h"):
-            hdir = str(h.parent)
-            if hdir not in include_dirs:
-                include_dirs.append(hdir)
-
-        source_root = str(effective_root)
-        system_libs = _discover_system_libs(effective_root)
-        # Also check build tree .pc files as fallback
-        if not system_libs:
-            system_libs = _discover_system_libs(build_src_dir)
-    else:
-        # Fallback: in-tree artifact scraping (original behavior)
-        libs_list, objects = _find_artifacts(build_src_dir)
-        libs = libs_list
-        include_dirs = [str(repo_root_for_includes)]
-        for sub in ("build_sanitized", "build", "include", "src"):
-            d = build_src_dir / sub
-            if d.is_dir():
-                include_dirs.append(str(d))
-        for h in build_src_dir.rglob("*.h"):
-            hdir = str(h.parent)
-            if hdir not in include_dirs:
-                include_dirs.append(hdir)
-        source_root = str(build_src_dir)
-        system_libs = _discover_system_libs(build_src_dir)
-
-    compiler_defines = _discover_compiler_defines(build_src_dir)
+    # Build symbol maps for linkability analysis
+    symbol_to_objects, static_symbols = _build_symbol_map(build_src_dir)
+    lib_exports = _build_library_exports(build_src_dir, sorted(libs))
+    compile_commands = _load_compile_commands(build_src_dir)
 
     manifest = {
-        "libs": list(dict.fromkeys(libs)),
-        "objects": list(dict.fromkeys(objects)),
-        "include_dirs": list(dict.fromkeys(include_dirs)),
-        "source_root": source_root,
-        "system_libs": system_libs,
-        "compiler_defines": compiler_defines,
-        "manifest_version": 2,
+        "libs": sorted(libs),
+        "objects": sorted(objects),
+        "include_dirs": list(dict.fromkeys(include_dirs)),  # unique, order preserved
+        "source_root": str(build_src_dir),
+        "symbol_to_objects": symbol_to_objects,
+        "static_symbols": sorted(static_symbols),
+        "lib_exports": lib_exports,
+        "compile_commands": compile_commands,
     }
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

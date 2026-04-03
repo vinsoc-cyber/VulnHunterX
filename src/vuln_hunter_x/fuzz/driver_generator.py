@@ -1,7 +1,10 @@
 """
 Stage 7.3: Generate libFuzzer harness source (.cc) from target and context.
 
-Uses template-based generation; optional LLM can be added later.
+Uses template-based generation with two strategies:
+- **Library/object targets**: standard extern linkage with forward declaration.
+- **Static function targets**: source-inclusion (``#include "file.c"``) with
+  ``#define main`` trick to avoid linker conflicts — inspired by Futag.
 """
 
 from __future__ import annotations
@@ -154,6 +157,21 @@ def _get_base_type(param_type: str) -> str:
     return param_type.replace("const", "").replace("struct", "").replace("*", "").strip()
 
 
+def _build_extern_declaration(name: str, params: list[dict]) -> str:
+    """Build an ``extern "C"`` forward declaration for a target function.
+
+    Returns a string like: ``extern "C" void foo(int x, const char *y);``
+    Uses ``void`` as return type since we don't track return types in context.
+    """
+    param_parts = []
+    for p in params:
+        ptype = p.get("type", "int")
+        pname = p.get("name", "")
+        param_parts.append(f"{ptype} {pname}".strip())
+    params_str = ", ".join(param_parts) if param_parts else "void"
+    return f'extern "C" void {name}({params_str});'
+
+
 def generate_harness(
     finding_rule_id: str,
     finding_file: str,
@@ -161,11 +179,17 @@ def generate_harness(
     target_context: dict,
     output_path: Path,
     repo_name: str,
+    linkability: str = "unknown",
+    source_root: str = "",
+    file_has_main: bool = False,
 ) -> Path:
     """
     Generate one libFuzzer harness .cc file.
 
     target_context: from get_target_context (name, file, params, includes).
+    linkability: target's linkability classification.
+    source_root: path to source root for computing relative include paths.
+    file_has_main: whether the target's source file contains main().
     Writes output_path and returns it.
     """
     output_path = Path(output_path)
@@ -175,6 +199,9 @@ def generate_harness(
     params = target_context.get("params", [])
     includes = target_context.get("includes", [])
     struct_defs: dict[str, list[str]] = target_context.get("struct_defs", {})
+    target_file = target_context.get("file", "")
+
+    is_static_target = linkability == "static"
 
     # C++ standard headers MUST come first — before the #define class klass
     # workaround. This ensures C++ STL templates that use 'class' keyword are
@@ -194,22 +221,40 @@ def generate_harness(
         "",
     ]
 
-    # Wrap project includes with #define class klass + extern "C".
-    # Some C libraries use 'class' as an identifier (e.g. vorbis backends.h
-    # line 94: long **(*class)(...)). The scoped #define renames it only for
-    # project headers; C++ STL is already included above so won't be affected.
-    project_includes: list[str] = []
-    for inc in includes:
-        line = _include_line(inc)
-        if line and line not in lines:
-            project_includes.append(line)
-    if project_includes:
-        lines.append("#define class klass")
-        lines.append('extern "C" {')
-        lines.extend(project_includes)
-        lines.append("}")
-        lines.append("#undef class")
-    lines.append("")
+    if is_static_target and target_file:
+        # Source-inclusion strategy for static functions (Futag approach)
+        # Disable main() in the included source to avoid linker conflicts
+        if file_has_main:
+            lines.append("/* Stub out main() to avoid linker conflict */")
+            lines.append("#define main __original_main_disabled")
+            lines.append("")
+
+        # Include the source file directly to access static functions
+        if source_root and target_file.startswith("/"):
+            inc_path = target_file
+        elif source_root:
+            inc_path = str(Path(source_root) / target_file)
+        else:
+            inc_path = target_file
+        lines.append(f'/* Include source to access static function "{name}" */')
+        lines.append(f'#include "{inc_path}"')
+
+        if file_has_main:
+            lines.append("#undef main")
+        lines.append("")
+    else:
+        # Standard approach: include headers + extern declaration
+        for inc in includes:
+            line = _include_line(inc)
+            if line and line not in lines:
+                lines.append(line)
+        lines.append("")
+
+        # Add explicit extern "C" declaration for the target function
+        if linkability in ("library_exported", "object_global") and params:
+            lines.append("/* Forward declaration for target function */")
+            lines.append(_build_extern_declaration(name, params))
+            lines.append("")
 
     lines.extend(
         [

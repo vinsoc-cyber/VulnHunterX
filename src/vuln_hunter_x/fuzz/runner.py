@@ -57,10 +57,12 @@ def run_fuzzer(
         corpus_dir.mkdir(parents=True, exist_ok=True)
         cmd.append(str(corpus_dir))
 
-    cmd.extend([
-        f"-max_total_time={max_total_time}",
-        f"-artifact_prefix={artifact_prefix}",
-    ])
+    cmd.extend(
+        [
+            f"-max_total_time={max_total_time}",
+            f"-artifact_prefix={artifact_prefix}",
+        ]
+    )
     if rss_limit_mb > 0:
         cmd.append(f"-rss_limit_mb={rss_limit_mb}")
 
@@ -243,9 +245,14 @@ def run_fuzzers_for_repo(
                 futures = {
                     pool.submit(
                         _run_single_harness,
-                        binary, run_dir, name,
-                        timeout_per_harness, max_total_time,
-                        corpus, rss_limit_mb, triage,
+                        binary,
+                        run_dir,
+                        name,
+                        timeout_per_harness,
+                        max_total_time,
+                        corpus,
+                        rss_limit_mb,
+                        triage,
                     ): name
                     for binary, run_dir, name, corpus in runnable
                 }
@@ -256,32 +263,45 @@ def run_fuzzers_for_repo(
                         status = "CRASH" if result.get("crashed") else "ok"
                         logger.info(
                             "[%d/%d] %s: %s (%.1fs)",
-                            completed, len(runnable), hname, status,
+                            completed,
+                            len(runnable),
+                            hname,
+                            status,
                             result.get("time_sec", 0),
                         )
                         results.append(result)
                     except Exception as e:
                         logger.error("Harness %s failed: %s", hname, e)
-                        results.append({
-                            "harness": hname,
-                            "status": "error",
-                            "crashed": False,
-                            "crash_count": 0,
-                            "crash_files": [],
-                            "time_sec": 0,
-                            "log_snippet": str(e),
-                        })
+                        results.append(
+                            {
+                                "harness": hname,
+                                "status": "error",
+                                "crashed": False,
+                                "crash_count": 0,
+                                "crash_files": [],
+                                "time_sec": 0,
+                                "log_snippet": str(e),
+                            }
+                        )
         else:
             for i, (binary, run_dir, name, corpus) in enumerate(runnable):
                 result = _run_single_harness(
-                    binary, run_dir, name,
-                    timeout_per_harness, max_total_time,
-                    corpus, rss_limit_mb, triage,
+                    binary,
+                    run_dir,
+                    name,
+                    timeout_per_harness,
+                    max_total_time,
+                    corpus,
+                    rss_limit_mb,
+                    triage,
                 )
                 status = "CRASH" if result.get("crashed") else "ok"
                 logger.info(
                     "[%d/%d] %s: %s (%.1fs)",
-                    i + 1, len(runnable), name, status,
+                    i + 1,
+                    len(runnable),
+                    name,
+                    status,
                     result.get("time_sec", 0),
                 )
                 results.append(result)

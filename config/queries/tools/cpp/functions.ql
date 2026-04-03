@@ -14,4 +14,5 @@ select
   f.getFile().getRelativePath() as file,
   f.getLocation().getStartLine() as start_line,
   f.getBlock().getLocation().getEndLine() as end_line,
-  f.getNumberOfParameters() as param_count
+  f.getNumberOfParameters() as param_count,
+  f.isStatic() as is_static
