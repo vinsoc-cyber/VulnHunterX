@@ -126,6 +126,7 @@ repos:
     url: https://github.com/freetype/freetype.git
     language: cpp
     build_command: "mkdir -p build && cd build && cmake .. && make"
+
   - name: lodash
     url: https://github.com/lodash/lodash.git
     language: javascript
@@ -160,15 +161,15 @@ repos:
   #   language: java
 
   # --- Java (Real-world OSS with known CVEs) ---
-  # - name: commons-collections
-  #   url: https://github.com/apache/commons-collections.git
-  #   language: java
-  # - name: jackson-databind
-  #   url: https://github.com/FasterXML/jackson-databind.git
-  #   language: java
-  # - name: apache-struts
-  #   url: https://github.com/apache/struts.git
-  #   language: java
+  - name: commons-collections
+    url: https://github.com/apache/commons-collections.git
+    language: java
+  - name: jackson-databind
+    url: https://github.com/FasterXML/jackson-databind.git
+    language: java
+  - name: apache-struts
+    url: https://github.com/apache/struts.git
+    language: java
 
   # --- Intentionally Vulnerable Projects (for demo/testing) ---
   - name: insecure-coding-examples

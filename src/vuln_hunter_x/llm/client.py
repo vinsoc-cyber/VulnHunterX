@@ -105,6 +105,7 @@ class LLMClient:
         log_file: Any | None = None,
         quiet: bool = False,
         force_decision: bool = True,
+        prefetched_context: dict[str, str] | None = None,
     ) -> Verdict:
         """
         Analyze a finding and return a verdict.
@@ -124,11 +125,26 @@ class LLMClient:
             force_decision: If True and final verdict is still Needs More Data,
                 send a force-decision prompt asking the LLM to choose TP or FP.
                 Defaults to True.
+            prefetched_context: Pre-fetched context from additional_context hints.
+                Appended to the initial prompt and marked as fulfilled.
 
         Returns:
             Verdict with the analysis result (includes confidence_score 0.0-1.0)
         """
         user_prompt = self.prompt_builder.build_user_prompt(finding, context, questions, func_name)
+
+        # Append pre-fetched context to initial prompt
+        if prefetched_context:
+            prefetch_parts = []
+            for req, code in prefetched_context.items():
+                if "[No " not in code and "[Unknown" not in code:
+                    prefetch_parts.append(f"### {req}\n```\n{code}\n```")
+            if prefetch_parts:
+                user_prompt += (
+                    "\n\n## Pre-fetched Additional Context\n\n"
+                    + "\n\n".join(prefetch_parts)
+                )
+
         sys_prompt = self.prompt_builder.get_system_prompt(
             tool_name=finding.tool or "static analysis",
             lang=finding.lang,
@@ -165,6 +181,11 @@ class LLMClient:
         total_tokens_used: int = 0
         total_cost_usd: float = 0.0
         fulfilled_context: set[str] = set()  # Track already-provided context requests
+        # Mark pre-fetched context as already fulfilled
+        if prefetched_context:
+            for req, code in prefetched_context.items():
+                if "[No " not in code and "[Unknown" not in code:
+                    fulfilled_context.add(req)
 
         while iterations < max_iterations:
             iterations += 1

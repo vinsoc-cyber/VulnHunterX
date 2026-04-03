@@ -26,7 +26,7 @@ py/sql-injection:
     - "Trace the INPUT through ALL assignments - is it ever SANITIZED?"
     - "Is the query built using f-strings, .format(), +, or % (all vulnerable)?"
     - "Or is cursor.execute() called with PLACEHOLDERS and a tuple (safe)?"
-    - "Is an ORM method like .filter() or .get() used instead of raw SQL?"
+    - "Is an ORM used — Django .filter()/.exclude(), SQLAlchemy .filter_by()/.where(), Peewee .where() — or raw SQL?"
     - "What is the DATABASE and does the driver support parameterization?"
   context_hint: "Trace from request input through all transformations to query execution."
   additional_context: ["caller"]
@@ -59,7 +59,7 @@ py/unsafe-deserialization:
   short_description: "Deserializing untrusted data with pickle or yaml.load"
   questions:
     - "Where does the SERIALIZED DATA come from - request body, file, database?"
-    - "Is pickle.loads() or yaml.load() used (vulnerable to code execution)?"
+    - "Is pickle.loads(), yaml.load(), marshal.loads(), shelve.open(), or dill.loads() used (all vulnerable to code execution)?"
     - "Could an attacker CONTROL the serialized data content?"
     - "Does the serialized data contain class/type information that triggers code execution during deserialization?"
     - "Is there any VALIDATION of the data before deserialization?"
@@ -99,8 +99,7 @@ py/ssrf:
     - "Could an attacker specify an INTERNAL IP (127.0.0.1, 169.254.x.x, 10.x.x.x)?"
     - "Is the URL SCHEME validated (http/https only, not file://)?"
     - "What RESPONSE data is returned to the user or used server-side?"
-    - "Are HTTP redirects followed automatically (default in requests library), allowing an allowlisted URL to redirect to an internal IP?"
-    - "Could an attacker probe internal services or exfiltrate data?"
+    - "Are HTTP redirects followed automatically, and could an attacker chain a redirect from an allowlisted URL to an internal IP to probe internal services, exfiltrate data, or bypass DNS rebinding protections?"
   context_hint: "Trace from URL input through request construction."
   additional_context: ["caller"]
 
@@ -678,7 +677,7 @@ py/missing-authentication:
     - "Is this intentionally public (login page, health check, public API) or was authentication accidentally omitted?"
     - "Is there a global authentication middleware that should protect this path but has an exclusion?"
   context_hint: "Include the view function/class, URL configuration, and any authentication decorators."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 py/improper-privilege-management:
   short_description: "Privilege escalation via role manipulation or missing privilege boundary (CWE-269)"
@@ -690,7 +689,7 @@ py/improper-privilege-management:
     - "Could os.setuid()/os.seteuid() calls in the application drop privileges incorrectly?"
     - "Are Django's @permission_required or DRF's IsAdminUser permissions used to guard privilege-changing operations?"
   context_hint: "Include the user update view, serializer fields, and permission checks."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 py/incorrect-authorization:
   short_description: "Authorization check on wrong object or with incorrect logic (CWE-863)"
@@ -702,4 +701,4 @@ py/incorrect-authorization:
     - "Is the authorization logic consistent across all HTTP methods (GET, PUT, DELETE) for this resource?"
     - "Could a race condition between the permission check and the action allow bypass?"
   context_hint: "Include the view, object lookup, permission class, and queryset filtering."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]

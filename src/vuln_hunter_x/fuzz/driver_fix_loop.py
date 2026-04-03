@@ -91,6 +91,8 @@ def fix_harness_with_llm(
 def _classify_errors(errors: str) -> str:
     """Classify compiler/linker errors to provide targeted hints."""
     err_lower = errors.lower()
+    if "multiple definition of `main'" in err_lower or 'multiple definition of "main"' in err_lower:
+        return "multiple_main"
     if "undefined reference" in err_lower or "ld returned" in err_lower:
         return "linker"
     if "no such file or directory" in err_lower and "#include" in err_lower:
@@ -102,13 +104,18 @@ def _classify_errors(errors: str) -> str:
     return "compilation"
 
 
-def _error_specific_hint(error_class: str) -> str:
-    """Return targeted hints based on error classification."""
+def _error_specific_hint(error_class: str, symbol_context: str = "") -> str:
+    """Return targeted hints based on error classification and symbol context."""
     hints = {
         "linker": (
-            "HINT: This is a LINKER error. Check if extern \"C\" linkage is needed, "
+            'HINT: This is a LINKER error. Check if extern "C" linkage is needed, '
             "if the function is in a different translation unit, or if a library "
             "needs to be linked. Do NOT change the function signature."
+        ),
+        "multiple_main": (
+            "HINT: Multiple definition of main(). The harness likely #includes a .c "
+            "file that contains main(). Add '#define main __original_main_disabled' "
+            "BEFORE the #include and '#undef main' AFTER it."
         ),
         "missing_include": (
             "HINT: A required header file is missing. Add the appropriate #include "
@@ -124,7 +131,10 @@ def _error_specific_hint(error_class: str) -> str:
         ),
         "compilation": "HINT: Fix the compilation errors. Add missing includes or fix type issues.",
     }
-    return hints.get(error_class, "")
+    hint = hints.get(error_class, "")
+    if symbol_context:
+        hint += f"\n\nSymbol context:\n{symbol_context}"
+    return hint
 
 
 FUZZ_FIX_SYSTEM = """You are a C++ build fix assistant. You will be given:
@@ -132,17 +142,36 @@ FUZZ_FIX_SYSTEM = """You are a C++ build fix assistant. You will be given:
 2) The compiler/linker command that was run.
 3) The compiler/linker error output.
 4) Optionally, previous fix attempts and their results.
+5) Optionally, symbol context: which symbols are in libraries vs static.
 
 Respond with ONLY the corrected full C++ source file. No explanation, no markdown outside a code block.
 The code must contain the function: extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size).
 Fix only the reported errors: add missing includes, fix types, fix link order or symbols. Preserve the harness structure.
-If you have seen previous fix attempts that failed, do NOT repeat the same approach — try a different fix strategy."""
+If you have seen previous fix attempts that failed, do NOT repeat the same approach — try a different fix strategy.
+
+Key techniques for common issues:
+- Static/file-local functions: use #include "source.c" to access them directly.
+- If #including a .c file that has main(): add #define main __original_main_disabled before and #undef main after.
+- Linker errors for library functions: add extern "C" forward declarations.
+- Missing symbols: check if the function exists in any linked library or object."""
 
 
 def make_llm_fix_fn(
-    provider: str, model: str, max_tokens: int = 4000, type_context: str = ""
+    provider: str,
+    model: str,
+    max_tokens: int = 4000,
+    type_context: str = "",
+    symbol_context: str = "",
 ) -> Callable[[str, str, str], str]:
-    """Build a multi-turn completion function that maintains conversation history."""
+    """Build a multi-turn completion function that maintains conversation history.
+
+    Args:
+        provider: LLM provider (openai, anthropic, ollama).
+        model: Model identifier.
+        max_tokens: Max tokens for LLM response.
+        type_context: Struct/enum/typedef definitions.
+        symbol_context: Symbol linkability info (library exports, static symbols).
+    """
     import litellm
 
     model_id = normalize_ollama_model(model) if provider == "ollama" else model
@@ -151,6 +180,7 @@ def make_llm_fix_fn(
     type_ctx_section = (
         f"\nAvailable type definitions:\n{type_context[:4000]}\n" if type_context else ""
     )
+    _symbol_context = symbol_context
 
     # Maintain conversation history across iterations
     message_history: list[dict[str, str]] = [
@@ -159,7 +189,7 @@ def make_llm_fix_fn(
 
     def complete(source: str, errors: str, command: str) -> str:
         error_class = _classify_errors(errors)
-        hint = _error_specific_hint(error_class)
+        hint = _error_specific_hint(error_class, symbol_context=_symbol_context)
 
         user = f"""Harness source:
 ```cpp

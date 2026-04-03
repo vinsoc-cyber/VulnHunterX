@@ -36,15 +36,9 @@ _SEVERITY_MAP: dict[str, str] = {
     "divide-by-zero": "Medium",
 }
 
-_ASAN_ERROR_RE = re.compile(
-    r"ERROR:\s*(?:Address|Leak|Memory)Sanitizer:\s*(\S+)"
-)
-_UBSAN_ERROR_RE = re.compile(
-    r"runtime error:\s*(.+?)(?:\n|$)"
-)
-_STACK_FRAME_RE = re.compile(
-    r"#\d+\s+\S+\s+in\s+(\S+)"
-)
+_ASAN_ERROR_RE = re.compile(r"ERROR:\s*(?:Address|Leak|Memory)Sanitizer:\s*(\S+)")
+_UBSAN_ERROR_RE = re.compile(r"runtime error:\s*(.+?)(?:\n|$)")
+_STACK_FRAME_RE = re.compile(r"#\d+\s+\S+\s+in\s+(\S+)")
 
 
 @dataclass
