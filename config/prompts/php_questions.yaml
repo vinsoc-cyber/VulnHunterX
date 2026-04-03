@@ -27,7 +27,7 @@ php/sql-injection:
     - "Or is a PREPARED STATEMENT used with PDO::prepare() + bindParam() or MySQLi bind_param() (safe)?"
     - "Trace the INPUT - is it passed through mysql_real_escape_string() or similar (insufficient for safety)?"
     - "Could SQL metacharacters (quotes, semicolons, comments) in the input alter the query structure?"
-    - "What database API is used (PDO, MySQLi, legacy mysql_*) and does it support parameterization?"
+    - "If using an ORM (Eloquent, Doctrine), is the query built via query builder (.where(), .findBy()) with bound parameters, or via raw() / DB::select() with string interpolation?"
   context_hint: "Trace from $_GET/$_POST through all assignments to query execution."
   additional_context: ["caller"]
 
@@ -561,7 +561,7 @@ php/improper-privilege-management:
     - "Could an attacker add a hidden 'is_admin=1' field to a registration or profile update form?"
     - "Are authorization gates/policies (Laravel Gate, Symfony Voter) used to guard privilege-changing operations?"
   context_hint: "Include the user update controller, model $fillable/$guarded, and authorization checks."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 php/incorrect-authorization:
   short_description: "Authorization check on wrong object or with incorrect logic (CWE-863)"
@@ -573,7 +573,7 @@ php/incorrect-authorization:
     - "Is the authorization check consistent across all controller methods (show, edit, update, destroy)?"
     - "Could route model binding (Laravel) or ParamConverter (Symfony) bypass authorization by auto-resolving any model?"
   context_hint: "Include the controller method, query/model lookup, and authorization check."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 # ==============================================================================
 # PHP - Web-Specific (Mass Assignment, Race Condition, CORS, Zip Slip)
@@ -589,7 +589,7 @@ php/mass-assignment:
     - "Is $request->validated() from a FormRequest used (safe — only passes validated fields)?"
     - "What is the impact — privilege escalation, data tampering, bypassing email verification?"
   context_hint: "Include the controller method, model $fillable/$guarded, and the request handling."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 php/race-condition:
   short_description: "TOCTOU race condition in file operations or session-based checks (CWE-362)"

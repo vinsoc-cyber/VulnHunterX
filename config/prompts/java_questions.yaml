@@ -77,7 +77,7 @@ java/unsafe-deserialization:
     - "Would using JSON (Jackson, Gson) or XML with safe parsers work as an alternative to Java serialization?"
     - "Is there HMAC or signature validation on the serialized data before deserialization?"
   context_hint: "Trace from data source to ObjectInputStream and identify gadget libraries on classpath."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 java/xxe:
   short_description: "XML parser configured to allow external entity resolution on untrusted input"
@@ -312,15 +312,15 @@ java/regex-injection:
 # ==============================================================================
 
 java/insecure-tls:
-  short_description: "TLS configuration allowing weak protocols or disabled certificate verification"
+  short_description: "TLS configuration using deprecated protocol versions or weak cipher suites"
   questions:
-    - "Is SSLContext.getInstance('TLS') or SSLContext.getInstance('SSL') used without specifying a minimum TLS version?"
-    - "Is a custom TrustManager implemented that accepts ALL certificates (X509TrustManager with empty checkServerTrusted)?"
-    - "Is HostnameVerifier.ALLOW_ALL or a no-op hostname verifier used?"
-    - "What SENSITIVE DATA is sent over this connection — credentials, tokens, PII?"
-    - "Is this for DEVELOPMENT/TESTING only, or does it run in production?"
-    - "Could an attacker perform a MAN-IN-THE-MIDDLE attack by presenting a forged certificate?"
-  context_hint: "Include SSLContext setup, TrustManager, HostnameVerifier, and what data is transmitted."
+    - "Is SSLContext.getInstance() called with 'TLS', 'TLSv1', or 'TLSv1.1' instead of 'TLSv1.2' or 'TLSv1.3'?"
+    - "Are weak cipher suites (RC4, DES, 3DES, NULL, EXPORT, anon) included in SSLParameters.setCipherSuites()?"
+    - "Is the minimum protocol version enforced via SSLParameters.setProtocols() or jdk.tls.client.protocols?"
+    - "Could an attacker force a PROTOCOL DOWNGRADE attack to exploit BEAST, POODLE, or DROWN?"
+    - "Is this for development/testing only, or does it run in production?"
+    - "Is this connecting to a legacy system that only supports older TLS, and is there a migration plan?"
+  context_hint: "Include SSLContext creation and all protocol/cipher configuration."
   additional_context: ["caller"]
 
 # ==============================================================================
@@ -349,7 +349,7 @@ java/race-condition:
     - "Could a check-then-act or read-modify-write sequence be interleaved by concurrent threads?"
     - "What is the impact — data corruption, authentication bypass, inconsistent state, lost updates?"
   context_hint: "Include the class definition, shared fields, and all access points from different threads."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 # ==============================================================================
 # Java - Data Exposure
@@ -431,7 +431,7 @@ java/input-validation:
     - "Is the input used in security-sensitive operations (authorization decisions, file paths, queries) where bad values have security impact?"
     - "Does the controller have a @ControllerAdvice or MethodArgumentNotValidException handler to reject invalid input?"
   context_hint: "Include the controller method signature, DTO class with annotations, and how input is used."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 # ==============================================================================
 # Java - Authentication and Authorization (CWE-306, CWE-862, CWE-863, CWE-287)
@@ -447,7 +447,7 @@ java/missing-authentication:
     - "Is this endpoint intentionally public (health check, login page, public API) or was authentication accidentally omitted?"
     - "Is there a global security configuration (WebSecurityConfigurerAdapter, SecurityFilterChain) that should protect this path?"
   context_hint: "Include the controller method, Spring Security configuration, and any authentication annotations."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 java/missing-authorization:
   short_description: "Authenticated endpoint missing role or permission check (CWE-862)"
@@ -459,7 +459,7 @@ java/missing-authorization:
     - "Is the authorization check performed BEFORE the business logic executes, or could the action complete before the check?"
     - "Is Spring Method Security enabled (@EnableGlobalMethodSecurity or @EnableMethodSecurity) in the configuration?"
   context_hint: "Include the controller method, security annotations, and how the user's role/authority is checked."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 java/incorrect-authorization:
   short_description: "Authorization check performed on wrong object or with incorrect logic (CWE-863)"
@@ -471,7 +471,7 @@ java/incorrect-authorization:
     - "Are compound authorization conditions (role AND ownership, role OR specific permission) implemented with correct boolean logic?"
     - "Is the authorization check consistent across all endpoints that access this resource (GET, PUT, DELETE)?"
   context_hint: "Include the authorization check, resource lookup, and all endpoints accessing this resource."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 java/broken-authentication:
   short_description: "Weak authentication mechanism allowing credential compromise (CWE-287)"
@@ -483,7 +483,7 @@ java/broken-authentication:
     - "Could an attacker bypass authentication via parameter manipulation, default credentials, or missing auth checks on alternate paths?"
     - "Is multi-factor authentication available for high-privilege accounts?"
   context_hint: "Include the authentication flow, password verification, and session creation logic."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 java/improper-privilege-management:
   short_description: "Privilege escalation via role manipulation or missing privilege boundary (CWE-269)"
@@ -495,7 +495,7 @@ java/improper-privilege-management:
     - "Are elevated privileges granted temporarily and properly revoked (e.g., @RunAs, SecurityContext manipulation)?"
     - "Could an attacker create a new account with elevated privileges by manipulating registration parameters?"
   context_hint: "Include role assignment logic, user update endpoints, and privilege check code."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 # ==============================================================================
 # Java - Resource Exhaustion and DoS (CWE-770, CWE-776, CWE-1333)
@@ -551,7 +551,7 @@ java/session-fixation:
     - "Is the session ID regenerated on every privilege level change (login, role escalation, password change)?"
     - "Is Spring Security's sessionFixation() explicitly configured, or is the default (migrateSession) relied upon?"
   context_hint: "Include the authentication handler, session management code, and Spring Security session configuration."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 java/clickjacking:
   short_description: "Missing frame protection headers allowing clickjacking attacks (CWE-1021)"
@@ -563,7 +563,7 @@ java/clickjacking:
     - "Are there specific pages (OAuth consent, payment, admin actions) where clickjacking would have high impact?"
     - "Is the protection applied globally via a filter/interceptor, or must each controller set it individually?"
   context_hint: "Include Spring Security configuration, response header settings, and any global filters."
-  additional_context: ["classes"]
+  additional_context: ["class"]
 
 java/cors-misconfiguration:
   short_description: "Overly permissive CORS configuration allowing cross-origin attacks (CWE-942)"
@@ -575,7 +575,7 @@ java/cors-misconfiguration:
     - "Is the CORS configuration applied globally (WebMvcConfigurer.addCorsMappings) or per-endpoint (@CrossOrigin)?"
     - "Should origins be restricted to a specific allowlist of trusted domains?"
   context_hint: "Include CORS configuration, security filter chain, and the endpoints exposed."
-  additional_context: ["classes"]
+  additional_context: ["class"]
 
 # ==============================================================================
 # Java - Zip/Archive and Path Security (CWE-22)
@@ -663,7 +663,7 @@ java/nosql-injection:
     - "Is MongoTemplate.find() used with a Criteria object built safely from user input?"
     - "Could an attacker inject {$gt: ''} in a password field to bypass authentication?"
   context_hint: "Include the query construction, user input source, and MongoDB API usage."
-  additional_context: ["caller", "classes"]
+  additional_context: ["caller", "class"]
 
 # ==============================================================================
 # Java - HTML Injection (CWE-79 variant)
