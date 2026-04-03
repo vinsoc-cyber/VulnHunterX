@@ -10,7 +10,7 @@ Builds the repository with AddressSanitizer and UBSan in a **separate** director
 
 - **5.1 Prepare build env**: Sets `CC=clang`, `CXX=clang++`, `CFLAGS`/`CXXFLAGS`/`LDFLAGS` with sanitizer flags. Build command comes from `sanitized_build_command` or `build_command` in `config/repos.yaml`.
 - **5.2 Run sanitized build**: Copies repo to `output/<lang>/<repo>/sanitized_build/src` and runs the build there (out-of-tree dir `build_sanitized` used when applicable).
-- **5.3 Write manifest**: Writes `output/<lang>/<repo>/sanitized_build/manifest.json` with `libs`, `objects`, `include_dirs`, `source_root`, `system_libs`, `compiler_defines` (auto-discovered from `compile_commands.json` or `config.h`), and `manifest_version`. Object files that define a `main()` symbol are automatically filtered out using `nm` to prevent "multiple definition of `main`" link errors with libFuzzer.
+- **5.3 Write manifest**: Writes `output/<lang>/<repo>/sanitized_build/manifest.json` with `libs`, `objects`, `include_dirs`, `source_root`, `system_libs`, `compiler_defines` (auto-discovered from `compile_commands.json` or `config.h`), `symbol_to_objects`, `static_symbols`, `lib_exports`, and `manifest_version`. Object files that define a `main()` symbol are automatically filtered out using `nm` to prevent "multiple definition of `main`" link errors with libFuzzer.
 
 ### CLI
 
@@ -37,6 +37,8 @@ vuln-hunter-x build-sanitized --dry-run       # Preview
 
 Runs CodeQL queries to produce CSVs used when generating fuzz harnesses: function signatures (name, file, line range, parameters) and includes per file.
 
+> **Stage 3 vs Stage 6:** Stage 3 (`extract-context`) extracts general-purpose LLM verification context — functions, callers, structs, globals — used by the multi-turn verify engine. Stage 6 (`extract-fuzz-context`) extracts fuzz-specific context — function signatures with parameter types, include directives — used by the harness generator. Both read the same CodeQL database but produce different CSVs for different pipeline consumers.
+
 ### Sub-stages
 
 - **6.1 CodeQL queries**: `function_signatures.ql` (one row per parameter), `includes.ql`, `structs.ql` (with member types), `enums.ql`, `typedefs.ql`.
@@ -44,9 +46,9 @@ Runs CodeQL queries to produce CSVs used when generating fuzz harnesses: functio
 - **6.3 Emit CSVs**: Write to `output/<lang>/<repo>/context/`:
   - `function_signatures.csv` — function name, file, line range, parameter types and names
   - `includes.csv` — file path to include directives
-  - `structs.csv` — struct name, member name, **member type** (new: enables type-aware harness generation)
-  - `enums.csv` — enum name, enumerator names and values (new)
-  - `typedefs.csv` — typedef name and underlying type (new)
+  - `structs.csv` — struct name, member name, **member type** (enables type-aware harness generation)
+  - `enums.csv` — enum name, enumerator names and values
+  - `typedefs.csv` — typedef name and underlying type
 
 ### CLI
 
@@ -67,15 +69,84 @@ Fuzz driver generation reads SARIF from any analyzer; the function-signature and
 
 ## Stage 7: Generate fuzz drivers
 
-Generate libFuzzer harness source (`.cc`) from verified findings, then compile/link (7.4–7.6) and optionally run (Stage 8).
+Stage 7 runs as two distinct phases under the same command:
 
-### Sub-stages 7.1–7.3 (this command)
+```
+  Phase A — Harness Generation (always runs)
+  ─────────────────────────────────────────
+  Command:     vuln-hunter-x generate-fuzz-drivers --repo <name>
+  Sub-stages:  7.1 Select targets → 7.2 Gather context → 7.3 Write .cc harnesses
 
-- **7.1 Select targets**: From verification results (or SARIF if `--verdict all`), filter by verdict (default: True Positive, Needs More Data). Resolve (file, line) → enclosing function via `functions.csv` or `function_signatures.csv`. Functions named `main` are automatically excluded (program entry points are not fuzzable library APIs). Targets are scored by fuzzability: +10 per primitive param, +8 for buffer+length pattern, +15 for memory corruption CWEs (119, 120, 416, 787), +2 per known caller, −5 for single-caller private helpers. Multiple findings in the same function are deduplicated (highest-severity kept).
-- **7.2 Gather per-target context**: For each target, load signature (params) and includes from Stage 6 CSVs.
-- **7.3 Generate harness source**: For each target, write a `.cc` with `#include` from context, `FuzzedDataProvider`, and `LLVMFuzzerTestOneInput` calling the target function. **Type-aware generation**: struct members are initialized using their actual type (int, float, uint8_t, etc.) instead of always uint32_t. Supported param types include `char*` (string), `uint8_t*`/`void*` (buffer), `size_t`, `int`, `long`, `bool`, `float`/`double` (`ConsumeFloatingPoint`), `FILE*` (`tmpfile()`). Output: `output/<lang>/<repo>/fuzz_targets/<rule>_<file>_<line>.cc`.
+  Phase B — Compilation & Fix (only with --build)
+  ────────────────────────────────────────────────
+  Command:     vuln-hunter-x generate-fuzz-drivers --repo <name> --build [--llm-fix]
+  Sub-stages:  7.4 Compile → 7.5 LLM fix loop → 7.6 Record status
+```
 
-### CLI (generation only)
+Phase A always runs. Phase B only runs when `--build` is passed.
+Run Phase A alone to inspect generated harness source before committing to compilation.
+
+### Phase A — Harness Generation
+
+#### 7.1 Select targets
+
+Filters findings by verdict (default: True Positive + Needs More Data), resolves each (file, line) pair to its enclosing function via `functions.csv` or `function_signatures.csv`, excludes functions named `main`, scores fuzzability, and deduplicates (highest-severity kept when multiple findings hit the same function).
+
+**Fuzzability scoring:** +10 per primitive parameter, +8 for buffer+length pattern, +15 for memory corruption CWEs (119, 120, 416, 787), +2 per known caller, −5 for single-caller private helpers.
+
+**Linkability classification:** Each candidate is assigned a category based on symbol visibility in the Stage 5 manifest:
+
+| Category | Score Bonus | Description | Link strategy |
+|---|---|---|---|
+| `library_exported` | +20 | Symbol exported in a `.a` library | Link the `.a` (ideal) |
+| `object_global` | +5 | Global symbol in a `.o`, not in any library | Link the specific `.o` |
+| `static` | −15 | File-scoped (`static`) function | Skip (or source-include) |
+| `executable_source` | −25 | In a file that defines `main()` | Skip |
+
+Classification priority:
+1. Check `lib_exports` (Stage 5 manifest) → `library_exported`
+2. Check CodeQL `is_static` column → `static`
+3. Check `static_symbols` (from `nm`) → `static`
+4. Check `symbol_to_objects` + `main()` detection → `object_global` or `executable_source`
+5. Fallback → `unknown`
+
+Targets classified as `static` or `executable_source` are **skipped** with a logged warning:
+
+```
+WARNING: Skipping 'decomp' (src/tjbench.c:176): static function, not linkable from external harness
+WARNING: Skipping 'parse_switches' (src/djpeg.c:182): executable-local function (file contains main())
+```
+
+Skipped targets are recorded in `output/<lang>/<repo>/fuzz_targets/skipped_targets.json` and also included in `status.json` under the `"skipped_targets"` key.
+
+> Symbol data comes from the manifest produced by Stage 5. See [docs/fuzz-pipeline.md](fuzz-pipeline.md) for how `nm` and `compile_commands.json` populate the symbol map.
+
+#### 7.2 Gather per-target context
+
+For each target, load function signature (parameters) and include directives from Stage 6 CSVs (`function_signatures.csv`, `includes.csv`).
+
+#### 7.3 Generate harness source
+
+For each target, write a `.cc` file with `#include` directives from context, a `FuzzedDataProvider`, and a `LLVMFuzzerTestOneInput` entry point that calls the target function.
+
+**Type-aware generation:** Parameter types are initialized using their actual C/C++ type instead of a generic `uint32_t` cast:
+
+| C/C++ type | FuzzedDataProvider call | Notes |
+|---|---|---|
+| `char*` | `ConsumeRandomLengthString()` | NUL-terminated string |
+| `uint8_t*` / `void*` | `ConsumeBytes<uint8_t>()` | Raw buffer |
+| `size_t` | `ConsumeIntegral<size_t>()` | Buffer length |
+| `int` / `long` | `ConsumeIntegral<T>()` | |
+| `bool` | `ConsumeBool()` | |
+| `float` / `double` | `ConsumeFloatingPoint<T>()` | |
+| `FILE*` | `tmpfile()` | Temporary file |
+| struct member | member-type-specific call | Uses `structs.csv` `member_type` column |
+
+Struct members are initialized using their actual type from `structs.csv`, reducing type mismatch compile errors compared to always using `uint32_t`.
+
+Output: `output/<lang>/<repo>/fuzz_targets/<rule>_<file>_<line>.cc`.
+
+### Phase A CLI — Harness Generation
 
 ```bash
 vuln-hunter-x generate-fuzz-drivers --repo libucl
@@ -84,19 +155,44 @@ vuln-hunter-x generate-fuzz-drivers --verdict all      # use SARIF only (no veri
 vuln-hunter-x generate-fuzz-drivers --dry-run
 ```
 
-### Prerequisites
+### Prerequisites (Phase A)
 
 - Verification results under `output/<lang>/<repo>/verification_results/` (or use `--verdict all` to use SARIF only).
 - Stage 6 context: `output/<lang>/<repo>/context/function_signatures.csv` and `includes.csv`.
 - Optionally `functions.csv` (from extract-context) for enclosing function resolution.
 
-### Sub-stages 7.4–7.6 (compile, LLM fix, status)
+---
 
-- **7.4 Compile and link**: For each harness, run `clang++ -c -fsanitize=fuzzer,address -g -O2 -D... -I... harness.cc` then link with Stage 5 manifest (objects/libs from `build_sanitized`). Compiler defines from the manifest (`compiler_defines`) are automatically included. Extra include/library paths can be specified via config or CLI. Capture stderr and normalize for LLM.
-- **7.5 LLM fix loop (optional)**: If `--llm-fix` and build failed, send harness source + command + errors to LLM; replace source; re-run 7.4; repeat up to `--max-fix-iterations`. Response must contain `LLVMFuzzerTestOneInput`. The fix loop uses **multi-turn conversation** (message history preserved across iterations so the LLM knows what it already tried). Errors are **classified** (linker, missing_include, undefined_symbol, type_mismatch) with targeted hints. Type context budget is 4000 chars.
-- **7.6 Record status**: Per harness: `compiled`, `compile_failed`, `link_failed`, `llm_fix_failed`, or `manifest_missing`. Write `output/<lang>/<repo>/fuzz_targets/status.json`.
+### Phase B — Compilation & Fix
 
-### CLI (with build)
+#### 7.4 Compile and link
+
+For each harness, run `clang++ -c -fsanitize=fuzzer,address -g -O2 -D... -I... harness.cc` then link with the Stage 5 manifest (objects/libs). Compiler defines from the manifest (`compiler_defines`) are automatically included. Extra paths can be specified via config or CLI.
+
+**Selective linking:** Instead of linking all objects into every harness, Stage 7.4 resolves minimal dependencies per linkability category:
+- `library_exported` → link only the `.a` file(s) containing the symbol
+- `object_global` → link the specific `.o` + transitive libraries
+- `static` → compile the `.c` source alongside the harness (source inclusion, Futag-inspired)
+- `unknown` → fallback to all objects + all libraries
+
+See [docs/fuzz-pipeline.md](fuzz-pipeline.md) for the Futag-inspired source-inclusion technique details.
+
+#### 7.5 LLM fix loop (optional)
+
+If `--llm-fix` and build failed, send harness source + command + errors to LLM; replace source; re-run 7.4; repeat up to `--max-fix-iterations`. Response must contain `LLVMFuzzerTestOneInput`.
+
+The fix loop uses **multi-turn conversation** (message history preserved across iterations so the LLM knows what it already tried). Errors are **classified** (linker, missing_include, undefined_symbol, type_mismatch) with targeted hints. The LLM additionally receives:
+- Symbol context (which symbols are `library_exported` vs `static`)
+- Enhanced error classification for `multiple definition of main` (suggests the `#define main __original_main_disabled` trick)
+- Per-file compiler flags from `compile_commands.json`
+
+Type context budget is 4000 chars.
+
+#### 7.6 Record status
+
+Per harness: `compiled`, `compile_failed`, `link_failed`, `llm_fix_failed`, or `manifest_missing`. Write `output/<lang>/<repo>/fuzz_targets/status.json`.
+
+### Phase B CLI — Compilation & Fix
 
 ```bash
 vuln-hunter-x generate-fuzz-drivers --repo libucl --build
@@ -114,7 +210,7 @@ vuln-hunter-x generate-fuzz-drivers --build --llm-fix --max-fix-iterations 5
 
 ### Configuration
 
-Fuzz pipeline settings can be configured in `config/confirm_findings.yaml` under the `fuzz:` section:
+Fuzz pipeline settings in `config/confirm_findings.yaml` under the `fuzz:` section:
 
 ```yaml
 fuzz:
