@@ -1,8 +1,7 @@
-# Fuzz Pipeline: Symbol-Aware Target Generation
+# Symbol Analysis Architecture (Stage 5 Internals)
 
-This document describes VulnHunterX's enhanced fuzz target generation pipeline,
-which uses symbol visibility analysis and dependency-aware compilation — inspired
-by the [Futag](https://github.com/ispras/Futag) project's methodology.
+This document explains how Stage 5 (`build-sanitized`) enriches the build manifest
+with symbol visibility data, which Stage 7 uses to classify targets and link harnesses.
 
 ## Overview
 
@@ -15,9 +14,9 @@ Stage 7: generate-fuzz-drivers → Select targets → Generate harness → Compi
 Stage 8: fuzz-run             → Execute fuzzers, collect & triage crashes
 ```
 
-The key enhancement is in **Stage 5** (manifest enrichment) and **Stage 7.1**
-(linkability-aware target selection), which prevent the generation of
-unfuzzable harnesses.
+> This document covers Stage 5 internals only. For Stage 7 harness generation —
+> including linkability classification (7.1) and selective linking (7.4) — see
+> [docs/fuzz_stages.md](fuzz_stages.md#stage-7-generate-fuzz-drivers).
 
 ## Symbol Analysis (Stage 5)
 
@@ -76,64 +75,6 @@ enabling harness compilation with the project's real build configuration.
 }
 ```
 
-## Linkability Classification (Stage 7.1)
-
-Each candidate fuzz target is classified into one of four categories:
-
-| Category | Score Bonus | Description | Strategy |
-|---|---|---|---|
-| `library_exported` | +20 | Symbol exported in a `.a` library | Link against the library (ideal) |
-| `object_global` | +5 | Global in a `.o` but not in any library | Link specific `.o` files |
-| `static` | -15 | `static` or file-local function | Source-inclusion or skip |
-| `executable_source` | -25 | In a file containing `main()` | Skip (standalone tool) |
-
-Classification priority:
-1. Check `lib_exports` → `library_exported`
-2. Check CodeQL `is_static` column → `static`
-3. Check `static_symbols` (from `nm`) → `static`
-4. Check `symbol_to_objects` + `main()` detection → `object_global` or `executable_source`
-5. Fallback → `unknown`
-
-## Unfuzzable Target Handling
-
-Targets classified as `static` or `executable_source` are **skipped** with a
-logged warning:
-
-```
-WARNING: Skipping 'decomp' (src/tjbench.c:176): static function, not linkable from external harness
-WARNING: Skipping 'parse_switches' (src/djpeg.c:182): executable-local function (file contains main())
-```
-
-Skipped targets are recorded in `output/<lang>/<repo>/fuzz_targets/skipped_targets.json`:
-
-```json
-{
-  "skipped_targets": [
-    {
-      "function": "decomp",
-      "file": "src/tjbench.c",
-      "line": 176,
-      "reason": "static function, not linkable from external harness",
-      "linkability": "static"
-    }
-  ]
-}
-```
-
-They are also included in `status.json` under the `"skipped_targets"` key.
-
-## Selective Linking (Stage 7.4)
-
-Instead of dumping all 100+ object files into every link command, the builder
-resolves minimal dependencies per target:
-
-- **Library-exported**: Link only the `.a` file(s) containing the symbol
-- **Object-global**: Link the specific `.o` file + libraries for transitive deps
-- **Static**: Compile the source `.c` file alongside (without `-fsanitize=fuzzer`)
-- **Unknown**: Fall back to all objects + all libraries (legacy behavior)
-
-This produces cleaner link commands and avoids symbol conflicts.
-
 ## Static Function Strategy (Futag-Inspired)
 
 For static functions that pass through the filter (e.g. manually forced), the
@@ -154,19 +95,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 
 This technique comes from the [Futag project](https://github.com/ispras/Futag)
 and is common in fuzz target generation for C libraries.
-
-## LLM Fix Loop (Stage 7.5)
-
-When harness compilation fails, the LLM fix loop now receives additional
-context:
-
-- **Symbol context**: which symbols are library-exported vs static
-- **Enhanced error classification**: detects `multiple definition of main`
-  and suggests the `#define main` trick
-- **Project compile flags**: from `compile_commands.json`
-
-The system prompt teaches the LLM about source-inclusion and extern linkage
-techniques.
 
 ## Troubleshooting
 

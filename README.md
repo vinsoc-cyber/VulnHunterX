@@ -148,96 +148,17 @@ The framework follows the **Vulnhalla methodology** (CyberArk research), which i
 
 The framework consists of 8 stages (4 core + 4 optional fuzz stages for C/C++), each with a dedicated CLI command:
 
-### Stage Overview
+### Stages
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ STAGE 1: clone                                                              │
-│ ───────────────                                                             │
-│ Purpose: Clone source code and create CodeQL database                       │
-│ Input:   Repository URL (from config/repos.yaml)                            │
-│ Output:  repos/<lang>/<name>/        (source code)                          │
-│          output/<lang>/<name>/database/  (CodeQL database)                  │
-│                                                                             │
-│ CodeQL analysis requires this database; Semgrep does not (it scans the      │
-│ repo source).                                                               │
-│                                                                             │
-│ For compiled languages (C/C++), this stage:                                 │
-│   1. Clones the repository                                                  │
-│   2. Runs the build command while CodeQL traces the compilation             │
-│   3. Creates a CodeQL database from the traced build                        │
-│                                                                             │
-│ For interpreted languages (Python/JavaScript):                              │
-│   1. Clones the repository                                                  │
-│   2. Creates database by scanning source files (no build needed)            │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ STAGE 2: analyze                                                            │
-│ ────────────────                                                            │
-│ Purpose: Run CodeQL, Semgrep, and/or OpenGrep security analysis             │
-│          (CodeQL on DB; Semgrep/OpenGrep on source in repos/)               │
-│ Input:   output/<lang>/<name>/database/ (CodeQL); repos/<lang>/<name>/      │
-│          (Semgrep/OpenGrep)                                                 │
-│ Output:  output/<lang>/<name>/<name>.sarif (CodeQL); optionally             │
-│          <name>_semgrep.sarif, <name>_opengrep.sarif                        │
-│                                                                             │
-│ This stage:                                                                 │
-│   1. [CodeQL] Finalizes the database (if not already finalized)             │
-│   2. [CodeQL] Runs the security-extended query suite                        │
-│   3. [Semgrep/OpenGrep] Scans source; no database required                  │
-│   4. Produces SARIF file(s) with all security findings                      │
-│                                                                             │
-│ SARIF (Static Analysis Results Interchange Format) contains:                │
-│   - Rule ID (e.g., cpp/use-after-free)                                      │
-│   - File path and line number                                               │
-│   - Message describing the issue                                            │
-│   - Severity and other metadata                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ STAGE 3: extract-context (Optional, recommended for LLM mode)               │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│ Purpose: Pre-extract structured context for multi-turn verification         │
-│ Input:   output/<lang>/<name>/database/                                     │
-│ Output:  output/<lang>/<name>/context/*.csv                                 │
-│                                                                             │
-│ Uses the CodeQL database; when using Semgrep only, run clone (and           │
-│ optionally analyze with CodeQL) if you want full context expansion.         │
-│                                                                             │
-│ Extracts the following into CSV files:                                      │
-│   - functions.csv   : Function definitions (name, file, lines, params)      │
-│   - callers.csv     : Caller-callee relationships (call graph)              │
-│   - structs.csv     : Structure/class definitions and fields                │
-│   - globals.csv     : Global variable declarations                          │
-│   - macros.csv      : Macro definitions (C/C++ only)                        │
-│                                                                             │
-│ Why this matters:                                                           │
-│   When the LLM says "I need to see the callers of function X",              │
-│   we can quickly look up X in callers.csv instead of re-querying CodeQL.    │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ STAGE 4: verify                                                             │
-│ ───────────────                                                             │
-│ Purpose: Verify each finding using LLM analysis                             │
-│ Input:   output/<lang>/<name>/*.sarif (CodeQL, Semgrep, OpenGrep)           │
-│          output/<lang>/<name>/context/*.csv (for LLM mode)                  │
-│ Output:  output/<lang>/<name>/verification_results/*.json                   │
-│          output/<lang>/<name>/verification_results/summary_*.json           │
-│                                                                             │
-│ For each finding:                                                           │
-│   1. Extract code context (surrounding lines, enclosing function)           │
-│   2. Load guided questions for the rule type                                │
-│   3. Build prompt with context and questions                                │
-│   4. Send to LLM and parse response                                         │
-│   5. [LLM mode] If LLM requests more context, fetch and continue            │
-│   6. Record verdict with confidence and reasoning                           │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+**Stage 1 — clone:** Clones the repository and creates the CodeQL database (C/C++: traces the build; Python/JavaScript: scans source). Output: `repos/<lang>/<name>/` and `output/<lang>/<name>/database/`.
+
+**Stage 2 — analyze:** Runs CodeQL, Semgrep, and/or OpenGrep; writes SARIF to `output/<lang>/<name>/`. SARIF contains rule ID, file, line, message, and severity for each finding.
+
+**Stage 3 — extract-context** *(optional, recommended)*: Pre-extracts LLM verification context (functions, callers, structs, globals, macros) from the CodeQL database into CSV files. When the LLM requests "callers of function X", the framework looks up `callers.csv` instead of re-querying CodeQL. *Not the same as Stage 6 — see [extract-context](#extract-context) CLI section.*
+
+**Stage 4 — verify:** Reads SARIF + CSVs; uses guided questions and multi-turn LLM to produce verdicts: True Positive, False Positive, or Needs More Data.
+
+**Stages 5–8 (C/C++ only — optional fuzz confirmation):** Build with sanitizers, extract fuzz context, generate libFuzzer harnesses, run fuzzers. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
 
 ### Stage Input/Output Summary
 
@@ -253,6 +174,16 @@ The framework consists of 8 stages (4 core + 4 optional fuzz stages for C/C++), 
 | 8 (C/C++) | `fuzz-run`              | Compiled harnesses                      | Crashes + summary.json                              |
 
 See [Fuzz-based confirmation](docs/fuzz_stages.md) for stages 5–8.
+
+### Which stages do I need?
+
+| Goal | Required stages | Optional |
+|---|---|---|
+| Static analysis only | 1, 2 | — |
+| LLM verification (Python / JS / PHP / Java) | 1, 2, 4 | 3 (richer multi-turn context) |
+| LLM verification (C/C++) | 1, 2, 4 | 3 |
+| Fuzz confirmation (C/C++) | 1, 2, 4, 5, 6, 7 | 3, 8 |
+| Full pipeline | 1–8 | — |
 
 VulnHunterX supports **CodeQL**, **Semgrep**, and **OpenGrep**. CodeQL requires building a database (stage 1) and runs on that database; Semgrep and OpenGrep scan the cloned source and do not need a CodeQL database. OpenGrep is an open-source fork of Semgrep (LGPL 2.1) with the same rule format and CLI. You can run any combination; all output SARIF. The verify stage reads all SARIF files and applies the same LLM verification. Context expansion (extract-context) uses the CodeQL database, so for full multi-turn context when using Semgrep/OpenGrep only, run CodeQL at least once for that repo (e.g. `--tool both` or `--tool all`).
 
@@ -460,6 +391,8 @@ vuln-hunter-x extract-context --repo dvwa --backend treesitter
 
 **Tree-sitter fallback:** When CodeQL databases are unavailable (e.g., missing language extractor), use `--backend treesitter` for pure source-based extraction. Supports all 6 languages. `auto` mode (default) uses CodeQL if a database exists, otherwise falls back to tree-sitter automatically.
 
+> **Stage 3 vs Stage 6:** `extract-context` (Stage 3) serves the LLM verification pipeline — it extracts functions, callers, structs, and globals that the LLM can request during multi-turn analysis. `extract-fuzz-context` (Stage 6) serves the fuzz harness generator — it extracts function signatures with parameter types and per-file include directives. Both read the same CodeQL database but produce different CSVs for different consumers.
+
 **Output files:**
 
 | File            | Description                                       |
@@ -508,9 +441,9 @@ vuln-hunter-x extract-fuzz-context --lang cpp --dry-run
 
 ---
 
-### generate-fuzz-drivers (Stage 7.1–7.3: fuzz, C/C++ only)
+### generate-fuzz-drivers (Stage 7, C/C++ only — two phases)
 
-Generate libFuzzer harness `.cc` files from verified findings (True Positive / Needs More Data by default). Resolves enclosing function from context CSVs and writes one harness per target. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
+Generates libFuzzer harnesses (Phase A: always) and optionally compiles them (Phase B: requires `--build`). See [docs/fuzz_stages.md](docs/fuzz_stages.md) for all six sub-stages (7.1–7.6).
 
 ```bash
 vuln-hunter-x generate-fuzz-drivers --repo libucl
@@ -527,7 +460,7 @@ vuln-hunter-x generate-fuzz-drivers --dry-run
 | `--dry-run`              | Do not write .cc files                                    |
 | `--build`                | Compile and link harnesses (Stage 7.4); write status.json |
 | `--llm-fix`              | Use LLM to fix compile/link errors (Stage 7.5)            |
-| `--max-fix-iterations N` | Max LLM fix attempts (default 3)                          |
+| `--max-fix-iterations N` | Max LLM fix attempts (default: from config `fuzz.max_fix_iterations`, fallback 5) |
 
 ---
 
@@ -618,84 +551,17 @@ The framework uses **LLM mode** only: multi-turn LLM analysis with dynamic conte
 
 ## Verification Process Detail
 
-### Flow for Each Finding
+### Verification Flow (per finding)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        VERIFICATION FLOW (per finding)                      │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 1. PARSE FINDING                                                            │
-│    - Extract: rule_id, file, line, message                                  │
-│    - Example: cpp/use-after-free at src/parser.c:145                        │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 2. LOAD CODE CONTEXT                                                        │
-│    - Read source file                                                       │
-│    - Extract lines around the finding (configurable window)                 │
-│    - Identify enclosing function                                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 3. LOAD GUIDED QUESTIONS                                                    │
-│    - Match rule_id to question template                                     │
-│    - Example for cpp/use-after-free:                                        │
-│      Q1: Where is the pointer ALLOCATED?                                    │
-│      Q2: Where is the pointer FREED?                                        │
-│      Q3: Is the pointer set to NULL after free?                             │
-│      Q4: List ALL paths from free() to the flagged use                      │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 4. BUILD PROMPT                                                             │
-│    - System prompt: Role + instructions + output format                     │
-│    - User prompt: Finding details + code + questions                        │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 5. LLM ANALYSIS LOOP                                                        │
-│    ┌─────────────────────────────────────────────────────────────────────┐  │
-│    │ Iteration 1..max_iterations:                                        │  │
-│    │                                                                     │  │
-│    │   Send prompt to LLM ──────────────────────────────────────────┐    │  │
-│    │                                                                │    │  │
-│    │   ┌────────────────────────────────────────────────────────────┘    │  │
-│    │   │                                                                 │  │
-│    │   ▼                                                                 │  │
-│    │   Parse JSON response:                                              │  │
-│    │   {                                                                 │  │
-│    │     "answers": ["Q1: allocated at line 45...", ...],                │  │
-│    │     "verdict": "True Positive" | "False Positive" | "Needs Data",   │  │
-│    │     "confidence": "High" | "Medium" | "Low",                        │  │
-│    │     "reasoning": "The buffer overflow occurs because...",           │  │
-│    │     "context_needed": ["caller:parse_input", "struct:user_data"]    │  │
-│    │   }                                                                 │  │
-│    │                                                                     │  │
-│    │   If verdict == "Needs More Data" AND context_needed not empty:     │  │
-│    │     - Fetch requested context from CSVs                             │  │
-│    │     - Append to conversation history                                │  │
-│    │     - Continue to next iteration                                    │  │
-│    │   Else:                                                             │  │
-│    │     - Return final verdict                                          │  │
-│    └─────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 6. RECORD RESULT                                                            │
-│    - Verdict: True Positive, False Positive, or Needs More Data             │
-│    - Confidence: High, Medium, or Low                                       │
-│    - Reasoning: Explanation of the analysis                                 │
-│    - Answers: Response to each guided question                              │
-│    - Iterations: Number of rounds taken                                     │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+1. **Parse finding** — extract `rule_id`, file, line, message from SARIF (e.g. `cpp/use-after-free` at `src/parser.c:145`)
+2. **Load code context** — read surrounding source lines and identify the enclosing function
+3. **Load guided questions** — match `rule_id` to a per-language question template; fallback to `default_questions.yaml` for unknown rules
+4. **Build prompt** — combine system prompt, finding details, code snippet, and guided questions
+5. **LLM analysis loop** (up to `max_iterations`):
+   - Send prompt; parse JSON response with `answers`, `verdict`, `confidence`, `reasoning`, `context_needed`
+   - If `verdict == "Needs More Data"` and `context_needed` is non-empty: fetch requested CSVs (callers, structs, globals), append to conversation, repeat
+   - Otherwise: return final verdict
+6. **Record result** — write JSON with verdict (True Positive / False Positive / Needs More Data), confidence, reasoning, answered questions, and iteration count
 
 ### Context Request Types
 

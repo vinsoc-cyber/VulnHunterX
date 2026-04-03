@@ -111,16 +111,26 @@ vuln-hunter-x verify --repo my-app
 
 ## Fuzz-based confirmation (C/C++)
 
-Optional stages 5–8 build with sanitizers, extract fuzz context, generate libFuzzer harnesses from verified findings, and run fuzzers to collect crashes. See [docs/fuzz_stages.md](docs/fuzz_stages.md).
+Optional stages 5–8 confirm C/C++ findings using sanitizer builds and libFuzzer. Full reference: [docs/fuzz_stages.md](docs/fuzz_stages.md).
+
+**What each stage does:**
+- **Stage 5** (`build-sanitized`): Builds the repo with ASan/UBSan; produces a manifest of libraries and objects for linking.
+- **Stage 6** (`extract-fuzz-context`): Runs CodeQL queries to extract function signatures and include paths used when generating harnesses.
+- **Stage 7, Phase A** (`generate-fuzz-drivers`): Selects fuzzable targets, classifies linkability, gathers signatures and includes, and writes `.cc` harness files.
+- **Stage 7, Phase B** (`generate-fuzz-drivers --build`): Compiles and links each harness; optionally uses the LLM to auto-fix compile errors (`--llm-fix`).
+- **Stage 8** (`fuzz-run`): Runs libFuzzer on each compiled harness; collects crashes and writes a summary.
+
+**Run in sequence:**
 
 ```bash
 vuln-hunter-x build-sanitized --repo libucl
 vuln-hunter-x extract-fuzz-context --repo libucl
-vuln-hunter-x generate-fuzz-drivers --repo libucl --build
+vuln-hunter-x generate-fuzz-drivers --repo libucl           # Phase A: generate .cc files
+vuln-hunter-x generate-fuzz-drivers --repo libucl --build   # Phase B: compile + link
 vuln-hunter-x fuzz-run --repo libucl
 ```
 
-Or run the full pipeline including fuzz stages:
+Or run everything in one script:
 
 ```bash
 python examples/run_all_pipelines.py --fuzz --repo libucl
