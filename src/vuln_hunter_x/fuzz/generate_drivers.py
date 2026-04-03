@@ -10,10 +10,12 @@ and LLM fix loops with symbol context.
 from __future__ import annotations
 
 import logging
+import logging
 import re
 from collections.abc import Callable
 from pathlib import Path
 
+from vuln_hunter_x.core.constants import DEFAULT_MAX_FIX_ITERATIONS
 from vuln_hunter_x.core.types import Finding
 from vuln_hunter_x.fuzz.build_sanitized import write_manifest
 from vuln_hunter_x.fuzz.driver_builder import (
@@ -22,7 +24,11 @@ from vuln_hunter_x.fuzz.driver_builder import (
     load_manifest,
     write_harness_status,
 )
-from vuln_hunter_x.fuzz.driver_fix_loop import fix_harness_with_llm, make_llm_fix_fn
+from vuln_hunter_x.fuzz.driver_fix_loop import (
+    classify_errors,
+    fix_harness_with_llm,
+    make_llm_fix_fn,
+)
 from vuln_hunter_x.fuzz.driver_generator import generate_harness
 from vuln_hunter_x.fuzz.fuzz_context import build_type_context_string, get_target_context
 from vuln_hunter_x.fuzz.target_selection import (
@@ -106,10 +112,13 @@ def build_and_record(
     results: list[tuple[Finding, dict, Path | None]],
     output_dir: Path,
     llm_fix: bool = False,
-    max_fix_iterations: int = 3,
+    max_fix_iterations: int = DEFAULT_MAX_FIX_ITERATIONS,
     llm_provider: str = "openai",
     llm_model: str = "gpt-4o",
     llm_max_tokens: int = 4000,
+    extra_include_dirs: list[str] | None = None,
+    extra_lib_dirs: list[str] | None = None,
+    extra_link_libs: list[str] | None = None,
 ) -> list[tuple[str, list[dict]]]:
     """
     Stage 7.4–7.6: Build each harness, optionally run LLM fix loop, write status.json per repo.
@@ -171,17 +180,59 @@ def build_and_record(
                 return build_harness(_cc, _m, _out, target_info=_ti)
 
             if llm_fn is not None:
-                status, _iterations, last_errors = fix_harness_with_llm(
+                fix_result = fix_harness_with_llm(
                     cc_path, build_fn, llm_fn, max_iterations=max_fix_iterations
                 )
-                entries.append({"harness": harness_name, "status": status, "errors": last_errors})
+                status = fix_result.status
+                iterations_used = fix_result.iterations_used
+                last_errors = fix_result.last_errors
+                err_class = classify_errors(last_errors) if last_errors else ""
+
+                logger.info(
+                    "[%s] %s: %s (fix iterations=%d)",
+                    repo_name,
+                    harness_name,
+                    status,
+                    iterations_used,
+                )
+
+                # Extract commands from the last captured BuildResult
+                br = _last_build_result[0]
+                compile_cmd = br.compile_command if br else ""
+                link_cmd = br.link_command if br else ""
+                compile_errors = br.compile_errors if br else ""
+                link_errors = br.link_errors if br else ""
+
+                # Determine phase from status
+                if status == "link_failed":
+                    phase = "link"
+                elif status in ("compile_failed", "llm_fix_failed"):
+                    phase = "compile"
+                else:
+                    phase = ""
+
+                entries.append(
+                    {
+                        "harness": harness_name,
+                        "status": status,
+                        "errors": last_errors,
+                        "compile_command": compile_cmd,
+                        "link_command": link_cmd,
+                        "phase_failed": phase,
+                        "error_class": err_class,
+                        "compile_errors": compile_errors,
+                        "link_errors": link_errors,
+                        "fix_iterations_count": iterations_used,
+                        "iteration_history": fix_result.iteration_history,
+                    }
+                )
             else:
                 ok, err, _cmd = build_harness(
                     cc_path, manifest_path, binary_path, target_info=_info
                 )
                 status = (
                     "compiled"
-                    if ok
+                    if build_result.success
                     else (
                         "link_failed"
                         if "undefined reference" in err or "ld returned" in err.lower()

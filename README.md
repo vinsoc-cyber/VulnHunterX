@@ -414,7 +414,7 @@ vuln-hunter-x analyze --codeql-suite path/to/custom.qls
 
 **Semgrep integration:** Semgrep runs on the cloned source in `repos/<lang>/<name>/` and writes `output/<lang>/<name>/<name>_semgrep.sarif`. Verify reads all `*.sarif` in each repo directory. Semgrep does not require a CodeQL database.
 
-**OpenGrep integration:** OpenGrep is an open-source fork of Semgrep (LGPL 2.1) with the same rule format and CLI. It writes `output/<lang>/<name>/<name>_opengrep.sarif`. Install: `curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash`. Use `--opengrep-config` the same way as `--semgrep-config`.
+**OpenGrep integration:** OpenGrep is an open-source fork of Semgrep (LGPL 2.1) with the same rule format and CLI. It writes `output/<lang>/<name>/<name>_opengrep.sarif`. For installation, refer to the [official OpenGrep releases page](https://github.com/opengrep/opengrep/releases) and download a pinned release for your platform. Avoid piping install scripts directly to a shell (`curl ... | bash`) — instead, download the script first, inspect it, and then execute it, or install a specific tagged release binary directly. Use `--opengrep-config` the same way as `--semgrep-config`.
 
 **Adding more security rules**
 

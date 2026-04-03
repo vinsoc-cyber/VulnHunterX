@@ -263,7 +263,7 @@ def stage_generate_fuzz_drivers(dry_run: bool = False) -> bool:
     print("Generating libFuzzer harnesses from verified findings and building...")
     print()
     success, error = run_command(
-        _CLI + ["generate-fuzz-drivers", "--repo", REPO_NAME, "--verdict", "tp,nmd", "--build"],
+        _CLI + ["generate-fuzz-drivers", "--repo", REPO_NAME, "--verdict", "tp,nmd", "--build", "--llm-fix"],
         dry_run,
         timeout=600,
     )
@@ -434,27 +434,27 @@ def main():
     start_time = time.time()
     results: dict[str, bool] = {}
     
-    # Stage 1: Clone
-    clone_ok, has_codeql_db = stage_clone(dry_run, skip_clone)
-    results["Clone & Create DB"] = clone_ok
+    # # Stage 1: Clone
+    # clone_ok, has_codeql_db = stage_clone(dry_run, skip_clone)
+    # results["Clone & Create DB"] = clone_ok
 
-    # Stage 2: Analyze
-    if clone_ok or skip_clone:
-        results["Security Analysis"] = stage_analyze(dry_run, has_codeql_db)
-    else:
-        results["Security Analysis"] = False
+    # # Stage 2: Analyze
+    # if clone_ok or skip_clone:
+    #     results["Security Analysis"] = stage_analyze(dry_run, has_codeql_db)
+    # else:
+    #     results["Security Analysis"] = False
 
-    # Stage 3: Extract Context
-    if results["Security Analysis"] or clone_ok:
-        results["Extract Context"] = stage_extract_context(dry_run, has_codeql_db)
-    else:
-        results["Extract Context"] = False
+    # # Stage 3: Extract Context
+    # if results["Security Analysis"] or clone_ok:
+    #     results["Extract Context"] = stage_extract_context(dry_run, has_codeql_db)
+    # else:
+    #     results["Extract Context"] = False
 
-    # Stage 4: Verify
-    if results["Security Analysis"]:
-        results["LLM Verification"] = stage_verify(dry_run)
-    else:
-        results["LLM Verification"] = False
+    # # Stage 4: Verify
+    # if results["Security Analysis"]:
+    #     results["LLM Verification"] = stage_verify(dry_run)
+    # else:
+    #     results["LLM Verification"] = False
 
     # Stages 5-8 (fuzz): optional, run when --fuzz
     if run_fuzz:

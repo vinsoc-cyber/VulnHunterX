@@ -7,7 +7,7 @@ Get **SAST (CodeQL / Semgrep / OpenGrep)** + LLM bug verification running in 5 m
 - **Python 3.12+**
 - **CodeQL CLI 2.15+** ([install guide](https://codeql.github.com/docs/codeql-cli/getting-started-with-the-codeql-cli/))
 - **Semgrep** (optional, for Semgrep-based analysis; [install](https://semgrep.dev/docs/getting-started/))
-- **OpenGrep** (optional; `curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash`)
+- **OpenGrep** (optional; see [installation instructions](https://github.com/opengrep/opengrep#installation) and review any install script before running)
 - **Git**
 - **OpenAI API key**, **Anthropic API key**, or **Ollama** installed locally
 

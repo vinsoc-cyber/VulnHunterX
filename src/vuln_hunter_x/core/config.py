@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +15,7 @@ from vuln_hunter_x.core.constants import (
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_PROVIDER,
     DEFAULT_LLM_TEMPERATURE,
+    DEFAULT_MAX_FIX_ITERATIONS,
     DEFAULT_MAX_ITERATIONS,
     DEFAULT_OLLAMA_BASE_URL,
 )
@@ -48,6 +50,18 @@ class VerificationConfig:
 
     max_iterations: int = DEFAULT_MAX_ITERATIONS
     force_decision: bool = True
+
+
+@dataclass
+class FuzzConfig:
+    """Fuzz pipeline configuration (Stages 5-8, C/C++ only)."""
+
+    max_fix_iterations: int = DEFAULT_MAX_FIX_ITERATIONS
+    extra_include_dirs: list[str] = field(default_factory=list)
+    extra_lib_dirs: list[str] = field(default_factory=list)
+    extra_link_libs: list[str] = field(default_factory=list)
+    extra_cflags: list[str] = field(default_factory=list)
+    extra_ldflags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -121,6 +135,7 @@ class Config:
     verification: VerificationConfig = field(default_factory=VerificationConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    fuzz: FuzzConfig = field(default_factory=FuzzConfig)
 
     # Processing limits
     limit: int = 0
@@ -169,11 +184,22 @@ class Config:
             log_file=Path(data["log_file"]) if data.get("log_file") else None,
         )
 
+        fuzz_data = data.get("fuzz") or {}
+        fuzz = FuzzConfig(
+            max_fix_iterations=fuzz_data.get("max_fix_iterations", DEFAULT_MAX_FIX_ITERATIONS),
+            extra_include_dirs=fuzz_data.get("extra_include_dirs") or [],
+            extra_lib_dirs=fuzz_data.get("extra_lib_dirs") or [],
+            extra_link_libs=fuzz_data.get("extra_link_libs") or [],
+            extra_cflags=fuzz_data.get("extra_cflags") or [],
+            extra_ldflags=fuzz_data.get("extra_ldflags") or [],
+        )
+
         return cls(
             llm=llm,
             verification=verification,
             paths=paths,
             output=output,
+            fuzz=fuzz,
             limit=data.get("limit", 0),
             languages=data.get("languages", []),
             repositories=data.get("repositories", []),
@@ -224,11 +250,21 @@ class Config:
             log_file=kwargs.get("log_file", self.output.log_file),
         )
 
+        fuzz = FuzzConfig(
+            max_fix_iterations=kwargs.get("max_fix_iterations", self.fuzz.max_fix_iterations),
+            extra_include_dirs=kwargs.get("extra_include_dirs", self.fuzz.extra_include_dirs),
+            extra_lib_dirs=kwargs.get("extra_lib_dirs", self.fuzz.extra_lib_dirs),
+            extra_link_libs=kwargs.get("extra_link_libs", self.fuzz.extra_link_libs),
+            extra_cflags=kwargs.get("extra_cflags", self.fuzz.extra_cflags),
+            extra_ldflags=kwargs.get("extra_ldflags", self.fuzz.extra_ldflags),
+        )
+
         return Config(
             llm=llm,
             verification=verification,
             paths=self.paths,
             output=output,
+            fuzz=fuzz,
             limit=kwargs.get("limit", self.limit),
             languages=kwargs.get("languages", self.languages),
             repositories=kwargs.get("repositories", self.repositories),
@@ -254,6 +290,7 @@ def load_config(
     - LLM_MODEL: LLM model name
     - OLLAMA_API_BASE: Ollama server URL (environment-specific)
     - CODEQL_PATH: CodeQL CLI path (environment-specific)
+    - MAX_FIX_ITERATIONS: Max LLM fix attempts for fuzz harnesses
     """
     # Start with defaults
     config = Config()
@@ -276,5 +313,11 @@ def load_config(
         config.llm.provider = env_provider
     if env_model:
         config.llm.model = env_model
+
+    # Fuzz environment overrides
+    env_max_fix = os.environ.get("MAX_FIX_ITERATIONS")
+    if env_max_fix:
+        with contextlib.suppress(ValueError):
+            config.fuzz.max_fix_iterations = int(env_max_fix)
 
     return config

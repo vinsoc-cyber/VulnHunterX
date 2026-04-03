@@ -62,6 +62,24 @@ def _member_consumption(member_type: str, provider_var: str = "provider") -> str
     return f"{provider_var}.ConsumeIntegral<uint32_t>()"
 
 
+def _is_complex_type(member_type: str) -> bool:
+    """Return True for types that cannot be assigned from a FuzzedDataProvider scalar.
+
+    Complex types include arrays, structs/unions by value, and function pointers.
+    These are left zero-initialized from memset instead.
+    """
+    t = member_type.strip()
+    t_lower = t.lower()
+    # Arrays: int[256], char[64], ogg_int64_t[2], etc.
+    if "[" in t:
+        return True
+    # Struct/union by value (not pointer)
+    if ("struct " in t_lower or "union " in t_lower) and "*" not in t:
+        return True
+    # Function pointers: long **(*class)(...)
+    return bool("(*" in t or "(* " in t)
+
+
 def _generate_struct_init(
     struct_name: str,
     members: list[dict[str, str]] | list[str],
@@ -71,6 +89,9 @@ def _generate_struct_init(
 
     *members* may be a list of dicts ``{"name": ..., "type": ...}`` (new format)
     or a plain list of member name strings (legacy format, defaults to uint32_t).
+
+    Complex members (arrays, nested structs, function pointers) are left
+    zero-initialized from memset rather than generating broken assignment code.
     """
     lines = [
         f"  {struct_name} {var_name};",
@@ -80,11 +101,15 @@ def _generate_struct_init(
         if isinstance(member, dict):
             mname = member.get("name", "")
             mtype = member.get("type", "uint32_t")
+            # Skip types that can't be assigned from a scalar
+            if _is_complex_type(mtype):
+                continue  # leave zero-initialized from memset
             consumption = _member_consumption(mtype)
         else:
             mname = member
             consumption = "provider.ConsumeIntegral<uint32_t>()"
-        if mname:
+        # Skip nullptr assignments — memset already zeroed the member
+        if mname and consumption != "nullptr":
             lines.append(f"  {var_name}.{mname} = {consumption};")
     return lines
 
@@ -178,11 +203,19 @@ def generate_harness(
 
     is_static_target = linkability == "static"
 
+    # C++ standard headers MUST come first — before the #define class klass
+    # workaround. This ensures C++ STL templates that use 'class' keyword are
+    # fully processed. We also pre-include <cmath>/<cstdio>/<cerrno> so that
+    # when project C headers transitively include <math.h> etc., the include
+    # guards prevent re-processing inside the #define scope.
     lines: list[str] = [
         "/* Fuzz harness generated for CodeQL finding */",
         "#include <cstdint>",
         "#include <cstdlib>",
         "#include <cstring>",
+        "#include <cmath>",
+        "#include <cstdio>",
+        "#include <cerrno>",
         "#include <string>",
         "#include <fuzzer/FuzzedDataProvider.h>",
         "",
@@ -263,7 +296,7 @@ def generate_harness(
     # Declare string locals so .c_str() is valid during the call
     for pname in string_locals:
         lines.append(
-            f"  std::string fuzz_str_{pname} = provider.ConsumeBytesAsString(provider.ConsumeIntegralInRange(0u, static_cast<size_t>(size)));"
+            f"  std::string fuzz_str_{pname} = provider.ConsumeBytesAsString(provider.ConsumeIntegralInRange<size_t>(0, size));"
         )
     if "&fuzz_size" in " ".join(args_list):
         lines.append("  size_t fuzz_size = provider.ConsumeIntegral<size_t>();")

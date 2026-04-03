@@ -128,10 +128,41 @@ def run_sanitized_build(
         return False, str(e)
 
 
+def _has_main_symbol(obj_path: Path) -> bool:
+    """Return True if the object file defines a ``main`` symbol.
+
+    Uses ``nm -g`` to inspect global symbols.  Objects defining ``main``
+    are executable entry points and must not be linked into fuzz harnesses
+    (they conflict with libFuzzer's own ``main``).
+    """
+    try:
+        result = subprocess.run(
+            ["nm", "-g", str(obj_path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            # nm output: "<addr> <type> <name>" — defined main has type T/t
+            if len(parts) >= 3 and parts[-1] == "main" and parts[-2] in ("T", "t"):
+                return True
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    return False
+
+
 def _find_artifacts(root: Path) -> tuple[list[str], list[str]]:
-    """Find static libs (.a) and object files (.o) under root."""
+    """Find static libs (.a) and object files (.o) under root.
+
+    Object files are deduplicated by basename.  When the same ``.o`` name
+    appears in both a bare directory (e.g. ``lib/foo.o``) and a ``.libs/``
+    sub-directory (e.g. ``lib/.libs/foo.o``), the ``.libs/`` version is
+    preferred because it is position-independent and better suited for
+    linking with libFuzzer harnesses.
+    """
     libs: list[str] = []
-    objects: list[str] = []
+    raw_objects: list[str] = []
     for path in root.rglob("*.a"):
         try:
             rel = path.relative_to(root)
@@ -141,9 +172,29 @@ def _find_artifacts(root: Path) -> tuple[list[str], list[str]]:
     for path in root.rglob("*.o"):
         try:
             rel = path.relative_to(root)
-            objects.append(str(rel))
+            # Skip test object files (e.g. test_sharedbook-sharedbook.o) —
+            # these are test executables and should never be linked into fuzz harnesses
+            if rel.name.startswith("test_"):
+                continue
+            raw_objects.append(str(rel))
         except ValueError:
             pass
+
+    # Deduplicate objects by basename — prefer .libs/ versions (PIC)
+    seen: dict[str, str] = {}
+    for obj in raw_objects:
+        base = Path(obj).name
+        if base in seen:
+            if ".libs" in obj:
+                seen[base] = obj
+        else:
+            seen[base] = obj
+    objects = list(seen.values())
+
+    # Filter out executable objects (those defining main()) — these conflict
+    # with libFuzzer's own main() and cause "multiple definition" link errors
+    objects = [o for o in objects if not _has_main_symbol(root / o)]
+
     return libs, objects
 
 
@@ -283,10 +334,13 @@ def write_manifest(
     """
     Sub-stage 5.3: Write manifest with libs, objects, and include_dirs.
 
-    Args:
-        build_src_dir: Directory containing the built tree (e.g. output/<lang>/<repo>/sanitized_build/src).
-        manifest_path: Where to write manifest.json.
-        repo_root_for_includes: Repository root for include paths (same as build_src_dir when we copied repo).
+    If an ``install/`` directory exists alongside *manifest_path* (produced by
+    ``make install``), the manifest prefers the clean installed artifacts:
+    static libs from ``install/lib/``, headers from ``install/include/``, and
+    ``.pc`` metadata from ``install/lib/pkgconfig/``.  This eliminates the need
+    for raw ``.o`` deduplication and test-object filtering.
+
+    Falls back to in-tree artifact scraping when no install prefix is present.
     """
     libs, objects = _find_artifacts(build_src_dir)
     # Include dirs: repo root and common build subdirs
@@ -371,8 +425,16 @@ def build_sanitized(
         repo_src, src_copy, ignore=shutil.ignore_patterns(".git", "*.pyc", "__pycache__")
     )
 
-    ok, msg = run_sanitized_build(src_copy, build_cmd, env, timeout=timeout)
+    # Inject --prefix for install step (autotools and CMake)
+    install_dir = out_dir / "install"
+    install_dir.mkdir(parents=True, exist_ok=True)
+    install_cmd = _inject_install_step(build_cmd, install_dir)
+
+    ok, msg = run_sanitized_build(src_copy, install_cmd, env, timeout=timeout)
     if not ok:
+        suggestions = suggest_missing_deps(msg)
+        if suggestions:
+            msg += f"\n\nSuggested missing packages: {', '.join(suggestions)}"
         return False, msg, None
 
     write_manifest(src_copy, manifest_path, src_copy)
