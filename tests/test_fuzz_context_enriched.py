@@ -211,21 +211,21 @@ class TestParamToConsumption:
     def test_char_star_const_returns_fuzz_str(self):
         assert _param_to_consumption("char * const", "s") == "fuzz_str_s.c_str()"
 
-    def test_uint8_pointer_returns_buffer_cast(self):
+    def test_uint8_pointer_returns_buffer(self):
         result = _param_to_consumption("uint8_t *", "data")
-        assert "ConsumeRemainingBytes" in result
-        assert "reinterpret_cast" in result
+        assert "fuzz_buf_" in result  # bounded buffer pattern
 
-    def test_void_pointer_returns_buffer_cast(self):
+    def test_void_pointer_returns_buffer(self):
         result = _param_to_consumption("void *", "ptr")
-        assert "ConsumeRemainingBytes" in result
+        assert "fuzz_buf_" in result  # bounded buffer pattern
 
-    def test_file_pointer_returns_nullptr(self):
-        assert _param_to_consumption("FILE *", "fp") == "nullptr"
+    def test_file_pointer_returns_fmemopen_var(self):
+        result = _param_to_consumption("FILE *", "fp")
+        assert "fuzz_fp_" in result  # fmemopen pattern
 
     def test_file_pointer_lowercase(self):
-        # Lower-cased variant should still match
-        assert _param_to_consumption("file *", "fp") == "nullptr"
+        result = _param_to_consumption("file *", "fp")
+        assert "fuzz_fp_" in result  # fmemopen pattern
 
     def test_size_t_returns_integral(self):
         assert _param_to_consumption("size_t", "sz") == "provider.ConsumeIntegral<size_t>()"
@@ -355,11 +355,11 @@ class TestParamToConsumption:
     # --- FILE* ---
     def test_file_pointer_with_space(self):
         result = _param_to_consumption("FILE *", "fp")
-        assert result == "nullptr"
+        assert "fuzz_fp_" in result  # now uses fmemopen pattern
 
     def test_file_pointer_no_space(self):
         result = _param_to_consumption("FILE*", "fp")
-        assert result == "nullptr"
+        assert "fuzz_fp_" in result  # now uses fmemopen pattern
 
     # --- float (non-pointer) ---
     def test_float_scalar(self):
@@ -412,10 +412,10 @@ class TestParamToConsumption:
         assert result == "provider.ConsumeBool()"
 
     # --- generic pointer fallback ---
-    def test_generic_pointer_returns_nullptr(self):
-        # void* should generate a reinterpret_cast buffer expression
+    def test_generic_pointer_returns_buffer(self):
+        # void* should generate a bounded buffer expression
         result = _param_to_consumption("void *", "ptr")
-        assert "reinterpret_cast" in result
+        assert "fuzz_buf_" in result  # now uses bounded ConsumeBytes pattern
 
     def test_unknown_pointer_type_returns_nullptr(self):
         result = _param_to_consumption("struct Foo *", "foo")

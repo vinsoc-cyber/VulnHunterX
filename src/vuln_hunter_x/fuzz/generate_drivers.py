@@ -10,7 +10,6 @@ and LLM fix loops with symbol context.
 from __future__ import annotations
 
 import logging
-import logging
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -176,8 +175,13 @@ def build_and_record(
             harness_name = cc_path.name
             binary_path = cc_path.with_suffix("")
 
-            def build_fn(_cc=cc_path, _m=manifest_path, _out=binary_path, _ti=_info):
-                return build_harness(_cc, _m, _out, target_info=_ti)
+            # Capture last BuildResult from build_fn via closure
+            _last_br: list = [None]
+
+            def build_fn(_cc=cc_path, _m=manifest_path, _out=binary_path, _ti=_info, _br=_last_br):
+                result = build_harness(_cc, _m, _out, target_info=_ti)
+                _br[0] = result
+                return result
 
             if llm_fn is not None:
                 fix_result = fix_harness_with_llm(
@@ -197,7 +201,7 @@ def build_and_record(
                 )
 
                 # Extract commands from the last captured BuildResult
-                br = _last_build_result[0]
+                br = _last_br[0]
                 compile_cmd = br.compile_command if br else ""
                 link_cmd = br.link_command if br else ""
                 compile_errors = br.compile_errors if br else ""
@@ -232,7 +236,7 @@ def build_and_record(
                 )
                 status = (
                     "compiled"
-                    if build_result.success
+                    if ok
                     else (
                         "link_failed"
                         if "undefined reference" in err or "ld returned" in err.lower()
