@@ -283,14 +283,33 @@ def get_target_context(
 
     includes = includes_map.get(file, [])
 
-    # Find struct definitions matching param types
+    # Find struct/enum/typedef definitions matching param types
     all_structs = load_structs(repo_context_dir)
+    all_enums = load_enums(repo_context_dir)
+    all_typedefs = load_typedefs(repo_context_dir)
+
     struct_defs: dict[str, list[dict[str, str]]] = {}
+    enum_defs: dict[str, list[dict[str, str]]] = {}
+
     for p in params:
         ptype = p.get("type", "")
-        base = ptype.replace("const", "").replace("struct", "").replace("*", "").strip()
-        if base in all_structs:
-            struct_defs[base] = all_structs[base]
+        base = ptype.replace("const", "").replace("struct", "").replace("enum", "").replace("*", "").strip()
+        # Resolve typedef chain
+        resolved = base
+        seen: set[str] = set()
+        while resolved in all_typedefs and resolved not in seen:
+            seen.add(resolved)
+            resolved = all_typedefs[resolved].replace("enum ", "").replace("struct ", "").strip()
+        # Check struct (original and resolved names)
+        for candidate in (base, resolved):
+            if candidate in all_structs:
+                struct_defs[candidate] = all_structs[candidate]
+                break
+        # Check enum (original and resolved names)
+        for candidate in (base, resolved):
+            if candidate in all_enums:
+                enum_defs[candidate] = all_enums[candidate]
+                break
 
     return {
         "name": name,
@@ -300,4 +319,6 @@ def get_target_context(
         "params": params,
         "includes": includes,
         "struct_defs": struct_defs,
+        "enum_defs": enum_defs,
+        "typedef_map": all_typedefs,
     }

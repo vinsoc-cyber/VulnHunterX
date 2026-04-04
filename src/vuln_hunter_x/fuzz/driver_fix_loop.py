@@ -211,7 +211,6 @@ def _error_specific_hint(error_class: str, symbol_context: str = "") -> str:
     hints = {
         "linker": (
             'HINT: This is a LINKER error. Check if extern "C" linkage is needed, '
-            'HINT: This is a LINKER error. Check if extern "C" linkage is needed, '
             "if the function is in a different translation unit, or if a library "
             "needs to be linked. Do NOT change the function signature."
         ),
@@ -305,7 +304,7 @@ def make_llm_fix_fn(
     ]
 
     def complete(source: str, errors: str, command: str) -> str:
-        error_class = _classify_errors(errors)
+        error_class = classify_errors(errors)
         hint = _error_specific_hint(error_class, symbol_context=_symbol_context)
 
         user = f"""Harness source:
