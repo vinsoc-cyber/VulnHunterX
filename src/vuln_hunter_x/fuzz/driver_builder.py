@@ -187,6 +187,9 @@ def build_harness(
     cxx: str = "clang++",
     timeout: int = 120,
     target_info: dict | None = None,
+    extra_include_dirs: list[str] | None = None,
+    extra_lib_dirs: list[str] | None = None,
+    extra_link_libs: list[str] | None = None,
 ) -> tuple[bool, str, str]:
     """
     Compile and link one harness with Stage 5 manifest.
@@ -255,6 +258,14 @@ def build_harness(
     if target_info and target_info.get("file"):
         extra_flags = _extract_compile_flags(compile_commands, target_info["file"])
         include_args.extend(extra_flags)
+
+    # Compute manifest and CLI-provided flags
+    compiler_defines = [f"-D{d}" for d in (manifest.get("compiler_defines") or [])]
+    manifest_extra_cflags = manifest.get("extra_cflags") or []
+    extra_inc_args = [f"-I{d}" for d in (extra_include_dirs or [])]
+    manifest_extra_ldflags = manifest.get("extra_ldflags") or []
+    extra_lib_dir_args = [f"-L{d}" for d in (extra_lib_dirs or [])]
+    extra_lib_args = [f"-l{lib}" for lib in (extra_link_libs or [])]
 
     # Compile step
     compile_cmd = (

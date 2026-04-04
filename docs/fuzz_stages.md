@@ -123,26 +123,34 @@ Skipped targets are recorded in `output/<lang>/<repo>/fuzz_targets/skipped_targe
 
 #### 7.2 Gather per-target context
 
-For each target, load function signature (parameters) and include directives from Stage 6 CSVs (`function_signatures.csv`, `includes.csv`).
+For each target, load function signature (parameters), include directives, struct definitions, enum values, and typedefs from Stage 6 CSVs (`function_signatures.csv`, `includes.csv`, `structs.csv`, `enums.csv`, `typedefs.csv`).
 
 #### 7.3 Generate harness source
 
 For each target, write a `.cc` file with `#include` directives from context, a `FuzzedDataProvider`, and a `LLVMFuzzerTestOneInput` entry point that calls the target function.
 
-**Type-aware generation:** Parameter types are initialized using their actual C/C++ type instead of a generic `uint32_t` cast:
+**Type-aware generation:** Parameter types are initialized using their actual C/C++ type. The generator applies six key techniques informed by Futag, OSS-Fuzz-Gen, and Google's fuzzing best practices:
 
 | C/C++ type | FuzzedDataProvider call | Notes |
 |---|---|---|
-| `char*` | `ConsumeRandomLengthString()` | NUL-terminated string |
-| `uint8_t*` / `void*` | `ConsumeBytes<uint8_t>()` | Raw buffer |
-| `size_t` | `ConsumeIntegral<size_t>()` | Buffer length |
+| `char*` | `ConsumeRandomLengthString(256)` | Bounded string (avoids data starvation) |
+| `uint8_t*` / `void*` | `ConsumeBytes<uint8_t>(bounded)` | Bounded buffer, not `ConsumeRemainingBytes` |
+| `size_t` (paired with buffer) | `buf.size()` | **Correlated** with actual buffer length |
+| `size_t` (standalone) | `ConsumeIntegral<size_t>()` | |
 | `int` / `long` | `ConsumeIntegral<T>()` | |
 | `bool` | `ConsumeBool()` | |
 | `float` / `double` | `ConsumeFloatingPoint<T>()` | |
-| `FILE*` | `tmpfile()` | Temporary file |
+| `enum` type | `PickValueInArray({VAL_A, VAL_B, ...})` | Uses actual enum constants from `enums.csv` |
+| typedef'd type | Resolved to underlying type | Follows typedef chains from `typedefs.csv` |
+| `FILE*` | `fmemopen()` with fuzzed content | Standard pattern from Google fuzzing docs |
 | struct member | member-type-specific call | Uses `structs.csv` `member_type` column |
+| `char [N]` member | `ConsumeBytesAsString(N-1)` + memcpy | Fills char arrays with fuzzed data |
 
-Struct members are initialized using their actual type from `structs.csv`, reducing type mismatch compile errors compared to always using `uint32_t`.
+**Buffer + size correlation:** When a buffer pointer parameter (e.g. `const uint8_t *data`) is followed by a size parameter (e.g. `size_t len`), the generator produces correlated code where the size is derived from the actual buffer length. This prevents the #1 harness quality issue: independent buffer/size values causing instant OOB crashes. Detection uses adjacency heuristics and parameter name matching (`len`, `size`, `count`, `nbytes`, etc.).
+
+**Consumption ordering:** Fixed-size items (scalars, enums) are consumed first, followed by bounded strings, then buffers. This follows Google's FuzzedDataProvider best practice of consuming deterministic items before variable-length data to prevent input starvation.
+
+**Typedef resolution:** Parameters whose types are typedefs (e.g. `ucl_type_t`) are resolved through the typedef chain (from `typedefs.csv`) before looking up struct/enum definitions. This enables correct struct initialization and enum value selection for typedef'd types.
 
 Output: `output/<lang>/<repo>/fuzz_targets/<rule>_<file>_<line>.cc`.
 
