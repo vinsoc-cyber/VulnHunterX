@@ -19,6 +19,7 @@ from vuln_hunter_x.cli.commands import (
     cmd_fuzz_run,
     cmd_generate_fuzz_drivers,
     cmd_info,
+    cmd_report,
     cmd_verify,
 )
 
@@ -128,6 +129,13 @@ Examples:
     )
     info_parser.add_argument("--config", type=Path, help="Path to configuration file")
 
+    # Report command
+    report_parser = subparsers.add_parser(
+        "report",
+        help="Generate markdown report from verification results",
+    )
+    _add_report_args(report_parser)
+
     return parser
 
 
@@ -135,11 +143,23 @@ def _add_clone_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for clone command."""
     parser.add_argument("--config", type=Path, help="Path to repos.yaml")
     parser.add_argument(
-        "--lang",
-        choices=["c", "cpp", "python", "javascript", "php", "java"],
-        help="Only this language",
+        "--url", help="Git repository URL (direct clone without repos.yaml)"
     )
-    parser.add_argument("--repo", help="Only this repository")
+    parser.add_argument(
+        "--local-path",
+        type=Path,
+        help="Path to existing local repository (skip clone, create DB only)",
+    )
+    parser.add_argument("--name", help="Repository name (auto-derived from URL/path if omitted)")
+    parser.add_argument(
+        "--build-command", help="Build command for compiled languages (C/C++/Go)"
+    )
+    parser.add_argument(
+        "--lang",
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
+        help="Only this language (required with --url or --local-path)",
+    )
+    parser.add_argument("--repo", help="Only this repository (config mode filter)")
     parser.add_argument("--skip-clone", action="store_true", help="Skip git clone")
     parser.add_argument("--skip-db", action="store_true", help="Skip database creation")
     parser.add_argument("--ask-llm", action="store_true", help="Ask LLM on build failure")
@@ -177,7 +197,7 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--lang",
-        choices=["c", "cpp", "python", "javascript", "php", "java"],
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
         help="Only this language",
     )
     parser.add_argument("--repo", help="Only this repository")
@@ -203,7 +223,7 @@ def _add_extract_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for extract-context command."""
     parser.add_argument(
         "--lang",
-        choices=["c", "cpp", "python", "javascript", "php", "java"],
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
         help="Only this language",
     )
     parser.add_argument("--repo", help="Only this repository")
@@ -341,7 +361,7 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     filter_group.add_argument("--repo", help="Only process this repository")
     filter_group.add_argument(
         "--lang",
-        choices=["c", "cpp", "python", "javascript", "php", "java"],
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
         help="Only this language",
     )
     filter_group.add_argument("--limit", type=int, help="Maximum findings to process")
@@ -357,6 +377,32 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     output_group.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     output_group.add_argument("--log-file", type=Path, help="Save LLM conversations to file")
     output_group.add_argument("--dry-run", action="store_true", help="Show what would be processed")
+    output_group.add_argument(
+        "--report", action="store_true", help="Generate markdown report after verification"
+    )
+
+
+def _add_report_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for the report command."""
+    parser.add_argument(
+        "--results-dir",
+        type=Path,
+        help="Path to verification_results directory",
+    )
+    parser.add_argument(
+        "--repo", help="Repository name (for auto-discovering results)"
+    )
+    parser.add_argument(
+        "--lang",
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
+        help="Language (for auto-discovering results)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="Output path for the report (default: report.md in results dir)",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -387,6 +433,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_verify(args)
     elif args.command == "info":
         return cmd_info(args)
+    elif args.command == "report":
+        return cmd_report(args)
     else:
         parser.print_help()
         return 0

@@ -211,6 +211,7 @@ class RepositoryManager:
         "cpp": "cpp",
         "python": "python",
         "javascript": "javascript",
+        "go": "go",
     }
 
     def __init__(
@@ -229,6 +230,7 @@ class RepositoryManager:
         url: str,
         language: str,
         build_command: str | None = None,
+        local_path: Path | None = None,
         skip_clone: bool = False,
         skip_db: bool = False,
         dry_run: bool = False,
@@ -242,6 +244,7 @@ class RepositoryManager:
             url: Git URL
             language: Programming language
             build_command: Build command for C/C++
+            local_path: Use existing local directory instead of cloning
             skip_clone: Skip git clone
             skip_db: Skip database creation
             dry_run: Only print actions
@@ -255,7 +258,7 @@ class RepositoryManager:
         except ValueError as e:
             return False, str(e)
 
-        repo_dir = (self.repos_dir / language / name).resolve()
+        repo_dir = Path(local_path).resolve() if local_path else (self.repos_dir / language / name).resolve()
         db_dir = (self.output_dir / language / name / "database").resolve()
 
         # Clone
