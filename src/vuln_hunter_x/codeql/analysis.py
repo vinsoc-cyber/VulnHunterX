@@ -29,6 +29,7 @@ class CodeQLAnalyzer:
         "javascript": "codeql/javascript-queries:codeql-suites/javascript-security-extended.qls",
         "php": "codeql/php-queries:codeql-suites/php-security-extended.qls",
         "java": "codeql/java-queries:codeql-suites/java-security-extended.qls",
+        "go": "codeql/go-queries:codeql-suites/go-security-extended.qls",
     }
 
     def __init__(

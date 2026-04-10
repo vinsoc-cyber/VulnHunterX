@@ -1,0 +1,114 @@
+# Guided Questions Templates for CodeQL/Semgrep Rules (LLM verification style)
+#
+# Questions MUST force the LLM to trace:
+#   1. WHERE variables are declared
+#   2. What their exact SIZES/VALUES are
+#   3. Whether sizes/values CHANGE through assignment or reallocation
+#   4. What CHECKS or CONSTRAINTS exist
+#   5. What OTHER variables feed into the target variables
+#
+# The LLM must answer ALL questions BEFORE giving a verdict.
+# This forces step-by-step reasoning instead of pattern matching.
+#
+# Language: Go
+#
+# Format:
+#   rule_id:
+#     short_description: Brief description of the vulnerability
+#     questions: List of questions to answer BEFORE verdict
+#     context_hint: What additional context helps (caller, struct, etc.)
+#     additional_context: List of context types that may be needed
+
+go/sql-injection:
+  short_description: "User input concatenated into SQL query in Go"
+  questions:
+    - "Where does the INPUT originate — http.Request.FormValue(), URL query params, request body, or another user-controlled source?"
+    - "Is the query built with fmt.Sprintf() or string concatenation (vulnerable), or are parameterized queries with $1/? placeholders used (safe)?"
+    - "Which database package is used (database/sql, sqlx, gorm, ent) and is Query/Exec called with args or with an interpolated string?"
+    - "Trace the INPUT — is it passed through any validation, escaping, or allowlist before reaching the query?"
+    - "Could SQL metacharacters (quotes, semicolons, UNION, comments) in the input alter the query structure?"
+    - "If using an ORM (GORM, ent), is raw SQL used with user input, or are the ORM's query builder methods used safely?"
+  context_hint: "Trace from HTTP handler input through all assignments to database query execution."
+  additional_context: ["caller"]
+
+go/path-injection:
+  short_description: "User input used in file path allowing directory traversal in Go"
+  questions:
+    - "Where does the PATH input originate — HTTP request parameter, uploaded filename, API input?"
+    - "Is os.Open(), os.Create(), os.ReadFile(), or filepath.Join() used with user-controlled path components?"
+    - "Is filepath.Clean() applied, and is the result checked with strings.HasPrefix() or filepath.Rel() to ensure it stays within the intended base directory?"
+    - "Could '../' sequences in the input allow reading or writing files outside the intended directory?"
+    - "Is http.ServeFile() or http.FileServer() used — does the handler strip path prefixes correctly?"
+    - "Is there an allowlist of permitted filenames, extensions, or path prefixes?"
+  context_hint: "Trace from input through path construction to file I/O operation."
+  additional_context: ["caller"]
+
+go/command-injection:
+  short_description: "User input passed to os/exec.Command() in Go"
+  questions:
+    - "Where does the INPUT originate — HTTP request, file content, environment variable, or config?"
+    - "Is exec.Command() called with user input as the command name or as arguments?"
+    - "Is exec.CommandContext() used with a timeout to limit execution time?"
+    - "Is the command name hardcoded with user input only in arguments (safer), or is the entire command string user-controlled?"
+    - "Is an allowlist used to validate the command name or arguments against known-safe values?"
+    - "Could an attacker inject shell metacharacters — note that exec.Command() does NOT invoke a shell unless /bin/sh -c is explicitly used?"
+  context_hint: "Trace from input through command construction to exec.Command() invocation."
+  additional_context: ["caller"]
+
+go/xss:
+  short_description: "User input written to HTTP response without escaping in Go"
+  questions:
+    - "Where does the INPUT originate — r.FormValue(), URL params, request body, database?"
+    - "Is the output written via w.Write(), fmt.Fprintf(w, ...), or a template?"
+    - "If using html/template, is the input properly passed as template data (auto-escaped), or is it concatenated into the template string?"
+    - "If using text/template instead of html/template, is HTML escaping applied manually?"
+    - "Is the Content-Type header set correctly — writing JSON with application/json is safe, but text/html requires escaping?"
+    - "Could an attacker inject <script> tags or event handlers to execute JavaScript?"
+  context_hint: "Trace from input through all assignments to HTTP response output."
+  additional_context: ["caller"]
+
+go/ssrf:
+  short_description: "User input used in outgoing HTTP request URL in Go"
+  questions:
+    - "Where does the URL or hostname originate — request parameter, database, config?"
+    - "Is http.Get(), http.Post(), http.NewRequest(), or a custom http.Client used with user-controlled URL?"
+    - "Is the URL validated against an allowlist of permitted domains or IP ranges?"
+    - "Could an attacker supply internal network addresses (127.0.0.1, 169.254.169.254, 10.x.x.x) to access internal services?"
+    - "Is URL parsing done correctly — could an attacker bypass validation with URL encoding, DNS rebinding, or redirect chains?"
+    - "Does the HTTP client follow redirects (default behavior) — could a redirect to an internal address bypass the initial check?"
+  context_hint: "Trace from input through URL construction to HTTP client request."
+  additional_context: ["caller"]
+
+go/hardcoded-credentials:
+  short_description: "Hard-coded password, secret, or API key in Go source code"
+  questions:
+    - "Is the string literal a real secret (password, API key, token) or a test/placeholder/example value?"
+    - "Is the secret used in production code or only in test files (_test.go)?"
+    - "Is the secret used to authenticate against an external service, database, or API?"
+    - "Could the secret be moved to an environment variable (os.Getenv()), config file, or secrets manager?"
+    - "Is the value a default that is always overridden at runtime, or could it reach production?"
+  context_hint: "Check if the string is a real credential and whether it's used in production paths."
+  additional_context: []
+
+go/unsafe-deserialization:
+  short_description: "Untrusted data decoded without validation in Go"
+  questions:
+    - "Where does the DATA originate — HTTP request body, file upload, external API?"
+    - "Is json.Unmarshal(), xml.Unmarshal(), gob.Decode(), or yaml.Unmarshal() used on user-controlled input?"
+    - "Is the decoded data validated (field ranges, lengths, types) after unmarshaling?"
+    - "For YAML, is yaml.Unmarshal (go-yaml v3, safe by default) used, or an older version that may execute arbitrary tags?"
+    - "Could excessively large or deeply nested input cause denial of service (memory exhaustion, stack overflow)?"
+    - "Is there a size limit (io.LimitReader) on the input before decoding?"
+  context_hint: "Trace from data source to deserialization call and check post-decode validation."
+  additional_context: ["caller"]
+
+go/open-redirect:
+  short_description: "User input used in HTTP redirect URL without validation"
+  questions:
+    - "Where does the REDIRECT URL originate — query parameter, form input, referrer header?"
+    - "Is http.Redirect() called with a user-controlled URL?"
+    - "Is the URL validated to ensure it points to the same origin or an allowlisted domain?"
+    - "Could an attacker supply an absolute URL (https://evil.com) or a protocol-relative URL (//evil.com) to redirect to a malicious site?"
+    - "Is url.Parse() used to check the Host before redirecting?"
+  context_hint: "Trace from input to http.Redirect() and check URL validation."
+  additional_context: ["caller"]

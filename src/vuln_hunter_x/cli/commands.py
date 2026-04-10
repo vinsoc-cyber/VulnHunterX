@@ -36,24 +36,83 @@ def cmd_check_env(args: argparse.Namespace) -> int:
     return 1
 
 
+def _derive_repo_name(url: str | None, local_path: Path | None) -> str | None:
+    """Derive repository name from URL or local path."""
+    if url:
+        # Extract last path component, strip .git suffix
+        name = url.rstrip("/").rsplit("/", 1)[-1]
+        if name.endswith(".git"):
+            name = name[:-4]
+        return name or None
+    if local_path:
+        return local_path.resolve().name or None
+    return None
+
+
 def cmd_clone(args: argparse.Namespace) -> int:
     """Execute clone command."""
     from vuln_hunter_x.codeql.repository import RepositoryManager
 
     base_path = Path.cwd()
-    config_path = args.config or base_path / "config" / "repos.yaml"
-
-    if not config_path.exists():
-        print(f"Config not found: {config_path}", file=sys.stderr)
-        return 1
-
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
+    url = getattr(args, "url", None)
+    local_path = getattr(args, "local_path", None)
+
+    # Validate mutually exclusive options
+    if url and local_path:
+        print("Error: --url and --local-path are mutually exclusive.", file=sys.stderr)
+        return 1
 
     manager = RepositoryManager(
         repos_dir=base_path / "repos",
         output_dir=base_path / "output",
         codeql_path=codeql_path,
     )
+
+    # ── Direct mode: --url or --local-path ──
+    if url or local_path:
+        if not args.lang:
+            print("Error: --lang is required when using --url or --local-path.", file=sys.stderr)
+            return 1
+
+        name = getattr(args, "name", None) or _derive_repo_name(url, local_path)
+        if not name:
+            print("Error: could not derive repo name; use --name.", file=sys.stderr)
+            return 1
+
+        build_command = getattr(args, "build_command", None)
+
+        if local_path:
+            local_path = Path(local_path).resolve()
+            if not local_path.is_dir():
+                print(f"Error: local path not found: {local_path}", file=sys.stderr)
+                return 1
+
+        print("Clone repo and create CodeQL database\n")
+
+        ok, msg = manager.clone_and_create_db(
+            name=name,
+            url=url or "",
+            language=args.lang,
+            build_command=build_command,
+            local_path=local_path,
+            skip_clone=bool(local_path) or args.skip_clone,
+            skip_db=args.skip_db,
+            dry_run=args.dry_run,
+            ask_llm=args.ask_llm,
+        )
+
+        status = "OK" if ok else "FAIL"
+        detail = msg[:100] if ok else msg if len(msg) <= 1200 else msg[:1200] + "... (truncated)"
+        print(f"[{name}] [{status}] {detail}")
+        return 0 if ok else 1
+
+    # ── Config mode (default) ──
+    config_path = args.config or base_path / "config" / "repos.yaml"
+
+    if not config_path.exists():
+        print(f"Config not found: {config_path}", file=sys.stderr)
+        return 1
 
     print("Clone repos and create CodeQL databases\n")
 
@@ -226,7 +285,7 @@ def _run_semgrep_analyze(
         return 1
 
     repos = load_repos_config(Path(config_path))
-    supported_langs = {"c", "cpp", "python", "javascript", "php", "java"}
+    supported_langs = {"c", "cpp", "python", "javascript", "php", "java", "go"}
     # Build (lang, name) list; normalize language key
     repo_list: list[tuple[str, str]] = []
     for r in repos:
@@ -335,7 +394,7 @@ def _run_opengrep_analyze(
         return 1
 
     repos = load_repos_config(Path(config_path))
-    supported_langs = {"c", "cpp", "python", "javascript", "php", "java"}
+    supported_langs = {"c", "cpp", "python", "javascript", "php", "java", "go"}
     repo_list: list[tuple[str, str]] = []
     for r in repos:
         name = r.get("name")
@@ -782,6 +841,14 @@ def cmd_verify(args: argparse.Namespace) -> int:
     print(f"\nResults saved to: {results_dir}")
     print(f"Summary: {summary_path}")
 
+    # Generate markdown report if requested
+    if getattr(args, "report", False) and result.verdicts:
+        from vuln_hunter_x.reporting.markdown import MarkdownReportGenerator
+
+        generator = MarkdownReportGenerator()
+        report_path = generator.generate(result, results_dir / "report.md")
+        print(f"Report: {report_path}")
+
     return 0
 
 
@@ -1046,6 +1113,70 @@ def cmd_fuzz_run(args: argparse.Namespace) -> int:
                 )
         print(f"  -> {summary_path}")
     print("\nDone.")
+    return 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    """Execute the report command — generate markdown from verification results."""
+    from vuln_hunter_x.reporting.markdown import MarkdownReportGenerator
+
+    base_path = Path.cwd()
+    output_dir = base_path / "output"
+
+    results_dir = getattr(args, "results_dir", None)
+
+    if results_dir:
+        results_dir = Path(results_dir)
+    else:
+        # Auto-discover from --lang and --repo
+        if args.repo and args.lang:
+            results_dir = output_dir / args.lang / args.repo / "verification_results"
+        elif args.repo:
+            # Search across languages
+            for lang_dir in sorted(output_dir.iterdir()):
+                candidate = lang_dir / args.repo / "verification_results"
+                if candidate.is_dir():
+                    results_dir = candidate
+                    break
+        else:
+            # Find the most recent verification_results directory
+            candidates = list(output_dir.glob("*/*/verification_results"))
+            if candidates:
+                # Pick the one with the newest file
+                results_dir = max(
+                    candidates,
+                    key=lambda d: max(
+                        (f.stat().st_mtime for f in d.glob("*.json")), default=0
+                    ),
+                )
+
+    if not results_dir or not results_dir.is_dir():
+        print(
+            "No verification results found. Specify --results-dir, or --repo/--lang.",
+            file=sys.stderr,
+        )
+        return 1
+
+    json_files = list(results_dir.glob("*.json"))
+    if not json_files:
+        print(f"No JSON verdict files in {results_dir}", file=sys.stderr)
+        return 1
+
+    generator = MarkdownReportGenerator()
+    result = generator.from_verdict_files(results_dir)
+
+    if not result.verdicts:
+        print("No verdicts found in the result files.", file=sys.stderr)
+        return 1
+
+    output_path = getattr(args, "output", None) or results_dir / "report.md"
+    report_path = generator.generate(result, Path(output_path))
+    print(f"Report generated: {report_path}")
+    print(f"  Findings: {result.total_findings}")
+    for verdict_type, count in result.stats.items():
+        if count > 0:
+            print(f"  {verdict_type}: {count}")
+
     return 0
 
 

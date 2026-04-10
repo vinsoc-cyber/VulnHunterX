@@ -45,6 +45,9 @@ class ContextExtractor:
                 re.MULTILINE,
             ),
         ],
+        "go": [
+            re.compile(r"^\s*func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)\s*\(", re.MULTILINE),
+        ],
     }
 
     def __init__(self, repos_base: Path):

@@ -15,6 +15,7 @@ QUERIES_BY_LANG: dict[str, list[str]] = {
     "javascript": ["functions", "callers", "classes"],
     "php": ["functions", "callers", "classes"],
     "java": ["functions", "callers", "classes"],
+    "go": ["functions", "callers", "classes"],
 }
 
 # File extensions per language
@@ -25,6 +26,7 @@ LANG_EXTENSIONS: dict[str, tuple[str, ...]] = {
     "javascript": (".js", ".jsx", ".mjs"),
     "java": (".java",),
     "php": (".php",),
+    "go": (".go",),
 }
 
 # CSV field definitions per query type
@@ -54,6 +56,7 @@ def _get_language(lang: str) -> tree_sitter.Language:
         "javascript": "tree_sitter_javascript",
         "java": "tree_sitter_java",
         "php": "tree_sitter_php",
+        "go": "tree_sitter_go",
     }
     module_name = lang_modules[lang]
     import importlib
@@ -267,6 +270,7 @@ class TreeSitterContextExtractor:
             "javascript": ("function_declaration", "method_definition"),
             "java": ("method_declaration",),
             "php": ("function_definition", "method_declaration"),
+            "go": ("function_declaration", "method_declaration"),
         }
         types = func_node_types.get(lang, ("function_definition",))
         rows: list[dict] = []
@@ -309,6 +313,7 @@ class TreeSitterContextExtractor:
             "javascript": ("call_expression",),
             "java": ("method_invocation",),
             "php": ("function_call_expression",),
+            "go": ("call_expression",),
         }
         types = call_node_types.get(lang, ("call_expression",))
         rows: list[dict] = []
@@ -403,6 +408,7 @@ class TreeSitterContextExtractor:
             "javascript": ("class_declaration",),
             "java": ("class_declaration",),
             "php": ("class_declaration",),
+            "go": ("type_declaration",),
         }
         types = class_node_types.get(lang, ("class_declaration",))
         rows: list[dict] = []

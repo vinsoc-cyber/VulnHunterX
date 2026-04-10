@@ -69,6 +69,27 @@ class Finding:
             "related_locations": self.related_locations,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict) -> Finding:
+        """Create Finding from dictionary."""
+        return cls(
+            rule_id=data.get("rule_id", ""),
+            message=data.get("message", ""),
+            file=data.get("file", ""),
+            start_line=data.get("start_line", 0),
+            end_line=data.get("end_line", 0),
+            repo_name=data.get("repo_name", ""),
+            lang=data.get("lang", ""),
+            sarif_path=data.get("sarif_path", ""),
+            tool=data.get("tool", ""),
+            dataflow_path=data.get("dataflow_path", []),
+            severity=data.get("severity", ""),
+            precision=data.get("precision", ""),
+            cwe_ids=data.get("cwe_ids", []),
+            tags=data.get("tags", []),
+            related_locations=data.get("related_locations", []),
+        )
+
 
 @dataclass
 class GuidedQuestions:
@@ -164,6 +185,26 @@ class Verdict:
             "tokens_used": self.tokens_used,
             "cost_usd": self.cost_usd,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Verdict:
+        """Create Verdict from dictionary."""
+        return cls(
+            finding=Finding.from_dict(data.get("finding", {})),
+            verdict=data.get("verdict", ""),
+            confidence=data.get("confidence", ""),
+            reasoning=data.get("reasoning", ""),
+            answers=data.get("answers", []),
+            raw_response=data.get("raw_response", ""),
+            model=data.get("model", ""),
+            timestamp=data.get("timestamp", ""),
+            elapsed_seconds=data.get("elapsed_seconds", 0.0),
+            context_needed=data.get("context_needed", []),
+            iterations=data.get("iterations", 1),
+            tokens_used=data.get("tokens_used", 0),
+            cost_usd=data.get("cost_usd", 0.0),
+            confidence_score=data.get("confidence_score", 0.0),
+        )
 
 
 @dataclass
