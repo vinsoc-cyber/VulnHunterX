@@ -680,3 +680,51 @@ java/html-injection:
     - "Is Content-Security-Policy configured to mitigate the impact of any successful injection?"
   context_hint: "Include the template file, model attribute binding, and output expression."
   additional_context: ["caller"]
+
+java/cors-misconfiguration:
+  short_description: "CORS configuration allowing overly permissive origins in Java web application"
+  questions:
+    - "Is @CrossOrigin(origins = '*') or CorsConfiguration.addAllowedOrigin('*') used?"
+    - "Is allowCredentials(true) combined with a wildcard or reflected origin (insecure)?"
+    - "Is a CorsConfigurationSource bean defined with specific AllowedOrigins rather than wildcards?"
+    - "Is the CORS filter applied globally via WebMvcConfigurer.addCorsMappings() or per-controller?"
+    - "Could an attacker's website make authenticated cross-origin requests and read the response?"
+    - "Are sensitive endpoints (admin, payment) excluded from permissive CORS rules?"
+  context_hint: "Check @CrossOrigin annotations, CorsConfigurationSource, and WebMvcConfigurer CORS mappings."
+  additional_context: ["caller", "class"]
+
+java/mass-assignment:
+  short_description: "HTTP request body directly bound to model allowing unauthorized field assignment"
+  questions:
+    - "Is @ModelAttribute or @RequestBody used to bind request data directly to a JPA entity or domain object?"
+    - "Does the entity contain fields that should not be user-settable (role, isAdmin, balance, password)?"
+    - "Is a separate DTO used for input binding, then mapped to the entity (safe pattern)?"
+    - "Could an attacker add extra fields (e.g., 'role': 'ADMIN') to the JSON body to escalate privileges?"
+    - "Is Spring's @JsonIgnore or Jackson's @JsonProperty(access = READ_ONLY) used on sensitive fields?"
+    - "Are only explicitly allowlisted fields copied from the DTO to the entity?"
+  context_hint: "Check the request binding, entity class, and whether a DTO is used as an intermediate."
+  additional_context: ["caller", "class"]
+
+java/sensitive-data-exposure:
+  short_description: "Sensitive data exposed in logs, error responses, or API output in Java"
+  questions:
+    - "What sensitive data is exposed — passwords, API keys, tokens, PII, stack traces, SQL query details?"
+    - "Is the Spring error handling configured to return detailed stack traces to clients (server.error.include-stacktrace=always)?"
+    - "Are exception messages containing internal details (SQL errors, file paths) returned in REST responses?"
+    - "Is logging configured to avoid recording sensitive data (passwords, tokens) in log files?"
+    - "Are sensitive entity fields excluded from JSON serialization using @JsonIgnore or a DTO?"
+    - "Could the exposure violate GDPR, HIPAA, or PCI-DSS compliance requirements?"
+  context_hint: "Trace sensitive data to all output channels (REST response, logs, error pages)."
+  additional_context: ["caller", "class"]
+
+java/regex-injection:
+  short_description: "User input used in Pattern.compile() causing catastrophic backtracking"
+  questions:
+    - "Is Pattern.compile() or String.matches()/replaceAll()/split() called with a user-controlled regex pattern?"
+    - "Is the user input used as the PATTERN (dangerous) or as the INPUT string to match (safe)?"
+    - "Could an attacker supply a pattern like (a+)+ that causes exponential backtracking?"
+    - "Is the pattern validated or restricted (max length, character allowlist) before compilation?"
+    - "Could catastrophic backtracking cause denial of service by exhausting CPU and blocking the thread pool?"
+    - "Would Pattern.CANON_EQ or Pattern.COMMENTS make the regex more vulnerable to injection?"
+  context_hint: "Identify whether user input reaches Pattern.compile() and check for backtracking patterns."
+  additional_context: ["caller"]

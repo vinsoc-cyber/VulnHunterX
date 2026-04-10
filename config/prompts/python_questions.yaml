@@ -702,3 +702,63 @@ py/incorrect-authorization:
     - "Could a race condition between the permission check and the action allow bypass?"
   context_hint: "Include the view, object lookup, permission class, and queryset filtering."
   additional_context: ["caller", "class"]
+
+py/resource-leak:
+  short_description: "Opened resource (file, connection, socket) not properly closed in Python"
+  questions:
+    - "Which resource is opened — open(), socket.socket(), sqlite3.connect(), psycopg2.connect(), requests.Session()?"
+    - "Is a context manager (with statement) used to ensure the resource is closed on all code paths?"
+    - "If not using 'with', is .close() called in a finally block to handle exceptions?"
+    - "Could the leak accumulate over time — is this in a loop, web handler (called per-request), or long-running process?"
+    - "For database connections, is a connection pool (SQLAlchemy pool, psycopg2 pool) used instead of opening individual connections?"
+    - "Could the resource leak lead to 'Too many open files' errors or database connection exhaustion?"
+  context_hint: "Trace from resource open to close() and check all code paths including exceptions."
+  additional_context: ["caller"]
+
+py/mass-assignment:
+  short_description: "HTTP request body directly assigned to model fields allowing privilege escalation"
+  questions:
+    - "Is request.data, request.POST, or request.json directly passed to Model.objects.create() or model_instance.__dict__.update()?"
+    - "Does the model contain fields that should not be user-settable (is_admin, role, balance, is_staff)?"
+    - "Is a Django ModelForm with explicit fields= or exclude= used, or DRF Serializer with fields restriction?"
+    - "Could an attacker add extra fields (e.g., 'is_admin': true) to the request body to escalate privileges?"
+    - "Is **kwargs from request data unpacked directly into ORM create/update calls?"
+    - "Are only explicitly allowlisted fields extracted from the request before saving?"
+  context_hint: "Check the request data flow to model creation/update and whether fields are restricted."
+  additional_context: ["caller", "class"]
+
+py/cors-misconfiguration:
+  short_description: "CORS headers set to overly permissive values in Python web application"
+  questions:
+    - "Is CORS_ALLOW_ALL_ORIGINS (Django) or origins='*' (Flask-CORS) set, allowing any origin?"
+    - "Is CORS_ALLOW_CREDENTIALS set to True along with a wildcard origin (insecure combination)?"
+    - "Does the CORS configuration use CORS_ALLOWED_ORIGINS (Django) or specific origins (Flask-CORS) with an allowlist?"
+    - "Is the Origin header reflected back without validation?"
+    - "Could an attacker's website make authenticated cross-origin requests and read the response?"
+    - "Is CORS configured globally or per-view — are sensitive endpoints properly restricted?"
+  context_hint: "Check CORS middleware configuration (django-cors-headers settings or Flask-CORS init)."
+  additional_context: []
+
+py/thread-leak:
+  short_description: "Thread or executor started without proper shutdown or join"
+  questions:
+    - "Is threading.Thread() started without .join() or daemon=True, potentially leaking on exception?"
+    - "Is concurrent.futures.ThreadPoolExecutor or ProcessPoolExecutor used without a 'with' statement or .shutdown()?"
+    - "Could threads accumulate if the function is called repeatedly (per-request in a web handler)?"
+    - "Is asyncio.create_task() used without awaiting the result or storing a reference (fire-and-forget)?"
+    - "Could leaked threads hold resources (database connections, file handles, locks) indefinitely?"
+    - "Is atexit or signal handling used to ensure clean shutdown of background threads?"
+  context_hint: "Trace thread/executor lifecycle from creation to join/shutdown."
+  additional_context: ["caller"]
+
+py/sensitive-data-exposure:
+  short_description: "Sensitive data exposed through logs, error pages, or API responses in Python"
+  questions:
+    - "What sensitive data is exposed — passwords, API keys, tokens, PII, database credentials, stack traces?"
+    - "Is DEBUG=True in Django settings, exposing detailed error pages with local variables to users?"
+    - "Is traceback.format_exc() or exception details included in HTTP responses to clients?"
+    - "Are sensitive fields serialized in API responses without redaction (DRF serializer missing exclude)?"
+    - "Is logging configured to avoid recording sensitive data (passwords, tokens) in log files?"
+    - "Could the exposure violate GDPR, HIPAA, or PCI-DSS compliance requirements?"
+  context_hint: "Trace sensitive data flow to all output channels (HTTP response, logs, error handlers)."
+  additional_context: ["caller", "class"]

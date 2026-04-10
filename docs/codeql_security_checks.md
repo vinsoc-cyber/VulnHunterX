@@ -9,6 +9,9 @@ The framework uses **static analysis (CodeQL and Semgrep)** to identify potentia
 | **C/C++** | [codeql_cpp_security.md](codeql_cpp_security.md) | `codeql/cpp-queries:codeql-suites/cpp-security-extended.qls` |
 | **Python** | [codeql_python_security.md](codeql_python_security.md) | `codeql/python-queries:codeql-suites/python-security-extended.qls` |
 | **JavaScript/TypeScript** | [codeql_javascript_security.md](codeql_javascript_security.md) | `codeql/javascript-queries:codeql-suites/javascript-security-extended.qls` |
+| **Go** | Guided questions: [`go_questions.yaml`](../config/prompts/go_questions.yaml) | `codeql/go-queries:codeql-suites/go-security-extended.qls` |
+| **Java** | Guided questions: [`java_questions.yaml`](../config/prompts/java_questions.yaml) | `codeql/java-queries:codeql-suites/java-security-extended.qls` |
+| **PHP** | Guided questions: [`php_questions.yaml`](../config/prompts/php_questions.yaml) | `codeql/php-queries:codeql-suites/php-security-extended.qls` |
 
 ---
 

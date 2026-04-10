@@ -6,16 +6,15 @@ Get **SAST (CodeQL / Semgrep / OpenGrep)** + LLM bug verification running in 5 m
 
 - **Python 3.12+**
 - **CodeQL CLI 2.15+** ([install guide](https://codeql.github.com/docs/codeql-cli/getting-started-with-the-codeql-cli/))
-- **Semgrep** (optional, for Semgrep-based analysis; [install](https://semgrep.dev/docs/getting-started/))
-- **OpenGrep** (optional; see [installation instructions](https://github.com/opengrep/opengrep#installation) and review any install script before running)
+- **Semgrep** (optional; [install](https://semgrep.dev/docs/getting-started/))
+- **OpenGrep** (optional; [installation](https://github.com/opengrep/opengrep#installation))
 - **Git**
 - **OpenAI API key**, **Anthropic API key**, or **Ollama** installed locally
 
 ## Installation
 
 ```bash
-# Clone and install
-git clone https://github.com/your-org/VulnHunterX.git
+git clone https://github.com/vinsoc-cyber/VulnHunterX.git
 cd VulnHunterX
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -53,7 +52,18 @@ vuln-hunter-x verify --repo pyyaml --limit 5
 cat output/<lang>/<repo>/verification_results/summary_*.json
 ```
 
-Output shows verdicts (True Positive, False Positive, Needs More Data) with confidence and reasoning.
+Or generate a readable markdown report:
+
+```bash
+vuln-hunter-x report --repo pyyaml --lang python
+# Output: output/python/pyyaml/verification_results/report.md
+```
+
+You can also generate the report automatically during verification:
+
+```bash
+vuln-hunter-x verify --repo pyyaml --limit 5 --report
+```
 
 ## Example Scripts
 
@@ -80,14 +90,43 @@ All scripts support: `--dry-run`, `--skip-clone`, `--api`
 
 ## Adding Your Own Repository
 
+**Option A: Direct clone (no config file needed)**
+
+```bash
+# Clone from URL
+vuln-hunter-x clone --url https://github.com/org/my-app.git --lang python
+
+# Use existing local directory
+vuln-hunter-x clone --local-path /path/to/my-app --lang python --name my-app
+
+# For C/C++, provide a build command
+vuln-hunter-x clone --url https://github.com/org/my-lib.git --lang c --build-command "make"
+
+# For Go (no build command needed)
+vuln-hunter-x clone --url https://github.com/org/my-go-app.git --lang go
+```
+
+Then analyze and verify:
+
+```bash
+vuln-hunter-x analyze --repo my-app
+vuln-hunter-x verify --repo my-app --report
+```
+
+**Option B: Add to repos.yaml**
+
 Edit `config/repos.yaml`:
 
 ```yaml
 repos:
   - name: my-app
     url: https://github.com/org/my-app.git
-    language: python  # or c, cpp, javascript, php
-    # build_command: "make"  # Required for C/C++ only
+    language: python  # or c, cpp, javascript, php, java, go
+
+  - name: my-c-lib
+    url: https://github.com/org/my-c-lib.git
+    language: c
+    build_command: "make"  # Required for C/C++ only
 ```
 
 Then run:
@@ -103,42 +142,25 @@ vuln-hunter-x verify --repo my-app
 | Error | Solution |
 |-------|----------|
 | `CodeQL CLI not found` | Add to PATH or set `CODEQL_PATH` in `.env` |
-| `Semgrep CLI not found` | Add to PATH or set `SEMGREP_PATH` in `.env` (when using Semgrep) |
-| `OpenGrep CLI not found` | Add to PATH or set `OPENGREP_PATH` in `.env` (when using OpenGrep) |
+| `Semgrep CLI not found` | Set `SEMGREP_PATH` in `.env` |
 | `OpenAI API key not configured` | Add `OPENAI_API_KEY=sk-...` to `.env` |
 | `could not resolve module cpp` | Run `codeql pack install config/queries/tools/cpp` |
 | `Database is already finalized` | Normal - analysis proceeds automatically |
 
-## Fuzz-based confirmation (C/C++)
+## Fuzz-based Confirmation (C/C++)
 
-Optional stages 5–8 confirm C/C++ findings using sanitizer builds and libFuzzer. Full reference: [docs/fuzz_stages.md](docs/fuzz_stages.md).
-
-**What each stage does:**
-- **Stage 5** (`build-sanitized`): Builds the repo with ASan/UBSan; produces a manifest of libraries and objects for linking.
-- **Stage 6** (`extract-fuzz-context`): Runs CodeQL queries to extract function signatures and include paths used when generating harnesses.
-- **Stage 7, Phase A** (`generate-fuzz-drivers`): Selects fuzzable targets, classifies linkability, gathers signatures and includes, and writes `.cc` harness files.
-- **Stage 7, Phase B** (`generate-fuzz-drivers --build`): Compiles and links each harness; optionally uses the LLM to auto-fix compile errors (`--llm-fix`).
-- **Stage 8** (`fuzz-run`): Runs libFuzzer on each compiled harness; collects crashes and writes a summary.
-
-**Run in sequence:**
+Optional stages 5-8 confirm C/C++ findings using sanitizer builds and libFuzzer. Full reference: [docs/fuzz_stages.md](docs/fuzz_stages.md).
 
 ```bash
 vuln-hunter-x build-sanitized --repo libucl
 vuln-hunter-x extract-fuzz-context --repo libucl
-vuln-hunter-x generate-fuzz-drivers --repo libucl           # Phase A: generate .cc files
-vuln-hunter-x generate-fuzz-drivers --repo libucl --build   # Phase B: compile + link
-vuln-hunter-x fuzz-run --repo libucl
-```
-
-Or run everything in one script:
-
-```bash
-python examples/run_all_pipelines.py --fuzz --repo libucl
+vuln-hunter-x generate-fuzz-drivers --repo libucl --build --llm-fix
+vuln-hunter-x fuzz-run --repo libucl --triage
 ```
 
 ## Next Steps
 
 - See [README.md](README.md) for full CLI reference and API documentation
-- Explore [guided questions](config/prompts/)
+- Explore [guided questions](config/prompts/) (325+ rules across 7 languages)
 - Check [security check docs](docs/) for supported vulnerability types
 - [Fuzz stages](docs/fuzz_stages.md) for C/C++ fuzz-based confirmation

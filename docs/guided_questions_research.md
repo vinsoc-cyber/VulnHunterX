@@ -10,15 +10,16 @@ VulnHunterX uses **200+ guided question rules** across 6 YAML files in `config/p
 
 | File | Language | Rules |
 |------|----------|-------|
-| `cpp_questions.yaml` | C/C++ | ~48 |
-| `python_questions.yaml` | Python | ~58 |
-| `javascript_questions.yaml` | JavaScript/TypeScript | ~56 |
-| `php_questions.yaml` | PHP | ~36 |
-| `java_questions.yaml` | Java | ~28 |
+| `cpp_questions.yaml` | C/C++ | 61 |
+| `python_questions.yaml` | Python | 57 |
+| `go_questions.yaml` | Go | 50 |
+| `java_questions.yaml` | Java | 53 |
+| `javascript_questions.yaml` | JavaScript/TypeScript | 53 |
+| `php_questions.yaml` | PHP | 51 |
 | `default_questions.yaml` | Generic fallback | 1 |
 | `system_prompt.yaml` | LLM system prompt | — |
 
-**Total: ~282 rules** (85% have no benchmark coverage yet)
+**Total: 325+ rules** across 7 languages
 
 ---
 

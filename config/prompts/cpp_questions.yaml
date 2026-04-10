@@ -777,3 +777,63 @@ cpp/incorrect-authorization:
     - "Is there a consistent authorization model, or do different code paths use different checks?"
   context_hint: "Include the authorization check, UID/GID comparison, and the privileged operation."
   additional_context: ["caller", "macro"]
+
+cpp/log-injection:
+  short_description: "User input written to log output without sanitization in C/C++"
+  questions:
+    - "Where does the INPUT originate — network socket, file, command-line argument, environment variable?"
+    - "Is the input written to a log via syslog(), fprintf(logfile, ...), or a logging library (spdlog, log4cxx)?"
+    - "Is the input used as a format string argument (dangerous) or as a data argument to %s (less dangerous but still injectable)?"
+    - "Could the input contain newline characters (\\n, \\r) that forge additional log entries?"
+    - "Is the input sanitized to strip or escape control characters before logging?"
+    - "Could injected log entries mislead monitoring tools, SIEM, or incident response?"
+  context_hint: "Trace from input through formatting to log output call."
+  additional_context: ["caller"]
+
+cpp/sensitive-data-exposure:
+  short_description: "Sensitive data exposed in error messages, logs, or output in C/C++"
+  questions:
+    - "What sensitive data is exposed — passwords, keys, tokens, PII, internal paths, stack traces?"
+    - "Is the exposure in stderr output, log files, error messages returned to clients, or core dumps?"
+    - "Is perror(), strerror(), or a verbose error handler printing internal details?"
+    - "Does the error message include memory addresses, file paths, or configuration values?"
+    - "Is there a generic error handler that returns safe messages externally while logging details internally?"
+    - "Could the exposed information help an attacker (heap layout, library versions, file structure)?"
+  context_hint: "Check what information reaches output channels (stderr, log files, network responses)."
+  additional_context: ["caller"]
+
+cpp/regex-injection:
+  short_description: "User input used as regex pattern causing catastrophic backtracking in C/C++"
+  questions:
+    - "Is std::regex, PCRE, RE2, or another regex library used with user-controlled pattern?"
+    - "Is std::regex used (vulnerable to catastrophic backtracking) or RE2 (safe, linear time)?"
+    - "Is the pattern validated or restricted (max length, character allowlist) before compilation?"
+    - "Could an attacker supply a pattern like (a+)+ that causes exponential backtracking?"
+    - "Is the user input used as the PATTERN (dangerous) or as the INPUT string to match (safe)?"
+    - "Could catastrophic backtracking cause denial of service by exhausting CPU?"
+  context_hint: "Identify the regex library, whether the pattern is user-controlled, and backtracking behavior."
+  additional_context: ["caller"]
+
+cpp/ssrf:
+  short_description: "User input used in outgoing network request URL in C/C++"
+  questions:
+    - "Where does the URL or hostname originate — command-line argument, config file, network input?"
+    - "Is libcurl (curl_easy_setopt), Boost.Beast, or raw socket connect() used with user-controlled host/URL?"
+    - "Is the URL validated against an allowlist of permitted domains or IP ranges?"
+    - "Could an attacker supply internal network addresses (127.0.0.1, 169.254.169.254, 10.x.x.x) to access internal services?"
+    - "Is DNS resolution done before validation — could DNS rebinding bypass the check?"
+    - "Does the HTTP client follow redirects — could a redirect to an internal address bypass initial validation?"
+  context_hint: "Trace from input through URL construction to the network request function."
+  additional_context: ["caller"]
+
+cpp/cors-misconfiguration:
+  short_description: "CORS headers set to overly permissive values in C/C++ HTTP server"
+  questions:
+    - "Is Access-Control-Allow-Origin set to '*' (wildcard) or reflected from the request Origin header?"
+    - "Is Access-Control-Allow-Credentials set to true along with a permissive origin?"
+    - "Is this in an HTTP server implementation (embedded web server, microhttpd, Crow, cpp-httplib)?"
+    - "Does the CORS configuration validate the Origin against an allowlist of trusted domains?"
+    - "Could an attacker's website make authenticated cross-origin requests and read the response?"
+    - "Is the CORS header set globally or per-endpoint — are sensitive endpoints properly restricted?"
+  context_hint: "Check CORS header values and how Origin validation is performed."
+  additional_context: ["caller"]

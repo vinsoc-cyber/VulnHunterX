@@ -662,3 +662,63 @@ js/incorrect-authorization:
     - "Could a timing difference in the authorization check reveal whether a resource exists (information leak)?"
   context_hint: "Include the route handler, resource lookup query, and authorization check."
   additional_context: ["caller"]
+
+js/resource-leak:
+  short_description: "Opened resource (stream, connection, handle) not properly closed in JavaScript"
+  questions:
+    - "Which resource is opened — fs.createReadStream(), database connection (pg.Pool.connect()), net.Socket, HTTP response stream?"
+    - "Is the stream or connection properly closed on all code paths (success, error, exception)?"
+    - "Is .destroy(), .end(), .close(), or .release() called in a finally block or error handler?"
+    - "For database connections from a pool, is client.release() called after use (not client.end())?"
+    - "Could the leak accumulate over time — is this in an Express handler (called per-request) or a loop?"
+    - "Could resource leaks lead to 'EMFILE: too many open files' or database connection pool exhaustion?"
+  context_hint: "Trace from resource open/acquire to close/release and check error code paths."
+  additional_context: ["caller"]
+
+js/mass-assignment:
+  short_description: "HTTP request body directly spread into database model allowing privilege escalation"
+  questions:
+    - "Is req.body or Object.assign({}, req.body) directly passed to Model.create(), .update(), or .findOneAndUpdate()?"
+    - "Does the database model contain fields that should not be user-settable (role, isAdmin, verified, balance)?"
+    - "Is a destructured subset of req.body used (const { name, email } = req.body) rather than the full object?"
+    - "Could an attacker add extra fields (e.g., 'isAdmin': true) to the JSON body to escalate privileges?"
+    - "Is Mongoose's select() or a schema-level 'immutable: true' used to protect sensitive fields?"
+    - "For Sequelize/Prisma, are only explicitly allowlisted fields passed to create/update?"
+  context_hint: "Check how req.body flows to database operations and whether fields are restricted."
+  additional_context: ["caller"]
+
+js/race-condition:
+  short_description: "Async race condition allowing concurrent requests to produce incorrect results"
+  questions:
+    - "Is a read-then-write pattern used (e.g., check balance, then deduct) without atomic operations?"
+    - "Could two concurrent requests execute the read step before either completes the write step?"
+    - "Is a database transaction or atomic operation (findOneAndUpdate, SET NX) used to prevent TOCTOU?"
+    - "Is a shared in-memory variable modified by concurrent async operations without synchronization?"
+    - "Could the race condition lead to double-spending, duplicate resource creation, or permission bypass?"
+    - "Is optimistic locking (version field) or pessimistic locking (SELECT FOR UPDATE) used?"
+  context_hint: "Identify the read-then-write pattern and check for atomic operations or transactions."
+  additional_context: ["caller"]
+
+js/sensitive-data-exposure:
+  short_description: "Sensitive data exposed in logs, error responses, or client-side code"
+  questions:
+    - "What sensitive data is exposed — API keys, tokens, passwords, PII, database connection strings?"
+    - "Is sensitive data included in client-side JavaScript bundles (hardcoded in React/Vue/Angular source)?"
+    - "Are detailed error stacks sent to clients in production (app.use(errorHandler) without filtering)?"
+    - "Is console.log() used to log sensitive data in production (visible in browser DevTools or server logs)?"
+    - "Are environment variables with secrets accidentally exposed via process.env in client-side code?"
+    - "Is source map generation enabled in production, exposing original source code?"
+  context_hint: "Trace sensitive data to all output channels (HTTP response, console, client bundle)."
+  additional_context: ["caller"]
+
+js/regex-injection:
+  short_description: "User input used as regex pattern causing catastrophic backtracking"
+  questions:
+    - "Is new RegExp(userInput) called with user-controlled pattern?"
+    - "Is the user input used as the PATTERN (dangerous) or as the INPUT string to match (safe)?"
+    - "Could an attacker supply a pattern like (a+)+ that causes exponential backtracking?"
+    - "Is the pattern validated or restricted (max length, character allowlist) before compilation?"
+    - "Could catastrophic backtracking cause denial of service by blocking the Node.js event loop?"
+    - "Is a safe regex library (re2, safe-regex) used instead of the built-in RegExp?"
+  context_hint: "Identify whether user input reaches new RegExp() and check for backtracking patterns."
+  additional_context: ["caller"]

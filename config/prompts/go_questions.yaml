@@ -112,3 +112,496 @@ go/open-redirect:
     - "Is url.Parse() used to check the Host before redirecting?"
   context_hint: "Trace from input to http.Redirect() and check URL validation."
   additional_context: ["caller"]
+
+go/log-injection:
+  short_description: "User input written to log output without sanitization"
+  questions:
+    - "Where does the INPUT originate — HTTP request, form data, headers, external API?"
+    - "Is log.Printf(), log.Println(), or a structured logger (zap, logrus, zerolog) used?"
+    - "If using a structured logger, is the input passed as a structured field (safe) or interpolated into the message string (vulnerable)?"
+    - "Could an attacker inject newlines (\\n, \\r) to forge log entries or bypass log parsing?"
+    - "Is the input sanitized to strip or escape control characters before logging?"
+    - "Could injected log entries mislead monitoring tools, SIEM, or incident response?"
+  context_hint: "Trace from input through formatting to log output call."
+  additional_context: ["caller"]
+
+go/information-exposure:
+  short_description: "Sensitive information exposed in error messages, logs, or HTTP responses"
+  questions:
+    - "What sensitive data is exposed — stack traces, database errors, internal paths, credentials, PII?"
+    - "Is the exposure in an HTTP response body, HTTP header, log file, or error message?"
+    - "Is http.Error() or fmt.Fprintf(w, err.Error()) used to send raw error details to clients?"
+    - "Does the error message include internal implementation details (database schema, file paths, config values)?"
+    - "Is there a generic error handler that returns safe messages to clients while logging details server-side?"
+    - "Could the exposed information help an attacker plan further attacks (SQL structure, file layout, dependency versions)?"
+  context_hint: "Check what information reaches the HTTP response or public logs."
+  additional_context: ["caller"]
+
+go/weak-cryptographic-algorithm:
+  short_description: "Use of weak or deprecated cryptographic algorithm in Go"
+  questions:
+    - "Which algorithm is used — MD5 (crypto/md5), SHA1 (crypto/sha1), DES, RC4, or another weak algorithm?"
+    - "Is the algorithm used for security purposes (password hashing, HMAC, digital signatures) or non-security purposes (checksums, cache keys, deduplication)?"
+    - "If used for password hashing, is bcrypt (golang.org/x/crypto/bcrypt), scrypt, or argon2 used instead?"
+    - "If used for message integrity, is HMAC-SHA256 or a stronger MAC used?"
+    - "Is the weak algorithm required for backward compatibility with an external system or protocol?"
+    - "Could an attacker exploit collision or preimage weaknesses in the algorithm?"
+  context_hint: "Identify the crypto import and determine whether it's used for security-sensitive operations."
+  additional_context: []
+
+go/insecure-randomness:
+  short_description: "Use of math/rand instead of crypto/rand for security-sensitive values"
+  questions:
+    - "Is math/rand or math/rand/v2 used to generate security-sensitive values (tokens, session IDs, passwords, nonces, cryptographic keys)?"
+    - "Is crypto/rand.Read() or crypto/rand.Int() used instead (secure)?"
+    - "Is the random value used for security purposes (authentication, authorization, CSRF tokens) or non-security purposes (load balancing, shuffling, test data)?"
+    - "If math/rand is seeded, is the seed predictable (time-based) or derived from crypto/rand?"
+    - "Could an attacker predict the generated values and forge tokens or bypass security checks?"
+  context_hint: "Identify the rand import and trace how the generated value is used."
+  additional_context: ["caller"]
+
+go/xxe:
+  short_description: "XML parsing without disabling external entity resolution"
+  questions:
+    - "Where does the XML input originate — HTTP request body, file upload, external API?"
+    - "Which XML parser is used — encoding/xml (safe by default, no DTD support), or a third-party library?"
+    - "If using a third-party XML library (etree, libxml2 bindings), is external entity resolution explicitly disabled?"
+    - "Could an attacker embed <!DOCTYPE> with external entity references to read local files or trigger SSRF?"
+    - "Is there input size validation (io.LimitReader) to prevent XML bomb (billion laughs) attacks?"
+    - "Note: Go's standard encoding/xml does NOT process DTDs or external entities — is this the parser in use?"
+  context_hint: "Identify the XML parsing library and check if external entities are possible."
+  additional_context: ["caller"]
+
+go/template-injection:
+  short_description: "User input used to construct template string enabling code execution"
+  questions:
+    - "Where does the TEMPLATE STRING originate — database, config, user input?"
+    - "Is text/template or html/template used with a user-controlled template string (not just data)?"
+    - "Is template.New().Parse() called with user-supplied content, or is only .Execute() called with user data on a fixed template?"
+    - "In text/template, could an attacker use {{.}} or function calls to access sensitive data or execute methods?"
+    - "Is the template parsed once at startup (safe) or dynamically per-request with user content (dangerous)?"
+    - "Could the attacker call exported methods on the data object passed to Execute()?"
+  context_hint: "Trace whether user input flows into template.Parse() vs template.Execute() data."
+  additional_context: ["caller"]
+
+go/ldap-injection:
+  short_description: "User input used in LDAP filter or DN without escaping"
+  questions:
+    - "Where does the INPUT originate — HTTP request, form data, API parameter?"
+    - "Is the input used in an LDAP search filter string or distinguished name (DN)?"
+    - "Is ldap.EscapeFilter() used to sanitize filter values, or is string concatenation used directly?"
+    - "Could an attacker inject LDAP metacharacters (*, (, ), \\, NUL) to alter the query logic?"
+    - "Is an allowlist used to validate input before constructing the LDAP query?"
+    - "Which LDAP library is used (go-ldap/ldap, or another) and does it provide parameterized queries?"
+  context_hint: "Trace from input through LDAP filter/DN construction to search/bind call."
+  additional_context: ["caller"]
+
+go/header-injection:
+  short_description: "User input injected into HTTP response headers"
+  questions:
+    - "Where does the INPUT originate — request parameter, cookie, referrer?"
+    - "Is w.Header().Set() or w.Header().Add() called with user-controlled values?"
+    - "Could the input contain \\r\\n (CRLF) characters to inject additional headers or split the response?"
+    - "Note: Go's net/http automatically rejects header values containing \\r or \\n since Go 1.22 — is the Go version >= 1.22?"
+    - "Is the header value sanitized or validated before being set?"
+    - "Could header injection lead to cache poisoning, session fixation, or XSS via injected headers?"
+  context_hint: "Trace from input to response header write and check for CRLF sanitization."
+  additional_context: ["caller"]
+
+go/insecure-tls:
+  short_description: "TLS configuration with InsecureSkipVerify or weak settings"
+  questions:
+    - "Is tls.Config{InsecureSkipVerify: true} used, disabling certificate verification?"
+    - "Is this in production code or only in test/development code?"
+    - "If InsecureSkipVerify is true, is a custom VerifyPeerCertificate function provided as a replacement?"
+    - "Is MinVersion set to at least tls.VersionTLS12, or are TLS 1.0/1.1 allowed?"
+    - "Are weak cipher suites explicitly included in CipherSuites?"
+    - "Could an attacker perform a man-in-the-middle attack due to disabled certificate validation?"
+  context_hint: "Examine the tls.Config struct and how the TLS client/server is used."
+  additional_context: []
+
+go/insecure-tls-version:
+  short_description: "TLS configuration allowing deprecated TLS 1.0 or 1.1"
+  questions:
+    - "Is tls.Config.MinVersion set to tls.VersionTLS10 or tls.VersionTLS11?"
+    - "Is MinVersion omitted entirely (Go defaults to TLS 1.2 since Go 1.18, which is safe)?"
+    - "Is the deprecated TLS version required for backward compatibility with legacy clients?"
+    - "Could an attacker downgrade the connection to exploit known TLS 1.0/1.1 weaknesses (BEAST, POODLE)?"
+    - "Is this configuration in production code or only in test environments?"
+  context_hint: "Check tls.Config.MinVersion and MaxVersion values."
+  additional_context: []
+
+go/certificate-validation-disabled:
+  short_description: "TLS certificate validation disabled via InsecureSkipVerify"
+  questions:
+    - "Is tls.Config{InsecureSkipVerify: true} set in the HTTP client or TLS dialer?"
+    - "Is this a temporary workaround with a TODO/FIXME, or is it permanent?"
+    - "Is a custom VerifyPeerCertificate callback provided to perform alternative validation?"
+    - "Is this in production code, test code, or development-only configuration?"
+    - "Could this allow man-in-the-middle attacks by accepting any server certificate?"
+  context_hint: "Check the tls.Config usage context and whether it reaches production."
+  additional_context: ["caller"]
+
+go/cleartext-storage:
+  short_description: "Sensitive data stored in plaintext without encryption"
+  questions:
+    - "What sensitive data is stored — passwords, API keys, tokens, PII, credit card numbers?"
+    - "Where is it stored — database, file, environment variable, cookie, local storage?"
+    - "Is the data encrypted before storage using a strong algorithm (AES-GCM, ChaCha20-Poly1305)?"
+    - "For passwords, is bcrypt, scrypt, or argon2 used for hashing instead of storing plaintext?"
+    - "Is the encryption key itself stored securely (not hardcoded, not in the same location as the data)?"
+    - "Could an attacker who gains read access to the storage medium retrieve the sensitive data?"
+  context_hint: "Identify the sensitive data and trace it to the storage operation."
+  additional_context: ["caller"]
+
+go/cleartext-transmission:
+  short_description: "Sensitive data transmitted over unencrypted connection"
+  questions:
+    - "What sensitive data is transmitted — credentials, tokens, PII, session cookies?"
+    - "Is HTTP (not HTTPS) used for the transmission?"
+    - "Is net.Dial() or net.DialTCP() used without TLS wrapping for sensitive protocols?"
+    - "Is TLS enforced via tls.Dial(), http.Client with HTTPS URLs, or HSTS headers?"
+    - "Could a network attacker intercept the data via packet sniffing or man-in-the-middle?"
+    - "Is this internal-only traffic on a trusted network, or does it cross network boundaries?"
+  context_hint: "Trace the data from its origin to the network transmission and check for TLS."
+  additional_context: ["caller"]
+
+go/cors-misconfiguration:
+  short_description: "CORS headers set to overly permissive values"
+  questions:
+    - "Is Access-Control-Allow-Origin set to '*' (wildcard) or reflected from the request Origin header?"
+    - "Is Access-Control-Allow-Credentials set to true along with a permissive origin?"
+    - "Does the CORS configuration use an allowlist of specific trusted origins?"
+    - "If the Origin is reflected, is it validated against a list of allowed domains?"
+    - "Could an attacker's website make authenticated cross-origin requests and read the response?"
+    - "Is a CORS middleware (rs/cors, chi/cors) used, and is it configured with specific AllowedOrigins?"
+  context_hint: "Check CORS header configuration and how Origin validation is performed."
+  additional_context: ["caller"]
+
+go/csrf:
+  short_description: "Missing CSRF protection on state-changing endpoint"
+  questions:
+    - "Does the endpoint handle POST, PUT, DELETE, or PATCH requests that modify server state?"
+    - "Is a CSRF token required and validated (gorilla/csrf, nosurf, or custom implementation)?"
+    - "Is the SameSite attribute set on session cookies to Strict or Lax?"
+    - "Does the endpoint rely solely on cookies for authentication (vulnerable to CSRF)?"
+    - "Is the endpoint an API that only accepts JSON with Content-Type checking (partially mitigates CSRF)?"
+    - "Could an attacker craft a form or fetch request from a malicious site to perform actions as the victim?"
+  context_hint: "Check the HTTP handler for state-changing operations and CSRF token validation."
+  additional_context: ["caller"]
+
+go/insecure-cookie:
+  short_description: "Cookie set without Secure, HttpOnly, or SameSite attributes"
+  questions:
+    - "Is http.SetCookie() called with Secure: false (or omitted), allowing transmission over HTTP?"
+    - "Is HttpOnly: false (or omitted), allowing JavaScript access to the cookie?"
+    - "Is SameSite set to http.SameSiteNoneMode without Secure: true?"
+    - "Does the cookie contain sensitive data (session ID, auth token, CSRF token)?"
+    - "Is the application served over HTTPS only, making the Secure flag essential?"
+    - "Could an attacker steal the cookie via XSS (if HttpOnly missing) or network interception (if Secure missing)?"
+  context_hint: "Examine the http.Cookie struct fields and what data the cookie carries."
+  additional_context: []
+
+go/race-condition:
+  short_description: "Data race on shared variable accessed from multiple goroutines"
+  questions:
+    - "Which shared variable or struct field is accessed concurrently from multiple goroutines?"
+    - "Is the access protected by sync.Mutex, sync.RWMutex, atomic operations, or a channel?"
+    - "Is go test -race used in CI to detect data races?"
+    - "Is the variable a map (maps are NOT concurrent-safe in Go) — should sync.Map or a mutex be used?"
+    - "Could the race condition lead to corrupted data, panics (concurrent map read/write), or security bypasses?"
+    - "Is the shared state accessed in an HTTP handler (inherently concurrent) without synchronization?"
+  context_hint: "Identify the shared variable and all goroutines that access it."
+  additional_context: ["caller"]
+
+go/resource-leak:
+  short_description: "Opened resource (file, connection, response body) not closed"
+  questions:
+    - "Which resource is opened — os.Open(), http.Get() response body, sql.DB connection, net.Conn?"
+    - "Is defer resource.Close() or defer resp.Body.Close() called immediately after successful open?"
+    - "Is the Close() call in a defer that runs even on error paths (i.e., after the nil-error check)?"
+    - "Could the leak accumulate over time — is this in a loop, HTTP handler (called per-request), or long-running process?"
+    - "For database connections, is sql.DB used (connection pooling) rather than opening individual connections?"
+    - "If os.Open() returns an error, is the file handle still closed (it shouldn't be — is Close called only on success)?"
+  context_hint: "Trace from resource open to Close() and check all code paths."
+  additional_context: ["caller"]
+
+go/resource-exhaustion:
+  short_description: "Unbounded resource consumption allowing denial of service"
+  questions:
+    - "What resource is unbounded — memory (unbounded slice/map growth), goroutines, file descriptors, connections?"
+    - "Is io.ReadAll() or ioutil.ReadAll() called on an HTTP request body without size limits?"
+    - "Is json.Decoder or xml.Decoder used on untrusted input without io.LimitReader?"
+    - "Is there a limit on the number of goroutines spawned (worker pool, semaphore)?"
+    - "Could an attacker send a large request body, many concurrent requests, or deeply nested data to exhaust resources?"
+    - "Is http.MaxBytesReader() or io.LimitReader() used to cap input size?"
+  context_hint: "Identify the resource and check for size/count limits."
+  additional_context: ["caller"]
+
+go/regex-dos:
+  short_description: "User input used in regex pattern causing catastrophic backtracking"
+  questions:
+    - "Is regexp.Compile() or regexp.MustCompile() called with user-controlled pattern?"
+    - "Note: Go's regexp package uses RE2 which guarantees linear time — is the standard library used?"
+    - "If a third-party regex library is used (pcre, dlclark/regexp2), is it vulnerable to catastrophic backtracking?"
+    - "Is the pattern validated or restricted (e.g., max length, character allowlist) before compilation?"
+    - "Could an attacker supply a pattern that causes excessive CPU consumption?"
+    - "Is regexp.MatchString() called with user input as the PATTERN (dangerous) or as the INPUT to match (safe)?"
+  context_hint: "Identify whether the regex package is stdlib RE2 (safe) or a third-party backtracking engine."
+  additional_context: ["caller"]
+
+go/nosql-injection:
+  short_description: "User input used in NoSQL query without sanitization"
+  questions:
+    - "Where does the INPUT originate — HTTP request, API parameter?"
+    - "Which NoSQL database is used — MongoDB (mongo-driver), Redis, Elasticsearch?"
+    - "Is the input directly embedded in a bson.M{} or bson.D{} filter (vulnerable if user controls operator keys)?"
+    - "Could an attacker inject MongoDB operators ($gt, $ne, $regex, $where) to alter query logic?"
+    - "Is the input placed as a value in a fixed filter structure (safer) or as a key/operator?"
+    - "Is input type-checked (e.g., ensured to be a string, not a map) before use in the query?"
+  context_hint: "Trace from input to NoSQL query construction and check for operator injection."
+  additional_context: ["caller"]
+
+go/html-injection:
+  short_description: "User input rendered as HTML without escaping"
+  questions:
+    - "Where does the INPUT originate — HTTP request, database, user profile data?"
+    - "Is the output rendered via html/template (auto-escaped) or text/template (no escaping)?"
+    - "If using text/template, is template.HTMLEscapeString() or html.EscapeString() applied?"
+    - "Is template.HTML() type used to mark user input as safe (bypassing auto-escaping)?"
+    - "Could an attacker inject HTML tags to deface the page or create phishing content?"
+    - "Is this a stepping stone to XSS — can <script> or event handlers be injected?"
+  context_hint: "Trace from input to template rendering and check escaping."
+  additional_context: ["caller"]
+
+go/zip-slip:
+  short_description: "Archive extraction with path traversal via crafted filenames"
+  questions:
+    - "Is archive/zip, archive/tar, or a third-party archive library used to extract files?"
+    - "Is the extracted filename (zip.File.Name or tar.Header.Name) validated before writing?"
+    - "Is filepath.Join(destDir, name) used WITHOUT checking that the result is within destDir?"
+    - "Could a crafted archive entry with '../../../etc/cron.d/malicious' overwrite files outside the target directory?"
+    - "Is filepath.Clean() applied AND is strings.HasPrefix(cleaned, destDir) verified?"
+    - "Are symlinks in the archive followed — could a symlink point outside the extraction directory?"
+  context_hint: "Trace from archive entry name through path construction to file creation."
+  additional_context: ["caller"]
+
+go/file-upload:
+  short_description: "File upload without proper validation"
+  questions:
+    - "Is r.FormFile() or r.MultipartReader() used to handle file uploads?"
+    - "Is the uploaded file's Content-Type validated (and not just trusted from the client header)?"
+    - "Is the file size limited via r.Body = http.MaxBytesReader() or multipart.Reader.NextPart() size checks?"
+    - "Is the filename sanitized to prevent path traversal (no ../, no absolute paths)?"
+    - "Is the file stored with a server-generated name rather than the client-supplied filename?"
+    - "Is the file stored outside the web root to prevent direct execution?"
+  context_hint: "Trace from file upload handling through validation to storage."
+  additional_context: ["caller"]
+
+go/input-validation:
+  short_description: "Missing or insufficient validation of user input"
+  questions:
+    - "What input is insufficiently validated — request parameters, headers, body fields?"
+    - "Is the input used in a security-sensitive context (database query, command, file path, redirect)?"
+    - "Are type assertions, length checks, and range validations applied?"
+    - "Is strconv.Atoi() or strconv.ParseInt() used for numeric input with bounds checking?"
+    - "Could missing validation lead to injection, overflow, or logic bypass?"
+    - "Is a validation library (go-playground/validator) used for struct field validation?"
+  context_hint: "Identify the input and trace it to where it's consumed."
+  additional_context: ["caller"]
+
+go/missing-authentication:
+  short_description: "Endpoint accessible without authentication"
+  questions:
+    - "Does the HTTP handler or route require authentication (token, session, API key)?"
+    - "Is an authentication middleware applied to this route or router group?"
+    - "Could an unauthenticated user access sensitive data or perform privileged actions?"
+    - "Is the route intentionally public (login, health check, static assets) or should it be protected?"
+    - "Is the authentication check in middleware (applied to all routes) or per-handler (could be missed)?"
+  context_hint: "Check the route registration and middleware chain for auth checks."
+  additional_context: ["caller"]
+
+go/missing-authorization:
+  short_description: "Authenticated user can access resources beyond their permission"
+  questions:
+    - "Is authorization checked after authentication — does the handler verify the user has permission for the specific resource?"
+    - "Is the resource ID (user ID, document ID) taken from the URL/request and compared against the authenticated user's permissions?"
+    - "Could an authenticated user access another user's data by changing an ID parameter (IDOR)?"
+    - "Is role-based or attribute-based access control enforced?"
+    - "Is the authorization logic in a middleware or in each handler — could it be inconsistently applied?"
+  context_hint: "Check that the handler verifies the authenticated user's access to the specific resource."
+  additional_context: ["caller"]
+
+go/incorrect-authorization:
+  short_description: "Authorization check that can be bypassed"
+  questions:
+    - "How is authorization checked — role comparison, ownership check, permission flag?"
+    - "Is the check based on client-supplied data (cookie, header, request body) that could be tampered with?"
+    - "Could the check be bypassed by case manipulation, extra whitespace, or encoding differences?"
+    - "Is the authorization decision made server-side using trusted session data?"
+    - "Are there code paths that skip the authorization check (early returns, error handling)?"
+    - "Is the authorization logic consistently applied across all access points for the same resource?"
+  context_hint: "Examine the authorization logic and all code paths that could bypass it."
+  additional_context: ["caller"]
+
+go/improper-privilege-management:
+  short_description: "Application runs with excessive privileges or fails to drop them"
+  questions:
+    - "Does the application run as root or with elevated capabilities unnecessarily?"
+    - "Are privileges dropped (syscall.Setuid, syscall.Setgid) after startup operations that require them?"
+    - "Is least privilege applied — does each component run with only the permissions it needs?"
+    - "Could a vulnerability in the application be exploited with elevated privileges for greater impact?"
+    - "Are file permissions set restrictively (0600/0700 instead of 0777)?"
+  context_hint: "Check privilege level at startup and whether privileges are dropped after initialization."
+  additional_context: []
+
+go/overly-permissive-file:
+  short_description: "File or directory created with overly permissive permissions"
+  questions:
+    - "Is os.Create(), os.OpenFile(), os.Mkdir(), or os.WriteFile() called with permissions 0666, 0777, or similarly broad?"
+    - "Does the file contain sensitive data (config, credentials, logs, user data)?"
+    - "Should permissions be restricted to owner-only (0600 for files, 0700 for directories)?"
+    - "Is the umask relied upon to restrict permissions (fragile — the umask may not be set as expected)?"
+    - "Could other users on the system read, modify, or execute the file?"
+  context_hint: "Check the permission mode passed to file/directory creation calls."
+  additional_context: []
+
+go/unsafe-pointer:
+  short_description: "Use of unsafe.Pointer enabling type safety bypass and memory corruption"
+  questions:
+    - "Is the unsafe package imported and unsafe.Pointer used for type conversion or memory access?"
+    - "Does the usage follow Go's six allowed unsafe.Pointer conversion patterns (documented in unsafe package)?"
+    - "Could the pointer conversion access memory beyond the original allocation (buffer overflow)?"
+    - "Is uintptr arithmetic used — note that a uintptr does NOT keep the object alive and GC may collect it?"
+    - "Is the unsafe usage necessary, or could reflect, encoding/binary, or generics achieve the same goal safely?"
+    - "Could this lead to memory corruption, type confusion, or reading uninitialized memory?"
+  context_hint: "Examine the unsafe.Pointer usage pattern and whether it violates Go's safety rules."
+  additional_context: []
+
+go/cgo-vulnerability:
+  short_description: "Unsafe interaction between Go and C code via cgo"
+  questions:
+    - "Is C code called via cgo (import \"C\") with Go-managed memory or user-controlled data?"
+    - "Is C.CString() used — is the returned *C.char freed with C.free() to avoid memory leaks?"
+    - "Could the C function write beyond the allocated buffer (buffer overflow)?"
+    - "Is user input passed to C code without length validation or sanitization?"
+    - "Are Go pointers passed to C — does this follow cgo pointer rules (no Go pointers in C-allocated memory)?"
+    - "Could the C code introduce memory safety issues (use-after-free, double-free) not caught by Go's runtime?"
+  context_hint: "Examine the cgo boundary: data flowing from Go to C and back."
+  additional_context: ["caller"]
+
+go/goroutine-leak:
+  short_description: "Goroutine blocked forever causing resource leak"
+  questions:
+    - "Is a goroutine started with 'go func()' that blocks on a channel, mutex, or I/O indefinitely?"
+    - "Is there a mechanism to cancel the goroutine (context.Context, done channel, timeout)?"
+    - "Could the channel the goroutine reads from or writes to become permanently blocked (no sender/receiver)?"
+    - "Is this in an HTTP handler or loop — could each request/iteration leak a goroutine?"
+    - "Is context.WithTimeout() or context.WithCancel() used to bound the goroutine's lifetime?"
+    - "Over time, could leaked goroutines exhaust memory or file descriptors?"
+  context_hint: "Trace the goroutine lifecycle from start to all possible termination paths."
+  additional_context: ["caller"]
+
+go/panic-in-handler:
+  short_description: "Unrecovered panic in HTTP handler or goroutine crashing the process"
+  questions:
+    - "Could a nil pointer dereference, index out of range, or type assertion failure cause a panic?"
+    - "Is there a recover() middleware that catches panics in HTTP handlers (e.g., gorilla/handlers.RecoveryHandler)?"
+    - "For goroutines spawned outside HTTP handlers, is recover() used in a deferred function?"
+    - "Does the panic occur on user-controlled input — could an attacker trigger it for denial of service?"
+    - "Is the error-check pattern used (if err != nil) before operations that could panic on nil values?"
+    - "If the panic is in net/http's default server, it recovers per-connection — but if in a custom goroutine, is recovery handled?"
+  context_hint: "Identify code paths that could panic and check for recover() handlers."
+  additional_context: ["caller"]
+
+go/code-injection:
+  short_description: "User input evaluated as Go code or used in dynamic code generation"
+  questions:
+    - "Is user input used in go/ast, go/parser, or plugin.Open() to dynamically load or evaluate code?"
+    - "Is a scripting engine (otto, goja, tengo) used with user-controlled scripts?"
+    - "If using a scripting engine, is the sandbox properly restricted (no access to filesystem, network, or os/exec)?"
+    - "Could an attacker execute arbitrary code by supplying a crafted input string?"
+    - "Is the input validated against an allowlist of permitted expressions or scripts?"
+    - "Is this in a template system where user controls the template source (see go/template-injection)?"
+  context_hint: "Trace from user input to code evaluation or dynamic loading."
+  additional_context: ["caller"]
+
+go/xpath-injection:
+  short_description: "User input used in XPath query without sanitization"
+  questions:
+    - "Where does the INPUT originate — HTTP request parameter, form data?"
+    - "Is the input used in an XPath expression via a third-party library (antchfx/xpath, antchfx/xmlquery)?"
+    - "Is the input concatenated directly into the XPath string, or are parameterized queries used?"
+    - "Could an attacker inject XPath operators (', or, and, //) to alter the query logic?"
+    - "Is the input validated or escaped to remove XPath metacharacters before use?"
+    - "Note: Go's standard library does not include XPath — which third-party library is used?"
+  context_hint: "Trace from input through XPath query construction to execution."
+  additional_context: ["caller"]
+
+go/clickjacking:
+  short_description: "Missing X-Frame-Options or Content-Security-Policy frame-ancestors header"
+  questions:
+    - "Are X-Frame-Options (DENY or SAMEORIGIN) or Content-Security-Policy: frame-ancestors headers set?"
+    - "Is the header set globally via middleware or only on specific handlers?"
+    - "Does the application contain sensitive actions (forms, buttons) that could be overlaid in an iframe?"
+    - "If using a framework (gin, echo, chi), is a security headers middleware configured?"
+    - "Could an attacker embed the page in an iframe on a malicious site to trick users into clicking hidden elements?"
+  context_hint: "Check response headers for framing protection on state-changing pages."
+  additional_context: []
+
+go/session-fixation:
+  short_description: "Session ID not regenerated after authentication"
+  questions:
+    - "Is the session ID regenerated after successful login?"
+    - "Which session library is used (gorilla/sessions, scs, custom) — does it support session regeneration?"
+    - "Could an attacker set a known session ID (via cookie or URL) before the victim logs in, then hijack the session?"
+    - "Is the session store configured with Secure, HttpOnly, and SameSite cookie attributes?"
+    - "Is the old session invalidated server-side after regeneration?"
+  context_hint: "Check the authentication flow for session regeneration after login."
+  additional_context: ["caller"]
+
+go/xml-bomb:
+  short_description: "XML parsing vulnerable to entity expansion (billion laughs) attack"
+  questions:
+    - "Is encoding/xml or a third-party XML library used to parse untrusted input?"
+    - "Note: Go's encoding/xml does NOT process DTDs or entity expansion — is this the parser used?"
+    - "If a third-party XML library is used, is entity expansion depth or size limited?"
+    - "Is io.LimitReader() applied before XML parsing to cap input size?"
+    - "Could an attacker send deeply nested or entity-expanding XML to exhaust memory?"
+  context_hint: "Identify the XML parser and check for entity expansion limits."
+  additional_context: ["caller"]
+
+go/sensitive-data-exposure:
+  short_description: "Sensitive data exposed through unintended channels"
+  questions:
+    - "What sensitive data is exposed — PII, credentials, financial data, health records?"
+    - "Is the data exposed via HTTP response, logs, error messages, debug endpoints, or metrics?"
+    - "Are debug endpoints (pprof, expvar) accessible without authentication in production?"
+    - "Is sensitive data included in JSON serialization due to missing json:\"-\" struct tags?"
+    - "Is the data redacted or masked before logging (e.g., showing only last 4 digits of a credit card)?"
+    - "Could the exposure violate GDPR, HIPAA, or PCI-DSS compliance requirements?"
+  context_hint: "Trace sensitive data flow to all output channels."
+  additional_context: ["caller"]
+
+go/mass-assignment:
+  short_description: "HTTP request body directly decoded into struct allowing field injection"
+  questions:
+    - "Is json.Decode() or c.Bind() used to decode the request body directly into a database model or privileged struct?"
+    - "Does the struct contain fields that should not be user-settable (IsAdmin, Role, Balance, CreatedAt)?"
+    - "Is a separate DTO/input struct used for binding, then mapped to the internal model (safe pattern)?"
+    - "Could an attacker add extra JSON fields (e.g., \"is_admin\": true) to escalate privileges?"
+    - "Are struct fields restricted using json:\"-\" or separate types to prevent unintended binding?"
+  context_hint: "Check the struct used for request decoding and whether it exposes privileged fields."
+  additional_context: ["caller"]
+
+go/integer-overflow:
+  short_description: "Integer overflow or underflow in arithmetic operation"
+  questions:
+    - "Which integer type is used (int, int32, uint, uint64) and what is its range?"
+    - "Is user input converted to an integer and used in arithmetic without bounds checking?"
+    - "Could multiplication, addition, or subtraction overflow the integer type's range?"
+    - "Is the result used for memory allocation (make([]byte, n)), slice indexing, or security decisions?"
+    - "Is math.MaxInt/math.MinInt checked before the operation, or is math/big used for arbitrary precision?"
+    - "Could an attacker supply a value that causes overflow to bypass a size check or allocate an incorrect amount?"
+  context_hint: "Trace the integer from input through arithmetic to its security-sensitive use."
+  additional_context: ["caller"]

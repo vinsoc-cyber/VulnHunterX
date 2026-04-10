@@ -626,3 +626,51 @@ php/zip-slip:
     - "What is the impact — overwriting config files, writing a PHP webshell, or replacing application code?"
   context_hint: "Include the archive extraction code, entry path handling, and destination directory."
   additional_context: ["caller"]
+
+php/regex-injection:
+  short_description: "User input used in preg_match/preg_replace pattern allowing ReDoS or code execution"
+  questions:
+    - "Is preg_match(), preg_replace(), preg_match_all(), or preg_split() called with a user-controlled pattern?"
+    - "Is the user input used as the PATTERN (dangerous) or as the SUBJECT string to match (safe)?"
+    - "Is the /e modifier used in preg_replace() (removed in PHP 7, but present in legacy code) — this evaluates code?"
+    - "Could an attacker supply a pattern with catastrophic backtracking like (a+)+ to cause ReDoS?"
+    - "Is the pattern validated or restricted (max length, character allowlist, preg_quote()) before use?"
+    - "Is the PCRE backtracking limit (pcre.backtrack_limit) set to a safe value?"
+  context_hint: "Identify whether user input reaches preg_match/preg_replace pattern and check for /e modifier."
+  additional_context: ["caller"]
+
+php/sensitive-data-exposure:
+  short_description: "Sensitive data exposed in error output, logs, or API responses in PHP"
+  questions:
+    - "What sensitive data is exposed — database credentials, API keys, internal paths, stack traces, PII?"
+    - "Is display_errors=On in production php.ini, showing detailed errors with file paths and line numbers?"
+    - "Is var_dump(), print_r(), or debug_print_backtrace() used in production code?"
+    - "Are PDOException or mysqli error messages (containing SQL queries) returned to clients?"
+    - "Is phpinfo() accessible from a public URL, exposing configuration, environment variables, and paths?"
+    - "Is error_reporting set to E_ALL in production without a custom error handler that hides details?"
+  context_hint: "Check error reporting settings and what information reaches HTTP responses or logs."
+  additional_context: []
+
+php/resource-leak:
+  short_description: "Opened resource (file, connection, stream) not properly closed in PHP"
+  questions:
+    - "Which resource is opened — fopen(), fsockopen(), pdo connection, curl_init(), stream_socket_client()?"
+    - "Is fclose(), curl_close(), or the corresponding close function called on all code paths?"
+    - "Is the close call in a finally block or does an exception skip it?"
+    - "For database connections with PDO, is the connection explicitly set to null or left to garbage collection?"
+    - "Could the leak accumulate — is this in a loop, long-running CLI script, or daemon process?"
+    - "PHP closes most resources at script end, but for long-running processes (ReactPHP, Swoole), is explicit cleanup done?"
+  context_hint: "Trace from resource open to close and check error/exception code paths."
+  additional_context: ["caller"]
+
+php/mass-assignment:
+  short_description: "HTTP request data directly assigned to model allowing unauthorized field modification"
+  questions:
+    - "Is $request->all() or $request->input() directly passed to Model::create() or Model::update() in Laravel?"
+    - "Does the Eloquent model have $fillable (allowlist) or $guarded (denylist) defined?"
+    - "Could an attacker add extra fields (e.g., 'is_admin': true) to the request to escalate privileges?"
+    - "Is $guarded = [] (empty) used, allowing ALL fields to be mass-assigned (dangerous)?"
+    - "Is $request->only(['name', 'email']) used to explicitly allowlist fields before assignment?"
+    - "For non-Laravel frameworks, is the request data filtered before being passed to the ORM?"
+  context_hint: "Check the model's $fillable/$guarded, and how request data flows to create/update."
+  additional_context: ["caller", "class"]
