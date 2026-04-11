@@ -69,7 +69,7 @@ Key findings:
 - Real-world validation on 58 additional alerts.
 
 **Impact on VulnHunterX:** Confirmed zero-shot prompting as a valid baseline; motivation for
-`single-shot` approach in benchmark.
+`vulnhunterx` with `--max-iterations 1` as a single-turn baseline and `ablation-zero` in the ablation study.
 
 ---
 
@@ -204,23 +204,15 @@ entries could come from a single CWE (CWE-119 alphabetically first).
 
 ### 2.3 Force Decision on NMD
 
-**Problem:** VulnHunterX benchmark showed 42.4% NMD rate. Root cause: `VulnHunterXApproach`
-passes `context_provider=None`, causing `LLMClient.analyze()` to exit after 1 iteration whenever
-the LLM returns NMD (the `not context_provider` guard fires immediately).
+**Problem:** High NMD rates in benchmark runs cause reported Recall to be misleadingly optimistic
+because NMD entries are excluded from precision/recall computation.
 
-**Decision:** Add a `force_decision` second turn — when the LLM returns NMD at max iterations or
-when `context_provider=None`, send one forced re-prompt:
+**Decision:** Add a `force_decision` second turn — when the LLM returns NMD at max iterations,
+send one forced re-prompt requiring a TP or FP verdict. If the forced response is still NMD,
+convert to False Positive with Low confidence (conservative).
 
-```
-"This is your final analysis attempt. Based on the code provided, you MUST choose
-True Positive or False Positive. Low confidence is acceptable. Needs More Data is
-NOT an acceptable final response. Give your best judgment."
-```
-
-If the forced response is still NMD, convert to False Positive with Low confidence (conservative).
-
-**Optional self-consistency mode** (from CISC, ACL 2025): Run N parallel calls with the
-force-decision prompt, take majority vote. Default N=1 (single forced re-prompt) for cost efficiency.
+**Self-consistency mode** (from CISC, ACL 2025): Optionally run N parallel forced-decision calls
+and take majority vote — achieves same accuracy as standard self-consistency with 46% fewer samples.
 
 ---
 
@@ -237,19 +229,12 @@ precise code slices improve accuracy while reducing token cost.
 **Phase 2 (planned):** CPG-guided slicing via CodeQL data-flow libraries (LLMxCPG approach),
 expected to reduce input by 68–91% while preserving all vulnerability-relevant context.
 
-**Benchmark bug fixed:** `--sliced-context` previously caused all-FP predictions due to:
-1. `target_line=1` for all Juliet entries → only first 6 lines shown.
-2. Benchmark messages (`"CWE-416 detected"`) not matching variable extraction regex patterns.
-
-Fixes: (a) use last non-empty line as `target_line`; (b) full-code fallback when no variable
-extracted; (c) add `_CWE_MESSAGES` dict with semantic descriptions matching `_VAR_PATTERNS`.
-
 ---
 
 ### 2.5 Effective Recall Metric
 
-**Problem:** Standard Recall excludes NMD entries. With 42.4% NMD rate (and NMDs being real
-TPs in many cases), reported Recall=100% was misleadingly optimistic.
+**Problem:** Standard Recall excludes NMD entries. When NMD rates are high and NMDs fall
+disproportionately on true positives, reported Recall is misleadingly optimistic.
 
 **Decision:** Add `effective_recall` to the report:
 
@@ -264,22 +249,15 @@ TP preservation under the `nmd_handling=exclude` policy.
 
 ### 2.6 Token and Cost Tracking
 
-**Problem:** All results showed `tokens_used=0, cost_usd=0.0` despite 3.5 hours of API calls.
-Root cause: `Verdict` dataclass did not have `tokens_used`/`cost_usd` fields, and LiteLLM's
-`response.usage.total_tokens` was never read.
-
-**Fix:** Read `response.usage.total_tokens` after each `litellm.completion()` call; use
-`litellm.completion_cost()` for cost estimation; accumulate across turns; propagate through
-`Verdict` → `BenchmarkResult` → `ApproachMetrics`.
+**Design:** Read `response.usage` after each LiteLLM completion call; use
+`litellm.completion_cost()` for cost estimation; accumulate tokens and cost across turns;
+propagate through `Verdict` → `BenchmarkResult` → `ApproachMetrics`.
 
 ---
 
 ### 2.7 Logging Architecture
 
-**Problem:** `logging.basicConfig(level=INFO)` propagates to all library loggers. LiteLLM
-emits 2+ INFO lines per API call, which interleave with the `\r`-based progress bar on stderr.
-
-**Decision:** Three-layer logging:
+**Decision:** Three-layer logging to keep the terminal clean while preserving full audit trails:
 1. **Terminal (stderr):** WARNING+ only — progress bar stays clean.
 2. **File (`benchmark.log`):** Full DEBUG/INFO — LiteLLM messages captured here.
 3. **JSONL (`findings.jsonl`):** One structured record per evaluated entry — queryable with `jq`.
@@ -356,16 +334,16 @@ required — at GPT-4o pricing the cost would exceed $2,700.
 **For comparison with SecLLMHolmes** (arXiv:2312.12575):
 
 ```bash
-# Single-shot baseline — matches SecLLMHolmes evaluation protocol
+# Single-turn baseline — matches SecLLMHolmes evaluation protocol (1 LLM call, no multi-turn)
 python benchmarks/scripts/run_benchmark.py \
     --dataset secllmholmes \
-    --approach single-shot \
+    --approach vulnhunterx \
     --max-iterations 1
 ```
 
 SecLLMHolmes uses a single LLM call (no multi-turn) with a 6,144-token input cap.
-`single-shot` is the closest approach; `vulnhunterx` adds multi-turn context expansion
-on top, which is the VulnHunterX improvement being measured.
+`vulnhunterx --max-iterations 1` is the closest match; the standard `vulnhunterx` run adds
+multi-turn context expansion on top, which is the VulnHunterX improvement being measured.
 
 ---
 

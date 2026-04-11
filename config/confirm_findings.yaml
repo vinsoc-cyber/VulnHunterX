@@ -85,6 +85,13 @@ output_dir: output
 # semgrep_config: "auto"   # Alternative: single Semgrep config
 # opengrep_configs: ["auto"]  # OpenGrep configs (same format as semgrep_configs)
 # opengrep_config: "auto"   # Alternative: single OpenGrep config
+#
+# Rule profiles & categories (see config/rule_categories.yaml):
+# profile: "extended"   # standard | extended | maximum
+# categories:           # Filter to specific security domains at verify time
+#   - "injection"
+#   - "xss"
+#   - "auth"
 
 # =============================================================================
 # Fuzz Pipeline Settings (Stages 5-8, C/C++ only)

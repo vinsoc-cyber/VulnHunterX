@@ -235,6 +235,28 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
         help="Number of parallel CodeQL analyses (default: 2)",
     )
 
+    # Rule profile & category
+    parser.add_argument(
+        "--profile",
+        choices=["standard", "extended", "maximum"],
+        default=None,
+        help=(
+            "Rule profile controlling breadth of analysis. "
+            "standard: security-extended + auto (default), "
+            "extended: adds p/security-audit + p/secrets, "
+            "maximum: security-and-quality + all major presets"
+        ),
+    )
+    parser.add_argument(
+        "--category",
+        action="append",
+        dest="categories",
+        help=(
+            "Security category filter (repeatable). "
+            "Options: injection xss auth crypto secrets memory-safety "
+            "data-exposure deserialization xxe ssrf file-security dos"
+        ),
+    )
 
 
 def _add_build_sanitized_args(parser: argparse.ArgumentParser) -> None:
@@ -375,6 +397,16 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
         "--include-tests",
         action="store_true",
         help="Include findings under test/ or tests/ (default: exclude)",
+    )
+    filter_group.add_argument(
+        "--category",
+        action="append",
+        dest="categories",
+        help=(
+            "Only verify findings in these security categories (repeatable). "
+            "Options: injection xss auth crypto secrets memory-safety "
+            "data-exposure deserialization xxe ssrf file-security dos"
+        ),
     )
 
     # Output

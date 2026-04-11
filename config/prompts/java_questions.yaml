@@ -295,22 +295,6 @@ java/template-injection:
   context_hint: "Include template engine initialization and where user input enters the template."
   additional_context: ["caller"]
 
-java/regex-injection:
-  short_description: "Regular expression with catastrophic backtracking or user-controlled pattern"
-  questions:
-    - "Is the REGEX PATTERN user-controlled (Pattern.compile(userInput)) or fixed at compile time?"
-    - "If user-controlled: could an attacker craft a pattern causing ReDoS (e.g., (a+)+ matched against 'aaa...!')?"
-    - "If fixed: does the pattern contain nested quantifiers or overlapping alternations?"
-    - "Is there a TIMEOUT set on the regex execution (Pattern.compile() does not support timeout natively in Java)?"
-    - "Is the input string length limited before being matched against the pattern?"
-    - "Would using Pattern.quote() on user input (treating it as literal) or a non-backtracking engine prevent this?"
-  context_hint: "Include the regex pattern and where user input enters the match operation."
-  additional_context: []
-
-# ==============================================================================
-# Java - TLS and Certificate Handling
-# ==============================================================================
-
 java/insecure-tls:
   short_description: "TLS configuration using deprecated protocol versions or weak cipher suites"
   questions:
@@ -366,20 +350,6 @@ java/cleartext-storage:
     - "What is the blast radius if this data is exposed — account compromise, credential reuse, regulatory violation?"
   context_hint: "Include the data source, storage call, and any encryption/hashing step."
   additional_context: ["caller"]
-
-java/sensitive-data-exposure:
-  short_description: "Sensitive data (passwords, tokens) included in logs, URLs, or error messages"
-  questions:
-    - "What sensitive data is exposed — password, session token, API key, credit card, SSN?"
-    - "Where is it exposed — log output, URL query string, HTTP response header, error message?"
-    - "Could the data be observed by unauthorized parties — log aggregators, browser history, referrer headers, proxy logs?"
-    - "Is there a data classification policy that marks this field as sensitive?"
-    - "Should the data be masked, redacted, or omitted from this output?"
-    - "Is this in a debug/trace log level that should be disabled in production?"
-  context_hint: "Include the data source, the output mechanism, and any masking logic."
-  additional_context: ["caller"]
-
-# ── Rules added to cover critical modern Java vulnerability classes ──
 
 java/jndi-injection:
   short_description: "User-controlled input passed to JNDI lookup enabling remote class loading (Log4Shell pattern)"
@@ -564,22 +534,6 @@ java/clickjacking:
     - "Is the protection applied globally via a filter/interceptor, or must each controller set it individually?"
   context_hint: "Include Spring Security configuration, response header settings, and any global filters."
   additional_context: ["class"]
-
-java/cors-misconfiguration:
-  short_description: "Overly permissive CORS configuration allowing cross-origin attacks (CWE-942)"
-  questions:
-    - "Is @CrossOrigin('*') or CorsConfiguration.addAllowedOrigin('*') used to allow ALL origins?"
-    - "Is allowCredentials set to true together with a wildcard origin (this combination is rejected by browsers but indicates intent to be permissive)?"
-    - "Is the allowed origin dynamically set from the request's Origin header without validation (effectively reflecting any origin)?"
-    - "What sensitive operations are exposed via CORS — API endpoints that modify data, return user info, or perform actions?"
-    - "Is the CORS configuration applied globally (WebMvcConfigurer.addCorsMappings) or per-endpoint (@CrossOrigin)?"
-    - "Should origins be restricted to a specific allowlist of trusted domains?"
-  context_hint: "Include CORS configuration, security filter chain, and the endpoints exposed."
-  additional_context: ["class"]
-
-# ==============================================================================
-# Java - Zip/Archive and Path Security (CWE-22)
-# ==============================================================================
 
 java/zip-slip:
   short_description: "Archive extraction without validating entry paths allowing directory traversal (CWE-22)"

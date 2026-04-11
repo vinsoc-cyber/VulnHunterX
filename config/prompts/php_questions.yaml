@@ -579,18 +579,6 @@ php/incorrect-authorization:
 # PHP - Web-Specific (Mass Assignment, Race Condition, CORS, Zip Slip)
 # ==============================================================================
 
-php/mass-assignment:
-  short_description: "Laravel model mass assignment allowing attacker to set unintended fields (CWE-915)"
-  questions:
-    - "Is $request->all(), $request->input(), or $request->only() passed directly to Model::create() or $model->update()?"
-    - "Is the model's $fillable array configured to include ONLY the fields that should be user-modifiable?"
-    - "Or is $guarded set — if $guarded = [], ALL fields are fillable including role, is_admin, email_verified?"
-    - "Could an attacker add extra fields (role=admin, is_admin=1, email_verified_at=now) to the request?"
-    - "Is $request->validated() from a FormRequest used (safe — only passes validated fields)?"
-    - "What is the impact — privilege escalation, data tampering, bypassing email verification?"
-  context_hint: "Include the controller method, model $fillable/$guarded, and the request handling."
-  additional_context: ["caller", "class"]
-
 php/race-condition:
   short_description: "TOCTOU race condition in file operations or session-based checks (CWE-362)"
   questions:

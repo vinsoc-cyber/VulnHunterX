@@ -217,6 +217,8 @@ def _run_codeql_analyze(
 
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
     suite = getattr(args, "codeql_suite", None)
+    # If a rule profile was set but no explicit suite, resolve per-language below
+    profile_suffix = getattr(args, "_profile_codeql_suffix", None)
     jobs = getattr(args, "jobs", None) or CODEQL_PARALLEL_JOBS
 
     dbs = discover_databases(output_dir)
@@ -291,7 +293,11 @@ def _run_codeql_analyze(
         if verbose:
             lines: list[str] = []
             analyzer.set_logger(lambda msg, _lines=lines: _lines.append(msg))
-        ok, result_path, msg = analyzer.run_analysis(db_path, lang, name, suite=suite)
+        # Resolve suite: explicit CLI > profile-based (per-language) > default
+        effective_suite = suite
+        if not effective_suite and profile_suffix:
+            effective_suite = CodeQLAnalyzer.suite_for_language(lang, profile_suffix)
+        ok, result_path, msg = analyzer.run_analysis(db_path, lang, name, suite=effective_suite)
         if verbose and lines:
             msg = "\n".join(lines) + "\n" + msg
         return name, ok, result_path, msg, False
@@ -627,6 +633,26 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     if not getattr(args, "opengrep_configs", None) and default_opengrep_configs:
         args.opengrep_configs = default_opengrep_configs
 
+    # Rule profile: override suite/configs when --profile is given
+    profile_name = getattr(args, "profile", None)
+    if profile_name:
+        try:
+            from vuln_hunter_x.core.rule_profiles import RuleProfileManager
+
+            mgr = RuleProfileManager(base_path / "config" / "rule_categories.yaml")
+            profile = mgr.get_profile(profile_name)
+            if getattr(args, "codeql_suite", None) is None:
+                # Store suffix for per-language resolution in _run_codeql_analyze
+                args._profile_codeql_suffix = profile.codeql_suite_suffix
+            if not getattr(args, "semgrep_configs", None):
+                args.semgrep_configs = list(profile.semgrep_configs)
+            if not getattr(args, "opengrep_configs", None):
+                args.opengrep_configs = list(profile.opengrep_configs)
+            if verbose:
+                print(f"  Rule profile: {profile_name} — {profile.description}")
+        except Exception as exc:
+            print(f"Warning: failed to load rule profile {profile_name!r}: {exc}", file=sys.stderr)
+
     if tool == "codeql":
         return _run_codeql_analyze(args, base_path, output_dir, verbose, force)
     if tool == "semgrep":
@@ -946,6 +972,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
     engine.on_finding_complete(on_complete)
 
     exclude_test_paths = not getattr(args, "include_tests", False)
+    category_filter = getattr(args, "categories", None)
+    if category_filter and not quiet:
+        print(f"Category filter: {', '.join(category_filter)}")
+
     # Determine what to verify
     if args.sarif:
         result = engine.verify_sarif(
@@ -954,6 +984,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
             repo_name=args.sarif.stem,
             limit=args.limit or 0,
             exclude_test_paths=exclude_test_paths,
+            category_filter=category_filter,
         )
     else:
         result = engine.verify_all_sarif(
@@ -961,6 +992,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
             repo_filter=args.repo,
             limit=args.limit or 0,
             exclude_test_paths=exclude_test_paths,
+            category_filter=category_filter,
         )
 
     # Print summary
