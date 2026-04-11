@@ -117,8 +117,9 @@ Then analyze and verify — no `repos.yaml` needed, all stages auto-discover fro
 vuln-hunter-x analyze --repo my-app                         # CodeQL (default)
 vuln-hunter-x analyze --tool semgrep --repo my-app           # Semgrep
 vuln-hunter-x analyze --tool all --repo my-app               # CodeQL + Semgrep + OpenGrep
-vuln-hunter-x extract-context --repo my-app                  # Optional: richer multi-turn context
 vuln-hunter-x verify --repo my-app --report                  # Verify + generate markdown report
+# Context CSVs are extracted automatically during prepare.
+# To re-extract: vuln-hunter-x prepare --skip-clone --skip-db --force --repo my-app
 ```
 
 You can also skip `prepare` and analyze a local directory directly:

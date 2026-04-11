@@ -13,7 +13,6 @@ from vuln_hunter_x.cli.commands import (
     cmd_analyze,
     cmd_build_sanitized,
     cmd_check_env,
-    cmd_extract_context,
     cmd_extract_fuzz_context,
     cmd_fuzz_run,
     cmd_generate_fuzz_drivers,
@@ -79,13 +78,6 @@ Examples:
         help="Run CodeQL analysis on databases",
     )
     _add_analyze_args(analyze_parser)
-
-    # Extract-context command
-    extract_parser = subparsers.add_parser(
-        "extract-context",
-        help="Extract context CSVs from databases",
-    )
-    _add_extract_args(extract_parser)
 
     # Build-sanitized command (Stage 5: fuzz)
     build_sanitized_parser = subparsers.add_parser(
@@ -165,6 +157,25 @@ def _add_prepare_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--ask-llm", action="store_true", help="Ask LLM on build failure")
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
 
+    # Context extraction options (runs automatically after DB creation)
+    parser.add_argument(
+        "--skip-context",
+        action="store_true",
+        help="Skip automatic context extraction after DB creation",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "codeql", "treesitter"],
+        default="auto",
+        help="Context extraction backend (default: auto-detect)",
+    )
+    parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Force re-extraction of context CSVs even if they exist",
+    )
+
 
 def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for analyze command."""
@@ -224,31 +235,6 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
         help="Number of parallel CodeQL analyses (default: 2)",
     )
 
-
-def _add_extract_args(parser: argparse.ArgumentParser) -> None:
-    """Add arguments for extract-context command."""
-    parser.add_argument(
-        "--local-path",
-        type=Path,
-        help="Extract context from a local directory directly (requires --lang; --name optional)",
-    )
-    parser.add_argument("--name", help="Repository name (auto-derived from path if omitted)")
-    parser.add_argument(
-        "--lang",
-        choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
-        help="Only this language (required with --local-path)",
-    )
-    parser.add_argument("--repo", help="Only this repository")
-    parser.add_argument(
-        "--backend",
-        choices=["auto", "codeql", "treesitter"],
-        default="auto",
-        help="Context extraction backend (default: auto-detect)",
-    )
-    parser.add_argument(
-        "-f", "--force", action="store_true", help="Force re-extraction even if context CSVs exist"
-    )
-    parser.add_argument("--dry-run", action="store_true", help="Print actions only")
 
 
 def _add_build_sanitized_args(parser: argparse.ArgumentParser) -> None:
@@ -442,8 +428,6 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_prepare(args)
     elif args.command == "analyze":
         return cmd_analyze(args)
-    elif args.command == "extract-context":
-        return cmd_extract_context(args)
     elif args.command == "build-sanitized":
         return cmd_build_sanitized(args)
     elif args.command == "extract-fuzz-context":

@@ -85,20 +85,19 @@ For detailed setup, see [QUICKSTART.md](QUICKSTART.md).
 
 | Stage | Command | Input | Output |
 |---|---|---|---|
-| 1 | `prepare` | URL / local path / repos.yaml | Source code + CodeQL database |
+| 1 | `prepare` | URL / local path / repos.yaml | Source code + CodeQL database + context CSVs |
 | 2 | `analyze` | CodeQL DB and/or source tree | SARIF findings |
-| 3 | `extract-context` | CodeQL DB or source tree | CSV context files |
-| 4 | `verify` | SARIF + CSVs | JSON verdicts + reasoning |
+| 3 | `verify` | SARIF + CSVs | JSON verdicts + reasoning |
 | — | `report` | Verification results | Markdown report |
-| 5–8 | `build-sanitized` → `fuzz-run` | Verified C/C++ findings | Fuzz harnesses + crash results |
+| 4–7 | `build-sanitized` → `fuzz-run` | Verified C/C++ findings | Fuzz harnesses + crash results |
 
-Stages 2–4 accept `--local-path` to operate directly on an arbitrary directory. See [docs/fuzz_stages.md](docs/fuzz_stages.md) for stages 5–8.
+Stages 2–3 accept `--local-path` to operate directly on an arbitrary directory. See [docs/fuzz_stages.md](docs/fuzz_stages.md) for stages 4–7.
 
 | Goal | Required stages | Optional |
 |---|---|---|
 | Static analysis only | 1, 2 | — |
-| LLM verification | 1, 2, 4 | 3 |
-| Fuzz confirmation (C/C++) | 1, 2, 4, 5, 6, 7 | 3, 8 |
+| LLM verification | 1, 2, 3 | — |
+| Fuzz confirmation (C/C++) | 1, 2, 3, 4, 5, 6 | 7 |
 
 ---
 
@@ -116,7 +115,7 @@ Checks CodeQL CLI, Semgrep/OpenGrep, and LLM provider keys.
 
 ### prepare *(alias: clone)*
 
-Clone a repository and create a CodeQL database. Accepts a config file, a direct URL, or a local path.
+Clone a repository, create a CodeQL database, and extract context CSVs (functions, callers, structs, globals, macros, classes). Accepts a config file, a direct URL, or a local path.
 
 ```bash
 # From repos.yaml (batch)
@@ -129,20 +128,26 @@ vuln-hunter-x prepare --url https://github.com/org/lib.git --lang c --build-comm
 
 # From an existing local directory
 vuln-hunter-x prepare --local-path /path/to/repo --lang python
+
+# Re-extract context only (skip clone and DB)
+vuln-hunter-x prepare --skip-clone --skip-db --force --repo libucl
 ```
 
-| Option | Description |
-|---|---|
-| `--url URL` | Git URL to clone |
-| `--local-path PATH` | Existing local directory |
-| `--name NAME` | Repository name (auto-derived if omitted) |
-| `--lang LANG` | Language — required with `--url` or `--local-path` |
-| `--build-command CMD` | Build command for compiled languages |
-| `--config PATH` | Path to repos.yaml |
-| `--repo NAME` | Filter to one repository (config mode) |
-| `--skip-db` | Skip CodeQL database creation |
-| `--ask-llm` | Ask LLM for help if the build fails |
-| `--dry-run` | Preview actions without executing |
+| Option | Description | Default |
+|---|---|---|
+| `--url URL` | Git URL to clone | — |
+| `--local-path PATH` | Existing local directory | — |
+| `--name NAME` | Repository name (auto-derived if omitted) | — |
+| `--lang LANG` | Language — required with `--url` or `--local-path` | — |
+| `--build-command CMD` | Build command for compiled languages | — |
+| `--config PATH` | Path to repos.yaml | — |
+| `--repo NAME` | Filter to one repository (config mode) | All |
+| `--skip-db` | Skip CodeQL database creation | false |
+| `--skip-context` | Skip automatic context extraction | false |
+| `--backend {auto,codeql,treesitter}` | Context extraction backend | `auto` |
+| `-f, --force` | Force re-extraction of context CSVs | false |
+| `--ask-llm` | Ask LLM for help if the build fails | false |
+| `--dry-run` | Preview actions without executing | false |
 
 ---
 
@@ -170,26 +175,6 @@ vuln-hunter-x analyze --tool semgrep --local-path /path/to/project --lang python
 | `-j, --jobs N` | Parallel CodeQL analyses | 2 |
 | `-f, --force` | Re-run even if SARIF exists | false |
 | `--dry-run` | Preview | false |
-
----
-
-### extract-context
-
-Extract function/caller/struct context into CSVs for multi-turn verification.
-
-```bash
-vuln-hunter-x extract-context --repo libucl
-vuln-hunter-x extract-context --local-path /path/to/project --lang go
-```
-
-| Option | Description | Default |
-|---|---|---|
-| `--local-path PATH` | Extract from a local directory | — |
-| `--name NAME` | Repository name (auto-derived) | — |
-| `--backend {auto,codeql,treesitter}` | Extraction backend | `auto` |
-| `--repo NAME` | Filter to one repository | All |
-| `--lang LANG` | Filter by language | All |
-| `-f, --force` | Re-extract even if CSVs exist | false |
 
 ---
 

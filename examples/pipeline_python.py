@@ -89,15 +89,8 @@ def run_pipeline(repo: str, dry_run: bool, skip_clone: bool) -> dict[str, bool]:
         ok = run_command(_CLI + ["analyze", "--tool", "semgrep", "--repo", repo], dry_run)
     results["analyze"] = ok
 
-    # Stage 3: extract-context
-    print_header(f"[{repo}] Stage 3: Extract Context")
-    ok = run_command(_CLI + ["extract-context", "--repo", repo], dry_run)
-    if not ok:
-        ok = run_command(_CLI + ["extract-context", "--repo", repo, "--backend", "treesitter"], dry_run)
-    results["extract-context"] = ok
-
-    # Stage 4: verify
-    print_header(f"[{repo}] Stage 4: Verify")
+    # Stage 3: verify (context CSVs extracted automatically in prepare)
+    print_header(f"[{repo}] Stage 3: Verify")
     if results["analyze"]:
         results["verify"] = run_command(
             _CLI + ["verify", "--repo", repo,

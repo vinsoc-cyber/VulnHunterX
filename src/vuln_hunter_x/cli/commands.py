@@ -138,6 +138,22 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         status = "OK" if ok else "FAIL"
         detail = msg[:100] if ok else msg if len(msg) <= 1200 else msg[:1200] + "... (truncated)"
         print(f"[{name}] [{status}] {detail}")
+
+        # ── Context extraction (automatic unless --skip-context) ──
+        if ok and not getattr(args, "skip_context", False):
+            print("\n--- Context extraction ---\n")
+            ctx_rc = _run_context_extraction(
+                lang_filter=args.lang,
+                repo_filter=name,
+                backend=getattr(args, "backend", "auto"),
+                force=getattr(args, "force", False),
+                dry_run=args.dry_run,
+                local_path=local_path,
+                name=name,
+            )
+            if ctx_rc != 0:
+                print(f"[{name}] [WARN] Context extraction had failures (non-fatal)")
+
         return 0 if ok else 1
 
     # ── Config mode (default) ──
@@ -167,6 +183,20 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         print(f"[{name}] [{status}] {detail}")
 
     print(f"\nDone. {ok_count}/{len(results)} succeeded.")
+
+    # ── Context extraction (automatic unless --skip-context) ──
+    if ok_count > 0 and not getattr(args, "skip_context", False):
+        print("\n--- Context extraction ---\n")
+        ctx_rc = _run_context_extraction(
+            lang_filter=args.lang,
+            repo_filter=args.repo,
+            backend=getattr(args, "backend", "auto"),
+            force=getattr(args, "force", False),
+            dry_run=args.dry_run,
+        )
+        if ctx_rc != 0:
+            print("[WARN] Some context extraction failed (non-fatal)")
+
     return 0 if ok_count == len(results) else 1
 
 
@@ -668,8 +698,24 @@ def _print_extraction_results(
     return 0 if total_ok == total_queries else 1
 
 
-def cmd_extract_context(args: argparse.Namespace) -> int:
-    """Execute extract-context command (CodeQL, tree-sitter, or auto)."""
+def _run_context_extraction(
+    *,
+    lang_filter: str | None = None,
+    repo_filter: str | None = None,
+    backend: str = "auto",
+    force: bool = False,
+    dry_run: bool = False,
+    local_path: Path | None = None,
+    name: str | None = None,
+) -> int:
+    """Run context extraction (CodeQL, tree-sitter, or auto).
+
+    This is the core logic shared by ``cmd_prepare`` (post-DB creation) and
+    any direct callers.  It discovers databases / source repos, runs the
+    appropriate extractor, and prints results.
+
+    Returns 0 on success, 1 on failure.
+    """
     from vuln_hunter_x.codeql.context_extractor import (
         ContextExtractorDB,
         discover_databases,
@@ -681,29 +727,25 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
 
     base_path = Path.cwd()
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
-    force = getattr(args, "force", False)
-    backend = getattr(args, "backend", "auto")
     output_dir = base_path / "output"
     repos_dir = base_path / "repos"
 
     # --local-path mode: symlink into repos/ so discovery finds it
-    local_path = getattr(args, "local_path", None)
     if local_path:
         local_path = Path(local_path).resolve()
         if not local_path.is_dir():
             print(f"Error: local path not found: {local_path}", file=sys.stderr)
             return 1
-        if not args.lang:
+        if not lang_filter:
             print("Error: --lang is required with --local-path.", file=sys.stderr)
             return 1
-        name = getattr(args, "name", None) or local_path.name
-        lang = args.lang
-        target_repo_dir = repos_dir / lang / name
+        name = name or local_path.name
+        lang_filter = lang_filter
+        target_repo_dir = repos_dir / lang_filter / name
         if not target_repo_dir.exists():
             target_repo_dir.parent.mkdir(parents=True, exist_ok=True)
             target_repo_dir.symlink_to(local_path)
-        args.repo = name
-        args.lang = lang
+        repo_filter = name
 
     # ── Discover sources ──────────────────────────────────────────
     codeql_dbs: list[tuple[Path, str, str]] = []
@@ -715,16 +757,16 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
         ts_repos = discover_repos_for_context(output_dir, repos_dir)
         if backend == "auto":
             # Exclude repos already covered by CodeQL
-            codeql_keys = {(lang, name) for _, lang, name in codeql_dbs}
+            codeql_keys = {(lg, n) for _, lg, n in codeql_dbs}
             ts_repos = [(p, lg, n) for p, lg, n in ts_repos if (lg, n) not in codeql_keys]
 
     # Apply filters
-    if args.lang:
-        codeql_dbs = [(p, lg, n) for p, lg, n in codeql_dbs if lg == args.lang]
-        ts_repos = [(p, lg, n) for p, lg, n in ts_repos if lg == args.lang]
-    if args.repo:
-        codeql_dbs = [(p, lg, n) for p, lg, n in codeql_dbs if n.lower() == args.repo.lower()]
-        ts_repos = [(p, lg, n) for p, lg, n in ts_repos if n.lower() == args.repo.lower()]
+    if lang_filter:
+        codeql_dbs = [(p, lg, n) for p, lg, n in codeql_dbs if lg == lang_filter]
+        ts_repos = [(p, lg, n) for p, lg, n in ts_repos if lg == lang_filter]
+    if repo_filter:
+        codeql_dbs = [(p, lg, n) for p, lg, n in codeql_dbs if n.lower() == repo_filter.lower()]
+        ts_repos = [(p, lg, n) for p, lg, n in ts_repos if n.lower() == repo_filter.lower()]
 
     if not codeql_dbs and not ts_repos:
         print("No CodeQL databases or source repos found.", file=sys.stderr)
@@ -747,13 +789,13 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
             )
             results = extractor.extract_all(
                 output_dir=output_dir,
-                lang_filter=args.lang,
-                repo_filter=args.repo,
-                dry_run=args.dry_run,
+                lang_filter=lang_filter,
+                repo_filter=repo_filter,
+                dry_run=dry_run,
             )
-            process_names = {name for _, _, name in codeql_dbs}
+            process_names = {n for _, _, n in codeql_dbs}
             all_results.extend(
-                (name, lang, qr) for name, lang, qr in results if name in process_names
+                (n, lg, qr) for n, lg, qr in results if n in process_names
             )
 
     # ── Tree-sitter extraction ────────────────────────────────────
@@ -767,13 +809,13 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
                 repos_dir=repos_dir,
                 output_dir=output_dir,
             )
-            for _src_path, lang, repo_name in ts_repos:
+            for _src_path, lg, repo_name in ts_repos:
                 query_results = ts_extractor.extract_for_repo(
-                    lang,
+                    lg,
                     repo_name,
-                    dry_run=args.dry_run,
+                    dry_run=dry_run,
                 )
-                all_results.append((repo_name, lang, query_results))
+                all_results.append((repo_name, lg, query_results))
 
     if not all_results and total_skip > 0:
         print("\nDone. All repos skipped (use --force to re-extract).")

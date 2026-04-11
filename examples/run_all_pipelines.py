@@ -306,32 +306,12 @@ def stage_extract_context(
     force: bool = False,
     dry_run: bool = False,
 ) -> tuple[str, str]:
+    """Context CSVs are now extracted automatically during prepare.
+
+    Kept for backward compatibility. To re-extract, use:
+        vuln-hunter-x prepare --skip-clone --skip-db --force --repo <name>
     """
-    Stage 3: Extract context CSVs for multi-turn verification.
-    
-    Returns:
-        Tuple of (status, message) where status is OK/SKIP/FAIL
-    """
-    cmd = _CLI + ["extract-context", "--repo", repo_name]
-    if force:
-        cmd.append("--force")
-    
-    if dry_run:
-        return "DRY-RUN", "Would extract context CSVs"
-    
-    success, output = run_command(cmd)
-    
-    if "[SKIP]" in output:
-        import re
-        match = re.search(r"\((\d+) CSV files\)", output)
-        count = match.group(1) if match else "?"
-        return "SKIP", f"Context exists ({count} CSV files)"
-    elif success:
-        # Count successful queries
-        ok_count = output.count("[OK]")
-        return "OK", f"{ok_count} CSV files"
-    else:
-        return "FAIL", "Context extraction failed"
+    return "SKIP", "Context CSVs extracted automatically during prepare"
 
 
 def stage_verify(

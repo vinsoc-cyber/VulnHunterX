@@ -37,7 +37,7 @@ vuln-hunter-x build-sanitized --dry-run       # Preview
 
 Runs CodeQL queries to produce CSVs used when generating fuzz harnesses: function signatures (name, file, line range, parameters) and includes per file.
 
-> **Stage 3 vs Stage 6:** Stage 3 (`extract-context`) extracts general-purpose LLM verification context — functions, callers, structs, globals — used by the multi-turn verify engine. Stage 6 (`extract-fuzz-context`) extracts fuzz-specific context — function signatures with parameter types, include directives — used by the harness generator. Both read the same CodeQL database but produce different CSVs for different pipeline consumers.
+> **`prepare` context vs Stage 6:** The `prepare` command automatically extracts general-purpose LLM verification context — functions, callers, structs, globals — used by the multi-turn verify engine. Stage 6 (`extract-fuzz-context`) extracts fuzz-specific context — function signatures with parameter types, include directives — used by the harness generator. Both read the same CodeQL database but produce different CSVs for different pipeline consumers.
 
 ### Sub-stages
 
@@ -239,7 +239,7 @@ Priority: CLI args > env vars > config file > defaults.
 > set `OPENAI_BASE_URL` — the fix loop will automatically prefix the model with `openai/`.
 
 > **Important:** If harnesses show type errors (e.g. assigning scalars to array/struct members),
-> re-run Stage 3 (`extract-context`) to regenerate context CSVs with the latest CodeQL queries.
+> re-run `vuln-hunter-x prepare --skip-clone --skip-db --force --repo <name>` to regenerate context CSVs with the latest CodeQL queries.
 > The `structs.csv` must include the `member_type` column for type-aware harness generation.
 
 ---

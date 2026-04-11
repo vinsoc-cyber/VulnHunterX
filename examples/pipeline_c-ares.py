@@ -161,36 +161,17 @@ def stage_analyze(dry_run: bool = False, has_codeql_db: bool = True) -> bool:
 
 
 def stage_extract_context(dry_run: bool = False, has_codeql_db: bool = True) -> bool:
-    """Stage 3: Extract context CSVs (CodeQL or tree-sitter fallback)."""
-    print_header("Stage 3: Extract Context CSVs")
+    """Stage 3: Extract context CSVs — now handled automatically by prepare.
 
-    print("Extracting structured context for LLM mode:")
-    print("  - functions.csv: Function definitions")
-    print("  - callers.csv: Caller-callee relationships")
-    print("  - structs.csv: Structure definitions")
-    print("  - globals.csv: Global variables")
-    print("  - macros.csv: Macro definitions")
-    print()
-
-    if has_codeql_db:
-        success, error = run_command(
-            _CLI + ["extract-context", "--repo", REPO_NAME],
-            dry_run,
-        )
-        if success:
-            print(f"\n[OK] Context CSVs extracted to output/{LANGUAGE}/{REPO_NAME}/context/")
-            return True
-        print(f"\n[WARN] CodeQL extraction failed: {error}")
-
-    # Fallback to tree-sitter
-    print("\nFalling back to tree-sitter extraction...")
-    success, error = run_command(
-        _CLI + ["extract-context", "--repo", REPO_NAME, "--backend", "treesitter"],
-        dry_run,
-    )
-
+    Kept as a no-op for backward compatibility with callers.
+    To re-extract, run: prepare --skip-clone --skip-db --force --repo <name>
+    """
+    print_header("Stage 3: Extract Context CSVs (automatic in prepare)")
+    print("Context CSVs are now extracted automatically during prepare.")
+    print(f"To re-extract: vuln-hunter-x prepare --skip-clone --skip-db --force --repo {REPO_NAME}")
+    success = True
     if success:
-        print("\n[OK] Context extracted (tree-sitter)")
+        print("\n[OK] Context CSVs already extracted during prepare")
     else:
         print(f"\n[FAIL] Extraction failed: {error}")
 
