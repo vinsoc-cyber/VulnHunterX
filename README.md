@@ -13,6 +13,7 @@ A Python framework that combines static analysis with LLM verification to reduce
 ## Table of Contents
 
 - [Overview](#overview)
+- [SAST Coverage](#sast-coverage)
 - [Quick Start](#quick-start)
 - [Pipeline Stages](#pipeline-stages)
 - [CLI Reference](#cli-reference)
@@ -35,7 +36,7 @@ Static analysis tools (CodeQL, Semgrep, OpenGrep) produce many findings, but a s
 | **Multi-language** | C, C++, Python, JavaScript, PHP, Java, Go |
 | **Multi SAST** | CodeQL, Semgrep, OpenGrep (`--tool codeql|semgrep|opengrep|both|all`) |
 | **LLM verification** | Multi-turn with dynamic context expansion (callers, structs, globals) |
-| **Guided questions** | 325+ rule-specific templates across 7 languages |
+| **Guided questions** | 319 rule-specific templates across 7 languages |
 | **Multiple LLM providers** | OpenAI (GPT-4), Anthropic (Claude), Ollama (local) |
 | **Flexible input** | Clone from URL, use local directory, or batch via `repos.yaml` |
 | **Markdown reports** | Executive summary, severity/CWE breakdown, per-finding detail |
@@ -54,6 +55,53 @@ The **Vulnhalla methodology** improves accuracy by forcing the LLM to:
 - Answer rule-specific questions before giving a verdict
 - Request callers, structs, globals, or other context as needed
 - Reason across multiple turns rather than pattern-matching
+
+---
+
+## SAST Coverage
+
+### Security Rules & Categories
+
+| Metric | Count |
+|---|---|
+| **Supported Languages** | 7 (C, C++, Python, JavaScript, PHP, Java, Go) |
+| **SAST Tools** | 3 (CodeQL, Semgrep, OpenGrep) |
+| **Rule Profiles** | 3 (standard, extended, maximum) |
+| **Security Categories** | 12 |
+| **CWE IDs Covered** | 56+ |
+| **Guided Question Templates** | 319 across 7 languages |
+
+### Security Categories
+
+- **Injection** (10 CWE IDs): SQL, command, code, LDAP, XPath, template, header, format string injection
+- **Cross-Site Scripting (XSS)** (3 CWE IDs): DOM-based, reflected, stored XSS variants
+- **Authentication & Authorization** (6 CWE IDs): Broken auth, missing auth, CSRF, session fixation, authorization flaws
+- **Cryptography** (4 CWE IDs): Weak algorithms, insecure TLS, broken ciphers, broken hashes
+- **Hardcoded Secrets** (3 CWE IDs): Passwords, API keys, cryptographic keys
+- **Memory Safety** (14 CWE IDs): Buffer overflow, use-after-free, null deref, integer overflow, memory leaks (C/C++)
+- **Data Exposure** (6 CWE IDs): Information disclosure, cleartext storage/transmission, log injection
+- **Deserialization** (1 CWE ID): Unsafe deserialization of untrusted data
+- **XXE** (1 CWE ID): XML external entity injection
+- **SSRF** (1 CWE ID): Server-side request forgery
+- **File Security** (3 CWE IDs): Path traversal, unsafe file upload, zip slip
+- **Denial of Service** (4 CWE IDs): Resource exhaustion, ReDoS, algorithmic complexity attacks
+
+### Rule Profiles
+
+**Standard** — Default baseline; matches current tool defaults  
+├─ CodeQL security-extended suite (~200 queries per language)  
+├─ Semgrep: auto-detected rules  
+└─ OpenGrep: auto-detected rules  
+
+**Extended** — Broader coverage; adds detailed security audit rules  
+├─ CodeQL security-extended  
+├─ Semgrep: auto + security-audit + secrets  
+└─ OpenGrep: auto + security-audit + secrets  
+
+**Maximum** — Comprehensive; includes code quality and OWASP Top 10  
+├─ CodeQL security-and-quality suite (~400 queries per language)  
+├─ Semgrep: auto + security-audit + secrets + OWASP Top 10  
+└─ OpenGrep: auto + security-audit + secrets + OWASP Top 10  
 
 ---
 
