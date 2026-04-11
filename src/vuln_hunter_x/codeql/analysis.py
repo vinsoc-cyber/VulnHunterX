@@ -32,6 +32,21 @@ class CodeQLAnalyzer:
         "go": "codeql/go-queries:codeql-suites/go-security-extended.qls",
     }
 
+    @classmethod
+    def suite_for_language(
+        cls, lang: str, suite_suffix: str = "security-extended",
+    ) -> str:
+        """Build a full CodeQL suite reference for *lang* with *suite_suffix*.
+
+        Example::
+
+            >>> CodeQLAnalyzer.suite_for_language("python", "security-and-quality")
+            'codeql/python-queries:codeql-suites/python-security-and-quality.qls'
+        """
+        codeql_lang = "cpp" if lang in ("c", "cpp") else lang
+        base = cls.DEFAULT_SUITES.get(codeql_lang, cls.DEFAULT_SUITES["cpp"])
+        return base.replace("security-extended", suite_suffix)
+
     def __init__(
         self,
         codeql_path: str = "codeql",

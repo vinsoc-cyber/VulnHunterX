@@ -35,6 +35,7 @@ _LANG_MAP: dict[str, str] = {
     "js": "javascript",
     "php": "php",
     "java": "java",
+    "go": "go",
 }
 
 # CWE IDs that have CodeQL rule mappings (we only import these)

@@ -8,6 +8,17 @@ import yaml
 
 from vuln_hunter_x.core.types import GuidedQuestions
 
+# Language name → guided-question prefix used in *_questions.yaml rule IDs.
+_LANG_TO_QUESTION_PREFIX: dict[str, str] = {
+    "c": "cpp",
+    "cpp": "cpp",
+    "python": "py",
+    "javascript": "js",
+    "java": "java",
+    "php": "php",
+    "go": "go",
+}
+
 
 class QuestionsLoader:
     """Loads and retrieves guided questions for CodeQL rules."""
@@ -15,9 +26,14 @@ class QuestionsLoader:
     def __init__(self, prompts_dir: Path | None = None):
         self.questions: dict[str, GuidedQuestions] = {}
         self._default_questions: GuidedQuestions | None = None
+        self._cwe_question_map: dict[str, str] = {}
 
         if prompts_dir:
             self.load_from_directory(prompts_dir)
+
+    def set_cwe_question_map(self, cwe_map: dict[str, str]) -> None:
+        """Set the CWE-ID → question-rule-suffix mapping for Semgrep matching."""
+        self._cwe_question_map = dict(cwe_map)
 
     def load_from_directory(self, prompts_dir: Path) -> int:
         """
@@ -82,20 +98,36 @@ class QuestionsLoader:
 
         return count
 
-    def get_questions(self, rule_id: str) -> GuidedQuestions:
+    def get_questions(
+        self,
+        rule_id: str,
+        *,
+        cwe_ids: list[str] | None = None,
+        lang: str = "",
+    ) -> GuidedQuestions:
         """
         Get guided questions for a rule, with fallback to default.
 
         Args:
-            rule_id: The CodeQL rule ID (e.g., "cpp/use-after-free")
+            rule_id: The rule ID (e.g., "cpp/use-after-free")
+            cwe_ids: Optional CWE IDs from the finding (used for CWE-based fallback)
+            lang: Optional language hint (e.g., "python") for CWE matching
 
         Returns:
             GuidedQuestions for the rule
         """
-        questions, _ = self.get_questions_with_match_info(rule_id)
+        questions, _ = self.get_questions_with_match_info(
+            rule_id, cwe_ids=cwe_ids, lang=lang,
+        )
         return questions
 
-    def get_questions_with_match_info(self, rule_id: str) -> tuple[GuidedQuestions, str]:
+    def get_questions_with_match_info(
+        self,
+        rule_id: str,
+        *,
+        cwe_ids: list[str] | None = None,
+        lang: str = "",
+    ) -> tuple[GuidedQuestions, str]:
         """
         Get guided questions for a rule and the match type used to find them.
 
@@ -104,11 +136,14 @@ class QuestionsLoader:
           "normalized" — hyphens replaced with slashes
           "prefix"     — bidirectional prefix match
           "lang_prefix"— same language prefix, partial rule-name match
+          "cwe"        — matched via CWE ID → question suffix mapping
           "default"    — fell back to default_questions.yaml
           "generic"    — programmatically generated fallback
 
         Args:
-            rule_id: The CodeQL rule ID (e.g., "cpp/use-after-free")
+            rule_id: The rule ID (e.g., "cpp/use-after-free" or Semgrep ID)
+            cwe_ids: Optional CWE IDs from the finding's SARIF metadata
+            lang: Optional language hint (e.g., "python") for CWE matching
 
         Returns:
             (GuidedQuestions, match_type_str)
@@ -130,13 +165,19 @@ class QuestionsLoader:
         # Try language prefix match
         parts = rule_id.split("/")
         if len(parts) >= 2:
-            lang = parts[0]
+            lang_part = parts[0]
             rule_name = "/".join(parts[1:])
 
             # Try to find similar rule in same language
             for key, q in self.questions.items():
-                if key.startswith(f"{lang}/") and rule_name in key:
+                if key.startswith(f"{lang_part}/") and rule_name in key:
                     return q, "lang_prefix"
+
+        # Try CWE-based match (for Semgrep/OpenGrep findings with CWE tags)
+        if cwe_ids and self._cwe_question_map:
+            result = self._match_by_cwe(rule_id, cwe_ids, lang)
+            if result:
+                return result
 
         # Return default or generate generic questions
         if self._default_questions:
@@ -149,6 +190,46 @@ class QuestionsLoader:
             ), "default"
 
         return self._generate_generic_questions(rule_id), "generic"
+
+    def _match_by_cwe(
+        self,
+        rule_id: str,
+        cwe_ids: list[str],
+        lang: str,
+    ) -> tuple[GuidedQuestions, str] | None:
+        """Try to find guided questions via CWE-ID → question suffix mapping."""
+        # Resolve language prefix from the explicit lang hint
+        lang_prefix = _LANG_TO_QUESTION_PREFIX.get(lang, "")
+
+        # Fallback: try extracting language from Semgrep-style rule ID
+        # (e.g., "python.django.security.injection.sql.raw-query" → "python" → "py")
+        if not lang_prefix and "." in rule_id:
+            first_segment = rule_id.split(".")[0]
+            lang_prefix = _LANG_TO_QUESTION_PREFIX.get(first_segment, "")
+
+        for cwe_id in cwe_ids:
+            suffix = self._cwe_question_map.get(cwe_id)
+            if not suffix:
+                continue
+
+            # Try language-specific match first
+            if lang_prefix:
+                candidate = f"{lang_prefix}/{suffix}"
+                if candidate in self.questions:
+                    return self.questions[candidate], "cwe"
+
+            # Fallback: match any language with the right suffix
+            for key, q in self.questions.items():
+                if key.endswith(f"/{suffix}"):
+                    return GuidedQuestions(
+                        rule_id=rule_id,
+                        short_description=q.short_description,
+                        questions=q.questions,
+                        context_hint=q.context_hint,
+                        additional_context=q.additional_context,
+                    ), "cwe"
+
+        return None
     
     def _generate_generic_questions(self, rule_id: str) -> GuidedQuestions:
         """Generate generic questions for unknown rules."""

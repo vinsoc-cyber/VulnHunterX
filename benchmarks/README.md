@@ -6,11 +6,11 @@ Standalone benchmark framework comparing VulnHunterX against baselines on four g
 
 ## Approaches Compared
 
-| Approach            | Description                                                                     |
-| ------------------- | ------------------------------------------------------------------------------- |
-| `raw-sast`          | Every SAST finding = TP, no LLM. Establishes upper-bound recall.                |
-| `generic-questions` | Multi-turn LLM with only `default_questions.yaml` (no rule-specific questions). |
-| `vulnhunterx`       | Full system: rule-specific guided questions + multi-turn context expansion.     |
+| Approach      | Description                                                                 |
+| ------------- | --------------------------------------------------------------------------- |
+| `raw-sast`    | Every SAST finding = TP, no LLM. Establishes upper-bound recall.            |
+| `vulnhunterx` | Full system: rule-specific guided questions + multi-turn context expansion. |
+| `ablation`    | Runs each finding through three variants (specific / generic / zero-shot) to isolate the contribution of guided questions. |
 
 ---
 
@@ -183,11 +183,11 @@ python benchmarks/scripts/run_benchmark.py \
 # Large — all languages (~12K entries)
 python benchmarks/scripts/run_benchmark.py \
     --dataset cvefixes --approach vulnhunterx \
-    --limit 0 --lang c cpp python javascript php java \
+    --limit 0 --lang c cpp python javascript php java go \
     --model gpt-4o --run-dir benchmarks/results/cvefixes_full
 
 # Per-language sweep — one run per language, 200 entries each
-for lang in c cpp python javascript php java; do
+for lang in c cpp python javascript php java go; do
   python benchmarks/scripts/run_benchmark.py \
       --dataset cvefixes --approach vulnhunterx \
       --limit 200 --lang $lang \
@@ -233,11 +233,11 @@ done
 
 ```
 --dataset           secllmholmes | juliet | cvefixes | diversevul | all  (default: secllmholmes)
---approach          One or more of: raw-sast generic-questions vulnhunterx all  (default: all)
+--approach          One or more of: raw-sast vulnhunterx ablation all  (default: all)
 --model             LLM model name  (default: read from LLM_MODEL in .env, fallback gpt-4o)
 --provider          openai | anthropic | ollama  (default: read from LLM_PROVIDER in .env)
 --limit             Max entries per dataset, 0=all  (default: 0)
---lang LANG [...]   CVEfixes only: filter by language(s): c cpp python javascript php java
+--lang LANG [...]   CVEfixes only: filter by language(s): c cpp python javascript php java go
 --cwe CWE [...]     DiverseVul only: filter by CWE ID(s), e.g. CWE-787 CWE-416
 --juliet-per-cwe N  Juliet only: max entries per CWE, balanced TP/FP.
                     5=small (~40)  20=standard (~160) [default]  0=all CWEs (~64K)
@@ -269,7 +269,7 @@ done
 
 ---
 
-## Metrics Explained
+## Metrics
 
 | Metric                     | Description                                                        |
 | -------------------------- | ------------------------------------------------------------------ |

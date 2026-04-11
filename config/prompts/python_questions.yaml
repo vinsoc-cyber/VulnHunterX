@@ -131,18 +131,6 @@ py/hardcoded-credentials:
   context_hint: "Include the credential usage and any configuration loading."
   additional_context: []
 
-py/sensitive-data-exposure:
-  short_description: "Sensitive data logged, printed, or transmitted without protection"
-  questions:
-    - "What sensitive data is being exposed (password, token, PII, credit card, health data)?"
-    - "Where does this data end up - log file, HTTP response, console, third-party service?"
-    - "Who has access to that destination (all users, admins, log aggregation services)?"
-    - "Is the data MASKED or REDACTED before being written (e.g., last 4 digits of card)?"
-    - "Is the exposed data a credential, token, or PII (name, email, SSN, card number) that grants access or identifies a person?"
-    - "Is this in an error handler that might expose internal details to the end user?"
-  context_hint: "Include the data source and where it flows to."
-  additional_context: ["caller"]
-
 py/insecure-randomness:
   short_description: "Using random module instead of secrets for security-sensitive values"
   questions:

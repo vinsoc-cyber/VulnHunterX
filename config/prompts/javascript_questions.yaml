@@ -147,22 +147,6 @@ js/hardcoded-credentials:
 # Secrets / Sensitive Data Exposure
 # ==============================================================================
 
-js/sensitive-data-exposure:
-  short_description: "Sensitive data stored in localStorage, logged, or leaked in responses"
-  questions:
-    - "What sensitive data is being exposed (token, PII, credentials, health data)?"
-    - "Where does this data end up - localStorage, console.log, error response, analytics?"
-    - "Is localStorage accessible to any JavaScript on the same origin (XSS risk)?"
-    - "Is the data included in HTTP responses sent to the browser (could be cached or logged)?"
-    - "Is the exposed data a credential, token, or PII (name, email, SSN, card number) that grants access or identifies a person?"
-    - "Should sessionStorage (cleared on tab close) or an HttpOnly cookie be used instead?"
-  context_hint: "Include the data source and storage/transmission target."
-  additional_context: ["caller"]
-
-# ==============================================================================
-# Cryptography Gaps
-# ==============================================================================
-
 js/insecure-randomness:
   short_description: "Using Math.random() for security-sensitive tokens or keys"
   questions:
@@ -505,22 +489,6 @@ js/html-injection:
 
 # ==============================================================================
 # JavaScript - Regex Injection
-# ==============================================================================
-
-js/regex-injection:
-  short_description: "User input used as a regular expression pattern without escaping"
-  questions:
-    - "Is user-controlled input passed directly to new RegExp(userInput) or string.match(userInput)?"
-    - "Is the input escaped (e.g., lodash.escapeRegExp or manual escaping of metacharacters) before use?"
-    - "Could an attacker craft a malicious regex pattern to cause catastrophic backtracking (ReDoS)?"
-    - "Could an attacker use regex features to cause unexpected matching behavior?"
-    - "Is there a timeout or maximum input length to limit regex execution time?"
-    - "Is the intent to search for a literal string — if so, should String.includes() be used instead?"
-  context_hint: "Include the regex construction and where the pattern comes from."
-  additional_context: ["caller"]
-
-# ==============================================================================
-# JavaScript - Resource Exhaustion
 # ==============================================================================
 
 js/resource-exhaustion:

@@ -82,6 +82,19 @@ class VerificationEngine:
             max_tokens=config.llm.max_tokens,
         )
 
+        # Wire CWE → question mapping if rule_categories.yaml is available
+        self._profile_manager = None
+        try:
+            from vuln_hunter_x.core.rule_profiles import RuleProfileManager
+            categories_path = config.paths.base_dir / "config" / "rule_categories.yaml"
+            if categories_path.is_file():
+                self._profile_manager = RuleProfileManager(categories_path)
+                self.questions_loader.set_cwe_question_map(
+                    self._profile_manager.cwe_question_map,
+                )
+        except Exception:
+            pass  # Graceful degradation — CWE matching disabled
+
         # Callbacks for progress reporting
         self._on_finding_start: Callable[[int, int, Finding], None] | None = None
         self._on_finding_complete: Callable[[int, int, Verdict], None] | None = None
@@ -126,6 +139,7 @@ class VerificationEngine:
         repo_name: str,
         limit: int = 0,
         exclude_test_paths: bool = True,
+        category_filter: list[str] | None = None,
     ) -> VerificationResult:
         """
         Verify findings from a single SARIF file.
@@ -136,6 +150,7 @@ class VerificationEngine:
             repo_name: Name of the repository
             limit: Maximum findings to process (0 = all)
             exclude_test_paths: If True, skip findings under test/ or tests/
+            category_filter: Only verify findings in these security categories
 
         Returns:
             VerificationResult with all verdicts
@@ -143,7 +158,7 @@ class VerificationEngine:
         findings = parse_sarif_file(Path(sarif_path), lang, repo_name)
         if exclude_test_paths:
             findings = [f for f in findings if not _is_test_path(f.file)]
-        return self.verify_findings(findings, limit)
+        return self.verify_findings(findings, limit, category_filter=category_filter)
 
     def verify_all_sarif(
         self,
@@ -152,6 +167,7 @@ class VerificationEngine:
         repo_filter: str | None = None,
         limit: int = 0,
         exclude_test_paths: bool = True,
+        category_filter: list[str] | None = None,
     ) -> VerificationResult:
         """
         Verify findings from all SARIF files in output directory.
@@ -162,6 +178,7 @@ class VerificationEngine:
             repo_filter: Only process this repository
             limit: Maximum total findings to process (0 = all)
             exclude_test_paths: If True, skip findings under test/ or tests/
+            category_filter: Only verify findings in these security categories
 
         Returns:
             VerificationResult with all verdicts
@@ -184,12 +201,13 @@ class VerificationEngine:
                 findings = [f for f in findings if not _is_test_path(f.file)]
             all_findings.extend(findings)
 
-        return self.verify_findings(all_findings, limit)
+        return self.verify_findings(all_findings, limit, category_filter=category_filter)
 
     def verify_findings(
         self,
         findings: list[Finding],
         limit: int = 0,
+        category_filter: list[str] | None = None,
     ) -> VerificationResult:
         """
         Verify a list of findings.
@@ -197,10 +215,19 @@ class VerificationEngine:
         Args:
             findings: List of Finding objects to verify
             limit: Maximum findings to process (0 = all)
+            category_filter: Only verify findings in these security categories
 
         Returns:
             VerificationResult with all verdicts
         """
+        # Apply category filter (findings without CWE tags are always included)
+        if category_filter and self._profile_manager:
+            target_cwes = self._profile_manager.get_cwes_for_categories(category_filter)
+            findings = [
+                f for f in findings
+                if not f.cwe_ids or target_cwes.intersection(f.cwe_ids)
+            ]
+
         if limit > 0:
             findings = findings[:limit]
 
@@ -270,8 +297,12 @@ class VerificationEngine:
 
     def _verify_single_finding(self, finding: Finding) -> Verdict:
         """Verify a single finding."""
-        # Get questions
-        questions = self.questions_loader.get_questions(finding.rule_id)
+        # Get questions (pass CWE IDs for Semgrep/OpenGrep CWE-based matching)
+        questions = self.questions_loader.get_questions(
+            finding.rule_id,
+            cwe_ids=finding.cwe_ids,
+            lang=finding.lang,
+        )
 
         # Extract context
         context_result = self.context_extractor.get_context(

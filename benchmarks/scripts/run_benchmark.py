@@ -71,7 +71,6 @@ _DEFAULT_MAX_ITERATIONS: int = (
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry, load_entries  # noqa: E402
 from benchmarks.approaches.base import BenchmarkApproach, BenchmarkResult  # noqa: E402
-from benchmarks.approaches.generic_questions import GenericQuestionsApproach  # noqa: E402
 from benchmarks.approaches.raw_sast import RawSastApproach  # noqa: E402
 from benchmarks.approaches.ablation import AblationApproach  # noqa: E402
 from benchmarks.approaches.vulnhunterx import VulnHunterXApproach  # noqa: E402
@@ -223,8 +222,6 @@ def _build_approach(
     common = {"provider": provider, "model": model, "dry_run": dry_run}
     if name == "raw-sast":
         return RawSastApproach()
-    if name == "generic-questions":
-        return GenericQuestionsApproach(**common, max_iterations=max_iterations)
     if name == "vulnhunterx":
         return VulnHunterXApproach(
             **common, max_iterations=max_iterations,
@@ -494,10 +491,10 @@ def main() -> int:
     parser.add_argument(
         "--approach",
         nargs="+",
-        choices=["raw-sast", "generic-questions", "vulnhunterx", "ablation", "all"],
+        choices=["raw-sast", "vulnhunterx", "ablation", "all"],
         default=["all"],
         metavar="APPROACH",
-        help="One or more of: raw-sast generic-questions vulnhunterx ablation all",
+        help="One or more of: raw-sast vulnhunterx ablation all",
     )
     parser.add_argument("--model", default=os.environ.get("LLM_MODEL", "gpt-4o"))
     parser.add_argument("--provider", default=os.environ.get("LLM_PROVIDER", "openai"))
@@ -505,7 +502,7 @@ def main() -> int:
     parser.add_argument(
         "--lang",
         nargs="+",
-        choices=["c", "cpp", "python", "javascript", "php", "java"],
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
         default=None,
         metavar="LANG",
         help=(
@@ -613,7 +610,7 @@ def main() -> int:
         if args.dataset == "all"
         else [args.dataset]
     )
-    _ALL_APPROACHES = ["raw-sast", "generic-questions", "vulnhunterx", "ablation"]
+    _ALL_APPROACHES = ["raw-sast", "vulnhunterx", "ablation"]
     approaches = (
         _ALL_APPROACHES
         if "all" in args.approach

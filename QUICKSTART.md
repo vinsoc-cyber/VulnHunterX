@@ -92,6 +92,7 @@ C and C++ scripts also support `--fuzz` to run fuzz confirmation stages 5–8.
 | `config/repos.yaml` | Repositories to analyze |
 | `config/prompts/*_questions.yaml` | Per-language guided questions |
 | `config/prompts/system_prompt.yaml` | LLM system prompt template |
+| `config/rule_categories.yaml` | Rule profiles, security categories, CWE mapping |
 
 ## Adding Your Own Repository
 
@@ -117,10 +118,42 @@ Then analyze and verify — no `repos.yaml` needed, all stages auto-discover fro
 vuln-hunter-x analyze --repo my-app                         # CodeQL (default)
 vuln-hunter-x analyze --tool semgrep --repo my-app           # Semgrep
 vuln-hunter-x analyze --tool all --repo my-app               # CodeQL + Semgrep + OpenGrep
+vuln-hunter-x analyze --profile extended --tool all --repo my-app  # Extended rules (+ security-audit, secrets)
 vuln-hunter-x verify --repo my-app --report                  # Verify + generate markdown report
+vuln-hunter-x verify --category injection --category xss     # Verify only injection + XSS findings
 # Context CSVs are extracted automatically during prepare.
 # To re-extract: vuln-hunter-x prepare --skip-clone --skip-db --force --repo my-app
 ```
+
+## Rule Profiles & Security Categories
+
+**Profiles** control how many rules each tool runs:
+
+| Profile | CodeQL | Semgrep/OpenGrep | Use case |
+|---------|--------|------------------|----------|
+| `standard` | security-extended (~200 queries) | `auto` | Default, fast |
+| `extended` | security-extended | `auto` + `p/security-audit` + `p/secrets` | Broader coverage |
+| `maximum` | security-and-quality (~400 queries) | `auto` + `p/security-audit` + `p/secrets` + `p/owasp-top-ten` | Maximum coverage |
+
+```bash
+vuln-hunter-x analyze --profile extended --tool all --repo my-app
+vuln-hunter-x analyze --profile maximum --tool semgrep --repo my-app
+```
+
+**Categories** filter which vulnerability types to verify:
+
+```bash
+# Only verify injection findings
+vuln-hunter-x verify --category injection
+
+# Combine categories
+vuln-hunter-x verify --category injection --category xss --category auth
+
+# Available: injection xss auth crypto secrets memory-safety
+#            data-exposure deserialization xxe ssrf file-security dos
+```
+
+Configuration in `config/rule_categories.yaml` defines profiles, categories (with CWE mappings), and CWE-to-question mappings that ensure Semgrep/OpenGrep findings receive language-specific guided questions.
 
 You can also skip `prepare` and analyze a local directory directly:
 

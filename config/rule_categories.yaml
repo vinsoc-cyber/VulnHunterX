@@ -1,0 +1,284 @@
+# =============================================================================
+# Rule Categories & Profiles
+# =============================================================================
+# This file defines:
+#   1. Rule profiles — control which suites/presets each SAST tool runs
+#   2. Security categories — group vulnerability types by CWE for filtering
+#   3. CWE-to-question mapping — match Semgrep rule IDs to guided questions
+#
+# Usage:
+#   vuln-hunter-x analyze --profile extended --tool all --repo my-app
+#   vuln-hunter-x verify --category injection --category xss
+# =============================================================================
+
+# ── Profiles ─────────────────────────────────────────────────────────────────
+# Control how many rules each tool runs.  "standard" matches current defaults.
+# CLI: --profile standard|extended|maximum
+#
+# CodeQL suite suffixes map to:
+#   security-extended     ~200 queries  (default)
+#   security-and-quality  ~400 queries  (includes code quality)
+#
+# Semgrep/OpenGrep registry presets:
+#   auto               Language-auto-detected rules
+#   p/security-audit   Comprehensive security audit rules
+#   p/secrets          Hardcoded secrets, API keys, tokens
+#   p/owasp-top-ten    OWASP Top 10 coverage
+# =============================================================================
+
+profiles:
+  standard:
+    description: "Default — CodeQL security-extended + Semgrep auto"
+    codeql_suite_suffix: "security-extended"
+    semgrep_configs:
+      - "auto"
+    opengrep_configs:
+      - "auto"
+
+  extended:
+    description: "Broader — adds security-audit and secrets detection"
+    codeql_suite_suffix: "security-extended"
+    semgrep_configs:
+      - "auto"
+      - "p/security-audit"
+      - "p/secrets"
+    opengrep_configs:
+      - "auto"
+      - "p/security-audit"
+      - "p/secrets"
+
+  maximum:
+    description: "Maximum — security-and-quality suite + all major presets"
+    codeql_suite_suffix: "security-and-quality"
+    semgrep_configs:
+      - "auto"
+      - "p/security-audit"
+      - "p/secrets"
+      - "p/owasp-top-ten"
+    opengrep_configs:
+      - "auto"
+      - "p/security-audit"
+      - "p/secrets"
+      - "p/owasp-top-ten"
+
+# ── Security Categories ──────────────────────────────────────────────────────
+# Group vulnerability types by CWE ID for filtering at verify time.
+# CLI: --category injection --category xss  (repeatable)
+#
+# Findings are matched by CWE tags in SARIF metadata.
+# Findings without CWE tags are always included (conservative).
+# =============================================================================
+
+categories:
+  injection:
+    description: "SQL, command, code, LDAP, XPath, template, header injection"
+    cwes:
+      - "CWE-77"    # Command injection (generic)
+      - "CWE-78"    # OS command injection
+      - "CWE-89"    # SQL injection
+      - "CWE-90"    # LDAP injection
+      - "CWE-94"    # Code injection
+      - "CWE-95"    # Eval injection
+      - "CWE-113"   # HTTP header injection
+      - "CWE-134"   # Uncontrolled format string
+      - "CWE-643"   # XPath injection
+      - "CWE-917"   # Expression/template injection (SSTI)
+
+  xss:
+    description: "Cross-site scripting and HTML injection"
+    cwes:
+      - "CWE-79"    # Cross-site scripting (XSS)
+      - "CWE-80"    # Basic XSS
+      - "CWE-87"    # Alternate XSS syntax
+
+  auth:
+    description: "Authentication, authorization, session management, CSRF"
+    cwes:
+      - "CWE-287"   # Improper authentication
+      - "CWE-306"   # Missing authentication for critical function
+      - "CWE-352"   # Cross-site request forgery (CSRF)
+      - "CWE-384"   # Session fixation
+      - "CWE-862"   # Missing authorization
+      - "CWE-863"   # Incorrect authorization
+
+  crypto:
+    description: "Weak cryptography, insecure TLS, insufficient key size"
+    cwes:
+      - "CWE-295"   # Improper certificate validation
+      - "CWE-326"   # Inadequate encryption strength
+      - "CWE-327"   # Use of a broken or risky cryptographic algorithm
+      - "CWE-328"   # Use of weak hash
+
+  secrets:
+    description: "Hardcoded credentials, API keys, tokens"
+    cwes:
+      - "CWE-259"   # Hard-coded password
+      - "CWE-321"   # Hard-coded cryptographic key
+      - "CWE-798"   # Hard-coded credentials
+
+  memory-safety:
+    description: "Buffer overflow, use-after-free, null deref, memory leak (C/C++)"
+    cwes:
+      - "CWE-119"   # Buffer overflow (generic)
+      - "CWE-120"   # Buffer copy without size check
+      - "CWE-122"   # Heap-based buffer overflow
+      - "CWE-125"   # Out-of-bounds read
+      - "CWE-170"   # Improper null termination
+      - "CWE-190"   # Integer overflow
+      - "CWE-193"   # Off-by-one error
+      - "CWE-197"   # Numeric truncation error
+      - "CWE-401"   # Memory leak
+      - "CWE-415"   # Double free
+      - "CWE-416"   # Use after free
+      - "CWE-457"   # Use of uninitialized variable
+      - "CWE-476"   # NULL pointer dereference
+      - "CWE-787"   # Out-of-bounds write
+
+  data-exposure:
+    description: "Information disclosure, cleartext storage/transmission, log injection"
+    cwes:
+      - "CWE-117"   # Improper log output neutralization
+      - "CWE-200"   # Exposure of sensitive information
+      - "CWE-209"   # Error message information leak
+      - "CWE-312"   # Cleartext storage of sensitive information
+      - "CWE-319"   # Cleartext transmission of sensitive information
+      - "CWE-532"   # Information in log files
+
+  deserialization:
+    description: "Unsafe deserialization"
+    cwes:
+      - "CWE-502"   # Deserialization of untrusted data
+
+  xxe:
+    description: "XML external entity injection"
+    cwes:
+      - "CWE-611"   # Improper restriction of XML external entity reference
+
+  ssrf:
+    description: "Server-side request forgery"
+    cwes:
+      - "CWE-918"   # Server-side request forgery (SSRF)
+
+  file-security:
+    description: "Path traversal, file upload, zip slip"
+    cwes:
+      - "CWE-22"    # Path traversal
+      - "CWE-73"    # External control of file name or path
+      - "CWE-434"   # Unrestricted upload of file with dangerous type
+
+  dos:
+    description: "Resource exhaustion, regex DoS, algorithmic complexity"
+    cwes:
+      - "CWE-400"   # Uncontrolled resource consumption
+      - "CWE-770"   # Allocation of resources without limits
+      - "CWE-835"   # Infinite loop
+      - "CWE-1333"  # Inefficient regular expression complexity (ReDoS)
+
+# ── CWE → Guided Question Mapping ───────────────────────────────────────────
+# Maps CWE IDs to the vulnerability-type suffix used in guided question
+# rule IDs (e.g., CWE-89 → "sql-injection" → looks up "py/sql-injection").
+#
+# This enables Semgrep/OpenGrep findings (which have CWE tags but
+# non-matching rule IDs) to receive language-specific guided questions
+# instead of falling back to generic default questions.
+# =============================================================================
+
+cwe_question_map:
+  # ── Injection ──
+  CWE-77:  "command-injection"
+  CWE-78:  "command-injection"
+  CWE-88:  "command-injection"
+  CWE-89:  "sql-injection"
+  CWE-90:  "ldap-injection"
+  CWE-94:  "code-injection"
+  CWE-95:  "code-injection"
+  CWE-113: "header-injection"
+  CWE-134: "tainted-format-string"
+  CWE-643: "xpath-injection"
+  CWE-917: "template-injection"
+
+  # ── XSS ──
+  CWE-79:  "xss"
+  CWE-80:  "xss"
+  CWE-87:  "xss"
+
+  # ── Authentication & Authorization ──
+  CWE-287: "broken-authentication"
+  CWE-306: "missing-authentication"
+  CWE-352: "csrf"
+  CWE-384: "session-fixation"
+  CWE-862: "missing-authorization"
+  CWE-863: "incorrect-authorization"
+
+  # ── Cryptography ──
+  CWE-295: "certificate-validation-disabled"
+  CWE-326: "insecure-tls-version"
+  CWE-327: "weak-cryptographic-algorithm"
+  CWE-328: "weak-cryptographic-algorithm"
+  CWE-312: "cleartext-storage"
+  CWE-319: "cleartext-transmission"
+
+  # ── Secrets ──
+  CWE-259: "hardcoded-credentials"
+  CWE-321: "hardcoded-credentials"
+  CWE-798: "hardcoded-credentials"
+
+  # ── Memory Safety (C/C++) ──
+  CWE-119: "overflow-buffer"
+  CWE-120: "overflow-buffer"
+  CWE-122: "heap-buffer-overflow"
+  CWE-125: "out-of-bounds-read"
+  CWE-170: "overflow-buffer"
+  CWE-190: "integer-overflow"
+  CWE-193: "off-by-one"
+  CWE-197: "integer-truncation"
+  CWE-401: "memory-leak"
+  CWE-415: "double-free"
+  CWE-416: "use-after-free"
+  CWE-457: "use-of-uninitialized-variable"
+  CWE-476: "null-pointer-dereference"
+  CWE-787: "overflow-buffer"
+
+  # ── Data Exposure ──
+  CWE-117: "log-injection"
+  CWE-200: "information-exposure"
+  CWE-209: "information-exposure"
+  CWE-532: "information-exposure"
+
+  # ── Deserialization ──
+  CWE-502: "unsafe-deserialization"
+
+  # ── XXE ──
+  CWE-611: "xxe"
+
+  # ── SSRF ──
+  CWE-918: "ssrf"
+
+  # ── File Security ──
+  CWE-22:  "path-injection"
+  CWE-73:  "path-injection"
+  CWE-434: "file-upload"
+
+  # ── DoS / Resource Exhaustion ──
+  CWE-400: "resource-exhaustion"
+  CWE-770: "resource-exhaustion"
+  CWE-835: "resource-exhaustion"
+  CWE-1333: "regex-dos"
+
+  # ── Redirect ──
+  CWE-601: "open-redirect"
+
+  # ── Race Condition ──
+  CWE-362: "race-condition"
+
+  # ── Insecure Randomness ──
+  CWE-330: "insecure-randomness"
+  CWE-338: "insecure-randomness"
+
+  # ── Supply Chain ──
+  CWE-426: "untrusted-search-path"
+  CWE-829: "untrusted-search-path"
+
+  # ── Miscellaneous ──
+  CWE-252: "missing-return-value-check"
+  CWE-754: "input-validation"
