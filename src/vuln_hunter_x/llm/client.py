@@ -286,6 +286,7 @@ class LLMClient:
                         tokens_used=total_tokens_used,
                         cost_usd=total_cost_usd,
                         confidence_score=parsed.get("confidence_score", 0.3),
+                        data_flow=parsed.get("data_flow", ""),
                     )
 
                 # Deduplicate context requests against previously fulfilled ones

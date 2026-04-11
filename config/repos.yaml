@@ -183,6 +183,9 @@ repos:
   - name: nodegoat
     url: https://github.com/OWASP/NodeGoat.git
     language: javascript
+  - name: monolog
+    url: https://github.com/Seldaek/monolog.git
+    language: php
   - name: dvwa
     url: https://github.com/digininja/DVWA.git
     language: php
@@ -200,3 +203,11 @@ repos:
   - name: bad-python-extract
     url: https://github.com/ajinabraham/bad_python_extract.git
     language: python
+
+  # --- Go ---
+  - name: gin
+    url: https://github.com/gin-gonic/gin.git
+    language: go
+  - name: govwa
+    url: https://github.com/0c34/govwa.git
+    language: go

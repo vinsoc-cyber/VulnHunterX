@@ -152,6 +152,7 @@ class Verdict:
     tokens_used: int = 0
     cost_usd: float = 0.0
     confidence_score: float = 0.0
+    data_flow: str = ""
 
     @property
     def is_true_positive(self) -> bool:
@@ -184,6 +185,7 @@ class Verdict:
             "elapsed_seconds": self.elapsed_seconds,
             "tokens_used": self.tokens_used,
             "cost_usd": self.cost_usd,
+            "data_flow": self.data_flow,
         }
 
     @classmethod
@@ -204,6 +206,7 @@ class Verdict:
             tokens_used=data.get("tokens_used", 0),
             cost_usd=data.get("cost_usd", 0.0),
             confidence_score=data.get("confidence_score", 0.0),
+            data_flow=data.get("data_flow", ""),
         )
 
 

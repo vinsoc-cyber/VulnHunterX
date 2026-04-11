@@ -36,12 +36,12 @@ vuln-hunter-x check-env
 python examples/pipeline_python.py
 ```
 
-This clones `pyyaml`, runs CodeQL analysis, and verifies findings with LLM.
+This runs the full pipeline on both `pyyaml` (real-world library) and `dvpwa` (intentionally vulnerable app), demonstrating the contrast between false positives and true positives.
 
 **Option B: Run commands individually**
 
 ```bash
-vuln-hunter-x clone --repo pyyaml
+vuln-hunter-x prepare --repo pyyaml
 vuln-hunter-x analyze --repo pyyaml
 vuln-hunter-x verify --repo pyyaml --limit 5
 ```
@@ -67,16 +67,21 @@ vuln-hunter-x verify --repo pyyaml --limit 5 --report
 
 ## Example Scripts
 
-| Script | Language | Notes |
-|--------|----------|-------|
-| `examples/pipeline_python.py` | Python | Fastest (no compilation) |
-| `examples/pipeline_javascript.py` | JavaScript | Known vulnerabilities |
-| `examples/pipeline_c.py` | C | Requires build tools |
-| `examples/pipeline_cpp.py` | C++ | Requires CMake |
-| `examples/pipeline_java.py` | Java | Requires Java build tooling |
-| `examples/pipeline_php.py` | PHP | Web app security demo target |
+Each script runs the full pipeline on **two repos** — one real-world library and one intentionally vulnerable app — to demonstrate the contrast between false positives and true positives.
+
+| Script | Language | Normal package | Vulnerable package |
+|--------|----------|---------------|-------------------|
+| `examples/pipeline_python.py` | Python | `pyyaml` | `dvpwa` |
+| `examples/pipeline_javascript.py` | JavaScript | `minimist` | `nodegoat` |
+| `examples/pipeline_c.py` | C | `c-ares` | `dvcp` |
+| `examples/pipeline_cpp.py` | C++ | `re2` | `insecure-coding-examples` |
+| `examples/pipeline_java.py` | Java | `commons-collections` | `webgoat` |
+| `examples/pipeline_php.py` | PHP | `monolog` | `dvwa` |
+| `examples/pipeline_go.py` | Go | `gin` | `govwa` |
 
 All scripts support: `--dry-run`, `--skip-clone`, `--api`
+
+C and C++ scripts also support `--fuzz` to run fuzz confirmation stages 5–8.
 
 ## Configuration Files
 
@@ -90,27 +95,37 @@ All scripts support: `--dry-run`, `--skip-clone`, `--api`
 
 ## Adding Your Own Repository
 
-**Option A: Direct clone (no config file needed)**
+**Option A: Direct prepare (no config file needed)**
 
 ```bash
-# Clone from URL
-vuln-hunter-x clone --url https://github.com/org/my-app.git --lang python
+# Prepare from URL
+vuln-hunter-x prepare --url https://github.com/org/my-app.git --lang python
 
 # Use existing local directory
-vuln-hunter-x clone --local-path /path/to/my-app --lang python --name my-app
+vuln-hunter-x prepare --local-path /path/to/my-app --lang python --name my-app
 
 # For C/C++, provide a build command
-vuln-hunter-x clone --url https://github.com/org/my-lib.git --lang c --build-command "make"
+vuln-hunter-x prepare --url https://github.com/org/my-lib.git --lang c --build-command "make"
 
 # For Go (no build command needed)
-vuln-hunter-x clone --url https://github.com/org/my-go-app.git --lang go
+vuln-hunter-x prepare --url https://github.com/org/my-go-app.git --lang go
 ```
 
-Then analyze and verify:
+Then analyze and verify — no `repos.yaml` needed, all stages auto-discover from the filesystem:
 
 ```bash
-vuln-hunter-x analyze --repo my-app
-vuln-hunter-x verify --repo my-app --report
+vuln-hunter-x analyze --repo my-app                         # CodeQL (default)
+vuln-hunter-x analyze --tool semgrep --repo my-app           # Semgrep
+vuln-hunter-x analyze --tool all --repo my-app               # CodeQL + Semgrep + OpenGrep
+vuln-hunter-x extract-context --repo my-app                  # Optional: richer multi-turn context
+vuln-hunter-x verify --repo my-app --report                  # Verify + generate markdown report
+```
+
+You can also skip `prepare` and analyze a local directory directly:
+
+```bash
+vuln-hunter-x analyze --tool semgrep --local-path /path/to/my-app --lang python
+vuln-hunter-x verify --local-path /path/to/my-app --lang python
 ```
 
 **Option B: Add to repos.yaml**
@@ -132,7 +147,7 @@ repos:
 Then run:
 
 ```bash
-vuln-hunter-x clone --repo my-app
+vuln-hunter-x prepare --repo my-app
 vuln-hunter-x analyze --repo my-app
 vuln-hunter-x verify --repo my-app
 ```

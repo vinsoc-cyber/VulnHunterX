@@ -12,6 +12,39 @@ from vuln_hunter_x.core.config import Config, load_config
 from vuln_hunter_x.core.types import Finding, Verdict
 
 
+_SUPPORTED_LANGS = {"c", "cpp", "python", "javascript", "php", "java", "go"}
+
+
+def _discover_repos_from_filesystem(
+    repos_dir: Path,
+    lang_filter: str | None = None,
+    repo_filter: str | None = None,
+) -> list[tuple[str, str]]:
+    """Discover (lang, name) pairs by scanning repos/<lang>/<name>/ on disk.
+
+    Used as a fallback when repos.yaml is not available (e.g. after clone --url).
+    """
+    repo_list: list[tuple[str, str]] = []
+    if not repos_dir.is_dir():
+        return repo_list
+    for lang_dir in sorted(repos_dir.iterdir()):
+        if not lang_dir.is_dir():
+            continue
+        lang = lang_dir.name
+        if lang not in _SUPPORTED_LANGS:
+            continue
+        if lang_filter and lang != lang_filter:
+            continue
+        for repo_dir in sorted(lang_dir.iterdir()):
+            if not repo_dir.is_dir():
+                continue
+            name = repo_dir.name
+            if repo_filter and name.lower() != repo_filter.lower():
+                continue
+            repo_list.append((lang, name))
+    return repo_list
+
+
 def cmd_check_env(args: argparse.Namespace) -> int:
     """Execute check-env command."""
     from vuln_hunter_x.cli.env import load_config_for_check, run_env_check
@@ -49,8 +82,8 @@ def _derive_repo_name(url: str | None, local_path: Path | None) -> str | None:
     return None
 
 
-def cmd_clone(args: argparse.Namespace) -> int:
-    """Execute clone command."""
+def cmd_prepare(args: argparse.Namespace) -> int:
+    """Execute prepare (clone) command."""
     from vuln_hunter_x.codeql.repository import RepositoryManager
 
     base_path = Path.cwd()
@@ -176,6 +209,10 @@ def _run_codeql_analyze(
         print("No CodeQL databases found.", file=sys.stderr)
         if args.lang or args.repo:
             print(f"  Filter: lang={args.lang}, repo={args.repo}", file=sys.stderr)
+        print(
+            "  Hint: run 'vuln-hunter-x prepare' first, or use '--tool semgrep' for source-only analysis.",
+            file=sys.stderr,
+        )
         return 1
 
     if verbose:
@@ -275,28 +312,29 @@ def _run_semgrep_analyze(
     verbose: bool,
     force: bool,
 ) -> int:
-    """Run Semgrep analysis on repos from config. Returns exit code."""
-    from vuln_hunter_x.codeql.repository import load_repos_config
+    """Run Semgrep analysis on repos from config or filesystem discovery. Returns exit code."""
     from vuln_hunter_x.semgrep.analyzer import SemgrepAnalyzer
 
     config_path = getattr(args, "config", None) or base_path / "config" / "repos.yaml"
-    if not config_path.is_file():
-        print(f"Config not found: {config_path}", file=sys.stderr)
-        return 1
-
-    repos = load_repos_config(Path(config_path))
-    supported_langs = {"c", "cpp", "python", "javascript", "php", "java", "go"}
-    # Build (lang, name) list; normalize language key
     repo_list: list[tuple[str, str]] = []
-    for r in repos:
-        name = r.get("name")
-        if not name:
-            continue
-        raw_lang = (r.get("language") or "c").lower()
-        lang = "cpp" if raw_lang == "cpp" else raw_lang
-        if lang not in supported_langs:
-            continue
-        repo_list.append((lang, name))
+
+    if config_path.is_file():
+        from vuln_hunter_x.codeql.repository import load_repos_config
+
+        repos = load_repos_config(Path(config_path))
+        for r in repos:
+            name = r.get("name")
+            if not name:
+                continue
+            raw_lang = (r.get("language") or "c").lower()
+            lang = "cpp" if raw_lang == "cpp" else raw_lang
+            if lang not in _SUPPORTED_LANGS:
+                continue
+            repo_list.append((lang, name))
+
+    # Fallback: discover repos from filesystem (supports clone --url / --local-path)
+    if not repo_list:
+        repo_list = _discover_repos_from_filesystem(repos_dir)
 
     if args.lang:
         repo_list = [(lang, name) for lang, name in repo_list if lang == args.lang]
@@ -384,27 +422,29 @@ def _run_opengrep_analyze(
     verbose: bool,
     force: bool,
 ) -> int:
-    """Run OpenGrep analysis on repos from config. Returns exit code."""
-    from vuln_hunter_x.codeql.repository import load_repos_config
+    """Run OpenGrep analysis on repos from config or filesystem discovery. Returns exit code."""
     from vuln_hunter_x.opengrep.analyzer import OpenGrepAnalyzer
 
     config_path = getattr(args, "config", None) or base_path / "config" / "repos.yaml"
-    if not config_path.is_file():
-        print(f"Config not found: {config_path}", file=sys.stderr)
-        return 1
-
-    repos = load_repos_config(Path(config_path))
-    supported_langs = {"c", "cpp", "python", "javascript", "php", "java", "go"}
     repo_list: list[tuple[str, str]] = []
-    for r in repos:
-        name = r.get("name")
-        if not name:
-            continue
-        raw_lang = (r.get("language") or "c").lower()
-        lang = "cpp" if raw_lang == "cpp" else raw_lang
-        if lang not in supported_langs:
-            continue
-        repo_list.append((lang, name))
+
+    if config_path.is_file():
+        from vuln_hunter_x.codeql.repository import load_repos_config
+
+        repos = load_repos_config(Path(config_path))
+        for r in repos:
+            name = r.get("name")
+            if not name:
+                continue
+            raw_lang = (r.get("language") or "c").lower()
+            lang = "cpp" if raw_lang == "cpp" else raw_lang
+            if lang not in _SUPPORTED_LANGS:
+                continue
+            repo_list.append((lang, name))
+
+    # Fallback: discover repos from filesystem (supports clone --url / --local-path)
+    if not repo_list:
+        repo_list = _discover_repos_from_filesystem(repos_dir)
 
     if args.lang:
         repo_list = [(lang, name) for lang, name in repo_list if lang == args.lang]
@@ -525,6 +565,27 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     force = getattr(args, "force", False)
     tool = getattr(args, "tool", "codeql")
 
+    # --local-path mode: set up repo/lang so downstream functions find the source
+    local_path = getattr(args, "local_path", None)
+    if local_path:
+        local_path = Path(local_path).resolve()
+        if not local_path.is_dir():
+            print(f"Error: local path not found: {local_path}", file=sys.stderr)
+            return 1
+        if not args.lang:
+            print("Error: --lang is required with --local-path.", file=sys.stderr)
+            return 1
+        name = getattr(args, "name", None) or local_path.name
+        lang = args.lang
+        # Ensure repo dir exists for Semgrep/OpenGrep (symlink if needed)
+        target_repo_dir = repos_dir / lang / name
+        if not target_repo_dir.exists():
+            target_repo_dir.parent.mkdir(parents=True, exist_ok=True)
+            target_repo_dir.symlink_to(local_path)
+        # Set filters so only this repo is analyzed
+        args.repo = name
+        args.lang = lang
+
     # Optional: defaults from config (CLI overrides)
     default_suite, default_semgrep_configs, default_opengrep_configs = _load_analyze_defaults(
         base_path
@@ -543,18 +604,16 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     if tool == "opengrep":
         return _run_opengrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
     if tool == "both":
-        code = _run_codeql_analyze(args, base_path, output_dir, verbose, force)
-        if code != 0:
-            return code
-        return _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
+        codeql_code = _run_codeql_analyze(args, base_path, output_dir, verbose, force)
+        semgrep_code = _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
+        return 0 if semgrep_code == 0 or codeql_code == 0 else 1
     if tool == "all":
-        code = _run_codeql_analyze(args, base_path, output_dir, verbose, force)
-        if code != 0:
-            return code
-        code = _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
-        if code != 0:
-            return code
-        return _run_opengrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
+        codeql_code = _run_codeql_analyze(args, base_path, output_dir, verbose, force)
+        semgrep_code = _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
+        opengrep_code = _run_opengrep_analyze(
+            args, base_path, output_dir, repos_dir, verbose, force
+        )
+        return 0 if any(c == 0 for c in (codeql_code, semgrep_code, opengrep_code)) else 1
     return 1
 
 
@@ -626,6 +685,25 @@ def cmd_extract_context(args: argparse.Namespace) -> int:
     backend = getattr(args, "backend", "auto")
     output_dir = base_path / "output"
     repos_dir = base_path / "repos"
+
+    # --local-path mode: symlink into repos/ so discovery finds it
+    local_path = getattr(args, "local_path", None)
+    if local_path:
+        local_path = Path(local_path).resolve()
+        if not local_path.is_dir():
+            print(f"Error: local path not found: {local_path}", file=sys.stderr)
+            return 1
+        if not args.lang:
+            print("Error: --lang is required with --local-path.", file=sys.stderr)
+            return 1
+        name = getattr(args, "name", None) or local_path.name
+        lang = args.lang
+        target_repo_dir = repos_dir / lang / name
+        if not target_repo_dir.exists():
+            target_repo_dir.parent.mkdir(parents=True, exist_ok=True)
+            target_repo_dir.symlink_to(local_path)
+        args.repo = name
+        args.lang = lang
 
     # ── Discover sources ──────────────────────────────────────────
     codeql_dbs: list[tuple[Path, str, str]] = []
@@ -709,6 +787,24 @@ def cmd_verify(args: argparse.Namespace) -> int:
     from vuln_hunter_x.verification.engine import VerificationEngine
 
     base_path = Path.cwd()
+
+    # --local-path mode: symlink into repos/ so context extraction finds source
+    local_path = getattr(args, "local_path", None)
+    if local_path:
+        local_path = Path(local_path).resolve()
+        if not local_path.is_dir():
+            print(f"Error: local path not found: {local_path}", file=sys.stderr)
+            return 1
+        if not args.lang:
+            print("Error: --lang is required with --local-path.", file=sys.stderr)
+            return 1
+        name = getattr(args, "name", None) or local_path.name
+        repos_dir = base_path / "repos"
+        target_repo_dir = repos_dir / args.lang / name
+        if not target_repo_dir.exists():
+            target_repo_dir.parent.mkdir(parents=True, exist_ok=True)
+            target_repo_dir.symlink_to(local_path)
+        args.repo = name
 
     # Load config
     if args.config:
@@ -841,29 +937,38 @@ def cmd_verify(args: argparse.Namespace) -> int:
     print(f"\nResults saved to: {results_dir}")
     print(f"Summary: {summary_path}")
 
-    # Generate markdown report if requested
-    if getattr(args, "report", False) and result.verdicts:
+    # Generate reports (EN + VI) automatically
+    if result.verdicts:
         from vuln_hunter_x.reporting.markdown import MarkdownReportGenerator
 
         generator = MarkdownReportGenerator()
-        report_path = generator.generate(result, results_dir / "report.md")
-        print(f"Report: {report_path}")
+        en_path = generator.generate(result, results_dir / "report.md", report_lang="en")
+        print(f"Report (EN): {en_path}")
+        vi_path = generator.generate(result, results_dir / "report_vi.md", report_lang="vi")
+        print(f"Report (VI): {vi_path}")
 
     return 0
 
 
 def cmd_build_sanitized(args: argparse.Namespace) -> int:
     """Execute build-sanitized command (Stage 5: fuzz)."""
-    from vuln_hunter_x.codeql.repository import load_repos_config
     from vuln_hunter_x.fuzz.build_sanitized import build_sanitized
 
     base_path = Path.cwd()
     config_path = args.config or base_path / "config" / "repos.yaml"
-    if not config_path.exists():
-        print(f"Config not found: {config_path}", file=sys.stderr)
-        return 1
+    repos: list[dict] = []
 
-    repos = load_repos_config(config_path)
+    if config_path.exists():
+        from vuln_hunter_x.codeql.repository import load_repos_config
+
+        repos = load_repos_config(config_path)
+
+    # Fallback: discover C/C++ repos from filesystem
+    if not repos:
+        for lang, name in _discover_repos_from_filesystem(base_path / "repos"):
+            if lang in ("c", "cpp"):
+                repos.append({"name": name, "language": lang})
+
     if args.lang:
         repos = [r for r in repos if (r.get("language") or "").lower() == args.lang]
     if args.repo:
@@ -1169,9 +1274,22 @@ def cmd_report(args: argparse.Namespace) -> int:
         print("No verdicts found in the result files.", file=sys.stderr)
         return 1
 
-    output_path = getattr(args, "output", None) or results_dir / "report.md"
-    report_path = generator.generate(result, Path(output_path))
-    print(f"Report generated: {report_path}")
+    lang_report = getattr(args, "lang_report", "all")
+    custom_output = getattr(args, "output", None)
+    report_langs = ["en", "vi"] if lang_report == "all" else [lang_report]
+
+    for rl in report_langs:
+        if custom_output and len(report_langs) == 1:
+            out_path = Path(custom_output)
+        elif rl == "vi":
+            out_path = results_dir / "report_vi.md"
+        else:
+            out_path = results_dir / "report.md"
+
+        report_path = generator.generate(result, out_path, report_lang=rl)
+        label = "EN" if rl == "en" else "VI"
+        print(f"Report ({label}): {report_path}")
+
     print(f"  Findings: {result.total_findings}")
     for verdict_type, count in result.stats.items():
         if count > 0:

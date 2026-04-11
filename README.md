@@ -2,7 +2,7 @@
 
 **SAST (CodeQL, Semgrep, OpenGrep) + fuzzing + LLM vulnerability hunting and verification**
 
-A Python framework that combines static analysis with LLM verification to reduce false positives in security findings. Implements the Vulnhalla methodology for intelligent, multi-turn bug confirmation.
+A Python framework that combines static analysis with LLM verification to reduce false positives in security findings, implementing the Vulnhalla methodology for intelligent, multi-turn bug confirmation.
 
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
@@ -26,36 +26,34 @@ A Python framework that combines static analysis with LLM verification to reduce
 
 ## Overview
 
-Static analysis tools (CodeQL, Semgrep, OpenGrep) produce many findings, but a significant portion are **false positives**. This framework automates triage by using LLMs to analyze code context, answer rule-specific guided questions, request additional context when needed (multi-turn), and provide verdicts with confidence levels and reasoning.
+Static analysis tools (CodeQL, Semgrep, OpenGrep) produce many findings, but a significant portion are false positives. VulnHunterX automates triage by using LLMs to analyze code context, answer rule-specific guided questions, request additional context when needed (multi-turn), and produce verdicts with confidence levels and reasoning.
 
 ### Key Features
 
 | Feature | Description |
 |---|---|
 | **Multi-language** | C, C++, Python, JavaScript, PHP, Java, Go |
-| **LLM verification** | Multi-turn with dynamic context expansion |
-| **Guided questions** | 300+ rule-specific question templates across 7 languages |
-| **Context expansion** | LLM can request callers, structs, globals, typedefs, enums |
+| **Multi SAST** | CodeQL, Semgrep, OpenGrep (`--tool codeql|semgrep|opengrep|both|all`) |
+| **LLM verification** | Multi-turn with dynamic context expansion (callers, structs, globals) |
+| **Guided questions** | 325+ rule-specific templates across 7 languages |
 | **Multiple LLM providers** | OpenAI (GPT-4), Anthropic (Claude), Ollama (local) |
-| **Multi SAST** | CodeQL, Semgrep, OpenGrep (`--tool codeql\|semgrep\|opengrep\|both\|all`) |
-| **Direct clone** | Clone from URL or use local directory (`--url`, `--local-path`) |
-| **Tree-sitter fallback** | Source-based context extraction when CodeQL is unavailable |
-| **Markdown reports** | Generate human-readable reports from verification results |
-| **Fuzz confirmation** | libFuzzer harness generation + crash triage (C/C++) |
+| **Flexible input** | Clone from URL, use local directory, or batch via `repos.yaml` |
+| **Markdown reports** | Executive summary, severity/CWE breakdown, per-finding detail |
+| **Fuzz confirmation** | libFuzzer harness generation + crash triage (C/C++ only) |
 | **Benchmarking** | Precision/recall across 4 ground-truth datasets |
 
 ### How It Works
 
 ```
-Source repo  ──>  Static Analysis  ──>  SARIF Findings  ──>  LLM Verification  ──>  Verdicts
-(clone)           (CodeQL/Semgrep/      (rule, file,          (guided questions,      (TP/FP/NMD +
-                   OpenGrep)             line, severity)       multi-turn context)     confidence)
+Source  ──>  Static Analysis  ──>  SARIF Findings  ──>  LLM Verification  ──>  Verdicts
+(prepare)    (CodeQL/Semgrep/      (rule, file,          (guided questions,      (TP/FP/NMD +
+              OpenGrep)             line, severity)       multi-turn context)     confidence)
 ```
 
-The **Vulnhalla methodology** improves accuracy through:
-- **Rule-specific questions** — each finding type gets tailored questions
-- **Multi-turn conversation** — the LLM can reason across several steps
-- **Dynamic context expansion** — the LLM can request callers, structs, globals before deciding
+The **Vulnhalla methodology** improves accuracy by forcing the LLM to:
+- Answer rule-specific questions before giving a verdict
+- Request callers, structs, globals, or other context as needed
+- Reason across multiple turns rather than pattern-matching
 
 ---
 
@@ -68,18 +66,18 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
 # Configure
-cp env.example .env   # Edit: add OPENAI_API_KEY or ANTHROPIC_API_KEY
+cp env.example .env   # add OPENAI_API_KEY, ANTHROPIC_API_KEY, or OLLAMA_API_BASE
 
-# Verify environment
+# Verify setup
 vuln-hunter-x check-env
 
-# Run pipeline
-vuln-hunter-x clone --repo pyyaml
+# Run the full pipeline
+vuln-hunter-x prepare --repo pyyaml
 vuln-hunter-x analyze --repo pyyaml
 vuln-hunter-x verify --repo pyyaml --limit 5 --report
 ```
 
-**For detailed setup**, see [QUICKSTART.md](QUICKSTART.md).
+For detailed setup, see [QUICKSTART.md](QUICKSTART.md).
 
 ---
 
@@ -87,131 +85,147 @@ vuln-hunter-x verify --repo pyyaml --limit 5 --report
 
 | Stage | Command | Input | Output |
 |---|---|---|---|
-| 1 | `clone` | Repository URL / local path | Source code + CodeQL database |
-| 2 | `analyze` | CodeQL DB and/or source | SARIF findings |
-| 3 | `extract-context` | CodeQL DB / source | CSV context files |
-| 4 | `verify` | SARIF + CSVs | JSON verdicts (+ optional markdown report) |
-| 5-8 | `build-sanitized` / `extract-fuzz-context` / `generate-fuzz-drivers` / `fuzz-run` | C/C++ only | Fuzz harnesses + crash results |
+| 1 | `prepare` | URL / local path / repos.yaml | Source code + CodeQL database |
+| 2 | `analyze` | CodeQL DB and/or source tree | SARIF findings |
+| 3 | `extract-context` | CodeQL DB or source tree | CSV context files |
+| 4 | `verify` | SARIF + CSVs | JSON verdicts + reasoning |
+| — | `report` | Verification results | Markdown report |
+| 5–8 | `build-sanitized` → `fuzz-run` | Verified C/C++ findings | Fuzz harnesses + crash results |
 
-| Goal | Required | Optional |
+Stages 2–4 accept `--local-path` to operate directly on an arbitrary directory. See [docs/fuzz_stages.md](docs/fuzz_stages.md) for stages 5–8.
+
+| Goal | Required stages | Optional |
 |---|---|---|
-| Static analysis only | 1, 2 | - |
-| LLM verification | 1, 2, 4 | 3 (richer multi-turn context) |
+| Static analysis only | 1, 2 | — |
+| LLM verification | 1, 2, 4 | 3 |
 | Fuzz confirmation (C/C++) | 1, 2, 4, 5, 6, 7 | 3, 8 |
-
-**SAST tools:** CodeQL requires building a database (stage 1); Semgrep and OpenGrep scan source directly. All produce SARIF; the verify stage reads all SARIF files. See [docs/fuzz_stages.md](docs/fuzz_stages.md) for stages 5-8.
 
 ---
 
 ## CLI Reference
 
-```
-vuln-hunter-x <command> [options]
-```
-
 ### check-env
-
-Check prerequisites: CodeQL CLI, Semgrep/OpenGrep (optional), LLM provider keys.
 
 ```bash
 vuln-hunter-x check-env
 ```
 
-### clone
+Checks CodeQL CLI, Semgrep/OpenGrep, and LLM provider keys.
 
-Clone repositories and create CodeQL databases. Supports three modes: config file, direct URL, or local path.
+---
+
+### prepare *(alias: clone)*
+
+Clone a repository and create a CodeQL database. Accepts a config file, a direct URL, or a local path.
 
 ```bash
-# Config mode (default) — from repos.yaml
-vuln-hunter-x clone
-vuln-hunter-x clone --repo libucl --lang c
+# From repos.yaml (batch)
+vuln-hunter-x prepare
+vuln-hunter-x prepare --repo libucl --lang c
 
-# Direct URL mode — no repos.yaml needed
-vuln-hunter-x clone --url https://github.com/org/repo.git --lang go
-vuln-hunter-x clone --url https://github.com/org/lib.git --lang c --name mylib --build-command "make"
+# From a URL
+vuln-hunter-x prepare --url https://github.com/org/repo.git --lang go
+vuln-hunter-x prepare --url https://github.com/org/lib.git --lang c --build-command "make"
 
-# Local path mode — use existing directory
-vuln-hunter-x clone --local-path /path/to/repo --lang python --name my-project
+# From an existing local directory
+vuln-hunter-x prepare --local-path /path/to/repo --lang python
 ```
 
 | Option | Description |
 |---|---|
-| `--config PATH` | Path to repos.yaml |
-| `--url URL` | Git URL (direct clone, no repos.yaml) |
+| `--url URL` | Git URL to clone |
 | `--local-path PATH` | Existing local directory |
-| `--name NAME` | Repository name (auto-derived from URL/path if omitted) |
+| `--name NAME` | Repository name (auto-derived if omitted) |
+| `--lang LANG` | Language — required with `--url` or `--local-path` |
 | `--build-command CMD` | Build command for compiled languages |
-| `--lang LANG` | Language (required with `--url` or `--local-path`) |
-| `--repo NAME` | Filter by repository (config mode) |
-| `--skip-db` | Clone only, skip database creation |
-| `--ask-llm` | Ask LLM for help if build fails |
-| `--dry-run` | Preview without executing |
+| `--config PATH` | Path to repos.yaml |
+| `--repo NAME` | Filter to one repository (config mode) |
+| `--skip-db` | Skip CodeQL database creation |
+| `--ask-llm` | Ask LLM for help if the build fails |
+| `--dry-run` | Preview actions without executing |
+
+---
 
 ### analyze
 
-Run CodeQL, Semgrep, and/or OpenGrep analysis.
+Run static analysis with CodeQL, Semgrep, and/or OpenGrep.
 
 ```bash
-vuln-hunter-x analyze --repo libucl -v
+vuln-hunter-x analyze --repo libucl
 vuln-hunter-x analyze --tool semgrep --repo pyyaml
 vuln-hunter-x analyze --tool all --repo c-ares
+vuln-hunter-x analyze --tool semgrep --local-path /path/to/project --lang python
 ```
 
 | Option | Description | Default |
 |---|---|---|
-| `--tool {codeql,semgrep,opengrep,both,all}` | Analyzer(s) to run | codeql |
-| `--semgrep-config CONFIG` | Semgrep config (repeatable) | auto |
-| `--opengrep-config CONFIG` | OpenGrep config (repeatable) | auto |
+| `--tool {codeql,semgrep,opengrep,both,all}` | Analyzer(s) to run | `codeql` |
+| `--local-path PATH` | Analyze a local directory | — |
+| `--name NAME` | Repository name (auto-derived) | — |
+| `--semgrep-config CONFIG` | Semgrep ruleset (repeatable) | `auto` |
+| `--opengrep-config CONFIG` | OpenGrep ruleset (repeatable) | `auto` |
 | `--codeql-suite SUITE` | CodeQL query suite | language default |
-| `--repo NAME` | Specific repository | All |
+| `--repo NAME` | Filter to one repository | All |
 | `--lang LANG` | Filter by language | All |
 | `-j, --jobs N` | Parallel CodeQL analyses | 2 |
 | `-f, --force` | Re-run even if SARIF exists | false |
 | `--dry-run` | Preview | false |
 
+---
+
 ### extract-context
 
-Extract context CSVs (functions, callers, structs, globals) for multi-turn verification.
+Extract function/caller/struct context into CSVs for multi-turn verification.
 
 ```bash
 vuln-hunter-x extract-context --repo libucl
-vuln-hunter-x extract-context --backend treesitter  # When no CodeQL DB
+vuln-hunter-x extract-context --local-path /path/to/project --lang go
 ```
 
 | Option | Description | Default |
 |---|---|---|
-| `--backend {auto,codeql,treesitter}` | Extraction backend | auto |
-| `--repo NAME` | Specific repository | All |
-| `-f, --force` | Re-extract | false |
+| `--local-path PATH` | Extract from a local directory | — |
+| `--name NAME` | Repository name (auto-derived) | — |
+| `--backend {auto,codeql,treesitter}` | Extraction backend | `auto` |
+| `--repo NAME` | Filter to one repository | All |
+| `--lang LANG` | Filter by language | All |
+| `-f, --force` | Re-extract even if CSVs exist | false |
+
+---
 
 ### verify
 
-Verify findings using LLM analysis.
+Verify SARIF findings using LLM multi-turn analysis.
 
 ```bash
 vuln-hunter-x verify --repo libucl
 vuln-hunter-x verify --repo c-ares --lang c --report
 vuln-hunter-x verify --provider ollama --model ollama/llama3.2
-vuln-hunter-x verify --limit 5 -v --log-file output/conversations.md
+vuln-hunter-x verify --local-path /path/to/project --lang python
 ```
 
 | Option | Description | Default |
 |---|---|---|
-| `--repo NAME` | Specific repository | All |
+| `--local-path PATH` | Verify findings for a local directory | — |
+| `--name NAME` | Repository name (auto-derived) | — |
+| `--repo NAME` | Filter to one repository | All |
 | `--lang LANG` | Filter by language | All |
 | `--provider {openai,anthropic,ollama}` | LLM provider | From config |
 | `--model MODEL` | Model name | From config |
-| `--max-iterations N` | Max conversation rounds | 3 |
-| `--limit N` | Max findings | Unlimited |
-| `--include-tests` | Include findings in test/ directories | false |
-| `--report` | Generate markdown report after verification | false |
-| `-v, --verbose` | Detailed LLM output | false |
+| `--max-iterations N` | Max conversation rounds per finding | 3 |
+| `--limit N` | Maximum findings to process | Unlimited |
+| `--include-tests` | Include findings in test directories | false |
+| `--report` | Generate a markdown report after verification | false |
+| `-v, --verbose` | Show full LLM conversation | false |
 | `-q, --quiet` | Minimal output | false |
+| `--log-file PATH` | Save conversations to file | — |
 | `--dry-run` | Preview findings | false |
+
+---
 
 ### report
 
-Generate markdown report from existing verification results.
+Generate a markdown report from verification results. Can be run standalone or triggered automatically with `verify --report`.
 
 ```bash
 vuln-hunter-x report --repo c-ares --lang c
@@ -221,16 +235,16 @@ vuln-hunter-x report --repo libucl -o my-report.md
 
 | Option | Description |
 |---|---|
-| `--results-dir PATH` | Path to verification_results directory |
-| `--repo NAME` | Repository name (auto-discover results) |
-| `--lang LANG` | Language (auto-discover results) |
-| `-o, --output PATH` | Output path (default: report.md in results dir) |
+| `--results-dir PATH` | Path to a `verification_results/` directory |
+| `--repo NAME` | Repository name (auto-discovers results) |
+| `--lang LANG` | Language (auto-discovers results) |
+| `-o, --output PATH` | Output path (default: `report.md` in results dir) |
 
-**Report includes:** executive summary, severity breakdown, CWE distribution, per-finding detail (verdict, confidence, reasoning, dataflow).
+Report sections: executive summary · severity breakdown · CWE distribution · per-finding detail (verdict, confidence, reasoning, dataflow).
+
+---
 
 ### Fuzz stages (C/C++ only)
-
-See [docs/fuzz_stages.md](docs/fuzz_stages.md) for full reference.
 
 ```bash
 vuln-hunter-x build-sanitized --repo libucl
@@ -239,123 +253,110 @@ vuln-hunter-x generate-fuzz-drivers --repo libucl --build --llm-fix
 vuln-hunter-x fuzz-run --repo libucl --triage
 ```
 
-### info
+Full reference: [docs/fuzz_stages.md](docs/fuzz_stages.md).
 
-Show current configuration.
+---
+
+### info
 
 ```bash
 vuln-hunter-x info
 ```
+
+Shows the active configuration (provider, model, paths).
 
 ---
 
 ## Python API
 
 ```python
+from pathlib import Path
 from vuln_hunter_x import VerificationEngine
+from vuln_hunter_x.reporting.markdown import MarkdownReportGenerator
 
 engine = VerificationEngine.from_config("config/confirm_findings.yaml")
 
-# Verify a SARIF file
 result = engine.verify_sarif("output/c/libucl/libucl.sarif", lang="c", repo_name="libucl")
 
 for verdict in result.verdicts:
     print(f"{verdict.finding.rule_id}: {verdict.verdict} ({verdict.confidence})")
 
-# Save results
 engine.save_results(result)
 
-# Generate report
-from vuln_hunter_x.reporting.markdown import MarkdownReportGenerator
-generator = MarkdownReportGenerator()
-generator.generate(result, Path("output/c/libucl/verification_results/report.md"))
+MarkdownReportGenerator().generate(
+    result, Path("output/c/libucl/verification_results/report.md")
+)
 ```
 
 ---
 
 ## Configuration
 
-### Environment Variables (`.env`)
+### Environment variables (`.env`)
 
-| Variable | Description | Required |
-|---|---|---|
-| `OPENAI_API_KEY` | OpenAI API key | For OpenAI |
-| `ANTHROPIC_API_KEY` | Anthropic API key | For Claude |
-| `OLLAMA_API_BASE` | Ollama server URL | For Ollama |
-| `LLM_PROVIDER` | Default provider | Override config |
-| `LLM_MODEL` | Default model | Override config |
-| `CODEQL_PATH` | CodeQL CLI path | If not on PATH |
-| `SEMGREP_PATH` | Semgrep CLI path | If not on PATH |
-| `OPENGREP_PATH` | OpenGrep CLI path | If not on PATH |
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` | OpenAI API key |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `OLLAMA_API_BASE` | Ollama server URL |
+| `LLM_PROVIDER` | Override default provider |
+| `LLM_MODEL` | Override default model |
+| `CODEQL_PATH` | Path to CodeQL CLI (if not on PATH) |
+| `SEMGREP_PATH` | Path to Semgrep CLI (if not on PATH) |
+| `OPENGREP_PATH` | Path to OpenGrep CLI (if not on PATH) |
 
-### Application Settings (`config/confirm_findings.yaml`)
+### LLM / verification settings (`config/confirm_findings.yaml`)
 
 ```yaml
-provider: openai          # openai, anthropic, or ollama
+provider: openai          # openai | anthropic | ollama
 model: gpt-4o
 temperature: 0.2
 max_tokens: 1500
-max_iterations: 3         # Max conversation rounds per finding
+max_iterations: 3         # conversation rounds per finding
 ```
 
-**Priority order:** CLI args > environment variables > config file > defaults.
+Priority: CLI args > environment variables > config file > defaults.
 
-### Repository Definitions (`config/repos.yaml`)
+### Repository list (`config/repos.yaml`)
 
 ```yaml
 repos:
-  - name: minimist
-    url: https://github.com/minimistjs/minimist.git
-    language: javascript
+  - name: pyyaml
+    url: https://github.com/yaml/pyyaml.git
+    language: python
 
   - name: libucl
     url: https://github.com/vstakhov/libucl.git
     language: c
     build_command: "mkdir -p build && cd build && cmake .. && make"
 
-  - name: go-vuln
-    url: https://github.com/golang/vuln.git
+  - name: my-go-app
+    url: https://github.com/org/my-go-app.git
     language: go
 ```
 
-| Field | Required | Description |
+| Field | Description |
+|---|---|
+| `name` | Short identifier used in output paths |
+| `url` | Git clone URL |
+| `language` | `c` · `cpp` · `python` · `javascript` · `php` · `java` · `go` |
+| `build_command` | Required for C/C++; omit for interpreted languages |
+
+### Guided questions (`config/prompts/`)
+
+Rule-specific question sets that force the LLM to reason step-by-step before giving a verdict.
+
+| File | Language | Rules |
 |---|---|---|
-| `name` | Yes | Short name (used in paths) |
-| `url` | Yes | Git clone URL |
-| `language` | Yes | `c`, `cpp`, `python`, `javascript`, `php`, `java`, `go` |
-| `build_command` | C/C++ only | Shell build command |
+| `cpp_questions.yaml` | C/C++ | 61 |
+| `python_questions.yaml` | Python | 57 |
+| `java_questions.yaml` | Java | 53 |
+| `javascript_questions.yaml` | JavaScript | 53 |
+| `php_questions.yaml` | PHP | 51 |
+| `go_questions.yaml` | Go | 50 |
+| `default_questions.yaml` | Fallback | 1 |
 
-### Guided Questions (`config/prompts/`)
-
-Rule-specific questions that force the LLM to reason step-by-step. Based on the Vulnhalla methodology.
-
-```
-config/prompts/
-├── system_prompt.yaml        # LLM system prompt template
-├── default_questions.yaml    # Fallback for unknown rules
-├── cpp_questions.yaml        # C/C++ (61 rules)
-├── python_questions.yaml     # Python (57 rules)
-├── go_questions.yaml         # Go (50 rules)
-├── java_questions.yaml       # Java (53 rules)
-├── javascript_questions.yaml # JavaScript (53 rules)
-└── php_questions.yaml        # PHP (51 rules)
-```
-
-**Total: 325+ rules** covering SQL injection, XSS, command injection, path traversal, SSRF, deserialization, cryptographic weaknesses, access control, resource leaks, and many more.
-
-### CodeQL Tool Queries (`config/queries/tools/`)
-
-Custom queries that extract structured context for multi-turn verification.
-
-```
-config/queries/tools/
-├── cpp/       # functions, callers, structs, globals, macros
-├── python/    # functions, callers, classes
-├── javascript/# functions, callers, classes
-├── java/      # functions, callers, classes
-├── php/       # functions, callers, classes
-└── go/        # functions, callers, classes
-```
+Coverage: SQL injection, XSS, command injection, path traversal, SSRF, deserialization, weak cryptography, access control, resource leaks, and more.
 
 ---
 
@@ -364,11 +365,11 @@ config/queries/tools/
 ```
 VulnHunterX/
 ├── src/vuln_hunter_x/
-│   ├── cli/           # CLI commands and argument parsing
-│   ├── codeql/        # CodeQL database, analysis, context extraction
+│   ├── cli/           # CLI commands
+│   ├── codeql/        # Database creation, analysis, context extraction
 │   ├── context/       # Heuristic + tree-sitter context extraction
 │   ├── core/          # Types, config, constants
-│   ├── fuzz/          # Fuzz stages 5-8 (C/C++ only)
+│   ├── fuzz/          # Fuzz stages 5–8 (C/C++ only)
 │   ├── llm/           # LLM client and prompt construction
 │   ├── opengrep/      # OpenGrep integration
 │   ├── questions/     # Guided questions loader
@@ -377,25 +378,23 @@ VulnHunterX/
 │   ├── semgrep/       # Semgrep integration
 │   └── verification/  # Verification engine
 ├── config/
-│   ├── confirm_findings.yaml
-│   ├── repos.yaml
-│   ├── prompts/       # Guided questions (7 languages + defaults)
-│   └── queries/       # CodeQL tool queries (6 languages)
-├── benchmarks/        # Precision/recall evaluation framework
-├── examples/          # Pipeline examples (C, C++, Python, JS, Java, PHP)
-├── docs/              # Security check docs, fuzz stages
-├── tests/             # Test suite
-└── output/            # All stage outputs (per lang/repo)
+│   ├── confirm_findings.yaml  # LLM and verification settings
+│   ├── repos.yaml             # Repository definitions
+│   ├── prompts/               # Guided questions (7 languages)
+│   └── queries/               # CodeQL context queries (6 languages)
+├── benchmarks/        # Evaluation framework
+├── examples/          # Per-language pipeline scripts
+├── docs/              # Security check reference, fuzz stages
+├── tests/
+└── output/            # Per-repo stage outputs
     └── <lang>/<repo>/
         ├── database/              # CodeQL database
-        ├── <repo>.sarif           # CodeQL SARIF
-        ├── <repo>_semgrep.sarif   # Semgrep SARIF (if run)
-        ├── <repo>_opengrep.sarif  # OpenGrep SARIF (if run)
+        ├── *.sarif                # SARIF results (CodeQL, Semgrep, OpenGrep)
         ├── context/               # Extracted CSVs
-        ├── verification_results/  # Verdict JSONs + summary + report.md
-        ├── sanitized_build/       # Sanitized build (C/C++)
-        ├── fuzz_targets/          # Harness .cc + status.json (C/C++)
-        └── fuzz_results/          # Crashes + summary (C/C++)
+        ├── verification_results/  # Verdict JSON + report.md
+        ├── sanitized_build/       # (C/C++) sanitizer build
+        ├── fuzz_targets/          # (C/C++) harnesses
+        └── fuzz_results/          # (C/C++) crashes
 ```
 
 ---
@@ -407,7 +406,6 @@ VulnHunterX/
 - [JavaScript Security Checks](docs/codeql_javascript_security.md)
 - [CodeQL Overview](docs/codeql_security_checks.md)
 - [Fuzz Stages](docs/fuzz_stages.md)
-- [Guided Questions Research](docs/guided_questions_research.md)
 
 ---
 
@@ -420,54 +418,38 @@ ruff check src/
 mypy src/
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. See [CHANGELOG.md](CHANGELOG.md) for version history.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
 ## Benchmark
 
-VulnHunterX includes a benchmarking framework to measure false-positive reduction accuracy.
-
-| Dataset | Size | Language | Source |
-|---|---|---|---|
-| **SecLLMHolmes** | 228 findings | C/C++, Python | [GitHub](https://github.com/ai4cloudops/SecLLMHolmes) |
-| **Juliet C/C++** | 64K test cases | C/C++ | [NIST SARD](https://samate.nist.gov/SARD/) |
-| **CVEfixes** | 12K commits | Multi-language | [Zenodo](https://zenodo.org/records/13118970) |
-| **DiverseVul** | 349K functions | C/C++ | [GitHub](https://github.com/wagner-group/diversevul) |
+| Dataset | Size | Language |
+|---|---|---|
+| [SecLLMHolmes](https://github.com/ai4cloudops/SecLLMHolmes) | 228 findings | C/C++, Python |
+| [Juliet C/C++](https://samate.nist.gov/SARD/) | 64K test cases | C/C++ |
+| [CVEfixes](https://zenodo.org/records/13118970) | 12K commits | Multi-language |
+| [DiverseVul](https://github.com/wagner-group/diversevul) | 349K functions | C/C++ |
 
 ```bash
-# Setup
 python benchmarks/scripts/setup_datasets.py --dataset secllmholmes
-
-# Run
 python benchmarks/scripts/run_benchmark.py --dataset secllmholmes --approach all --limit 50
-
-# Report
 python benchmarks/scripts/generate_report.py --run-dir benchmarks/results/<run_dir>
 ```
 
-| Approach | Description |
-|---|---|
-| `raw-sast` | Baseline: accept all SAST findings (no LLM) |
-| `single-shot` | Single LLM call, no guided questions |
-| `generic-questions` | Multi-turn with generic questions |
-| `vulnhunterx` | Full pipeline with rule-specific questions |
+Approaches: `raw-sast` (baseline) · `single-shot` · `generic-questions` · `vulnhunterx` (full pipeline).
 
 ---
 
 ## License
 
-MIT License
+MIT
 
 ---
 
 ## References
 
-- [Vulnhalla - CyberArk](https://www.cyberark.com/resources/threat-research-blog/vulnhalla-picking-the-true-vulnerabilities-from-the-codeql-haystack) - Original methodology
+- [Vulnhalla — CyberArk](https://www.cyberark.com/resources/threat-research-blog/vulnhalla-picking-the-true-vulnerabilities-from-the-codeql-haystack) — original methodology
 - [CodeQL Documentation](https://codeql.github.com/docs/)
 - [Semgrep Documentation](https://semgrep.dev/docs/)
 - [SARIF Specification](https://sarifweb.azurewebsites.net/)
-- [SecLLMHolmes](https://github.com/ai4cloudops/SecLLMHolmes) - LLM vulnerability detection benchmark
-- [DiverseVul](https://github.com/wagner-group/diversevul) - 349K C/C++ functions (RAID 2023)
-- [Juliet Test Suite](https://samate.nist.gov/SARD/) - NIST SARD synthetic test cases
-- [CVEfixes](https://zenodo.org/records/13118970) - Vulnerability-fixing commits dataset

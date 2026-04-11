@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Pipeline Example: Python
+Pipeline Example: Go
 
 Runs the full pipeline on two repos to demonstrate the contrast:
-  - pyyaml      (real-world library)       → expect mostly False Positives
-  - dvpwa       (intentionally vulnerable) → expect True Positives
+  - gin     (real-world web framework)    → expect mostly False Positives
+  - govwa   (intentionally vulnerable)    → expect True Positives
+
+Note: Go does not require a build command — CodeQL auto-detects go.mod.
 
 Usage:
-    python examples/pipeline_python.py              # Run full pipeline
-    python examples/pipeline_python.py --dry-run    # Preview without executing
-    python examples/pipeline_python.py --skip-clone # Skip clone if already exists
-    python examples/pipeline_python.py --api        # Use Python API instead of CLI
+    python examples/pipeline_go.py              # Run full pipeline
+    python examples/pipeline_go.py --dry-run    # Preview without executing
+    python examples/pipeline_go.py --skip-clone # Skip clone if already exists
+    python examples/pipeline_go.py --api        # Use Python API instead of CLI
 """
 
 import subprocess
@@ -18,23 +20,15 @@ import sys
 import time
 from pathlib import Path
 
-# =============================================================================
-# Configuration
-# =============================================================================
-
-LANGUAGE = "python"
+LANGUAGE = "go"
 REPOS = [
-    {"name": "pyyaml",  "label": "real-world library        "},
-    {"name": "dvpwa",   "label": "intentionally vulnerable  "},
+    {"name": "gin",    "label": "real-world web framework  "},
+    {"name": "govwa",  "label": "intentionally vulnerable  "},
 ]
 MAX_FINDINGS = 5
 MAX_ITERATIONS = 5
 
 _CLI = [sys.executable, "-m", "vuln_hunter_x.cli.main"]
-
-# =============================================================================
-# Helpers
-# =============================================================================
 
 
 def print_header(title: str) -> None:
@@ -43,7 +37,7 @@ def print_header(title: str) -> None:
     print(f"{'=' * 70}\n")
 
 
-def run_command(cmd: list[str], dry_run: bool = False, timeout: int = 600) -> bool:
+def run_command(cmd: list[str], dry_run: bool = False, timeout: int = 900) -> bool:
     if dry_run:
         print(f"[DRY-RUN] {' '.join(cmd)}")
         return True
@@ -60,15 +54,9 @@ def run_command(cmd: list[str], dry_run: bool = False, timeout: int = 600) -> bo
         return False
 
 
-# =============================================================================
-# Pipeline for a single repo
-# =============================================================================
-
-
 def run_pipeline(repo: str, dry_run: bool, skip_clone: bool) -> dict[str, bool]:
     results: dict[str, bool] = {}
 
-    # Stage 1: prepare
     print_header(f"[{repo}] Stage 1: Prepare (clone + CodeQL DB)")
     if skip_clone:
         db_ok = Path(f"output/{LANGUAGE}/{repo}/database/codeql-database.yml").exists()
@@ -80,7 +68,6 @@ def run_pipeline(repo: str, dry_run: bool, skip_clone: bool) -> dict[str, bool]:
         results["prepare"] = ok
         db_ok = ok
 
-    # Stage 2: analyze
     print_header(f"[{repo}] Stage 2: Analyze")
     ok = False
     if db_ok:
@@ -89,14 +76,14 @@ def run_pipeline(repo: str, dry_run: bool, skip_clone: bool) -> dict[str, bool]:
         ok = run_command(_CLI + ["analyze", "--tool", "semgrep", "--repo", repo], dry_run)
     results["analyze"] = ok
 
-    # Stage 3: extract-context
     print_header(f"[{repo}] Stage 3: Extract Context")
     ok = run_command(_CLI + ["extract-context", "--repo", repo], dry_run)
     if not ok:
-        ok = run_command(_CLI + ["extract-context", "--repo", repo, "--backend", "treesitter"], dry_run)
+        ok = run_command(
+            _CLI + ["extract-context", "--repo", repo, "--backend", "treesitter"], dry_run
+        )
     results["extract-context"] = ok
 
-    # Stage 4: verify
     print_header(f"[{repo}] Stage 4: Verify")
     if results["analyze"]:
         results["verify"] = run_command(
@@ -127,21 +114,16 @@ def run_with_api(repo: str) -> None:
     engine.save_results(result)
 
 
-# =============================================================================
-# Main
-# =============================================================================
-
-
 def main() -> None:
     dry_run = "--dry-run" in sys.argv
     skip_clone = "--skip-clone" in sys.argv
     use_api = "--api" in sys.argv
 
-    print(f"""
+    print("""
 ╔══════════════════════════════════════════════════════════════════════╗
-║  VulnHunterX — Python Pipeline                                       ║
-║  normal:     pyyaml  (real-world library)                            ║
-║  vulnerable: dvpwa   (intentionally vulnerable app)                  ║
+║  VulnHunterX — Go Pipeline                                           ║
+║  normal:     gin    (gin-gonic web framework)                        ║
+║  vulnerable: govwa  (Go Vulnerable Web Application)                  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """)
 
@@ -157,18 +139,15 @@ def main() -> None:
         repo = repo_cfg["name"]
         all_results[repo] = run_pipeline(repo, dry_run, skip_clone)
 
-    # Summary
     print_header("Pipeline Summary")
     for repo_cfg in REPOS:
         repo = repo_cfg["name"]
         label = repo_cfg["label"]
         res = all_results[repo]
         ok_stages = sum(v for v in res.values())
-        total_stages = len(res)
-        print(f"  {repo} ({label.strip()})  {ok_stages}/{total_stages} stages OK")
+        print(f"  {repo} ({label.strip()})  {ok_stages}/{len(res)} stages OK")
         for stage, ok in res.items():
-            mark = "[OK]  " if ok else "[FAIL]"
-            print(f"    {mark} {stage}")
+            print(f"    {'[OK]  ' if ok else '[FAIL]'} {stage}")
         print(f"    Output: output/{LANGUAGE}/{repo}/verification_results/")
 
     print(f"\nTotal time: {time.time() - start:.1f}s")

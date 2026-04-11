@@ -13,12 +13,12 @@ from vuln_hunter_x.cli.commands import (
     cmd_analyze,
     cmd_build_sanitized,
     cmd_check_env,
-    cmd_clone,
     cmd_extract_context,
     cmd_extract_fuzz_context,
     cmd_fuzz_run,
     cmd_generate_fuzz_drivers,
     cmd_info,
+    cmd_prepare,
     cmd_report,
     cmd_verify,
 )
@@ -35,20 +35,19 @@ Examples:
   # Check environment
   vuln-hunter-x check-env
 
-  # Clone repos and create databases
-  vuln-hunter-x clone --lang c
+  # Prepare repos and create databases
+  vuln-hunter-x prepare --lang c
+  vuln-hunter-x prepare --url https://github.com/org/repo.git --lang go
 
-  # Run CodeQL analysis
+  # Run analysis (CodeQL, Semgrep, or both)
   vuln-hunter-x analyze --repo c-ares
-
-  # Extract context CSVs
-  vuln-hunter-x extract-context
+  vuln-hunter-x analyze --tool semgrep --local-path /path/to/project --lang python
 
   # Verify findings with LLM
-  vuln-hunter-x verify --repo c-ares --lang c
+  vuln-hunter-x verify --repo c-ares --lang c --report
 
-  # Quick scan (limit 10 findings)
-  vuln-hunter-x verify -q --limit 10
+  # Generate report from existing results
+  vuln-hunter-x report --repo c-ares --lang c
 """,
     )
 
@@ -66,12 +65,13 @@ Examples:
         help="Check tools (CodeQL, Semgrep, OpenGrep) and LLM providers (OpenAI, Anthropic, Ollama)",
     )
 
-    # Clone command
-    clone_parser = subparsers.add_parser(
-        "clone",
-        help="Clone repos and create CodeQL databases",
+    # Prepare command (clone + create DB)
+    prepare_parser = subparsers.add_parser(
+        "prepare",
+        aliases=["clone"],
+        help="Clone repos / register local paths and create CodeQL databases",
     )
-    _add_clone_args(clone_parser)
+    _add_prepare_args(prepare_parser)
 
     # Analyze command
     analyze_parser = subparsers.add_parser(
@@ -139,8 +139,8 @@ Examples:
     return parser
 
 
-def _add_clone_args(parser: argparse.ArgumentParser) -> None:
-    """Add arguments for clone command."""
+def _add_prepare_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for prepare (clone) command."""
     parser.add_argument("--config", type=Path, help="Path to repos.yaml")
     parser.add_argument(
         "--url", help="Git repository URL (direct clone without repos.yaml)"
@@ -175,6 +175,12 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
         help="Analyzer(s) to run: codeql, semgrep, opengrep, both (codeql+semgrep), all (default: codeql)",
     )
     parser.add_argument(
+        "--local-path",
+        type=Path,
+        help="Analyze a local directory directly (requires --lang; --name optional)",
+    )
+    parser.add_argument("--name", help="Repository name (auto-derived from path if omitted)")
+    parser.add_argument(
         "--semgrep-config",
         action="append",
         dest="semgrep_configs",
@@ -198,7 +204,7 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--lang",
         choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
-        help="Only this language",
+        help="Only this language (required with --local-path)",
     )
     parser.add_argument("--repo", help="Only this repository")
     parser.add_argument("--json", action="store_true", help="Also output findings JSON")
@@ -222,9 +228,15 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
 def _add_extract_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for extract-context command."""
     parser.add_argument(
+        "--local-path",
+        type=Path,
+        help="Extract context from a local directory directly (requires --lang; --name optional)",
+    )
+    parser.add_argument("--name", help="Repository name (auto-derived from path if omitted)")
+    parser.add_argument(
         "--lang",
         choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
-        help="Only this language",
+        help="Only this language (required with --local-path)",
     )
     parser.add_argument("--repo", help="Only this repository")
     parser.add_argument(
@@ -342,6 +354,14 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     # Config
     parser.add_argument("--config", type=Path, help="Path to configuration file")
 
+    # Local path mode
+    parser.add_argument(
+        "--local-path",
+        type=Path,
+        help="Verify findings for a local directory (requires --lang; looks up SARIF in output)",
+    )
+    parser.add_argument("--name", help="Repository name (auto-derived from path if omitted)")
+
     # LLM settings
     llm_group = parser.add_argument_group("LLM Settings")
     llm_group.add_argument(
@@ -377,9 +397,6 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     output_group.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     output_group.add_argument("--log-file", type=Path, help="Save LLM conversations to file")
     output_group.add_argument("--dry-run", action="store_true", help="Show what would be processed")
-    output_group.add_argument(
-        "--report", action="store_true", help="Generate markdown report after verification"
-    )
 
 
 def _add_report_args(parser: argparse.ArgumentParser) -> None:
@@ -403,6 +420,12 @@ def _add_report_args(parser: argparse.ArgumentParser) -> None:
         type=Path,
         help="Output path for the report (default: report.md in results dir)",
     )
+    parser.add_argument(
+        "--lang-report",
+        choices=["en", "vi", "all"],
+        default="all",
+        help="Report language: en (English), vi (Vietnamese), all (both) — default: all",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -415,8 +438,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "check-env":
         return cmd_check_env(args)
-    elif args.command == "clone":
-        return cmd_clone(args)
+    elif args.command in ("prepare", "clone"):
+        return cmd_prepare(args)
     elif args.command == "analyze":
         return cmd_analyze(args)
     elif args.command == "extract-context":
