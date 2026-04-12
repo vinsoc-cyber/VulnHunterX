@@ -45,8 +45,10 @@ DATASETS: dict[str, dict] = {
     },
     "diversevul": {
         "description": "DiverseVul: 349K C/C++ functions with real CVE-backed labels (150 CWEs)",
-        "type": "git",
-        "url": "https://github.com/wagner-group/diversevul",
+        "type": "gdrive",
+        # Google Drive file ID from https://github.com/wagner-group/diversevul README
+        "gdrive_id": "12IWKhmLhq7qn5B_iXgn5YerOQtkH-6RG",
+        "filename": "diversevul.json",
         "target_dir": DATASETS_DIR / "diversevul",
         "disk_mb": 2000,
     },
@@ -61,6 +63,27 @@ def _git_clone(url: str, target: Path) -> None:
         logger.info("Cloning %s → %s", url, target)
         target.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "clone", "--depth=1", url, str(target)], check=True)
+
+
+def _download_gdrive(file_id: str, filename: str, target: Path) -> None:
+    """Download a file from Google Drive using gdown."""
+    out_path = target / filename
+    if out_path.exists():
+        logger.info("Already exists: %s", out_path)
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    try:
+        import gdown  # type: ignore[import]
+    except ImportError:
+        logger.info("gdown not found, installing…")
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "gdown"],
+            check=True,
+        )
+        import gdown  # type: ignore[import]
+    logger.info("Downloading Google Drive file %s → %s", file_id, out_path)
+    url = f"https://drive.google.com/uc?id={file_id}"
+    gdown.download(url, str(out_path), quiet=False, fuzzy=True)
 
 
 def _download_and_extract(url: str, target: Path) -> None:
@@ -101,6 +124,8 @@ def setup_dataset(name: str) -> bool:
             _git_clone(cfg["url"], cfg["target_dir"])
         elif cfg["type"] == "zip":
             _download_and_extract(cfg["url"], cfg["target_dir"])
+        elif cfg["type"] == "gdrive":
+            _download_gdrive(cfg["gdrive_id"], cfg["filename"], cfg["target_dir"])
         else:
             logger.error("Unknown dataset type: %s", cfg["type"])
             return False
