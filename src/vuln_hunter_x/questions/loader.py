@@ -90,6 +90,12 @@ class QuestionsLoader:
                 questions=config.get("questions", []),
                 context_hint=config.get("context_hint", ""),
                 additional_context=config.get("additional_context", []),
+                min_iterations=int(config.get("min_iterations", 1) or 1),
+                snippet_window_lines=(
+                    int(config["snippet_window_lines"])
+                    if config.get("snippet_window_lines")
+                    else None
+                ),
             )
 
             if rule_id == "default":
@@ -190,6 +196,8 @@ class QuestionsLoader:
                 questions=self._default_questions.questions,
                 context_hint=self._default_questions.context_hint,
                 additional_context=self._default_questions.additional_context,
+                min_iterations=self._default_questions.min_iterations,
+                snippet_window_lines=self._default_questions.snippet_window_lines,
             ), "default"
 
         return self._generate_generic_questions(rule_id), "generic"
@@ -230,6 +238,8 @@ class QuestionsLoader:
                         questions=q.questions,
                         context_hint=q.context_hint,
                         additional_context=q.additional_context,
+                        min_iterations=q.min_iterations,
+                        snippet_window_lines=q.snippet_window_lines,
                     ), "cwe"
 
         return None

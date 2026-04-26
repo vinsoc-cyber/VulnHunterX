@@ -65,27 +65,37 @@ cpp/invalid-pointer-deref:
 cpp/use-after-free:
   short_description: "Use of pointer after memory has been freed"
   questions:
-    - "Where is the pointer ALLOCATED (malloc, calloc, new, strdup, custom allocator) and what variable holds it? If the allocation is in a DIFFERENT function, identify that function."
-    - "List ALL free()/delete calls for this pointer AND its aliases — include the function name, file, and line number for EACH. Are any frees conditional (inside if/switch/error paths)?"
+    - "ANCHOR FIRST: quote the EXACT statement at the flagged line. Name the function it lives in. Classify the flagged line as one of: (a) a pointer USE (deref / read / write / pass-to-function), (b) a free/delete/destructor call, (c) a function signature or declaration, (d) something else. If (c) or (d), the SAST flag is suspect — record this and weight your verdict accordingly."
+    - "If the snippet contains MULTIPLE functions (e.g. helperBad + goodG2B, or production + test), identify which function the flagged line belongs to. Reason ONLY about that function's behavior. Do NOT convict based on UAF patterns visible in sibling functions."
+    - "Where is the pointer at the flagged line ALLOCATED (malloc, calloc, new, strdup, custom allocator)? If allocation is in a DIFFERENT function, name that function — request 'caller:<func>' or 'all_callers:<func>' context if you cannot see it."
+    - "List ALL free()/delete calls reachable from the flagged use — include the function name, file, and line number for EACH. If you cannot enumerate them from the snippet, request 'free_sites:<pointer_name>' context. Mark which frees are conditional (inside if/switch/error paths)."
     - "Is the pointer set to NULL immediately after EACH free? If not, what value does it hold?"
-    - "For EACH free-to-use pair: enumerate ALL possible execution paths. Can the flagged use be reached WITHOUT passing through a reassignment or NULL check? Consider: loops, goto, longjmp, signal handlers, and callbacks."
+    - "For EACH (free_site, flagged_use) pair: describe the SHORTEST control-flow path from the free to the use. Account for: loops, goto, longjmp, signal handlers, and callbacks. Is the path actually reachable in any caller?"
     - "Does the pointer escape this function — is it stored in a struct field, global, returned, or passed to another function that retains it? If so, who is responsible for its lifetime?"
     - "Are there ALIAS pointers (copies, struct members, array entries, void* casts) that reference the same memory? Could one alias free while another still holds a reference?"
     - "If the pointer is REASSIGNED between free and use, where and to what value — a new allocation, NULL, or another pointer?"
-  context_hint: "TRACE: allocation -> free -> flagged_use | NEED: caller(ptr_origin), struct(ptr_type_members), callees(functions_ptr_passed_to)"
-  additional_context: ["caller", "struct", "callees", "all_callers"]
+    - "DECISION RULE: only mark TP if you can produce a SPECIFIC triple — (free_site file:line, use_site file:line, control-flow path reaching the use after the free, in the SAME function or via caller). If your evidence is just 'this looks like a UAF pattern' without specific line numbers from the flagged function, mark NEEDS_MORE_DATA, NOT TP. If reasoning relies on a function named like 'helperBad' while the flagged line is in 'goodG2B', that is grounds for FP."
+  context_hint: "TRACE: allocation -> free -> flagged_use | NEED: caller(ptr_origin), struct(ptr_type_members), callees(functions_ptr_passed_to), free_sites(ptr_name), destructor(owner_type), field_writes(owner.ptr_field)"
+  additional_context: ["caller", "struct", "callees", "all_callers", "free_sites", "destructor", "field_writes"]
+  min_iterations: 2
+  snippet_window_lines: 60
 
 cpp/double-free:
   short_description: "Memory freed more than once"
   questions:
+    - "ANCHOR FIRST: quote the flagged line and name the function. Classify it as (a) a free/delete call, (b) a use leading to free elsewhere, (c) a signature/declaration. If (c), the flag is suspect."
+    - "If the snippet contains MULTIPLE functions (bad/good Juliet variants, helper + caller), restrict your reasoning to the function containing the flagged line. Do NOT convict on free-pairs visible in sibling functions."
     - "Where is the pointer ALLOCATED and what variable holds it?"
-    - "List ALL free() calls for this pointer with their line numbers."
-    - "For each pair of free() calls, is there a code path that reaches BOTH?"
+    - "List ALL free() calls reachable from the flagged location with file:line — request 'free_sites:<pointer_name>' context if needed."
+    - "For each pair of free() calls, is there a SPECIFIC code path that reaches BOTH? Describe the path or mark NEEDS_MORE_DATA."
     - "Is the pointer set to NULL after the FIRST free?"
     - "If set to NULL, is there a NULL check before the SECOND free?"
-    - "Are there ALIAS pointers that could cause the same memory to be freed via different variables?"
+    - "Are there ALIAS pointers (struct field copies, void* casts) that could cause the same memory to be freed via different variables?"
+    - "DECISION RULE: only mark TP if you can name TWO specific (free_line_A, free_line_B) sites with a control-flow path that reaches both. Pattern-matching on free()/free() sequences without an actual reachable path is grounds for NEEDS_MORE_DATA, not TP."
   context_hint: "Include all control flow paths between free calls."
-  additional_context: ["caller", "struct"]
+  additional_context: ["caller", "struct", "free_sites"]
+  min_iterations: 2
+  snippet_window_lines: 60
 
 cpp/stack-address-escape:
   short_description: "Address of stack variable escapes function scope"
@@ -373,14 +383,19 @@ cpp/null-deref:
 cpp/dangling-pointer:
   short_description: "Pointer used after the lifetime of the object it references has ended"
   questions:
+    - "ANCHOR FIRST: quote the flagged line and name the function. Classify the line as (a) a pointer use, (b) a scope end, (c) a signature/declaration. If (c), the flag is suspect."
+    - "If the snippet contains MULTIPLE functions, reason ONLY about the one containing the flagged line."
     - "Where does the POINTER obtain its value — address of a local variable, temporary, or freed heap object?"
     - "When does the referenced OBJECT's lifetime end — function return, end of scope, or explicit destruction?"
     - "Is the pointer USED (read, write, passed) after that lifetime ends?"
     - "Is this distinct from a use-after-free — is the object stack-allocated or temporary rather than heap-freed?"
     - "Could the compiler eliminate or reuse the storage (UB in C/C++) before the pointer is used?"
     - "Is the dangling pointer READ or WRITTEN through — and what data could be corrupted or leaked?"
+    - "DECISION RULE: only mark TP if you can produce (object_declaration_line, scope_end_line, use_line) with a real reachable path. Pattern-matching on 'pointer survives scope' without specific lines is NEEDS_MORE_DATA, not TP."
   context_hint: "Include object declaration, scope end, and all pointer uses."
   additional_context: ["caller", "struct"]
+  min_iterations: 2
+  snippet_window_lines: 60
 
 # ==============================================================================
 # C/C++ - Integer / Type Conversion

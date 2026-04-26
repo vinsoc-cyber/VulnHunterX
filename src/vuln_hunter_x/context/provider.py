@@ -26,6 +26,12 @@ class ContextProvider:
     - all_callers:function_name - Get ALL callers of a function (up to 10)
     - typedef:type_name - Get typedef or type alias definition
     - enum:enum_name - Get enum definition with enumerator values
+    - free_sites:pointer_name - Get every free()/delete/destructor call site for
+      a pointer expression across the whole repo (C/C++ only)
+    - destructor:type_name - Get destructor / cleanup-method body for a class
+      or struct (C/C++ only) — useful for RAII / lifetime rules
+    - field_writes:Type.field - Get every write site for a struct/class field
+      (C/C++ only) — catches shared-state UAF / TOCTOU patterns
     """
 
     def __init__(self, output_dir: Path, repos_dir: Path):
@@ -90,6 +96,12 @@ class ContextProvider:
                 code = self._get_typedef_context(repo_name, lang, name)
             elif ctx_type == "enum":
                 code = self._get_enum_context(repo_name, lang, name)
+            elif ctx_type in ("free_sites", "free_site"):
+                code = self._get_free_sites_context(repo_name, lang, name)
+            elif ctx_type in ("destructor", "destructors"):
+                code = self._get_destructor_context(repo_name, lang, name)
+            elif ctx_type in ("field_writes", "field_write"):
+                code = self._get_field_writes_context(repo_name, lang, name)
             else:
                 code = f"[Unknown context type: {ctx_type}]"
 
@@ -369,5 +381,133 @@ class ContextProvider:
             value = row.get("value", "")
             if member:
                 parts.append(f"  {member} = {value}" if value else f"  {member}")
+
+        return "\n".join(parts)
+
+    def _get_free_sites_context(
+        self,
+        repo_name: str,
+        lang: str,
+        pointer_name: str,
+        max_sites: int = 20,
+    ) -> str:
+        """Get every free/delete/destructor call site for a pointer expression.
+
+        Loaded from `free_sites.csv` (extracted by config/queries/tools/cpp/free_sites.ql).
+        Match is exact on `pointer_name`, with a fallback to substring match — useful
+        for cases like the LLM asking for `obj->p` when the CSV row says `p`.
+        """
+        rows = self._load_csv(repo_name, lang, "free_sites")
+        if not rows:
+            return (
+                f"[No free_sites data for repo (free_sites.csv missing). "
+                f"Run `vuln-hunter-x prepare --skip-clone --force` to extract.]"
+            )
+
+        # Exact match first
+        exact = [r for r in rows if r.get("pointer_name", "") == pointer_name]
+        # Fallback: substring (handles `obj->p` vs `p`, `&buf` vs `buf`)
+        if not exact:
+            needle = pointer_name.strip().lstrip("&*")
+            exact = [r for r in rows if needle and needle in r.get("pointer_name", "")]
+
+        if not exact:
+            return f"[No free/delete sites found for pointer: {pointer_name!r}]"
+
+        parts: list[str] = [f"// Free/delete sites for: {pointer_name}"]
+        for row in exact[:max_sites]:
+            kind = row.get("free_kind", "free")
+            in_func = row.get("in_function", "?")
+            file_ = row.get("file", "?")
+            line = row.get("line", "?")
+            ptr = row.get("pointer_name", pointer_name)
+            parts.append(f"  {file_}:{line}  in {in_func}()  -- {kind}({ptr})")
+
+        if len(exact) > max_sites:
+            parts.append(f"  ... and {len(exact) - max_sites} more (truncated)")
+
+        return "\n".join(parts)
+
+    def _get_destructor_context(
+        self,
+        repo_name: str,
+        lang: str,
+        type_name: str,
+    ) -> str:
+        """Get destructor / cleanup-method bodies for a class or struct.
+
+        Loaded from `destructors.csv` (extracted by destructors.ql). One type
+        may have multiple cleanup methods (~T plus a custom .release()); all
+        are returned, separated by a blank line.
+        """
+        rows = self._load_csv(repo_name, lang, "destructors")
+        if not rows:
+            return (
+                f"[No destructors data for repo (destructors.csv missing). "
+                f"Run `vuln-hunter-x prepare --skip-clone --force` to extract.]"
+            )
+
+        matches = [r for r in rows if r.get("type_name", "") == type_name]
+        if not matches:
+            return f"[No destructor / cleanup method found for type: {type_name!r}]"
+
+        parts: list[str] = []
+        for row in matches:
+            method = row.get("method_name", "?")
+            file_ = row.get("file", "")
+            try:
+                start = int(row.get("start_line", 0))
+                end = int(row.get("end_line", 0))
+            except ValueError:
+                continue
+            if start <= 0 or end < start:
+                continue
+            body = self._read_lines(repo_name, lang, file_, start, end)
+            parts.append(
+                f"// Destructor / cleanup: {type_name}::{method}\n// File: {file_}\n{body}"
+            )
+
+        return "\n\n".join(parts) if parts else (
+            f"[Destructor metadata present for {type_name} but bodies could not be read.]"
+        )
+
+    def _get_field_writes_context(
+        self,
+        repo_name: str,
+        lang: str,
+        type_field: str,
+        max_sites: int = 20,
+    ) -> str:
+        """Get every write site for a struct/class field expression.
+
+        Argument format is `Type.field` (e.g. `Connection.handle`). Falls back
+        to a substring match if the exact key is not found, so the LLM can
+        ask `field_writes:handle` and still get useful results.
+        """
+        rows = self._load_csv(repo_name, lang, "field_writes")
+        if not rows:
+            return (
+                f"[No field_writes data for repo (field_writes.csv missing). "
+                f"Run `vuln-hunter-x prepare --skip-clone --force` to extract.]"
+            )
+
+        exact = [r for r in rows if r.get("type_field", "") == type_field]
+        if not exact:
+            needle = type_field.strip()
+            exact = [r for r in rows if needle and needle in r.get("type_field", "")]
+
+        if not exact:
+            return f"[No write sites found for field: {type_field!r}]"
+
+        parts: list[str] = [f"// Write sites for: {type_field}"]
+        for row in exact[:max_sites]:
+            in_func = row.get("in_function", "?")
+            file_ = row.get("file", "?")
+            line = row.get("line", "?")
+            tf = row.get("type_field", type_field)
+            parts.append(f"  {file_}:{line}  in {in_func}()  -- write to {tf}")
+
+        if len(exact) > max_sites:
+            parts.append(f"  ... and {len(exact) - max_sites} more (truncated)")
 
         return "\n".join(parts)

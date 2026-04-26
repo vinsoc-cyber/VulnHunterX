@@ -103,6 +103,8 @@ class GuidedQuestions:
     questions: list[str]
     context_hint: str = ""
     additional_context: list[str] = field(default_factory=list)
+    min_iterations: int = 1
+    snippet_window_lines: int | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -112,6 +114,8 @@ class GuidedQuestions:
             "questions": self.questions,
             "context_hint": self.context_hint,
             "additional_context": self.additional_context,
+            "min_iterations": self.min_iterations,
+            "snippet_window_lines": self.snippet_window_lines,
         }
 
 

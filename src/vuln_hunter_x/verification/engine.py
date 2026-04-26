@@ -6,10 +6,59 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
+
+# Pattern that recognises a concrete code citation in reasoning text:
+# "line 42", "line: 42", "at line 42", "(line 42)", or "file.c:42".
+_CITATION_RE = re.compile(
+    r"(?:line[:\s]+\d+|\bL\d+\b|[\w./-]+:\d+)",
+    re.IGNORECASE,
+)
+# Pattern markers indicating purely pattern-language reasoning that lacks
+# specific evidence — observed dominantly in the CWE-416 false-alarm cohort.
+_GENERIC_PATTERN_MARKERS = (
+    "clearly demonstrates",
+    "explicitly demonstrates",
+    "constitutes a",
+    "constituting a",
+    "obvious",
+    "is a textbook",
+    "is a classic",
+    "is a clear",
+)
+
+
+def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
+    """Demote High/Medium → Low when a TP verdict lacks specific code citations.
+
+    Heuristic: if the verdict is a True Positive and the reasoning text contains
+    pattern-matching language but NO concrete `file:line` or `line N` citation,
+    downgrade confidence and append a marker to the reasoning so the post-
+    processing layer can audit the change.
+
+    No-op on False Positive verdicts and on Needs-More-Data — those don't carry
+    the over-conviction risk and the calibration data shows them already noisy.
+    """
+    if verdict.verdict not in ("True Positive", "TP"):
+        return verdict
+    if verdict.confidence not in ("High", "Medium"):
+        return verdict
+    text = (verdict.reasoning or "").lower()
+    has_citation = bool(_CITATION_RE.search(verdict.reasoning or ""))
+    has_generic = any(m in text for m in _GENERIC_PATTERN_MARKERS)
+    if has_generic and not has_citation:
+        verdict.confidence = "Low"
+        verdict.confidence_score = min(verdict.confidence_score, 0.3)
+        verdict.reasoning = (
+            (verdict.reasoning or "")
+            + " [confidence downgraded: pattern-matching language without "
+            "specific file:line citation]"
+        )
+    return verdict
 
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
@@ -341,6 +390,14 @@ class VerificationEngine:
             force_decision=self.config.verification.force_decision,
             prefetched_context=prefetched_context,
         )
+
+        # Confidence-discipline post-processor: a TP verdict whose reasoning is
+        # purely pattern-language ("clearly demonstrates", "constitutes a", ...)
+        # without any specific file:line citation is the documented failure
+        # mode for memory-safety classes (benchmarks/Conclusion.md, CWE-416
+        # case study). Downgrade confidence to 'Low' so the verdict surfaces
+        # to a human reviewer rather than being trusted at face value.
+        verdict = _downgrade_unsupported_confidence(verdict)
 
         return verdict
 

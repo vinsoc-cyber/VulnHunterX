@@ -58,6 +58,12 @@ system_prompt: |
   - "all_callers:function_name" — ALL callers of a function (up to 10)
   - "typedef:type_name" — a typedef or type alias definition
   - "enum:enum_name" — an enum definition with enumerator values
+  - "free_sites:pointer_name" — every free()/delete/destructor call site for a
+    pointer expression across the whole repo (C/C++ only; use for UAF/double-free)
+  - "destructor:type_name" — destructor / cleanup-method body for a class or struct
+    (C/C++ only; use for RAII / object-lifetime rules)
+  - "field_writes:Type.field" — every write site for a struct/class field across
+    the repo (C/C++ only; use for shared-state UAF / TOCTOU patterns)
 
   FEW-SHOT EXAMPLES:
 

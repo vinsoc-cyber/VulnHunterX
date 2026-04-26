@@ -10,8 +10,8 @@ from pathlib import Path
 
 # Query files by language
 QUERIES_BY_LANG: dict[str, list[str]] = {
-    "c": ["functions", "callers", "structs", "globals", "macros"],
-    "cpp": ["functions", "callers", "structs", "globals", "macros"],
+    "c": ["functions", "callers", "structs", "globals", "macros", "free_sites", "destructors", "field_writes"],
+    "cpp": ["functions", "callers", "structs", "globals", "macros", "free_sites", "destructors", "field_writes"],
     "python": ["functions", "callers", "classes"],
     "javascript": ["functions", "callers", "classes"],
     "php": ["functions", "callers", "classes"],

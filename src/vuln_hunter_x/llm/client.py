@@ -249,6 +249,47 @@ class LLMClient:
                         f"    Parsed: verdict={verdict}, confidence={parsed.get('confidence', 'Low')}"
                     )
 
+                # min_iterations gate: for high-stakes rules (e.g., memory-safety CWEs)
+                # the questions YAML can require multiple analysis rounds before allowing
+                # a TP/FP verdict. Premature convergence is the documented failure mode
+                # for CWE-416 etc. — see benchmarks/Conclusion.md.
+                if (
+                    iterations < questions.min_iterations
+                    and verdict != "Needs More Data"
+                    and context_provider is not None
+                ):
+                    suggested = ", ".join(
+                        f"'{t}:<name>'" for t in questions.additional_context[:3]
+                    ) or "'caller:<func>', 'struct:<type>'"
+                    if verbose:
+                        print(
+                            f"    [min_iterations={questions.min_iterations}] "
+                            f"verdict={verdict} after iter {iterations} — "
+                            f"requesting deeper analysis"
+                        )
+                    messages.append({"role": "assistant", "content": raw_response})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            f"For this rule ({questions.rule_id}), at least "
+                            f"{questions.min_iterations} rounds of analysis are required "
+                            "before a TP/FP verdict. Premature convergence on this CWE "
+                            "class has been a documented source of errors "
+                            "(over-convicting on patterns visible in sibling functions, "
+                            "dismissing real bugs without tracing cross-function lifetime).\n\n"
+                            "DO NOT issue a final verdict yet. In your next response:\n"
+                            f"1. Request additional context — try {suggested}.\n"
+                            "2. Re-quote the EXACT flagged line and identify which "
+                            "function it lives in.\n"
+                            "3. Walk the relevant chain (e.g., alloc -> free -> use) "
+                            "with concrete file:line references.\n\n"
+                            "Set verdict to 'Needs More Data' in this turn and request "
+                            "the context. Only after you have concrete evidence should "
+                            "you commit to TP or FP."
+                        ),
+                    })
+                    continue
+
                 # Final verdict or no context expansion
                 if verdict != "Needs More Data" or not context_needed or not context_provider:
                     # Force decision: if NMD and force_decision enabled, do one more turn
