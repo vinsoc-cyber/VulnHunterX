@@ -178,7 +178,7 @@ Or list it under `repos:` in [config/repos.yaml](config/repos.yaml) and use `--r
 | — | `report` | Verification results | Markdown report |
 | 4–7 | `build-sanitized` → `fuzz-run` | Verified C/C++ findings | Fuzz harnesses + crash results |
 
-Stages 2–3 accept `--local-path` to operate directly on an arbitrary directory. See [docs/fuzz_stages.md](docs/fuzz_stages.md) for stages 4–7.
+Stages 2–3 accept `--local-path` to operate directly on an arbitrary directory.
 
 | Goal | Required stages | Optional |
 |---|---|---|
@@ -325,7 +325,7 @@ vuln-hunter-x generate-fuzz-drivers --repo libucl --build --llm-fix
 vuln-hunter-x fuzz-run --repo libucl --triage
 ```
 
-Full reference: [docs/fuzz_stages.md](docs/fuzz_stages.md).
+`build-sanitized` builds with ASan/UBSan; `extract-fuzz-context` collects function signatures used to generate harnesses; `generate-fuzz-drivers` writes libFuzzer drivers and (with `--build`) compiles them, optionally fixing build errors via the LLM (`--llm-fix`); `fuzz-run` executes the fuzzers and triages crashes. Run any subcommand with `--help` for full options.
 
 ---
 
@@ -456,7 +456,6 @@ VulnHunterX/
 │   └── queries/               # CodeQL context queries (6 languages)
 ├── benchmarks/        # Evaluation framework
 ├── examples/          # Per-language pipeline scripts
-├── docs/              # Security check reference, fuzz stages
 ├── tests/
 └── output/            # Per-repo stage outputs
     └── <lang>/<repo>/
@@ -468,16 +467,6 @@ VulnHunterX/
         ├── fuzz_targets/          # (C/C++) harnesses
         └── fuzz_results/          # (C/C++) crashes
 ```
-
----
-
-## Security Checks Documentation
-
-- [C/C++ Security Checks](docs/codeql_cpp_security.md)
-- [Python Security Checks](docs/codeql_python_security.md)
-- [JavaScript Security Checks](docs/codeql_javascript_security.md)
-- [CodeQL Overview](docs/codeql_security_checks.md)
-- [Fuzz Stages](docs/fuzz_stages.md)
 
 ---
 

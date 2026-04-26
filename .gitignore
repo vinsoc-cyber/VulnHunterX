@@ -27,5 +27,4 @@ benchmarks/results/
 .claude/
 .cursor/
 CLAUDE.md
-docs/plans/
 .ruff_cache/
