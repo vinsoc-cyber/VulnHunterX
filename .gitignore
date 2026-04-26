@@ -12,7 +12,7 @@ build/
 dist/
 .pytest_cache/
 __pycache__/
-
+.vscode/
 # Output
 output/
 *.sarif
