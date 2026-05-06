@@ -1,0 +1,67 @@
+[
+  {
+    "id": "owasp-java-BenchmarkTest00001",
+    "source_dataset": "owasp-java",
+    "cwe_id": "CWE-89",
+    "rule_id": "java/sql-injection",
+    "file_path": "src/main/java/org/owasp/benchmark/testcode/BenchmarkTest00001.java",
+    "function_name": "doPost",
+    "start_line": 1,
+    "lang": "java",
+    "label": "TP",
+    "code_snippet": "package org.owasp.benchmark.testcode;\n\nimport java.io.IOException;\nimport java.sql.*;\nimport javax.servlet.ServletException;\nimport javax.servlet.http.*;\n\npublic class BenchmarkTest00001 extends HttpServlet {\n  public void doPost(HttpServletRequest request, HttpServletResponse response)\n      throws ServletException, IOException {\n    String param = request.getParameter(\"BenchmarkTest00001\");\n    String sql = \"SELECT * FROM USERS WHERE USERNAME='foo' AND PASSWORD='\" + param + \"'\";\n    try {\n      java.sql.Connection conn = org.owasp.benchmark.helpers.DatabaseHelper.getSqlConnection();\n      java.sql.Statement statement = conn.createStatement();\n      statement.execute(sql);\n    } catch (SQLException e) { throw new ServletException(e); }\n  }\n}\n",
+    "metadata": {"category": "sqli", "version": "1.2", "test_name": "BenchmarkTest00001"}
+  },
+  {
+    "id": "owasp-java-BenchmarkTest00002",
+    "source_dataset": "owasp-java",
+    "cwe_id": "CWE-89",
+    "rule_id": "java/sql-injection",
+    "file_path": "src/main/java/org/owasp/benchmark/testcode/BenchmarkTest00002.java",
+    "function_name": "doPost",
+    "start_line": 1,
+    "lang": "java",
+    "label": "FP",
+    "code_snippet": "package org.owasp.benchmark.testcode;\n\nimport java.io.IOException;\nimport java.sql.*;\nimport javax.servlet.ServletException;\nimport javax.servlet.http.*;\n\npublic class BenchmarkTest00002 extends HttpServlet {\n  public void doPost(HttpServletRequest request, HttpServletResponse response)\n      throws ServletException, IOException {\n    // Parameter is read but never used in the SQL string -> not actually exploitable\n    String param = request.getParameter(\"BenchmarkTest00002\");\n    String sql = \"SELECT * FROM USERS WHERE USERNAME='admin'\";\n    try {\n      java.sql.Connection conn = org.owasp.benchmark.helpers.DatabaseHelper.getSqlConnection();\n      java.sql.Statement statement = conn.createStatement();\n      statement.execute(sql);\n    } catch (SQLException e) { throw new ServletException(e); }\n  }\n}\n",
+    "metadata": {"category": "sqli", "version": "1.2", "test_name": "BenchmarkTest00002"}
+  },
+  {
+    "id": "owasp-java-BenchmarkTest00045",
+    "source_dataset": "owasp-java",
+    "cwe_id": "CWE-22",
+    "rule_id": "java/path-injection",
+    "file_path": "src/main/java/org/owasp/benchmark/testcode/BenchmarkTest00045.java",
+    "function_name": "doPost",
+    "start_line": 1,
+    "lang": "java",
+    "label": "TP",
+    "code_snippet": "package org.owasp.benchmark.testcode;\n\nimport java.io.*;\nimport javax.servlet.ServletException;\nimport javax.servlet.http.*;\n\npublic class BenchmarkTest00045 extends HttpServlet {\n  public void doPost(HttpServletRequest request, HttpServletResponse response)\n      throws ServletException, IOException {\n    String param = request.getParameter(\"BenchmarkTest00045\");\n    File f = new File(\"/tmp/uploads/\" + param);\n    new FileInputStream(f).close();\n  }\n}\n",
+    "metadata": {"category": "pathtraver", "version": "1.2", "test_name": "BenchmarkTest00045"}
+  },
+  {
+    "id": "owasp-java-BenchmarkTest00120",
+    "source_dataset": "owasp-java",
+    "cwe_id": "CWE-330",
+    "rule_id": "java/insecure-randomness",
+    "file_path": "src/main/java/org/owasp/benchmark/testcode/BenchmarkTest00120.java",
+    "function_name": "doPost",
+    "start_line": 1,
+    "lang": "java",
+    "label": "TP",
+    "code_snippet": "package org.owasp.benchmark.testcode;\n\nimport java.io.IOException;\nimport java.util.Random;\nimport javax.servlet.ServletException;\nimport javax.servlet.http.*;\n\npublic class BenchmarkTest00120 extends HttpServlet {\n  public void doPost(HttpServletRequest request, HttpServletResponse response)\n      throws ServletException, IOException {\n    Random r = new Random();\n    response.getWriter().println(\"token=\" + r.nextLong());\n  }\n}\n",
+    "metadata": {"category": "weakrand", "version": "1.2", "test_name": "BenchmarkTest00120"}
+  },
+  {
+    "id": "owasp-python-BenchmarkTest00001",
+    "source_dataset": "owasp-python",
+    "cwe_id": "CWE-79",
+    "rule_id": "py/reflected-xss",
+    "file_path": "src/benchmark/testcode/BenchmarkTest00001.py",
+    "function_name": "handle",
+    "start_line": 1,
+    "lang": "python",
+    "label": "TP",
+    "code_snippet": "from flask import request, make_response\n\ndef handle():\n    name = request.args.get('BenchmarkTest00001', '')\n    # BUG: untrusted user input written directly into HTML\n    body = f\"<html><body>Hello {name}</body></html>\"\n    return make_response(body)\n",
+    "metadata": {"category": "xss", "version": "0.1", "test_name": "BenchmarkTest00001"}
+  }
+]

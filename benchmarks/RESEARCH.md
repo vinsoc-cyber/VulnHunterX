@@ -355,6 +355,20 @@ multi-turn context expansion on top, which is the VulnHunterX improvement being 
 | Self-consistency voting (CISC) | 46% fewer samples for same accuracy         | Medium                           |
 | DiverseVul per-CWE sampling    | Same strategy as Juliet (balanced TP/FP)    | Low                              |
 | Confidence calibration charts  | Validate High/Medium/Low confidence signals | Low                              |
+| Youden Index + MCC scoring     | Match OWASP scorecard + SastBench paper     | Low                              |
+| PrimeVul adapter               | Cleaner C/C++ labels vs DiverseVul          | Low                              |
+| SastBench REST `/analyze` harness | Submit to SastBench leaderboard          | Medium                           |
+
+### Web-language coverage (Java + Python via OWASP Benchmark)
+
+VulnHunterX targets memory-safety in C/C++ today and the existing adapters reflect that. To exercise the web-side rule packs (CodeQL `java-queries`, `python-queries`, Semgrep web rules), we add the **OWASP Benchmark Project** suites:
+
+- `BenchmarkJava` v1.2 — ~2,740 cases, 11 CWE categories (SQLi, XSS, path traversal, command injection, LDAP, XPath, weak random, weak hash, trust boundary, insecure cookie, crypto). GPL-2.0.
+- `BenchmarkPython` v0.1 — ~1,230 cases over the same taxonomy. GPL-3.0.
+
+Both ship a CSV manifest (`expectedresults-<version>.csv`) keyed by `BenchmarkTest#####` filename + CWE — adapter parsing is straightforward. Datasets are cloned into `benchmarks/datasets/` at runtime; **VulnHunterX project code remains MIT**, the GPL applies only to the cloned test corpora (not vendored, not linked).
+
+OWASP's official scorecard uses the **Youden Index** (TPR + TNR − 1, ×100). We currently report P/R/F1 + FP-reduction; Youden Index is queued for the follow-up scoring upgrade so reviewers know which metrics are pending.
 
 ---
 
@@ -370,4 +384,5 @@ multi-turn context expansion on top, which is the VulnHunterX improvement being 
 - [D2A Quality Study](https://rolandcroft.github.io/assets/publications/ICSE_23.pdf) — Dataset quality analysis (ICSE 2023)
 - [Java Juliet Subset](https://arxiv.org/abs/2405.15614) — Balanced subset sampling for LLM evaluation (May 2024)
 - [DiverseVul](https://github.com/wagner-group/diversevul) — 349K C/C++ functions with CVE-backed labels (RAID 2023)
+- [OWASP Benchmark Project](https://owasp.org/www-project-benchmark/) — synthetic SAST test suites with CSV ground truth ([Java repo](https://github.com/OWASP-Benchmark/BenchmarkJava), [Python repo](https://github.com/OWASP-Benchmark/BenchmarkPython))
 - [Juliet C/C++ 1.3.1](https://samate.nist.gov/SARD/test-suites/116) — NIST SARD test suite

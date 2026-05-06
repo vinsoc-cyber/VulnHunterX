@@ -77,6 +77,7 @@ from benchmarks.approaches.base import BenchmarkApproach, BenchmarkResult  # noq
 from benchmarks.approaches.raw_sast import RawSastApproach  # noqa: E402
 from benchmarks.approaches.ablation import AblationApproach  # noqa: E402
 from benchmarks.approaches.vulnhunterx import VulnHunterXApproach  # noqa: E402
+from benchmarks.metrics.cost import Pricing, load_pricing  # noqa: E402
 from benchmarks.metrics.evaluator import ApproachMetrics, evaluate  # noqa: E402
 from benchmarks.scripts._progress import (  # noqa: E402
     ProgressDisplay,
@@ -179,6 +180,24 @@ def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[s
             "Run: python benchmarks/scripts/setup_datasets.py --dataset juliet"
         )
 
+    if name in ("owasp-java", "owasp-python"):
+        lang = "java" if name == "owasp-java" else "python"
+        ds_path = DATASETS_DIR / f"owasp-benchmark-{lang}"
+        if ds_path.exists():
+            from benchmarks.adapters.owasp_benchmark_adapter import OwaspBenchmarkAdapter
+            return OwaspBenchmarkAdapter(ds_path, lang=lang).load(limit=limit)
+        if fixture.exists():
+            return _load_fixture(fixture, limit=limit, langs=langs, cwes=cwes)
+        # Fall back to the shared owasp_benchmark fixture if specific one absent
+        shared = _REPO_ROOT / "benchmarks" / "fixtures" / "owasp_benchmark_sample.json"
+        if shared.exists():
+            entries = _load_fixture(shared, limit=0, langs=[lang], cwes=cwes)
+            return entries[: limit or len(entries)]
+        raise FileNotFoundError(
+            f"OWASP Benchmark dataset not found at {ds_path}. "
+            f"Run: python benchmarks/scripts/setup_datasets.py --dataset {name}"
+        )
+
     if name == "diversevul":
         ds_path = DATASETS_DIR / "diversevul"
         if ds_path.exists():
@@ -241,6 +260,8 @@ def _save_checkpoint(
     status: str = "completed",
     raw_sast_tp: int | None = None,
     raw_sast_fp: int | None = None,
+    pricing: dict[str, Pricing] | Pricing | None = None,
+    model_name: str | None = None,
 ) -> None:
     path = _checkpoint_path(run_dir, dataset, approach)
     processed_ids = [r.entry.id for r in results]
@@ -255,6 +276,7 @@ def _save_checkpoint(
         # ── Existing fields (backward-compatible) ─────────────────────────
         "metrics": metrics.summary_dict(
             raw_sast_tp=raw_sast_tp, raw_sast_fp=raw_sast_fp,
+            pricing=pricing, model_name=model_name,
         ),
         "results": [r.to_dict() for r in results],
     }
@@ -471,7 +493,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--dataset",
-        choices=["secllmholmes", "juliet", "diversevul", "all"],
+        choices=["secllmholmes", "juliet", "diversevul",
+                 "owasp-java", "owasp-python", "owasp", "all"],
         default="secllmholmes",
     )
     parser.add_argument(
@@ -588,14 +611,58 @@ def main() -> int:
         action="store_true",
         help="Run vulnhunterx at max_iterations=1,2,3 to show multi-turn contribution",
     )
+    parser.add_argument(
+        "--pricing",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to a JSON pricing schedule (USD per 1M tokens) used to "
+            "compute imputed_api_cost_usd. Defaults to the built-in "
+            "DEFAULT_PRICING in benchmarks/metrics/cost.py. "
+            "Use this to cost models not in the default schedule "
+            "(e.g. DeepSeek): --pricing pricing.deepseek.json."
+        ),
+    )
     args = parser.parse_args()
 
+    try:
+        pricing_schedule = load_pricing(args.pricing)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: --pricing: {exc}", file=sys.stderr)
+        return 2
+
+    # Register custom pricing with LiteLLM so litellm.completion_cost resolves
+    # for non-default models (e.g. qwen via Anthropic-compatible proxy).
+    # Otherwise LiteLLM prints "Provider List: ..." on every call.
+    try:
+        import litellm  # noqa: PLC0415
+        registry: dict[str, dict] = {}
+        schedule_items = (
+            pricing_schedule.items() if isinstance(pricing_schedule, dict) else {}
+        )
+        for model_name, p in schedule_items:
+            registry[model_name] = {
+                "input_cost_per_token": p.input / 1_000_000,
+                "output_cost_per_token": p.output / 1_000_000,
+                "litellm_provider": (
+                    model_name.split("/", 1)[0] if "/" in model_name else "openai"
+                ),
+                "mode": "chat",
+            }
+        if registry:
+            litellm.register_model(registry)
+    except Exception:
+        pass
+
     # Determine datasets and approaches
-    datasets = (
-        ["secllmholmes", "juliet", "diversevul"]
-        if args.dataset == "all"
-        else [args.dataset]
-    )
+    if args.dataset == "all":
+        datasets = ["secllmholmes", "juliet", "diversevul",
+                    "owasp-java", "owasp-python"]
+    elif args.dataset == "owasp":
+        datasets = ["owasp-java", "owasp-python"]
+    else:
+        datasets = [args.dataset]
     _ALL_APPROACHES = ["raw-sast", "vulnhunterx", "ablation"]
     approaches = (
         _ALL_APPROACHES
@@ -611,10 +678,33 @@ def main() -> int:
         run_dir = args.run_dir.expanduser().resolve()
     elif args.run_id is not None:
         run_dir = RESULTS_DIR / args.run_id
+    elif args.resume:
+        # --resume without an explicit dir: pick the latest existing run that
+        # has at least one checkpoint. Without this, we'd create a fresh
+        # timestamped dir, find no checkpoints, and silently start over.
+        candidates = sorted(
+            (d for d in RESULTS_DIR.glob("*") if d.is_dir() and any(d.glob("*_results.json"))),
+            key=lambda d: d.stat().st_mtime,
+        )
+        if not candidates:
+            print(
+                f"error: --resume given but no resumable run found under {RESULTS_DIR}. "
+                "Pass --run-dir or --run-id to point at a specific run.",
+                file=sys.stderr,
+            )
+            return 2
+        run_dir = candidates[-1]
+        print(f"--resume: continuing latest run {run_dir.name}", file=sys.stderr)
     else:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_dir = RESULTS_DIR / ts
     run_dir.mkdir(parents=True, exist_ok=True)
+    if args.resume and not any(run_dir.glob("*_results.json")):
+        print(
+            f"error: --resume given but {run_dir} has no checkpoints to resume from.",
+            file=sys.stderr,
+        )
+        return 2
     _setup_logging(run_dir)
     logger.info("Run directory: %s", run_dir)
 
@@ -717,6 +807,7 @@ def main() -> int:
                     run_dir, dataset_name, name, results, m,
                     status="completed",
                     raw_sast_tp=raw_sast_tp, raw_sast_fp=raw_sast_fp,
+                    pricing=pricing_schedule, model_name=args.model,
                 )
                 all_metrics.append(m)
 
