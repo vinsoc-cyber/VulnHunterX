@@ -377,19 +377,48 @@ class VerificationEngine:
                     context_requests=prefetch_requests,
                 )
 
-        # Call LLM
-        verdict = self.llm_client.analyze(
-            finding=finding,
-            context=context_result.code,
-            questions=questions,
-            func_name=context_result.function_name,
-            context_provider=self.context_provider,
-            max_iterations=self.config.verification.max_iterations,
-            verbose=self.config.output.is_verbose,
-            quiet=self.config.output.is_quiet,
-            force_decision=self.config.verification.force_decision,
-            prefetched_context=prefetched_context,
+        # Call LLM. When ``self_consistency_samples > 1`` we route through
+        # the voting wrapper; otherwise we keep the single-pass fast path.
+        sc_samples = getattr(
+            self.config.verification, "self_consistency_samples", 1
         )
+        if sc_samples > 1:
+            verdict = self.llm_client.analyze_with_voting(
+                finding=finding,
+                context=context_result.code,
+                questions=questions,
+                func_name=context_result.function_name,
+                samples=sc_samples,
+                voting_temperature=getattr(
+                    self.config.verification,
+                    "self_consistency_temperature",
+                    0.7,
+                ),
+                tie_break=getattr(
+                    self.config.verification,
+                    "self_consistency_tie_break",
+                    "fp",
+                ),
+                context_provider=self.context_provider,
+                max_iterations=self.config.verification.max_iterations,
+                verbose=self.config.output.is_verbose,
+                quiet=self.config.output.is_quiet,
+                force_decision=self.config.verification.force_decision,
+                prefetched_context=prefetched_context,
+            )
+        else:
+            verdict = self.llm_client.analyze(
+                finding=finding,
+                context=context_result.code,
+                questions=questions,
+                func_name=context_result.function_name,
+                context_provider=self.context_provider,
+                max_iterations=self.config.verification.max_iterations,
+                verbose=self.config.output.is_verbose,
+                quiet=self.config.output.is_quiet,
+                force_decision=self.config.verification.force_decision,
+                prefetched_context=prefetched_context,
+            )
 
         # Confidence-discipline post-processor: a TP verdict whose reasoning is
         # purely pattern-language ("clearly demonstrates", "constitutes a", ...)
