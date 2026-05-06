@@ -200,6 +200,20 @@ class TestCweRuleMap:
         rules = cwe_to_rules("CWE-22")
         assert any("py/" in r or "js/" in r for r in rules)
 
+    def test_java_rule_coverage_for_owasp_cwes(self):
+        # OWASP BenchmarkJava primary categories must each have a java/ rule
+        for cwe in ("CWE-22", "CWE-78", "CWE-79", "CWE-89", "CWE-327"):
+            rules = cwe_to_rules(cwe)
+            assert any(r.startswith("java/") for r in rules), (
+                f"{cwe} missing a java/* rule mapping"
+            )
+
+    def test_owasp_only_cwes_present(self):
+        # CWEs unique to OWASP Benchmark (not previously mapped)
+        for cwe in ("CWE-90", "CWE-328", "CWE-330", "CWE-501", "CWE-614", "CWE-643"):
+            assert cwe in all_mapped_cwes(), f"{cwe} should be mapped for OWASP"
+            assert primary_rule(cwe) != "", f"{cwe} should have a primary rule"
+
 
 # ── Fixture Files ──────────────────────────────────────────────────────────────
 
