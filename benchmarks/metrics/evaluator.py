@@ -24,6 +24,12 @@ from typing import Any
 
 from benchmarks.adapters.ground_truth import LABEL_BENIGN, LABEL_FP, LABEL_TP
 from benchmarks.approaches.base import PRED_ERROR, PRED_FP, PRED_NMD, PRED_TP, BenchmarkResult
+from benchmarks.metrics.stats import (
+    f1_bootstrap_ci,
+    precision_ci,
+    recall_ci,
+    wilson_ci,
+)
 
 
 @dataclass
@@ -142,14 +148,28 @@ class ApproachMetrics:
     # Calibration
     calibration: dict[str, CalibrationBucket] = field(default_factory=dict)
 
-    # Cost & latency
+    # Cost & latency. Two cost columns:
+    #   total_cost_usd      -> local-marginal cost (from provider; ~0 for Ollama)
+    #   imputed_api_cost_usd -> tokens × API list pricing (computed in summary_dict)
     total_tokens: int = 0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    # Subset of total_input_tokens that hit the provider's prompt cache.
+    # Used for honest imputed cost on providers (e.g. DeepSeek) with a
+    # cache-hit pricing tier.
+    total_cached_input_tokens: int = 0
     total_cost_usd: float = 0.0
     elapsed_seconds: list[float] = field(default_factory=list)
     total_elapsed: float = 0.0
 
     # Iterations (multi-turn approaches)
     iterations_list: list[int] = field(default_factory=list)
+
+    # Per-finding (gt_label, pred_label) tuples (1=TP, 0=FP) for paired
+    # comparisons (McNemar) and bootstrap CIs. BENIGN/NMD/ERROR excluded.
+    # Each entry is keyed by a stable finding id so two approaches can be
+    # paired item-by-item across runs.
+    per_finding_outcomes: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     # ---- Computed metrics ----
 
@@ -213,6 +233,48 @@ class ApproachMetrics:
     def max_iterations(self) -> int | None:
         return max(self.iterations_list) if self.iterations_list else None
 
+    # ---- Statistical CIs (Wilson + bootstrap) ----
+
+    def precision_ci(self, confidence: float = 0.95) -> tuple[float, float] | None:
+        """Wilson CI for precision = tp / (tp + fp)."""
+        return precision_ci(self.tp_correct, self.fp_missed, confidence)
+
+    def recall_ci(self, confidence: float = 0.95) -> tuple[float, float] | None:
+        """Wilson CI for recall = tp / (tp + fn)."""
+        return recall_ci(self.tp_correct, self.tp_missed, confidence)
+
+    def f1_ci(
+        self,
+        n_resamples: int = 10_000,
+        confidence: float = 0.95,
+        rng_seed: int | None = 1729,
+    ) -> tuple[float, float, float] | None:
+        """Bootstrap CI for F1 over per-finding outcomes."""
+        if not self.per_finding_outcomes:
+            return None
+        outcomes = list(self.per_finding_outcomes.values())
+        return f1_bootstrap_ci(
+            per_finding=outcomes,
+            n_resamples=n_resamples,
+            confidence=confidence,
+            rng_seed=rng_seed,
+        )
+
+    def fp_reduction_ci(
+        self,
+        raw_sast_fp_count: int,
+        confidence: float = 0.95,
+    ) -> tuple[float, float] | None:
+        """Wilson CI for FP-reduction rate.
+
+        Treats reduction as a binomial (#FPs eliminated out of #raw FPs).
+        """
+        if raw_sast_fp_count == 0:
+            return None
+        eliminated = raw_sast_fp_count - self.fp_missed
+        eliminated = max(0, min(eliminated, raw_sast_fp_count))
+        return wilson_ci(eliminated, raw_sast_fp_count, confidence)
+
     def fp_reduction_rate(self, raw_sast_fp_count: int) -> float | None:
         """FP reduction vs raw SAST: (SAST_FPs - Approach_FPs) / SAST_FPs."""
         if raw_sast_fp_count == 0:
@@ -230,7 +292,38 @@ class ApproachMetrics:
         self,
         raw_sast_tp: int | None = None,
         raw_sast_fp: int | None = None,
+        pricing: Any = None,
+        model_name: str | None = None,
     ) -> dict[str, Any]:
+        """Render this approach's metrics as a dict.
+
+        Args:
+          raw_sast_tp / raw_sast_fp: counts from the raw-SAST baseline so
+              FP-reduction and TP-preservation can be computed.
+          pricing: a ``benchmarks.metrics.cost.Pricing`` or
+              ``dict[str, Pricing]`` to compute imputed API cost. If None,
+              imputed cost is omitted from the summary.
+          model_name: model identifier used to look up pricing when
+              ``pricing`` is a per-model dict.
+        """
+        from benchmarks.metrics.cost import Pricing, imputed_cost
+
+        # Imputed API cost (computed from token counts × list pricing).
+        imputed_usd: float | None = None
+        if pricing is not None and (
+            self.total_input_tokens > 0 or self.total_output_tokens > 0
+        ):
+            try:
+                imputed_usd = imputed_cost(
+                    input_tokens=self.total_input_tokens,
+                    output_tokens=self.total_output_tokens,
+                    schedule=pricing if isinstance(pricing, (dict, Pricing)) else dict(pricing),
+                    model=model_name or self.approach_name,
+                    input_cached_tokens=self.total_cached_input_tokens,
+                )
+            except Exception:
+                imputed_usd = None
+
         d: dict[str, Any] = {
             "approach": self.approach_name,
             "dataset": self.dataset_name,
@@ -243,6 +336,14 @@ class ApproachMetrics:
             "nmd_rate": _fmt(self.nmd_rate),
             "error_rate": _fmt(self.error_rate),
             "total_tokens": self.total_tokens,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_cached_input_tokens": self.total_cached_input_tokens,
+            "local_marginal_cost_usd": round(self.total_cost_usd, 6),
+            "imputed_api_cost_usd": (
+                round(imputed_usd, 6) if imputed_usd is not None else None
+            ),
+            # Legacy field kept for back-compat with existing reports.
             "total_cost_usd": round(self.total_cost_usd, 4),
             "tokens_per_finding": _fmt(self.tokens_per_finding),
             "total_elapsed_s": round(self.total_elapsed, 2),
@@ -256,6 +357,21 @@ class ApproachMetrics:
             d["tp_preservation_rate"] = _fmt(self.tp_preservation_rate(raw_sast_tp))
         if raw_sast_fp is not None:
             d["fp_reduction_rate"] = _fmt(self.fp_reduction_rate(raw_sast_fp))
+            fp_red_ci = self.fp_reduction_ci(raw_sast_fp)
+            if fp_red_ci is not None:
+                d["fp_reduction_ci95"] = [_fmt(fp_red_ci[0]), _fmt(fp_red_ci[1])]
+
+        # Statistical CIs (Wilson + bootstrap). Bootstrap is opt-in via env
+        # to keep summary_dict() fast for the common reporting path; callers
+        # who want F1 CIs should call self.f1_ci() directly.
+        p_ci = self.precision_ci()
+        r_ci = self.recall_ci()
+        d["precision_ci95"] = (
+            [_fmt(p_ci[0]), _fmt(p_ci[1])] if p_ci is not None else None
+        )
+        d["recall_ci95"] = (
+            [_fmt(r_ci[0]), _fmt(r_ci[1])] if r_ci is not None else None
+        )
 
         # Calibration
         cal: dict[str, Any] = {}
@@ -361,6 +477,9 @@ def evaluate(
                 metrics.elapsed_seconds.append(r.elapsed_seconds)
                 metrics.total_elapsed += r.elapsed_seconds
                 metrics.total_tokens += r.tokens_used
+                metrics.total_input_tokens += r.input_tokens
+                metrics.total_output_tokens += r.output_tokens
+                metrics.total_cached_input_tokens += r.cached_input_tokens
                 metrics.total_cost_usd += r.cost_usd
                 if r.iterations:
                     metrics.iterations_list.append(r.iterations)
@@ -372,6 +491,9 @@ def evaluate(
             metrics.elapsed_seconds.append(r.elapsed_seconds)
             metrics.total_elapsed += r.elapsed_seconds
             metrics.total_tokens += r.tokens_used
+            metrics.total_input_tokens += r.input_tokens
+            metrics.total_output_tokens += r.output_tokens
+            metrics.total_cached_input_tokens += r.cached_input_tokens
             metrics.total_cost_usd += r.cost_usd
             if r.iterations:
                 metrics.iterations_list.append(r.iterations)
@@ -384,6 +506,9 @@ def evaluate(
             metrics.elapsed_seconds.append(r.elapsed_seconds)
             metrics.total_elapsed += r.elapsed_seconds
             metrics.total_tokens += r.tokens_used
+            metrics.total_input_tokens += r.input_tokens
+            metrics.total_output_tokens += r.output_tokens
+            metrics.total_cached_input_tokens += r.cached_input_tokens
             metrics.total_cost_usd += r.cost_usd
             if r.iterations:
                 metrics.iterations_list.append(r.iterations)
@@ -395,6 +520,9 @@ def evaluate(
         metrics.elapsed_seconds.append(r.elapsed_seconds)
         metrics.total_elapsed += r.elapsed_seconds
         metrics.total_tokens += r.tokens_used
+        metrics.total_input_tokens += r.input_tokens
+        metrics.total_output_tokens += r.output_tokens
+        metrics.total_cached_input_tokens += r.cached_input_tokens
         metrics.total_cost_usd += r.cost_usd
         if r.iterations:
             metrics.iterations_list.append(r.iterations)
@@ -403,6 +531,11 @@ def evaluate(
             metrics.pred_tp += 1
         else:
             metrics.pred_fp += 1
+
+        # Per-finding paired outcome (1=TP, 0=FP) for McNemar / bootstrap.
+        gt_bin = 1 if gt_label == LABEL_TP else 0
+        pred_bin = 1 if pred == PRED_TP else 0
+        metrics.per_finding_outcomes[r.entry.id] = (gt_bin, pred_bin)
 
         # Confusion matrix
         if gt_label == LABEL_TP:
@@ -488,3 +621,50 @@ def _fmt(val: float | None, decimals: int = 4) -> float | None:
     if val is None:
         return None
     return round(val, decimals)
+
+
+def compare_approaches_mcnemar(
+    a: ApproachMetrics, b: ApproachMetrics
+) -> dict[str, Any]:
+    """McNemar's test on two ApproachMetrics evaluated on the same dataset.
+
+    Pairs items by `entry.id`; only items present in BOTH approaches'
+    `per_finding_outcomes` are tested. Returns a dict suitable for direct
+    JSON serialization in the benchmark report.
+    """
+    from benchmarks.metrics.stats import mcnemar
+
+    common = set(a.per_finding_outcomes) & set(b.per_finding_outcomes)
+    a_correct_b_wrong = 0
+    a_wrong_b_correct = 0
+    both_correct = 0
+    both_wrong = 0
+    for fid in common:
+        gt_a, pred_a = a.per_finding_outcomes[fid]
+        gt_b, pred_b = b.per_finding_outcomes[fid]
+        # Truth must agree across approaches; if it doesn't, skip the pair.
+        if gt_a != gt_b:
+            continue
+        ca = pred_a == gt_a
+        cb = pred_b == gt_b
+        if ca and not cb:
+            a_correct_b_wrong += 1
+        elif cb and not ca:
+            a_wrong_b_correct += 1
+        elif ca and cb:
+            both_correct += 1
+        else:
+            both_wrong += 1
+    result = mcnemar(a_correct_b_wrong, a_wrong_b_correct)
+    return {
+        "approach_a": a.approach_name,
+        "approach_b": b.approach_name,
+        "n_paired": len(common),
+        "both_correct": both_correct,
+        "both_wrong": both_wrong,
+        "a_correct_b_wrong": a_correct_b_wrong,
+        "a_wrong_b_correct": a_wrong_b_correct,
+        "statistic": result.statistic,
+        "p_value": _fmt(result.p_value, decimals=6),
+        "method": result.method,
+    }

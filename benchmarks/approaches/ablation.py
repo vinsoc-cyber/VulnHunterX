@@ -139,6 +139,9 @@ class AblationApproach(BenchmarkApproach):
             iterations=v.iterations,
             raw_response=v.raw_response,
             tokens_used=v.tokens_used,
+            input_tokens=v.input_tokens,
+            output_tokens=v.output_tokens,
+            cached_input_tokens=v.cached_input_tokens,
             cost_usd=v.cost_usd,
             question_match_type=match_type,
         )

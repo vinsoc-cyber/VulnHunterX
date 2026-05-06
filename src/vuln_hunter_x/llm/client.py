@@ -29,6 +29,33 @@ from vuln_hunter_x.llm.prompts import PromptBuilder
 logger = logging.getLogger(__name__)
 
 
+def _extract_cached_input_tokens(usage: Any) -> int:
+    """Pull cache-hit input-token count from a LiteLLM/OpenAI usage object.
+
+    Different providers expose this differently:
+      - OpenAI / LiteLLM normalised: ``usage.prompt_tokens_details.cached_tokens``
+      - DeepSeek raw: ``usage.prompt_cache_hit_tokens``
+    Returns 0 when neither is present.
+    """
+    if usage is None:
+        return 0
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details is not None:
+        cached = getattr(details, "cached_tokens", None)
+        if cached is None and isinstance(details, dict):
+            cached = details.get("cached_tokens")
+        if cached:
+            return int(cached)
+    cached = getattr(usage, "prompt_cache_hit_tokens", None)
+    if cached is None and isinstance(usage, dict):
+        cached = usage.get("prompt_cache_hit_tokens") or (
+            usage.get("prompt_tokens_details", {}).get("cached_tokens")
+            if isinstance(usage.get("prompt_tokens_details"), dict)
+            else None
+        )
+    return int(cached or 0)
+
+
 class LLMClient:
     """
     Unified LLM client using LiteLLM for OpenAI and Ollama.
@@ -182,6 +209,9 @@ class LLMClient:
         iterations = 0
         all_raw_responses: list[str] = []
         total_tokens_used: int = 0
+        total_input_tokens: int = 0
+        total_output_tokens: int = 0
+        total_cached_input_tokens: int = 0
         total_cost_usd: float = 0.0
         fulfilled_context: set[str] = set()  # Track already-provided context requests
         # Mark pre-fetched context as already fulfilled
@@ -218,9 +248,16 @@ class LLMClient:
                 raw_response = response.choices[0].message.content or ""
                 all_raw_responses.append(raw_response)
 
-                # Accumulate token usage and cost
-                _tokens = getattr(getattr(response, "usage", None), "total_tokens", 0) or 0
+                # Accumulate token usage (split + total) and cost.
+                _usage = getattr(response, "usage", None)
+                _tokens = getattr(_usage, "total_tokens", 0) or 0
+                _in = getattr(_usage, "prompt_tokens", 0) or 0
+                _out = getattr(_usage, "completion_tokens", 0) or 0
+                _cached_in = _extract_cached_input_tokens(_usage)
                 total_tokens_used += _tokens
+                total_input_tokens += _in
+                total_output_tokens += _out
+                total_cached_input_tokens += _cached_in
                 try:
                     total_cost_usd += litellm.completion_cost(completion_response=response)
                 except Exception:
@@ -298,13 +335,22 @@ class LLMClient:
                             print("    [Force decision] Sending forced re-prompt...")
                         try:
                             messages.append({"role": "assistant", "content": raw_response})
-                            parsed, raw_response, total_tokens_used, total_cost_usd = (
-                                self._force_decision_turn(
-                                    messages,
-                                    all_raw_responses,
-                                    total_tokens_used,
-                                    total_cost_usd,
-                                )
+                            (
+                                parsed,
+                                raw_response,
+                                total_tokens_used,
+                                total_cost_usd,
+                                total_input_tokens,
+                                total_output_tokens,
+                                total_cached_input_tokens,
+                            ) = self._force_decision_turn(
+                                messages,
+                                all_raw_responses,
+                                total_tokens_used,
+                                total_cost_usd,
+                                total_input_tokens,
+                                total_output_tokens,
+                                total_cached_input_tokens,
                             )
                             verdict = parsed.get("verdict", "False Positive")
                             iterations += 1
@@ -328,6 +374,9 @@ class LLMClient:
                         context_needed=context_needed,
                         iterations=iterations,
                         tokens_used=total_tokens_used,
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        cached_input_tokens=total_cached_input_tokens,
                         cost_usd=total_cost_usd,
                         confidence_score=parsed.get("confidence_score", 0.3),
                         data_flow=parsed.get("data_flow", ""),
@@ -374,6 +423,9 @@ class LLMClient:
                         context_needed=context_needed,
                         iterations=iterations,
                         tokens_used=total_tokens_used,
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        cached_input_tokens=total_cached_input_tokens,
                         cost_usd=total_cost_usd,
                         confidence_score=parsed.get("confidence_score", 0.3),
                     )
@@ -405,6 +457,9 @@ class LLMClient:
                     elapsed_seconds=elapsed,
                     iterations=iterations,
                     tokens_used=total_tokens_used,
+                    input_tokens=total_input_tokens,
+                    output_tokens=total_output_tokens,
+                    cached_input_tokens=total_cached_input_tokens,
                     cost_usd=total_cost_usd,
                     confidence_score=0.0,
                 )
@@ -418,11 +473,22 @@ class LLMClient:
                         "content": all_raw_responses[-1] if all_raw_responses else "",
                     }
                 )
-                parsed, _, total_tokens_used, total_cost_usd = self._force_decision_turn(
+                (
+                    parsed,
+                    _,
+                    total_tokens_used,
+                    total_cost_usd,
+                    total_input_tokens,
+                    total_output_tokens,
+                    total_cached_input_tokens,
+                ) = self._force_decision_turn(
                     messages,
                     all_raw_responses,
                     total_tokens_used,
                     total_cost_usd,
+                    total_input_tokens,
+                    total_output_tokens,
+                    total_cached_input_tokens,
                 )
                 iterations += 1
                 elapsed = time.time() - start_time
@@ -437,6 +503,9 @@ class LLMClient:
                     elapsed_seconds=elapsed,
                     iterations=iterations,
                     tokens_used=total_tokens_used,
+                    input_tokens=total_input_tokens,
+                    output_tokens=total_output_tokens,
+                    cached_input_tokens=total_cached_input_tokens,
                     cost_usd=total_cost_usd,
                     confidence_score=parsed.get("confidence_score", 0.3),
                 )
@@ -455,8 +524,190 @@ class LLMClient:
             elapsed_seconds=elapsed,
             iterations=iterations,
             tokens_used=total_tokens_used,
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+            cached_input_tokens=total_cached_input_tokens,
             cost_usd=total_cost_usd,
             confidence_score=0.0,
+        )
+
+    def analyze_with_voting(
+        self,
+        finding: Finding,
+        context: str,
+        questions: GuidedQuestions,
+        func_name: str,
+        *,
+        samples: int = 1,
+        voting_temperature: float = 0.7,
+        tie_break: str = "fp",
+        context_provider: ContextProvider | None = None,
+        max_iterations: int = 3,
+        verbose: bool = False,
+        log_file: Any | None = None,
+        quiet: bool = False,
+        force_decision: bool = True,
+        prefetched_context: dict[str, str] | None = None,
+    ) -> Verdict:
+        """Self-consistency (CISC-style) voting over N independent analyses.
+
+        Runs ``analyze`` ``samples`` times at ``voting_temperature``, then
+        returns a single Verdict reflecting confidence-weighted majority
+        vote across runs. Tokens, costs, and elapsed time are summed.
+        Iterations field is set to the maximum across runs. NMD votes
+        weight zero — a verdict is required to win the vote.
+
+        Args:
+          samples: number of independent runs (>=1). With samples=1 this
+              method is equivalent to ``analyze`` with the original
+              temperature.
+          voting_temperature: temperature used for each sampled run when
+              ``samples > 1``. Ignored when ``samples == 1``.
+          tie_break: ``"fp"`` (conservative — return False Positive) or
+              ``"tp"``. Used when TP and FP receive equal vote weight.
+
+        Returns:
+          A single aggregated ``Verdict``. ``raw_response`` contains the
+          concatenation of all sampled responses with ``=== SAMPLE k ===``
+          dividers so reviewers can audit the vote.
+
+        References:
+          Wang et al. (2023) Self-Consistency Improves CoT Reasoning in
+          Language Models; CISC (ACL 2025) Self-Consistency with
+          Confidence for LLM-Based Code Review.
+        """
+        if samples < 1:
+            raise ValueError(f"samples must be >= 1, got {samples}")
+        if tie_break not in {"tp", "fp"}:
+            raise ValueError(f"tie_break must be 'tp' or 'fp', got {tie_break!r}")
+
+        if samples == 1:
+            return self.analyze(
+                finding=finding,
+                context=context,
+                questions=questions,
+                func_name=func_name,
+                context_provider=context_provider,
+                max_iterations=max_iterations,
+                verbose=verbose,
+                log_file=log_file,
+                quiet=quiet,
+                force_decision=force_decision,
+                prefetched_context=prefetched_context,
+            )
+
+        # Sample N runs at the elevated voting temperature. We mutate
+        # self.temperature within the method only — restored in `finally`
+        # so concurrent callers (if any) see the original setting.
+        original_temp = self.temperature
+        self.temperature = voting_temperature
+        verdicts: list[Verdict] = []
+        try:
+            for k in range(samples):
+                v = self.analyze(
+                    finding=finding,
+                    context=context,
+                    questions=questions,
+                    func_name=func_name,
+                    context_provider=context_provider,
+                    max_iterations=max_iterations,
+                    verbose=verbose,
+                    log_file=log_file,
+                    quiet=quiet,
+                    force_decision=force_decision,
+                    prefetched_context=prefetched_context,
+                )
+                verdicts.append(v)
+        finally:
+            self.temperature = original_temp
+
+        return self._aggregate_votes(verdicts, tie_break=tie_break)
+
+    @staticmethod
+    def _aggregate_votes(verdicts: list[Verdict], tie_break: str = "fp") -> Verdict:
+        """Confidence-weighted majority vote over a list of Verdicts."""
+        if not verdicts:
+            raise ValueError("Cannot aggregate empty verdict list")
+        if len(verdicts) == 1:
+            return verdicts[0]
+
+        TP, FP, NMD = "True Positive", "False Positive", "Needs More Data"
+        scores: dict[str, float] = {TP: 0.0, FP: 0.0}
+        counts: dict[str, int] = {TP: 0, FP: 0, NMD: 0}
+        for v in verdicts:
+            counts[v.verdict] = counts.get(v.verdict, 0) + 1
+            if v.verdict in scores:
+                scores[v.verdict] += float(v.confidence_score or 0.0)
+        # Pick winner. NMD votes do not contribute weight.
+        if scores[TP] > scores[FP]:
+            winner = TP
+        elif scores[FP] > scores[TP]:
+            winner = FP
+        else:
+            winner = TP if tie_break == "tp" else FP
+
+        # Aggregate cost / latency / token / iteration accounting.
+        total_tokens = sum(v.tokens_used for v in verdicts)
+        total_input = sum(v.input_tokens for v in verdicts)
+        total_output = sum(v.output_tokens for v in verdicts)
+        total_cached_input = sum(v.cached_input_tokens for v in verdicts)
+        total_cost = sum(v.cost_usd for v in verdicts)
+        elapsed = sum(v.elapsed_seconds for v in verdicts)
+        max_iters = max(v.iterations for v in verdicts)
+
+        # Pick a representative (highest-confidence_score among winning votes)
+        # to source reasoning, answers, data_flow, and context_needed.
+        winners = [v for v in verdicts if v.verdict == winner]
+        if winners:
+            rep = max(winners, key=lambda v: float(v.confidence_score or 0.0))
+        else:
+            rep = max(verdicts, key=lambda v: float(v.confidence_score or 0.0))
+
+        # Confidence label reflects vote agreement, not the rep's own label.
+        n = len(verdicts)
+        agree_frac = (counts.get(winner, 0) / n) if n else 0.0
+        if agree_frac >= 0.8:
+            agg_conf = "High"
+            agg_score = 0.85
+        elif agree_frac >= 0.6:
+            agg_conf = "Medium"
+            agg_score = 0.6
+        else:
+            agg_conf = "Low"
+            agg_score = 0.3
+
+        raw_concat = "\n\n=== SAMPLE DIVIDER ===\n\n".join(
+            f"=== SAMPLE {i + 1}/{n} (verdict={v.verdict}, conf={v.confidence_score}) ===\n{v.raw_response}"
+            for i, v in enumerate(verdicts)
+        )
+
+        reasoning = (
+            f"Self-consistency vote over {n} samples: "
+            f"TP={counts.get(TP, 0)} (score {scores[TP]:.2f}), "
+            f"FP={counts.get(FP, 0)} (score {scores[FP]:.2f}), "
+            f"NMD={counts.get(NMD, 0)}. "
+            f"Winner: {winner} (agreement={agree_frac:.0%}). "
+            f"Representative reasoning: {rep.reasoning}"
+        )
+
+        return Verdict(
+            finding=rep.finding,
+            verdict=winner,
+            confidence=agg_conf,
+            reasoning=reasoning,
+            answers=rep.answers,
+            raw_response=raw_concat,
+            model=rep.model,
+            elapsed_seconds=elapsed,
+            context_needed=rep.context_needed,
+            iterations=max_iters,
+            tokens_used=total_tokens,
+            input_tokens=total_input,
+            output_tokens=total_output,
+            cached_input_tokens=total_cached_input,
+            cost_usd=total_cost,
+            confidence_score=agg_score,
+            data_flow=rep.data_flow,
         )
 
     _FORCE_DECISION_PROMPT = (
@@ -476,15 +727,28 @@ class LLMClient:
         all_raw_responses: list[str],
         total_tokens_used: int,
         total_cost_usd: float,
-    ) -> tuple[dict[str, Any], str, int, float]:
-        """Execute one forced-decision LLM turn. Returns (parsed, raw, tokens, cost)."""
+        total_input_tokens: int = 0,
+        total_output_tokens: int = 0,
+        total_cached_input_tokens: int = 0,
+    ) -> tuple[dict[str, Any], str, int, float, int, int, int]:
+        """Execute one forced-decision LLM turn.
+
+        Returns (parsed, raw, total_tokens, total_cost, total_input, total_output, total_cached_input).
+        """
         messages.append({"role": "user", "content": self._FORCE_DECISION_PROMPT})
         kwargs = self._build_completion_kwargs(messages)
         response = litellm.completion(**kwargs)
         raw = response.choices[0].message.content or "" if response.choices else ""
         all_raw_responses.append(raw)
-        _tokens = getattr(getattr(response, "usage", None), "total_tokens", 0) or 0
+        _usage = getattr(response, "usage", None)
+        _tokens = getattr(_usage, "total_tokens", 0) or 0
+        _in = getattr(_usage, "prompt_tokens", 0) or 0
+        _out = getattr(_usage, "completion_tokens", 0) or 0
+        _cached_in = _extract_cached_input_tokens(_usage)
         total_tokens_used += _tokens
+        total_input_tokens += _in
+        total_output_tokens += _out
+        total_cached_input_tokens += _cached_in
         try:
             total_cost_usd += litellm.completion_cost(completion_response=response)
         except Exception:
@@ -516,7 +780,15 @@ class LLMClient:
                 parsed["reasoning"] = (
                     parsed.get("reasoning") or ""
                 ) + " [Forced decision: defaulted to FP]"
-        return parsed, raw, total_tokens_used, total_cost_usd
+        return (
+            parsed,
+            raw,
+            total_tokens_used,
+            total_cost_usd,
+            total_input_tokens,
+            total_output_tokens,
+            total_cached_input_tokens,
+        )
 
     _CONFIDENCE_SCORE_MAP = {"high": 0.85, "medium": 0.6, "low": 0.3}
 

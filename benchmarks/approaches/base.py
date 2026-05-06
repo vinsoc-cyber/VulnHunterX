@@ -37,7 +37,13 @@ class BenchmarkResult:
     reasoning: str
     elapsed_seconds: float
     tokens_used: int = 0
-    cost_usd: float = 0.0
+    input_tokens: int = 0       # prompt tokens (for imputed cost)
+    output_tokens: int = 0      # completion tokens (for imputed cost)
+    # Subset of input_tokens that hit the provider's prompt cache.
+    # Required for honest imputed cost on providers (e.g. DeepSeek) that
+    # bill cache-hit input at a discounted rate.
+    cached_input_tokens: int = 0
+    cost_usd: float = 0.0       # local-marginal cost reported by the provider
     iterations: int = 0
     raw_response: str = ""
     question_match_type: str = ""  # "exact"|"normalized"|"prefix"|"lang_prefix"|"default"|"generic"
@@ -55,6 +61,9 @@ class BenchmarkResult:
             "reasoning": self.reasoning,
             "elapsed_seconds": self.elapsed_seconds,
             "tokens_used": self.tokens_used,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cached_input_tokens": self.cached_input_tokens,
             "cost_usd": self.cost_usd,
             "iterations": self.iterations,
             "question_match_type": self.question_match_type,
@@ -92,6 +101,9 @@ class BenchmarkResult:
             reasoning=data.get("reasoning", ""),
             elapsed_seconds=float(data.get("elapsed_seconds", 0.0)),
             tokens_used=int(data.get("tokens_used", 0)),
+            input_tokens=int(data.get("input_tokens", 0)),
+            output_tokens=int(data.get("output_tokens", 0)),
+            cached_input_tokens=int(data.get("cached_input_tokens", 0)),
             cost_usd=float(data.get("cost_usd", 0.0)),
             iterations=int(data.get("iterations", 0)),
             question_match_type=data.get("question_match_type", ""),

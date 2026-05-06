@@ -66,8 +66,12 @@ def openai_compat_kwargs(
 ) -> dict[str, bool]:
     """Build extra kwargs for OpenAI-compatible non-streaming completions.
 
-    Some OpenAI-compatible backends require `enable_thinking=false` for
-    non-streaming calls. Default to False, with optional env override.
+    Some third-party OpenAI-compatible backends (e.g. Alibaba DashScope /
+    Qwen, vLLM with thinking-mode models) require ``enable_thinking=false``
+    for non-streaming calls. The official OpenAI API rejects this kwarg
+    (``Unrecognized request argument supplied: enable_thinking``), so we
+    only emit it when an ``api_base`` is set and clearly does NOT point at
+    OpenAI itself. ``OPENAI_ENABLE_THINKING`` overrides the default.
     """
     if stream:
         return {}
@@ -78,10 +82,16 @@ def openai_compat_kwargs(
 
     raw = os.environ.get("OPENAI_ENABLE_THINKING", "").strip().lower()
     if raw in {"1", "true", "yes", "on"}:
-        enable_thinking = True
-    elif raw in {"0", "false", "no", "off"}:
-        enable_thinking = False
-    else:
-        enable_thinking = False
+        return {"enable_thinking": True}
+    if raw in {"0", "false", "no", "off"}:
+        return {"enable_thinking": False}
 
-    return {"enable_thinking": enable_thinking}
+    # No explicit override. Only send the kwarg to non-OpenAI compatible
+    # endpoints — i.e. when the caller has pointed us at a custom api_base
+    # that isn't api.openai.com. This keeps the official OpenAI API path
+    # clean while still defaulting third-party endpoints to thinking=off.
+    if not api_base:
+        return {}
+    if "api.openai.com" in api_base:
+        return {}
+    return {"enable_thinking": False}
