@@ -53,8 +53,9 @@ class ContextExtractor:
         ],
     }
 
-    def __init__(self, repos_base: Path):
+    def __init__(self, repos_base: Path, output_dir: Path | None = None):
         self.repos_base = Path(repos_base)
+        self.output_dir = Path(output_dir) if output_dir is not None else None
         self._file_cache: dict[str, list[str]] = {}
         self._path_cache: dict[tuple[str, str], Path | None] = {}
 
@@ -69,6 +70,7 @@ class ContextExtractor:
         line: int,
         lang: str,
         context_lines: int = 50,
+        repo_name: str = "",
     ) -> CodeContext:
         """
         Extract function context around the given line.
@@ -78,6 +80,7 @@ class ContextExtractor:
             line: Line number of the finding
             lang: Programming language
             context_lines: Fallback context size
+            repo_name: Repository name (used for CSV lookup)
 
         Returns:
             CodeContext with the extracted code
@@ -94,7 +97,9 @@ class ContextExtractor:
         func_start, func_end, func_name = self._find_function_bounds(
             lines,
             line - 1,
-            lang,  # 0-indexed
+            lang,
+            repo_name=repo_name,
+            file_path=file_path,
         )
 
         if func_start is not None and func_end is not None:
@@ -170,8 +175,32 @@ class ContextExtractor:
         lines: list[str],
         target_line: int,
         lang: str,
+        repo_name: str = "",
+        file_path: str = "",
     ) -> tuple[int | None, int | None, str | None]:
         """Find the enclosing function boundaries for a target line."""
+        # 1. CSV lookup — primary: uses AST-derived data, no false positives from control flow
+        if self.output_dir and repo_name and file_path:
+            csv_path = self.output_dir / lang / repo_name / "context" / "functions.csv"
+            if csv_path.is_file():
+                try:
+                    import csv
+
+                    with open(csv_path, newline="", encoding="utf-8") as f:
+                        for row in csv.DictReader(f):
+                            if row.get("file", "") != file_path:
+                                continue
+                            try:
+                                start = int(row["start_line"])
+                                end = int(row["end_line"])
+                            except (KeyError, ValueError):
+                                continue
+                            if start <= target_line + 1 <= end:  # target_line is 0-indexed
+                                return start - 1, end - 1, row.get("name")
+                except OSError:
+                    pass  # fallback to regex
+
+        # 2. Regex fallback
         patterns = self._FUNCTION_PATTERNS.get(lang, self._FUNCTION_PATTERNS.get("c", []))
 
         # Search backward for function start

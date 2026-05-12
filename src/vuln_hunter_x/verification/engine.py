@@ -60,6 +60,7 @@ def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
         )
     return verdict
 
+
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.core.config import Config, load_config
@@ -120,7 +121,9 @@ class VerificationEngine:
 
         # Initialize components
         self.questions_loader = questions_loader or QuestionsLoader(config.paths.prompts_dir)
-        self.context_extractor = context_extractor or ContextExtractor(config.paths.repos_dir)
+        self.context_extractor = context_extractor or ContextExtractor(
+            config.paths.repos_dir, config.paths.output_dir
+        )
 
         self.context_provider: ContextProvider | None = context_provider or ContextProvider(
             config.paths.output_dir,
@@ -138,6 +141,7 @@ class VerificationEngine:
         self._profile_manager = None
         try:
             from vuln_hunter_x.core.rule_profiles import RuleProfileManager
+
             categories_path = config.paths.base_dir / "config" / "rule_categories.yaml"
             if categories_path.is_file():
                 self._profile_manager = RuleProfileManager(categories_path)
@@ -150,6 +154,17 @@ class VerificationEngine:
         # Callbacks for progress reporting
         self._on_finding_start: Callable[[int, int, Finding], None] | None = None
         self._on_finding_complete: Callable[[int, int, Verdict], None] | None = None
+
+        # Open log file if configured
+        self._log_fh = (
+            open(config.output.log_file, "w", encoding="utf-8")  # noqa: SIM115
+            if config.output.log_file
+            else None
+        )
+
+    def __del__(self) -> None:
+        if self._log_fh:
+            self._log_fh.close()
 
     @classmethod
     def from_config(
@@ -275,10 +290,7 @@ class VerificationEngine:
         # Apply category filter (findings without CWE tags are always included)
         if category_filter and self._profile_manager:
             target_cwes = self._profile_manager.get_cwes_for_categories(category_filter)
-            findings = [
-                f for f in findings
-                if not f.cwe_ids or target_cwes.intersection(f.cwe_ids)
-            ]
+            findings = [f for f in findings if not f.cwe_ids or target_cwes.intersection(f.cwe_ids)]
 
         if limit > 0:
             findings = findings[:limit]
@@ -361,6 +373,7 @@ class VerificationEngine:
             finding.file,
             finding.start_line,
             finding.lang,
+            repo_name=finding.repo_name,
         )
 
         # Pre-fetch additional context declared by guided questions
@@ -379,9 +392,7 @@ class VerificationEngine:
 
         # Call LLM. When ``self_consistency_samples > 1`` we route through
         # the voting wrapper; otherwise we keep the single-pass fast path.
-        sc_samples = getattr(
-            self.config.verification, "self_consistency_samples", 1
-        )
+        sc_samples = getattr(self.config.verification, "self_consistency_samples", 1)
         if sc_samples > 1:
             verdict = self.llm_client.analyze_with_voting(
                 finding=finding,
@@ -405,6 +416,7 @@ class VerificationEngine:
                 quiet=self.config.output.is_quiet,
                 force_decision=self.config.verification.force_decision,
                 prefetched_context=prefetched_context,
+                log_file=self._log_fh,
             )
         else:
             verdict = self.llm_client.analyze(
@@ -418,6 +430,7 @@ class VerificationEngine:
                 quiet=self.config.output.is_quiet,
                 force_decision=self.config.verification.force_decision,
                 prefetched_context=prefetched_context,
+                log_file=self._log_fh,
             )
 
         # Confidence-discipline post-processor: a TP verdict whose reasoning is
