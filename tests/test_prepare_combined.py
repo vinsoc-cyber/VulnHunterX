@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vuln_hunter_x.cli.commands import _run_context_extraction, cmd_prepare
+from vuln_hunter_x.codeql.repository import detect_build_command
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -297,3 +298,74 @@ class TestRunContextExtractionSkipExisting:
 
         # Should skip and return 0 (all skipped)
         assert rc == 0
+
+
+# ── detect_build_command ─────────────────────────────────────────────
+
+
+class TestDetectBuildCommand:
+    """Auto-detection of C/C++ build command by inspecting repo files."""
+
+    def test_returns_none_for_non_c_language(self, tmp_path: Path):
+        (tmp_path / "autogen.sh").touch()
+        assert detect_build_command(tmp_path, "python") is None
+        assert detect_build_command(tmp_path, "javascript") is None
+        assert detect_build_command(tmp_path, "go") is None
+
+    def test_returns_none_for_empty_directory(self, tmp_path: Path):
+        assert detect_build_command(tmp_path, "c") is None
+        assert detect_build_command(tmp_path, "cpp") is None
+
+    def test_autogen_sh_takes_precedence(self, tmp_path: Path):
+        (tmp_path / "autogen.sh").touch()
+        (tmp_path / "configure.ac").touch()
+        (tmp_path / "CMakeLists.txt").touch()
+        (tmp_path / "Makefile").touch()
+        assert (
+            detect_build_command(tmp_path, "c")
+            == "./autogen.sh && ./configure && make"
+        )
+
+    def test_existing_configure_script(self, tmp_path: Path):
+        (tmp_path / "configure").write_text("#!/bin/sh\n")
+        (tmp_path / "configure.ac").touch()
+        assert detect_build_command(tmp_path, "c") == "./configure && make"
+
+    def test_configure_ac_triggers_autoreconf(self, tmp_path: Path):
+        (tmp_path / "configure.ac").touch()
+        (tmp_path / "CMakeLists.txt").touch()
+        assert (
+            detect_build_command(tmp_path, "c")
+            == "autoreconf -fi && ./configure && make"
+        )
+
+    def test_configure_in_alias(self, tmp_path: Path):
+        (tmp_path / "configure.in").touch()
+        assert (
+            detect_build_command(tmp_path, "cpp")
+            == "autoreconf -fi && ./configure && make"
+        )
+
+    def test_cmake_only(self, tmp_path: Path):
+        (tmp_path / "CMakeLists.txt").touch()
+        (tmp_path / "Makefile").touch()
+        assert (
+            detect_build_command(tmp_path, "cpp")
+            == "cmake -B build -S . && cmake --build build"
+        )
+
+    def test_meson(self, tmp_path: Path):
+        (tmp_path / "meson.build").touch()
+        assert (
+            detect_build_command(tmp_path, "c")
+            == "meson setup build && ninja -C build"
+        )
+
+    def test_makefile_fallback(self, tmp_path: Path):
+        (tmp_path / "Makefile").touch()
+        assert detect_build_command(tmp_path, "c") == "make"
+
+    def test_makefile_am_does_not_match_makefile(self, tmp_path: Path):
+        """Makefile.am is an autotools template, not a buildable Makefile."""
+        (tmp_path / "Makefile.am").touch()
+        assert detect_build_command(tmp_path, "c") is None

@@ -80,6 +80,12 @@ _VI: dict[str, str] = {
     "Related Locations": "Vị trí liên quan",
     "No findings to report.": "Không có phát hiện nào.",
     "Report sections": "Nội dung báo cáo",
+    # Findings Overview section (before/after verdicting table)
+    "Findings Overview": "Tổng quan phát hiện",
+    "Rule": "Quy tắc",
+    "File:Line": "Tệp:Dòng",
+    "Severity (before)": "Mức độ (trước)",
+    "Verdict (after)": "Kết luận (sau)",
 }
 
 
@@ -313,6 +319,7 @@ class MarkdownReportGenerator:
         sections = [
             self._header(result, repo_name or "unknown", lang or "unknown", report_lang),
             self._executive_summary(result, report_lang),
+            self._findings_overview(result, report_lang),
             self._severity_breakdown(result, report_lang),
             self._cwe_distribution(result, report_lang),
             self._findings_detail(result, report_lang, translated_reasoning, translated_answers),
@@ -418,6 +425,52 @@ class MarkdownReportGenerator:
             f"**{_t('Total Cost', rl)}**: ${total_cost:.4f}  ",
             "",
         ])
+        return "\n".join(lines)
+
+    def _findings_overview(self, result: VerificationResult, rl: str) -> str:
+        """Per-finding before/after table: analyzer state vs. LLM verdict.
+
+        Rows are sorted by severity (highest first), then by verdict
+        (TP → NMD → FP → Error), then by file:line — so the most actionable
+        items sit at the top.
+        """
+        if not result.verdicts:
+            return ""
+
+        verdict_rank = {
+            VerdictType.TRUE_POSITIVE.value: 0,
+            VerdictType.NEEDS_MORE_DATA.value: 1,
+            VerdictType.FALSE_POSITIVE.value: 2,
+            VerdictType.ERROR.value: 3,
+        }
+
+        ordered = sorted(
+            result.verdicts,
+            key=lambda v: (
+                _SEVERITY_ORDER.get(v.finding.severity, 99),
+                verdict_rank.get(v.verdict, 99),
+                v.finding.file,
+                v.finding.start_line,
+            ),
+        )
+
+        lines = [
+            "---\n",
+            f"## {_t('Findings Overview', rl)}\n",
+            f"| # | {_t('Rule', rl)} | {_t('File:Line', rl)} | "
+            f"{_t('Severity (before)', rl)} | {_t('Verdict (after)', rl)} | "
+            f"{_t('Confidence', rl)} |",
+            "|---:|------|-----------|----------|---------|------|",
+        ]
+
+        for i, v in enumerate(ordered, 1):
+            f = v.finding
+            sev = f.severity or "unknown"
+            lines.append(
+                f"| {i} | {f.rule_id} | {f.location} | {sev} | {v.verdict} | {v.confidence} |"
+            )
+
+        lines.append("")
         return "\n".join(lines)
 
     def _severity_breakdown(self, result: VerificationResult, rl: str) -> str:

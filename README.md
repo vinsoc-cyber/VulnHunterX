@@ -143,7 +143,7 @@ python examples/pipeline_python.py
 ```bash
 vuln-hunter-x prepare --repo pyyaml
 vuln-hunter-x analyze --repo pyyaml
-vuln-hunter-x verify  --repo pyyaml --limit 5 --report
+vuln-hunter-x verify  --repo pyyaml --limit 5
 ```
 
 ### Add your own repository
@@ -274,7 +274,7 @@ Verify SARIF findings using LLM multi-turn analysis.
 
 ```bash
 vuln-hunter-x verify --repo libucl
-vuln-hunter-x verify --repo c-ares --lang c --report
+vuln-hunter-x verify --repo c-ares --lang c
 vuln-hunter-x verify --provider ollama --model ollama/llama3.2
 vuln-hunter-x verify --local-path /path/to/project --lang python
 ```
@@ -290,7 +290,6 @@ vuln-hunter-x verify --local-path /path/to/project --lang python
 | `--max-iterations N` | Max conversation rounds per finding | 3 |
 | `--limit N` | Maximum findings to process | Unlimited |
 | `--include-tests` | Include findings in test directories | false |
-| `--report` | Generate a markdown report after verification | false |
 | `-v, --verbose` | Show full LLM conversation | false |
 | `-q, --quiet` | Minimal output | false |
 | `--log-file PATH` | Save conversations to file | — |
@@ -300,7 +299,7 @@ vuln-hunter-x verify --local-path /path/to/project --lang python
 
 ### report
 
-Generate a markdown report from verification results. Can be run standalone or triggered automatically with `verify --report`.
+Generate a markdown report from verification results. Can be run standalone to re-generate from saved verdicts; `verify` also writes `report.md` and `report_vi.md` automatically.
 
 ```bash
 vuln-hunter-x report --repo c-ares --lang c
@@ -315,7 +314,7 @@ vuln-hunter-x report --repo libucl -o my-report.md
 | `--lang LANG` | Language (auto-discovers results) |
 | `-o, --output PATH` | Output path (default: `report.md` in results dir) |
 
-Report sections: executive summary · severity breakdown · CWE distribution · per-finding detail (verdict, confidence, reasoning, dataflow).
+Report sections: executive summary · findings overview (before/after verdicting) · severity breakdown · CWE distribution · per-finding detail (verdict, confidence, reasoning, dataflow).
 
 ---
 

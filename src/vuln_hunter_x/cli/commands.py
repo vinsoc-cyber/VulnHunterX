@@ -18,6 +18,43 @@ from vuln_hunter_x.core.types import Finding, Verdict
 _SUPPORTED_LANGS = {"c", "cpp", "python", "javascript", "php", "java", "go"}
 
 
+def _find_db_name_by_source_root(
+    local_path: Path, lang: str, output_dir: Path
+) -> str | None:
+    """Look up an existing CodeQL DB whose source-root matches ``local_path``.
+
+    Scans ``output/<lang>/*/database/codeql-database.yml`` for a
+    ``sourceLocationPrefix`` entry equal to the resolved local_path.
+    Resolves the prepare/analyze name-mismatch: a user can `prepare --name X`
+    then `analyze` without repeating `--name` and still hit the right DB.
+
+    Returns the DB's parent-directory name on a unique match, else None
+    (no match or ambiguous — caller should fall back to basename).
+    """
+    lang_dir = output_dir / lang
+    if not lang_dir.is_dir():
+        return None
+
+    target = str(Path(local_path).resolve())
+    matches: list[str] = []
+
+    for repo_dir in lang_dir.iterdir():
+        yml = repo_dir / "database" / "codeql-database.yml"
+        if not yml.is_file():
+            continue
+        try:
+            for line in yml.read_text(encoding="utf-8").splitlines():
+                if line.startswith("sourceLocationPrefix:"):
+                    src = line.split(":", 1)[1].strip()
+                    if src == target:
+                        matches.append(repo_dir.name)
+                    break
+        except OSError:
+            continue
+
+    return matches[0] if len(matches) == 1 else None
+
+
 def _discover_repos_from_filesystem(
     repos_dir: Path,
     lang_filter: str | None = None,
@@ -124,7 +161,10 @@ def cmd_prepare(args: argparse.Namespace) -> int:
                 print(f"Error: local path not found: {local_path}", file=sys.stderr)
                 return 1
 
-        print("Clone repo and create CodeQL database\n")
+        if local_path:
+            print(f"Use local repo {local_path} and create CodeQL database\n")
+        else:
+            print("Clone repo and create CodeQL database\n")
 
         ok, msg = manager.clone_and_create_db(
             name=name,
@@ -244,6 +284,14 @@ def _run_codeql_analyze(
         print("No CodeQL databases found.", file=sys.stderr)
         if args.lang or args.repo:
             print(f"  Filter: lang={args.lang}, repo={args.repo}", file=sys.stderr)
+        # List what IS available so the user can spot a name mismatch immediately.
+        all_dbs = discover_databases(output_dir)
+        if args.lang:
+            all_dbs = [d for d in all_dbs if d[1] == args.lang]
+        if all_dbs:
+            print("  Available databases:", file=sys.stderr)
+            for _, lang, name in all_dbs:
+                print(f"    - {lang}/{name}", file=sys.stderr)
         print(
             "  Hint: run 'vuln-hunter-x prepare' first, or use '--tool semgrep' for source-only analysis.",
             file=sys.stderr,
@@ -614,7 +662,18 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         if not args.lang:
             print("Error: --lang is required with --local-path.", file=sys.stderr)
             return 1
-        name = getattr(args, "name", None) or local_path.name
+        explicit_name = getattr(args, "name", None)
+        if explicit_name:
+            name = explicit_name
+        else:
+            # Auto-resolve: prefer a DB whose source-root matches local_path
+            # (handles `prepare --name X` then `analyze` without --name).
+            resolved = _find_db_name_by_source_root(local_path, args.lang, output_dir)
+            name = resolved or local_path.name
+            if resolved and resolved != local_path.name:
+                print(
+                    f"  Using existing database '{resolved}' for local path {local_path}"
+                )
         lang = args.lang
         # Ensure repo dir exists for Semgrep/OpenGrep (symlink if needed)
         target_repo_dir = repos_dir / lang / name
