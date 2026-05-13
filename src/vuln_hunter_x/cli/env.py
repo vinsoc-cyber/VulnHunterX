@@ -97,6 +97,50 @@ def check_opengrep(opengrep_path: str = "opengrep") -> tuple[bool, str]:
         return False, str(e)
 
 
+def check_treesitter() -> tuple[bool, str]:
+    """
+    Verify tree-sitter and all language bindings used by the treesitter backend.
+
+    Returns:
+        Tuple of (success, message)
+    """
+    try:
+        import importlib
+
+        import tree_sitter
+
+        version = getattr(tree_sitter, "__version__", "unknown")
+    except ImportError:
+        return False, (
+            "tree-sitter not installed; run: "
+            "pip install tree-sitter tree-sitter-c tree-sitter-cpp "
+            "tree-sitter-python tree-sitter-javascript "
+            "tree-sitter-java tree-sitter-php tree-sitter-go"
+        )
+
+    lang_modules = {
+        "c": "tree_sitter_c",
+        "cpp": "tree_sitter_cpp",
+        "python": "tree_sitter_python",
+        "javascript": "tree_sitter_javascript",
+        "java": "tree_sitter_java",
+        "php": "tree_sitter_php",
+        "go": "tree_sitter_go",
+    }
+    missing: list[str] = []
+    for lang, module in lang_modules.items():
+        try:
+            importlib.import_module(module)
+        except ImportError:
+            missing.append(lang)
+
+    if missing:
+        pkg_names = " ".join(f"tree-sitter-{lang}" for lang in missing)
+        return False, f"Missing language bindings ({', '.join(missing)}); run: pip install {pkg_names}"
+
+    return True, f"tree-sitter {version} with all language bindings (c, cpp, python, javascript, java, php, go)"
+
+
 def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:
     """
     Verify CodeQL CLI is available and report version.
@@ -323,6 +367,13 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
     if not quiet:
         status = "OK" if ok else "SKIP/FAIL"
         print(f"  OpenGrep: [{status}] {msg}")
+
+    # tree-sitter (optional; used for extract-context --backend treesitter or auto)
+    ok, msg = check_treesitter()
+    results["treesitter"] = (ok, msg)
+    if not quiet:
+        status = "OK" if ok else "SKIP/FAIL"
+        print(f"  tree-sitter: [{status}] {msg}")
 
     # OpenAI - test if provider is openai or if we have an API key
     if provider == "openai" or os.environ.get("OPENAI_API_KEY"):

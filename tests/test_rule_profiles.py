@@ -139,3 +139,98 @@ class TestFallbackDefaults:
     def test_missing_file_uses_defaults(self, tmp_path: Path) -> None:
         mgr = RuleProfileManager(tmp_path / "nonexistent.yaml")
         assert "standard" in mgr.profile_names
+
+
+# ── Full Profile (Stage 1 custom-rule plumbing) ──────────────────────────────
+
+
+class TestFullProfile:
+    """The ``full`` profile activates custom CodeQL + custom Semgrep packs."""
+
+    def test_full_profile_exists(self, mgr: RuleProfileManager) -> None:
+        assert "full" in mgr.profile_names
+
+    def test_full_profile_flags_custom_codeql(self, mgr: RuleProfileManager) -> None:
+        p = mgr.get_profile("full")
+        assert p.include_custom_codeql is True
+
+    def test_full_profile_custom_semgrep_path_template(self, mgr: RuleProfileManager) -> None:
+        p = mgr.get_profile("full")
+        assert "${LANG}" in p.custom_semgrep_path
+        assert "semgrep-custom" in p.custom_semgrep_path
+
+    def test_other_profiles_default_off(self, mgr: RuleProfileManager) -> None:
+        for name in ("standard", "extended", "maximum"):
+            p = mgr.get_profile(name)
+            assert p.include_custom_codeql is False, f"{name} should not enable custom codeql"
+            assert p.custom_semgrep_path == "", f"{name} should have empty custom_semgrep_path"
+
+
+class TestCodeQLSuiteStacking:
+    """``get_codeql_suites`` returns [built-in, custom] only when enabled."""
+
+    def test_standard_returns_single_suite(self, mgr: RuleProfileManager) -> None:
+        suites = mgr.get_codeql_suites("standard", "python")
+        assert len(suites) == 1
+        assert "python-security-extended" in suites[0]
+
+    def test_full_returns_two_when_custom_exists(
+        self, mgr: RuleProfileManager, tmp_path: Path,
+    ) -> None:
+        # Build a synthetic custom-root layout
+        custom_root = tmp_path / "codeql-custom"
+        (custom_root / "python").mkdir(parents=True)
+        suite_file = custom_root / "python" / "suite.qls"
+        suite_file.write_text("- queries: src\n")
+        suites = mgr.get_codeql_suites("full", "python", custom_root=custom_root)
+        assert len(suites) == 2
+        assert "python-security-and-quality" in suites[0]
+        assert suites[1] == str(suite_file)
+
+    def test_full_skips_missing_custom_suite(
+        self, mgr: RuleProfileManager, tmp_path: Path,
+    ) -> None:
+        # custom_root points at an empty dir — no python/suite.qls
+        suites = mgr.get_codeql_suites("full", "python", custom_root=tmp_path / "empty")
+        assert len(suites) == 1
+
+    def test_c_language_maps_to_cpp_custom_dir(
+        self, mgr: RuleProfileManager, tmp_path: Path,
+    ) -> None:
+        custom_root = tmp_path / "codeql-custom"
+        (custom_root / "cpp").mkdir(parents=True)
+        (custom_root / "cpp" / "suite.qls").write_text("- queries: src\n")
+        # Passing lang="c" should still resolve to the cpp/ custom dir
+        suites = mgr.get_codeql_suites("full", "c", custom_root=custom_root)
+        assert len(suites) == 2
+        assert suites[1].endswith("cpp/suite.qls")
+
+
+class TestSemgrepConfigExpansion:
+    """``get_semgrep_configs`` expands ``${LANG}`` and appends custom path."""
+
+    def test_no_template_in_standard(self, mgr: RuleProfileManager) -> None:
+        configs = mgr.get_semgrep_configs("standard", lang="python")
+        assert configs == ["auto"]
+
+    def test_template_expansion_with_existing_file(
+        self, mgr: RuleProfileManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The full profile's custom_semgrep_path is "config/semgrep-custom/${LANG}.yaml".
+        # Build a synthetic file under the repo's actual layout and chdir there.
+        custom_dir = tmp_path / "config" / "semgrep-custom"
+        custom_dir.mkdir(parents=True)
+        custom_file = custom_dir / "python.yaml"
+        custom_file.write_text("rules: []\n")
+        monkeypatch.chdir(tmp_path)
+        configs = mgr.get_semgrep_configs("full", lang="python")
+        # The expanded relative path should be the last entry
+        assert configs[-1] == "config/semgrep-custom/python.yaml"
+
+    def test_template_drops_when_file_missing(
+        self, mgr: RuleProfileManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        configs = mgr.get_semgrep_configs("full", lang="python")
+        # No file exists at config/semgrep-custom/python.yaml — should not be in list
+        assert not any("python.yaml" in c for c in configs)

@@ -83,6 +83,7 @@ class CodeQLAnalyzer:
         lang: str,
         output_name: str | None = None,
         suite: str | None = None,
+        extra_suites: list[str] | None = None,
     ) -> tuple[bool, Path | None, str]:
         """
         Run CodeQL analysis on a database.
@@ -91,13 +92,18 @@ class CodeQLAnalyzer:
             db_path: Path to the CodeQL database
             lang: Language (c, cpp, python, javascript)
             output_name: Name for output file (default: database name)
-            suite: Query suite (default: language-specific security suite)
+            suite: Primary query suite (default: language-specific security suite)
+            extra_suites: Optional additional suites/queries stacked after the primary.
+                Each entry is passed as a separate positional argument to
+                ``codeql database analyze``. Non-existent suite files are skipped
+                with a warning so a missing custom pack doesn't fail the run.
 
         Returns:
             Tuple of (success, sarif_path, message)
         """
         codeql_lang = "cpp" if lang in ("c", "cpp") else lang
         suite = suite or self.DEFAULT_SUITES.get(codeql_lang, self.DEFAULT_SUITES["cpp"])
+        extra_suites = extra_suites or []
         # output_name is repo name; SARIF goes to output_dir/<lang>/<repo_name>/<repo_name>.sarif
         output_name = (
             output_name or db_path.parent.name if db_path.name == "database" else db_path.name
@@ -107,8 +113,18 @@ class CodeQLAnalyzer:
         sarif_dir.mkdir(parents=True, exist_ok=True)
         sarif_path = sarif_dir / f"{output_name}.sarif"
 
+        # Filter extra suites: keep registry refs (contain ":") and existing local files
+        valid_extra: list[str] = []
+        for extra in extra_suites:
+            if ":" in extra or Path(extra).exists():
+                valid_extra.append(extra)
+            else:
+                self._log(f"  Skipping missing custom suite: {extra}")
+
         self._log(f"  Database: {db_path}")
         self._log(f"  Suite: {suite}")
+        for extra in valid_extra:
+            self._log(f"  Extra suite: {extra}")
         self._log(f"  Output: {sarif_path}")
 
         # Clean stale lock files from previous crashed/timed-out runs
@@ -146,6 +162,7 @@ class CodeQLAnalyzer:
             "analyze",
             str(db_path),
             suite,
+            *valid_extra,
             "--format=sarifv2.1.0",
             f"--output={sarif_path}",
             "--sarif-add-snippets",

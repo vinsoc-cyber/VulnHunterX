@@ -185,6 +185,11 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
 
     if provider == "anthropic" and anthropic_key:
         llm_model = model or "claude-sonnet-4-20250514"
+        if not llm_model.startswith("anthropic/"):
+            llm_model = "anthropic/" + llm_model
+        api_base = (os.environ.get("ANTHROPIC_BASE_URL", "").strip() or None)
+        if api_base:
+            api_base = api_base.rstrip("/")
     elif provider == "ollama":
         ollama_model = os.environ.get("OLLAMA_MODEL", "ollama/llama3.2")
         raw = model or ollama_model
@@ -220,7 +225,9 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
         }
         if api_base:
             kwargs["api_base"] = api_base
-        if api_key and provider != "ollama":
+        if provider == "anthropic":
+            kwargs["api_key"] = anthropic_key
+        elif api_key and provider != "ollama":
             kwargs["api_key"] = api_key
 
         # Use a thread with wall-clock timeout so SSL read hangs don't block forever

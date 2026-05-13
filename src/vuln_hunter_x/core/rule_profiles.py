@@ -32,13 +32,24 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class RuleProfile:
-    """A named preset controlling which rules each SAST tool runs."""
+    """A named preset controlling which rules each SAST tool runs.
+
+    Custom-rule fields (added Stage 1 of the full-coverage plan):
+
+    * ``include_custom_codeql`` – if True, layer ``config/codeql-custom/<lang>/suite.qls``
+      on top of the built-in suite during ``codeql database analyze``.
+    * ``custom_semgrep_path`` – optional path template (may contain ``${LANG}``)
+      pointing to a custom Semgrep ruleset. Appended to ``semgrep_configs`` and
+      ``opengrep_configs`` at resolution time in ``cmd_analyze``.
+    """
 
     name: str
     description: str
     codeql_suite_suffix: str
     semgrep_configs: list[str]
     opengrep_configs: list[str]
+    include_custom_codeql: bool = False
+    custom_semgrep_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -98,6 +109,8 @@ class RuleProfileManager:
                 codeql_suite_suffix=cfg.get("codeql_suite_suffix", "security-extended"),
                 semgrep_configs=cfg.get("semgrep_configs", ["auto"]),
                 opengrep_configs=cfg.get("opengrep_configs", ["auto"]),
+                include_custom_codeql=bool(cfg.get("include_custom_codeql", False)),
+                custom_semgrep_path=str(cfg.get("custom_semgrep_path", "")),
             )
 
         # Categories
@@ -148,11 +161,52 @@ class RuleProfileManager:
         profile = self.get_profile(profile_name)
         return CodeQLAnalyzer.suite_for_language(lang, profile.codeql_suite_suffix)
 
-    def get_semgrep_configs(self, profile_name: str) -> list[str]:
-        return list(self.get_profile(profile_name).semgrep_configs)
+    def get_codeql_suites(
+        self,
+        profile_name: str,
+        lang: str,
+        *,
+        custom_root: Path | None = None,
+    ) -> list[str]:
+        """Build the list of CodeQL suite specifiers for *lang* under *profile_name*.
 
-    def get_opengrep_configs(self, profile_name: str) -> list[str]:
-        return list(self.get_profile(profile_name).opengrep_configs)
+        Returns ``[built-in]`` for profiles with ``include_custom_codeql=False``,
+        and ``[built-in, <custom-root>/<lang>/suite.qls]`` otherwise. ``custom_root``
+        defaults to ``config/codeql-custom`` under the project root.
+        """
+        profile = self.get_profile(profile_name)
+        suites = [CodeQLAnalyzer.suite_for_language(lang, profile.codeql_suite_suffix)]
+        if profile.include_custom_codeql:
+            base = custom_root if custom_root else Path("config/codeql-custom")
+            codeql_lang = "cpp" if lang in ("c", "cpp") else lang
+            custom_suite = base / codeql_lang / "suite.qls"
+            if custom_suite.is_file():
+                suites.append(str(custom_suite))
+        return suites
+
+    def get_semgrep_configs(self, profile_name: str, *, lang: str = "") -> list[str]:
+        """Return Semgrep configs for *profile_name*, with ``${LANG}`` expanded.
+
+        Appends ``custom_semgrep_path`` (template-expanded) if non-empty and the
+        resolved file exists.
+        """
+        profile = self.get_profile(profile_name)
+        configs = [c.replace("${LANG}", lang) for c in profile.semgrep_configs]
+        if profile.custom_semgrep_path and lang:
+            resolved = profile.custom_semgrep_path.replace("${LANG}", lang)
+            if Path(resolved).is_file():
+                configs.append(resolved)
+        return configs
+
+    def get_opengrep_configs(self, profile_name: str, *, lang: str = "") -> list[str]:
+        """Return OpenGrep configs for *profile_name*, with ``${LANG}`` expanded."""
+        profile = self.get_profile(profile_name)
+        configs = [c.replace("${LANG}", lang) for c in profile.opengrep_configs]
+        if profile.custom_semgrep_path and lang:
+            resolved = profile.custom_semgrep_path.replace("${LANG}", lang)
+            if Path(resolved).is_file():
+                configs.append(resolved)
+        return configs
 
     # ── Categories ───────────────────────────────────────────────────────
 

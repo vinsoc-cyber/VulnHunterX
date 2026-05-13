@@ -64,6 +64,22 @@ profiles:
       - "p/secrets"
       - "p/owasp-top-ten"
 
+  full:
+    description: "Full coverage — security-and-quality + custom CodeQL + custom Semgrep for every guided-question CWE"
+    codeql_suite_suffix: "security-and-quality"
+    include_custom_codeql: true
+    custom_semgrep_path: "config/semgrep-custom/${LANG}.yaml"
+    semgrep_configs:
+      - "auto"
+      - "p/security-audit"
+      - "p/secrets"
+      - "p/owasp-top-ten"
+    opengrep_configs:
+      - "auto"
+      - "p/security-audit"
+      - "p/secrets"
+      - "p/owasp-top-ten"
+
 # ── Security Categories ──────────────────────────────────────────────────────
 # Group vulnerability types by CWE ID for filtering at verify time.
 # CLI: --category injection --category xss  (repeatable)
@@ -285,3 +301,62 @@ cwe_question_map:
   # ── Miscellaneous ──
   CWE-252: "missing-return-value-check"
   CWE-754: "input-validation"
+
+  # ── Stage-0 audit additions (scripts/audit_rule_coverage.py) ──
+  # Memory safety / C++ extra
+  CWE-253:  "incorrect-return-value-check"
+  CWE-562:  "stack-address-escape"
+  CWE-571:  "comparison-always-true"
+  CWE-672:  "use-after-move"
+  CWE-674:  "alloca-in-loop"
+  CWE-676:  "unsafe-functions"
+  CWE-755:  "exception-unsafe"
+  CWE-789:  "uncontrolled-allocation-size"
+  CWE-822:  "invalid-pointer-deref"
+  CWE-825:  "dangling-pointer"
+  CWE-843:  "type-confusion"
+
+  # Concurrency / resources
+  CWE-366:  "thread-safety-violation"
+  CWE-402:  "thread-leak"
+  CWE-405:  "goroutine-leak"
+  CWE-775:  "resource-leak"
+  CWE-248:  "panic-in-handler"
+  CWE-704:  "unsafe-pointer"
+  CWE-242:  "cgo-vulnerability"
+
+  # File / system permissions
+  CWE-275:  "overly-permissive-file"
+  CWE-377:  "insecure-temporary-file"
+  CWE-269:  "improper-privilege-management"
+
+  # Authentication / authorization extras
+  CWE-250:  "spring-actuator-exposed"
+  CWE-347:  "missing-jwt-signature-check"
+
+  # Web / HTTP extras
+  CWE-614:  "insecure-cookie"
+  CWE-1021: "clickjacking"
+  CWE-942:  "cors-misconfiguration"
+  CWE-943:  "nosql-injection"
+
+  # PHP-specific
+  CWE-98:   "file-inclusion"
+  CWE-621:  "variable-variables"
+  CWE-1025: "type-juggling"
+  CWE-1062: "extract-injection"
+
+  # JavaScript / Electron / framework
+  CWE-470:  "untrusted-module-loading"
+  CWE-1188: "electron-node-integration"
+  CWE-1321: "prototype-pollution"
+
+  # Data binding / mass-assignment
+  CWE-915:  "mass-assignment"
+
+  # XML / DoS variants
+  CWE-776:  "xml-bomb"
+
+  # Obsolete / debug
+  CWE-477:  "deprecated-api"
+  CWE-489:  "flask-debug"

@@ -1,0 +1,5 @@
+name: vulnhunterx/python-security-custom
+version: 0.0.1
+dependencies:
+  codeql/python-all: "*"
+suites: suite.qls

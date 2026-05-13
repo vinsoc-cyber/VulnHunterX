@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vuln_hunter_x.cli.commands import _run_context_extraction, cmd_prepare
-from vuln_hunter_x.codeql.repository import detect_build_command
+from vuln_hunter_x.codeql.repository import RepositoryManager, _has_source_files, detect_build_command
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -369,3 +369,148 @@ class TestDetectBuildCommand:
         """Makefile.am is an autotools template, not a buildable Makefile."""
         (tmp_path / "Makefile.am").touch()
         assert detect_build_command(tmp_path, "c") is None
+
+
+# ── _has_source_files ────────────────────────────────────────────────
+
+
+class TestHasSourceFiles:
+    """Unit tests for the pre-flight language-detection helper."""
+
+    def test_go_detects_go_file(self, tmp_path: Path):
+        (tmp_path / "main.go").touch()
+        assert _has_source_files(tmp_path, "go") is True
+
+    def test_go_detects_go_mod(self, tmp_path: Path):
+        (tmp_path / "go.mod").write_text("module example.com/m\ngo 1.21\n")
+        assert _has_source_files(tmp_path, "go") is True
+
+    def test_go_returns_false_for_non_go_repo(self, tmp_path: Path):
+        (tmp_path / "package.json").touch()
+        (tmp_path / "index.ts").touch()
+        assert _has_source_files(tmp_path, "go") is False
+
+    def test_python_detects_py_file(self, tmp_path: Path):
+        (tmp_path / "app.py").touch()
+        assert _has_source_files(tmp_path, "python") is True
+
+    def test_python_returns_false_for_empty_dir(self, tmp_path: Path):
+        assert _has_source_files(tmp_path, "python") is False
+
+    def test_javascript_detects_ts_file(self, tmp_path: Path):
+        sub = tmp_path / "src"
+        sub.mkdir()
+        (sub / "index.ts").touch()
+        assert _has_source_files(tmp_path, "javascript") is True
+
+    def test_cpp_always_returns_true(self, tmp_path: Path):
+        """cpp is handled by build-system heuristics; pre-flight skips it."""
+        assert _has_source_files(tmp_path, "cpp") is True
+
+    def test_unknown_lang_returns_true(self, tmp_path: Path):
+        assert _has_source_files(tmp_path, "cobol") is True
+
+
+# ── clone_and_create_db: pre-flight language detection ──────────────
+
+
+class TestCloneAndCreateDbPreFlight:
+    """clone_and_create_db returns an actionable error before calling CodeQL
+    when the repo has no source files for the requested language."""
+
+    def _manager(self, tmp_path: Path) -> RepositoryManager:
+        return RepositoryManager(
+            repos_dir=tmp_path / "repos",
+            output_dir=tmp_path / "output",
+            codeql_path="codeql",
+        )
+
+    def test_no_go_files_returns_actionable_error(self, tmp_path: Path):
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / "package.json").touch()
+        (repo / "index.ts").touch()
+
+        mgr = self._manager(tmp_path)
+        ok, msg = mgr.clone_and_create_db(
+            name="myrepo",
+            url="",
+            language="go",
+            local_path=repo,
+            skip_clone=True,
+        )
+
+        assert ok is False
+        assert "No go source files" in msg
+        assert "--lang go" in msg
+
+    def test_go_repo_passes_preflight(self, tmp_path: Path):
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / "main.go").touch()
+
+        mgr = self._manager(tmp_path)
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            ok, msg = mgr.clone_and_create_db(
+                name="myrepo",
+                url="",
+                language="go",
+                local_path=repo,
+                skip_clone=True,
+            )
+
+        assert ok is True
+        assert "created" in msg.lower()
+
+    def test_failed_create_cleans_up_partial_db(self, tmp_path: Path):
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / "main.go").touch()
+
+        mgr = self._manager(tmp_path)
+        db_dir = tmp_path / "output" / "go" / "myrepo" / "database"
+
+        def _fake_run(cmd, **kwargs):
+            # Simulate CodeQL partially creating the db dir before failing
+            db_dir.mkdir(parents=True, exist_ok=True)
+            (db_dir / "codeql-database.yml").touch()
+            return MagicMock(returncode=1, stdout="", stderr="some error")
+
+        with patch("subprocess.run", side_effect=_fake_run):
+            ok, msg = mgr.clone_and_create_db(
+                name="myrepo",
+                url="",
+                language="go",
+                local_path=repo,
+                skip_clone=True,
+            )
+
+        assert ok is False
+        assert not db_dir.exists(), "Partial database directory should be cleaned up"
+
+    def test_go_0_packages_gives_helpful_message(self, tmp_path: Path):
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / "main.go").touch()
+
+        mgr = self._manager(tmp_path)
+        codeql_output = (
+            "Initializing database...\n"
+            "Running go list to resolve package and module directories.\n"
+            "resolved 0 packages.\n"
+            "Success: extraction succeeded for all 1 discovered project(s).\n"
+        )
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout=codeql_output, stderr="")
+            ok, msg = mgr.clone_and_create_db(
+                name="myrepo",
+                url="",
+                language="go",
+                local_path=repo,
+                skip_clone=True,
+            )
+
+        assert ok is False
+        assert "go mod download" in msg or "go mod vendor" in msg

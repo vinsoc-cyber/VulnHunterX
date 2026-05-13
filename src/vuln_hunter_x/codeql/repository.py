@@ -234,6 +234,27 @@ Be specific and actionable. Include exact commands to run."""
         return None
 
 
+def _has_source_files(repo_dir: Path, ql_lang: str) -> bool:
+    """Return True if repo_dir contains at least one file for ql_lang."""
+    signals = {
+        "go": ["**/*.go", "go.mod"],
+        "python": ["**/*.py"],
+        "javascript": ["**/*.js", "**/*.ts"],
+        "php": ["**/*.php"],
+        "java": ["**/*.java"],
+    }
+    patterns = signals.get(ql_lang)
+    if not patterns:
+        return True
+    for pattern in patterns:
+        try:
+            next(repo_dir.glob(pattern))
+            return True
+        except StopIteration:
+            continue
+    return False
+
+
 class RepositoryManager:
     """Manages repository cloning and CodeQL database creation."""
 
@@ -242,6 +263,8 @@ class RepositoryManager:
         "cpp": "cpp",
         "python": "python",
         "javascript": "javascript",
+        "php": "php",
+        "java": "java",
         "go": "go",
     }
 
@@ -317,12 +340,18 @@ class RepositoryManager:
                 )
             logger.info("[%s] auto-detected build command: %s", name, build_command)
 
+        # Pre-flight: verify the repo actually contains source files for the target language.
+        if not dry_run and not _has_source_files(repo_dir, ql_lang):
+            lang_display = language.lower()
+            return False, (
+                f"No {lang_display} source files found in {repo_dir}. "
+                f"Verify that --lang {lang_display} matches the repository's actual language."
+            )
+
         if db_dir.exists():
             if dry_run:
                 return True, "Database already exists"
-            if ql_lang != "cpp":
-                return True, "Database already exists"
-            # C/C++: validate existing DB by running finalize
+            # Validate existing DB for all languages by running finalize
             try:
                 r = subprocess.run(
                     [self.codeql_path, "database", "finalize", str(db_dir)],
@@ -387,14 +416,33 @@ class RepositoryManager:
             if result.returncode == 0:
                 return True, "Database created"
 
+            # Clean up any partial database directory so re-runs start fresh.
+            if db_dir.exists():
+                shutil.rmtree(db_dir, ignore_errors=True)
+
             error = (result.stderr or "") + (result.stdout or "")
+            error_lower = error.lower()
+
+            # Build an actionable prefix before the raw log.
+            prefix = ""
+            if "resolved 0 packages" in error_lower:
+                prefix = (
+                    "No Go packages could be resolved (go list found 0 packages). "
+                    "Ensure go.mod is present and dependencies are available "
+                    "(try: go mod download or go mod vendor). "
+                )
+            elif "no source code" in error_lower or "no-source-code-seen" in error_lower:
+                prefix = (
+                    "No source code was extracted. "
+                    f"Check that --lang {language.lower()} matches the repository's actual language. "
+                )
 
             if ask_llm:
                 recommendation = ask_llm_for_build_help(name, language, build_command, error, url)
                 if recommendation:
                     return (
                         False,
-                        f"Database creation failed.\n\nLLM Recommendation:\n{recommendation}",
+                        f"{prefix}Database creation failed.\n\nLLM Recommendation:\n{recommendation}",
                     )
 
             err_msg = (
@@ -402,7 +450,7 @@ class RepositoryManager:
                 if len(error) <= 800
                 else (error[:200] + "\n... (truncated) ...\n" + error[-600:])
             )
-            return False, f"Database creation failed: {err_msg}"
+            return False, f"{prefix}Database creation failed: {err_msg}"
 
         except subprocess.TimeoutExpired:
             return False, "Database creation timed out"

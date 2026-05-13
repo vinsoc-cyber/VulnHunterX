@@ -14,6 +14,8 @@ from typing import Any
 
 import litellm
 
+litellm.suppress_debug_info = True
+
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.core.constants import (
     DEFAULT_LLM_MAX_TOKENS,
