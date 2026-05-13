@@ -10,12 +10,18 @@
 
 import cpp
 
-from Function f
-where f.hasDefinition()
+from Function f, string is_static
+where
+  f.hasDefinition() and
+  (
+    f.isStatic() and is_static = "true"
+    or
+    not f.isStatic() and is_static = "false"
+  )
 select
   f.getName() as name,
   f.getFile().getRelativePath() as file,
   f.getLocation().getStartLine() as start_line,
   f.getBlock().getLocation().getEndLine() as end_line,
   f.getNumberOfParameters() as param_count,
-  f.isStatic() as is_static
+  is_static

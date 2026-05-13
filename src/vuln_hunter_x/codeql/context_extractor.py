@@ -31,6 +31,29 @@ LANG_TO_QL_DIR: dict[str, str] = {
 }
 
 
+def _clean_codeql_stderr(stderr: str, max_len: int = 400) -> str:
+    """Extract the meaningful error from CodeQL stderr.
+
+    CodeQL prepends a perf warning when its distribution lives under $HOME
+    ("This CodeQL Distribution is installed in '...', which is the home directory.
+    This could cause performance issues..."). That warning is ~220 chars and would
+    otherwise swallow the entire error budget, hiding the real failure that lands
+    at the tail of stderr. Strip the known noise and keep the tail.
+    """
+    if not stderr:
+        return ""
+    lines = [
+        ln for ln in stderr.splitlines()
+        if "is the home directory" not in ln
+        and "performance issues" not in ln
+        and "Consider moving to a new location" not in ln
+    ]
+    cleaned = "\n".join(lines).strip()
+    if len(cleaned) <= max_len:
+        return cleaned
+    return "... " + cleaned[-max_len:]
+
+
 def discover_databases(output_dir: Path) -> list[tuple[Path, str, str]]:
     """
     Discover CodeQL databases under output_dir/<lang>/<repo_name>/database.
@@ -124,7 +147,7 @@ class ContextExtractorDB:
             )
 
             if result.returncode != 0:
-                return False, f"Query failed: {result.stderr[:200]}"
+                return False, f"Query failed: {_clean_codeql_stderr(result.stderr)}"
 
             # Convert BQRS to CSV
             result = subprocess.run(
@@ -143,7 +166,7 @@ class ContextExtractorDB:
             )
 
             if result.returncode != 0:
-                return False, f"Decode failed: {result.stderr[:200]}"
+                return False, f"Decode failed: {_clean_codeql_stderr(result.stderr)}"
 
             # Clean up
             bqrs_path.unlink(missing_ok=True)
