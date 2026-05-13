@@ -184,8 +184,11 @@ class RuleProfileManager:
         """Build the list of CodeQL suite specifiers for *lang* under *profile_name*.
 
         Returns ``[built-in]`` for profiles with ``include_custom_codeql=False``,
-        and ``[built-in, <custom-root>/<lang>/suite.qls]`` otherwise. ``custom_root``
-        defaults to ``config/codeql-custom`` under the project root.
+        and ``[built-in, <custom-root>/<lang>/suite.qls]`` when the custom pack
+        is non-empty. An *empty* custom pack (suite.qls present but ``src/``
+        contains no ``.ql`` files) is silently skipped — CodeQL would otherwise
+        fail the run with "no queries found in suite". ``custom_root`` defaults
+        to ``config/codeql-custom`` under the project root.
         """
         profile = self.get_profile(profile_name)
         suites = [CodeQLAnalyzer.suite_for_language(lang, profile.codeql_suite_suffix)]
@@ -194,7 +197,9 @@ class RuleProfileManager:
             codeql_lang = "cpp" if lang in ("c", "cpp") else lang
             custom_suite = base / codeql_lang / "suite.qls"
             if custom_suite.is_file():
-                suites.append(str(custom_suite))
+                src_dir = custom_suite.parent / "src"
+                if src_dir.is_dir() and any(src_dir.glob("*.ql")):
+                    suites.append(str(custom_suite))
         return suites
 
     def get_semgrep_configs(self, profile_name: str, *, lang: str = "") -> list[str]:

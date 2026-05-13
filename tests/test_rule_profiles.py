@@ -174,14 +174,28 @@ class TestCodeQLSuiteStacking:
         assert len(suites) == 1
         assert "python-security-extended" in suites[0]
 
+    @staticmethod
+    def _make_pack(root: Path, lang: str, with_ql: bool = True) -> Path:
+        """Create a synthetic custom-pack layout. Returns the suite.qls path."""
+        pack = root / lang
+        src = pack / "src"
+        src.mkdir(parents=True)
+        suite = pack / "suite.qls"
+        suite.write_text("- queries: src\n")
+        if with_ql:
+            (src / "stub.ql").write_text(
+                "/** @kind problem @id " + lang + "/stub */\n"
+                "import codeql\n"
+                "from string s where false select s, \"stub\"\n"
+            )
+        return suite
+
     def test_full_returns_two_when_custom_exists(
         self, mgr: RuleProfileManager, tmp_path: Path,
     ) -> None:
-        # Build a synthetic custom-root layout
+        # Build a synthetic custom-root layout with at least one .ql
         custom_root = tmp_path / "codeql-custom"
-        (custom_root / "python").mkdir(parents=True)
-        suite_file = custom_root / "python" / "suite.qls"
-        suite_file.write_text("- queries: src\n")
+        suite_file = self._make_pack(custom_root, "python")
         suites = mgr.get_codeql_suites("full", "python", custom_root=custom_root)
         assert len(suites) == 2
         assert "python-security-and-quality" in suites[0]
@@ -194,12 +208,22 @@ class TestCodeQLSuiteStacking:
         suites = mgr.get_codeql_suites("full", "python", custom_root=tmp_path / "empty")
         assert len(suites) == 1
 
+    def test_full_skips_empty_custom_pack(
+        self, mgr: RuleProfileManager, tmp_path: Path,
+    ) -> None:
+        """suite.qls exists but src/ has no .ql files — silently skip."""
+        custom_root = tmp_path / "codeql-custom"
+        self._make_pack(custom_root, "python", with_ql=False)
+        suites = mgr.get_codeql_suites("full", "python", custom_root=custom_root)
+        assert len(suites) == 1, (
+            "empty pack must be skipped to prevent CodeQL 'no queries found' errors"
+        )
+
     def test_c_language_maps_to_cpp_custom_dir(
         self, mgr: RuleProfileManager, tmp_path: Path,
     ) -> None:
         custom_root = tmp_path / "codeql-custom"
-        (custom_root / "cpp").mkdir(parents=True)
-        (custom_root / "cpp" / "suite.qls").write_text("- queries: src\n")
+        self._make_pack(custom_root, "cpp")
         # Passing lang="c" should still resolve to the cpp/ custom dir
         suites = mgr.get_codeql_suites("full", "c", custom_root=custom_root)
         assert len(suites) == 2
