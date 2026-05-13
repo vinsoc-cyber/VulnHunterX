@@ -24,6 +24,7 @@ string ptrText(Expr e) {
 }
 
 /** Holds if `name` looks like a deallocator / disposer function. */
+bindingset[name]
 predicate isFreeName(string name) {
   name = "free" or
   name = "kfree" or

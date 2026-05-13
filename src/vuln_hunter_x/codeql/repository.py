@@ -99,6 +99,34 @@ def clone_repo(
         return False, str(e)
 
 
+def detect_build_command(repo_root: Path, language: str) -> str | None:
+    """Infer a build command for C/C++ by inspecting build-system files in repo_root.
+
+    Returns None if no recognized build system is found. Autotools is preferred
+    over CMake because projects that ship both (e.g. libvorbis) are typically
+    configured via their autotools path upstream.
+    """
+    if language.lower() not in ("c", "cpp"):
+        return None
+
+    def has(*names: str) -> bool:
+        return any((repo_root / n).exists() for n in names)
+
+    if has("autogen.sh"):
+        return "./autogen.sh && ./configure && make"
+    if (repo_root / "configure").is_file():
+        return "./configure && make"
+    if has("configure.ac", "configure.in"):
+        return "autoreconf -fi && ./configure && make"
+    if has("CMakeLists.txt"):
+        return "cmake -B build -S . && cmake --build build"
+    if has("meson.build"):
+        return "meson setup build && ninja -C build"
+    if has("Makefile", "GNUmakefile", "makefile"):
+        return "make"
+    return None
+
+
 def write_build_script(repo_root: Path, build_command: str) -> Path:
     """
     Write build command to a shell script for CodeQL.
@@ -280,7 +308,14 @@ class RepositoryManager:
         ql_lang = self.CODEQL_LANG_MAP.get(language.lower(), language.lower())
 
         if ql_lang == "cpp" and not build_command:
-            return False, "C/C++ requires build_command"
+            build_command = detect_build_command(repo_dir, language)
+            if not build_command:
+                return False, (
+                    f"C/C++ requires build_command and none could be auto-detected in {repo_dir}. "
+                    "Pass --build-command (e.g. \"./autogen.sh && ./configure && make\" or "
+                    "\"cmake -B build && cmake --build build\")."
+                )
+            logger.info("[%s] auto-detected build command: %s", name, build_command)
 
         if db_dir.exists():
             if dry_run:

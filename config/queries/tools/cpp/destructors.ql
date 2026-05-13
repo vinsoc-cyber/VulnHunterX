@@ -16,6 +16,7 @@
 import cpp
 
 /** Member functions that look like destructors / disposers. */
+bindingset[name]
 predicate isCleanupName(string name) {
   name = "release" or
   name = "cleanup" or
