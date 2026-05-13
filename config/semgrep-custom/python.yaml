@@ -98,11 +98,14 @@ rules:
         - https://owasp.org/www-community/attacks/Regular_expression_Denial_of_Service_-_ReDoS
     patterns:
       - pattern-either:
-          - pattern: re.compile(request.$X)
+          # Direct attribute access: request.values, request.json[...]
           - pattern: re.compile(request.$X, ...)
           - pattern: re.match(request.$X, ...)
-          - pattern: re.search(request.$X, ...)
-          - pattern: re.sub(request.$X, ..., ...)
-          - pattern: re.compile(flask.request.$X)
-          - pattern: re.compile(flask.request.$X, ...)
+          # Method-chain access: request.args.get(...) etc.
+          - pattern: re.compile(request.$X.$M(...), ...)
+          - pattern: re.compile(request.$X.$M(...))
+          - pattern: re.match(request.$X.$M(...), ...)
+          - pattern: re.search(request.$X.$M(...), ...)
+          - pattern: re.sub(request.$X.$M(...), ..., ...)
       - pattern-not: re.compile(re.escape(...))
+      - pattern-not: re.compile(re.escape(...), ...)

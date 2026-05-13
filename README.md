@@ -66,10 +66,12 @@ The **Vulnhalla methodology** improves accuracy by forcing the LLM to:
 |---|---|
 | **Supported Languages** | 7 (C, C++, Python, JavaScript, PHP, Java, Go) |
 | **SAST Tools** | 3 (CodeQL, Semgrep, OpenGrep) |
-| **Rule Profiles** | 3 (standard, extended, maximum) |
+| **Rule Profiles** | 5 (standard, extended, maximum, extended-registry, full) |
 | **Security Categories** | 12 |
-| **CWE IDs Covered** | 56+ |
-| **Guided Question Templates** | 319 across 7 languages |
+| **CWE IDs Covered** | 90+ |
+| **Guided Question Templates** | 316 across 6 languages |
+| **Custom Semgrep Rules** | 14 (PHP, JS/TS, Go, Python — gaps not in public registry) |
+| **Custom CodeQL Queries** | 6 (cpp memory safety + go cgo) |
 
 ### Security Categories
 
@@ -88,13 +90,27 @@ The **Vulnhalla methodology** improves accuracy by forcing the LLM to:
 
 ### Rule Profiles
 
-Pass `--profile {standard,extended,maximum}` to `analyze`.
+Pass `--profile {standard,extended,maximum,extended-registry,full}` to `analyze`.
 
-| Profile | CodeQL | Semgrep / OpenGrep |
-|---|---|---|
-| `standard` (default) | `security-extended` (~200 queries) | `auto` |
-| `extended` | `security-extended` | `auto` + `security-audit` + `secrets` |
-| `maximum` | `security-and-quality` (~400 queries) | `auto` + `security-audit` + `secrets` + `owasp-top-ten` |
+| Profile | CodeQL | Semgrep / OpenGrep | Custom rules |
+|---|---|---|---|
+| `standard` (default) | `security-extended` (~200 queries) | `auto` | — |
+| `extended` | `security-extended` | + `p/security-audit` + `p/secrets` | — |
+| `maximum` | `security-and-quality` (~400 queries) | + `p/owasp-top-ten` | — |
+| `extended-registry` | `security-and-quality` | 8 universal + per-language packs (django, flask, nodejs, gosec, …) | — |
+| `full` | `security-and-quality` | extended-registry packs | + project custom CodeQL & Semgrep rules |
+
+Coverage growth from `standard` → `full` is roughly a **5×–10× increase** in rules loaded per scan, with the per-language packs (e.g. `p/django`, `p/gosec`) only applied to matching repos so cross-language scans aren't polluted.
+
+#### Custom rules layout (`full` profile)
+
+```
+config/
+├── codeql-custom/<lang>/src/*.ql      # @id <lang>/<name> matching guided rule_id
+└── semgrep-custom/<lang>.yaml         # metadata.cwe → guided question via CWE map
+```
+
+To grow coverage, add a `.ql` or rule entry, drop a `vuln.*`/`clean.*` fixture pair under `tests/fixtures/security-rules/<lang>/<rule>/`, and the existing pytest harness validates both that the rule fires on `vuln.*` and stays silent on `clean.*`. The audit script (`python scripts/audit_rule_coverage.py`) reports which guided-question CWEs are wired and which still need work.
 
 ---
 
