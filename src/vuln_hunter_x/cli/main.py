@@ -241,13 +241,15 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
     # Rule profile & category
     parser.add_argument(
         "--profile",
-        choices=["standard", "extended", "maximum"],
+        choices=["standard", "extended", "maximum", "extended-registry", "full"],
         default=None,
         help=(
             "Rule profile controlling breadth of analysis. "
-            "standard: security-extended + auto (default), "
-            "extended: adds p/security-audit + p/secrets, "
-            "maximum: security-and-quality + all major presets"
+            "standard: security-extended + auto (default); "
+            "extended: + p/security-audit + p/secrets; "
+            "maximum: security-and-quality + p/owasp-top-ten; "
+            "extended-registry: 8 universal + per-language packs (no custom rules); "
+            "full: extended-registry + custom CodeQL & Semgrep rules"
         ),
     )
     parser.add_argument(
