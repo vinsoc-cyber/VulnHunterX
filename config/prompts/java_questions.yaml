@@ -46,7 +46,7 @@ java/xss:
   context_hint: "Trace from input through all assignments to HTTP response output."
   additional_context: ["caller"]
 
-java/command-injection:
+java/command-injection: &java_command_injection
   short_description: "User input passed to Runtime.exec() or ProcessBuilder in Java"
   questions:
     - "Where does the INPUT originate — HTTP request, file upload, database, or config?"
@@ -55,8 +55,14 @@ java/command-injection:
     - "Is an allowlist used to validate the command or arguments against known-safe values?"
     - "If using ProcessBuilder, is the command passed as a list of separate tokens rather than a single shell string?"
     - "Could an attacker inject shell metacharacters (;|&$`) or additional arguments to alter execution?"
-  context_hint: "Trace from input through command construction to process execution."
-  additional_context: ["caller"]
+  context_hint: "Trace from input through command construction to process execution, including all intermediate transformations."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+# Alias: CodeQL emits `java/command-line-injection` for CWE-78. Share the same
+# question bank as java/command-injection so the loader's exact-match path
+# fires for either rule_id.
+java/command-line-injection: *java_command_injection
 
 java/path-injection:
   short_description: "User input used in file path allowing directory traversal in Java"
@@ -146,21 +152,41 @@ java/information-exposure:
   context_hint: "Include the exception handling code and where error details are sent."
   additional_context: ["caller"]
 
+java/trust-boundary-violation:
+  short_description: "Untrusted data written into a trust-elevated container (HTTP session, cookie, header) without validation"
+  questions:
+    - "Where does the data originate — HttpServletRequest.getParameter(), getHeader(), getCookies(), or another user-controlled source?"
+    - "Where is it stored — HttpSession.setAttribute, response cookies / headers, or another trust-elevated container that downstream code treats as 'safe'?"
+    - "Is the data validated, sanitized, or canonicalised between source and sink? Against what allowlist, regex, or type-narrowing call?"
+    - "Could the stored value be read back later and used in a security-sensitive operation (auth check, command construction, redirect target, SQL/XPath query)?"
+    - "Is the data type-narrowed (Integer.parseInt, UUID.fromString, regex match) before storage, or stored verbatim as String / byte[]?"
+    - "What is the trust differential — does the storage container imply 'authenticated' or 'admin-supplied' data downstream?"
+  context_hint: "Trace from request parameter / header / cookie through any transformations to the session / cookie / header write, then to subsequent reads."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
 # ==============================================================================
 # Java - Cryptography
 # ==============================================================================
 
-java/weak-cryptographic-algorithm:
+java/weak-cryptographic-algorithm: &java_weak_cryptographic_algorithm
   short_description: "Weak or broken cryptographic algorithm (MD5, SHA1, DES, RC4) used in Java"
   questions:
     - "Which algorithm is used — MessageDigest.getInstance('MD5'), Cipher.getInstance('DES'), or similar?"
+    - "WHERE is the algorithm specified — a hardcoded string, a constant, loaded from properties/config, or derived from input?"
+    - "If loaded from config/properties: is that source attacker-controlled (user-writable file, HTTP-driven), or trusted (bundled classpath resource)?"
     - "Is this hash/cipher used for PASSWORD STORAGE, where bcrypt/scrypt/Argon2 should be used instead?"
     - "For hashing: is the hash used for integrity verification where collision resistance matters (MD5/SHA1 are broken)?"
     - "For encryption: is DES, 3DES, RC4, or ECB mode used where AES-GCM or AES-CBC with HMAC should be used?"
     - "Is this for a checksum or content ID where collision resistance is not security-critical?"
     - "Is this for backward compatibility with an external system, and is there a migration path?"
-  context_hint: "Include the algorithm initialization and how the result is stored or compared."
-  additional_context: []
+  context_hint: "Include the algorithm initialization, any config/property lookup that supplies the algorithm name, and how the result is stored or compared."
+  additional_context: ["caller", "global"]
+  min_iterations: 2
+
+# Alias: CodeQL emits `java/weak-cryptographic-hash` for CWE-328. Reuse the
+# same question bank so the loader's exact-match path fires for either rule_id.
+java/weak-cryptographic-hash: *java_weak_cryptographic_algorithm
 
 java/insecure-randomness:
   short_description: "java.util.Random used for security-sensitive value instead of SecureRandom"

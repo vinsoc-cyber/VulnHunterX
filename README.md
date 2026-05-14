@@ -46,9 +46,9 @@ The **Vulnhalla** methodology forces the LLM to:
 
 | Feature | Description |
 |---|---|
-| **Languages** | 7 — C, C++, Python, JavaScript, PHP, Java, Go |
-| **SAST engines** | CodeQL, Semgrep, OpenGrep (`--tool codeql|semgrep|opengrep|both|all`) |
-| **Rule profiles** | 5 — `standard` → `extended` → `maximum` → `extended-registry` → `full` (see [config/RULES.md](config/RULES.md)) |
+| **Languages** | C, C++, Python, JavaScript, PHP, Java, Go |
+| **SAST engines** | CodeQL, Semgrep, OpenGrep (`--tool codeql\|semgrep\|opengrep\|both\|all`) |
+| **Security rule profiles** | `standard` → `extended` → `maximum` → `extended-registry` → `full` (see [config/RULES.md](config/RULES.md)) |
 | **Guided questions** | 316 rule-specific templates across 6 per-language banks plus a fallback |
 | **LLM providers** | OpenAI, Anthropic, Ollama (via [LiteLLM](https://github.com/BerriAI/litellm)) |
 | **Multi-turn verification** | Dynamic context expansion (callers, structs, globals, macros, free-sites) |
@@ -193,6 +193,18 @@ vuln-hunter-x prepare --skip-clone --skip-db --force --repo libucl    # re-extra
 | `-f, --force` | Force re-extraction of context CSVs | false |
 | `--dry-run` | Preview actions | false |
 
+#### Context extraction backends (`--backend`)
+
+Context CSVs (functions, callers, structs/classes, globals, macros) feed multi-turn LLM verification. Two backends produce them:
+
+| Backend | When to use | Notes |
+|---|---|---|
+| `auto` *(default)* | Most workflows | CodeQL where a database was built; tree-sitter as fallback for repos where the DB build failed |
+| `codeql` | Highest precision | Requires a valid CodeQL DB. Semantic-level extraction; adds C/C++-specific context (`free_sites`, `destructors`, `field_writes`) used by memory-safety guided questions |
+| `treesitter` | No CodeQL DB, quick iteration | Syntactic extraction — fast, no DB build. Covers C, C++, Python, JavaScript, Java, PHP, Go; skips the C/C++-specific context types listed above |
+
+Tree-sitter grammars (`tree-sitter-c/cpp/python/javascript/java/php/go`, pinned to `>=0.23,<1.0`) ship with the standard `pip install -e .` — no extra setup. Both backends emit the same CSV layout, so downstream stages (`analyze`, `verify`, `report`) work identically regardless of backend. `vuln-hunter-x check-env` verifies tree-sitter availability alongside CodeQL.
+
 ### `analyze`
 
 Run CodeQL, Semgrep, and/or OpenGrep against a prepared repo or a local path.
@@ -240,6 +252,7 @@ vuln-hunter-x verify --local-path /path/to/project --lang python --limit 20
 | `--model NAME` | Model name | from config |
 | `--temperature F` / `--max-tokens N` | LLM tuning | from config |
 | `--max-iterations N` | Max conversation rounds per finding | 3 |
+| `-j, --jobs N` | Concurrent findings to verify (1 = sequential) | 4 |
 | `--limit N` | Maximum findings to process | Unlimited |
 | `--category CAT` | Filter by category (repeatable, same vocabulary as `analyze`) | All |
 | `--include-tests` | Include findings under `test/`, `tests/` | false |

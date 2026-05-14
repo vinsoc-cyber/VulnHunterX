@@ -16,7 +16,12 @@ Dataset structure (after cloning):
 
     BenchmarkPython/
     ├── expectedresults-0.1.csv
-    └── src/.../BenchmarkTest00001.py
+    └── testcode/BenchmarkTest00001.py
+        ...
+
+Note: the two upstream repos use different source-dir conventions. The
+adapter selects the dir per-language (``src`` for Java, ``testcode`` for
+Python).
 
 Manifest columns:
     "# test name", "category", "real vulnerability", "cwe",
@@ -60,6 +65,9 @@ class OwaspBenchmarkAdapter:
         self.lang = lang
         self._suffix = ".java" if lang == "java" else ".py"
         self._rule_prefix = "java/" if lang == "java" else "py/"
+        # BenchmarkJava ships test files under src/main/java/...; BenchmarkPython
+        # ships them flat under testcode/.
+        self._source_dirname = "src" if lang == "java" else "testcode"
 
     def _rule_for(self, cwe_id: str) -> str:
         """Pick the rule ID matching this adapter's language; fall back to primary."""
@@ -79,10 +87,12 @@ class OwaspBenchmarkAdapter:
         return candidates[-1]
 
     def _index_test_files(self) -> dict[str, Path]:
-        """Map BenchmarkTest##### → file path under src/."""
-        src = self.dataset_path / "src"
+        """Map BenchmarkTest##### → file path under the language-specific source dir."""
+        src = self.dataset_path / self._source_dirname
         if not src.is_dir():
-            raise FileNotFoundError(f"Expected src/ under {self.dataset_path}")
+            raise FileNotFoundError(
+                f"Expected {self._source_dirname}/ under {self.dataset_path}"
+            )
         index: dict[str, Path] = {}
         for path in src.rglob(f"BenchmarkTest*{self._suffix}"):
             stem = path.stem  # BenchmarkTest00001

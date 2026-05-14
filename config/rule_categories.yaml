@@ -292,6 +292,9 @@ cwe_question_map:
   CWE-80:  "xss"
   CWE-87:  "xss"
 
+  # ── Trust boundary ──
+  CWE-501: "trust-boundary-violation"
+
   # ── Authentication & Authorization ──
   CWE-287: "broken-authentication"
   CWE-306: "missing-authentication"

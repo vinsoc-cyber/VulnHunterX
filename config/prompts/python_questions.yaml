@@ -34,7 +34,7 @@ py/sql-injection:
   context_hint: "Trace from request input through all transformations to query execution."
   additional_context: ["caller"]
 
-py/command-injection:
+py/command-injection: &py_command_injection
   short_description: "User input passed to shell command execution"
   questions:
     - "Where does the INPUT originate - request, file, environment variable?"
@@ -43,8 +43,12 @@ py/command-injection:
     - "If shell=False, is the input passed as a LIST of arguments (safe)?"
     - "Could an attacker inject SHELL METACHARACTERS?"
     - "Is os.system() used (always vulnerable) vs subprocess.run()?"
-  context_hint: "Trace from input source to subprocess/os.system call."
-  additional_context: ["caller"]
+  context_hint: "Trace from input source to subprocess/os.system call, including intermediate transformations."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+# Alias: some tools emit `py/command-line-injection` for CWE-78. Same rule.
+py/command-line-injection: *py_command_injection
 
 py/xss:
   short_description: "User input rendered in HTML response without escaping"
@@ -326,17 +330,36 @@ py/insecure-cookie:
   context_hint: "Include the cookie-setting call and all attributes passed."
   additional_context: []
 
-py/weak-cryptographic-algorithm:
+py/weak-cryptographic-algorithm: &py_weak_cryptographic_algorithm
   short_description: "Weak or broken cryptographic algorithm (MD5, SHA1, DES, RC4) used for security"
   questions:
     - "Which algorithm is used (MD5, SHA1, SHA-256, DES, 3DES, RC4, Blowfish) and for what purpose?"
+    - "WHERE is the algorithm name specified — a hardcoded literal, derived from a constant, loaded from settings/config, or driven by input?"
+    - "If loaded from config/settings: is that source attacker-controlled (user-writable file, HTTP-driven) or trusted (bundled module)?"
     - "Is this for password HASHING (must use bcrypt/argon2/scrypt), HMAC, symmetric encryption, or checksums?"
     - "Is collision resistance required — MD5 and SHA1 are broken for collision resistance?"
     - "Is preimage resistance required — MD5 is weakened; SHA1 is acceptable only for non-security checksums?"
     - "For symmetric encryption: is a modern authenticated cipher (AES-GCM, ChaCha20-Poly1305) available?"
     - "Is this for backward compatibility with an external system, and is there a migration path?"
-  context_hint: "Include the crypto function call and how the result is used."
-  additional_context: []
+  context_hint: "Include the crypto function call, any config/settings lookup that supplies the algorithm name, and how the result is used."
+  additional_context: ["caller", "global"]
+  min_iterations: 2
+
+# Alias: some tools emit `py/weak-sensitive-data-hashing` for CWE-328. Same rule.
+py/weak-sensitive-data-hashing: *py_weak_cryptographic_algorithm
+
+py/trust-boundary-violation:
+  short_description: "Untrusted data written into a trust-elevated container (session, cookie, header) without validation"
+  questions:
+    - "Where does the data originate — request.args/form/json, request.headers, request.cookies, or another user-controlled source?"
+    - "Where is it stored — flask.session, response.set_cookie, response headers, Django request.session, or another trust-elevated container?"
+    - "Is the data validated, sanitized, or type-narrowed (int(), uuid.UUID, regex match, schema validation) between source and sink?"
+    - "Could the stored value be read back later and used in a security-sensitive operation (auth check, command construction, redirect target, SQL/XPath/template render)?"
+    - "Is the data stored verbatim as a string/bytes, or coerced to a known-safe type?"
+    - "What is the trust differential — does the storage container imply 'authenticated' or 'admin-supplied' data downstream?"
+  context_hint: "Trace from request input through any transformations to the session / cookie / header write, then to subsequent reads."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
 
 py/regex-dos:
   short_description: "Regular expression with catastrophic backtracking matched against user input"

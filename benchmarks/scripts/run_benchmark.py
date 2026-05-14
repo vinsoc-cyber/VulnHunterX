@@ -43,7 +43,9 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -383,6 +385,73 @@ def _check_run_config_drift(run_dir: Path, current: dict) -> None:
         )
 
 
+# ── Pre-flight guards ─────────────────────────────────────────────────────────
+
+def _validate_entries(name: str, entries: list[GroundTruthEntry]) -> None:
+    """Refuse to start a (potentially expensive) LLM run when the dataset's
+    adapter is producing degenerate output. Two checks:
+
+    * ≥50% of entries with no rule_id  → everything falls to default questions
+    * ≥30% of entries with a stringified-list cwe_id (`CWE-[...]`)
+
+    Skipped on samples smaller than 20 entries — the ratios aren't
+    statistically meaningful on tiny smoke runs, and datasets with naturally
+    sparse CWE labels (DiverseVul has ~30% unlabelled rows) would otherwise
+    trip the guard by chance on a `--limit 5`.
+
+    Bypass entirely with ``--ignore-quality-check`` when intentionally running
+    a dataset whose adapter hasn't been improved yet.
+    """
+    if not entries or len(entries) < 20:
+        return
+    no_rule = sum(1 for e in entries if not e.rule_id)
+    bad_cwe = sum(1 for e in entries if "[" in (e.cwe_id or ""))
+    total = len(entries)
+    if no_rule / total > 0.50:
+        raise ValueError(
+            f"{name}: {no_rule}/{total} entries have empty rule_id "
+            f"({no_rule / total * 100:.0f}%). This forces 100% of LLM "
+            "verifications to the default-question fallback and severely "
+            "degrades recall. Fix the adapter (see "
+            "benchmarks/adapters/diversevul_adapter.py for the cpp/ rule "
+            "synthesis pattern) or rerun with --ignore-quality-check."
+        )
+    if bad_cwe / total > 0.30:
+        raise ValueError(
+            f"{name}: {bad_cwe}/{total} entries have malformed cwe_id "
+            f"(stringified list like 'CWE-[...]'). The adapter is "
+            "str()-converting a list field instead of unwrapping it. "
+            "Fix the adapter or rerun with --ignore-quality-check."
+        )
+
+
+def _llm_preflight(provider: str, model: str) -> None:
+    """Burn one ~4-token completion to fail fast on auth / quota / network
+    issues. Cheaper than discovering them after 800+ failed entries.
+
+    Uses ``LLMClient`` so the call goes through the same provider-prefix
+    routing that real verifications use (e.g. an OpenAI-compatible endpoint
+    set via ``OPENAI_API_BASE`` requires the ``openai/`` model prefix that
+    LLMClient adds automatically).
+    """
+    import litellm
+
+    from vuln_hunter_x.llm.client import LLMClient
+
+    try:
+        client = LLMClient(provider=provider, model=model, temperature=0.0, max_tokens=4)
+        kwargs = client._build_completion_kwargs(
+            [{"role": "user", "content": "ok"}],
+        )
+        litellm.completion(**kwargs)
+    except Exception as exc:  # noqa: BLE001 - surface any provider error
+        raise SystemExit(
+            f"LLM pre-flight failed for {provider}/{model}: {exc}\n"
+            "Fix credentials / quota / network before retrying. Skip the "
+            "check with --skip-preflight if the failure is a benign one-off."
+        )
+
+
 # ── Main runner ───────────────────────────────────────────────────────────────
 
 def run_one(
@@ -396,6 +465,7 @@ def run_one(
     checkpoint_every: int = 1,
     verbose: bool = False,
     quiet: bool = False,
+    jobs: int = 1,
 ) -> tuple[ApproachMetrics, list[BenchmarkResult]] | None:
     """Evaluate one (dataset, approach) pair with incremental checkpointing.
 
@@ -448,51 +518,131 @@ def run_one(
     )
     progress.start(resumed_count=len(prior_results))
 
-    new_results: list[BenchmarkResult] = []
+    # Wall-clock anchor for this (dataset, approach) pair. Distinct from the
+    # sum-of-per-entry `total_elapsed` so parallel runs report honest
+    # wall-time in summaries.
+    pair_wall_start = time.monotonic()
     findings_log = run_dir / "findings.jsonl"
+    # Pre-allocate slots so completion order doesn't reshuffle output order.
+    slots: list[BenchmarkResult | None] = [None] * len(entries)
+    state_lock = threading.Lock()
+    done_count = 0
 
-    try:
-        for i, entry in enumerate(entries, 1):
-            result = approach.evaluate(entry)
-            new_results.append(result)
-            progress.update(result)
-            _log_finding(findings_log, entry, result)
-            logger.info(
-                "[%s] %s → %s (%s) | %d tok  $%.4f  %.1fs",
-                entry.id, entry.cwe_id, result.predicted_label,
-                result.confidence or "?", result.tokens_used,
-                result.cost_usd, result.elapsed_seconds,
-            )
+    def _completed_results() -> list[BenchmarkResult]:
+        return [r for r in slots if r is not None]
 
-            # Incremental checkpoint (also logs at 10-entry intervals in quiet mode)
-            if quiet and (i % 10 == 0 or i == len(entries)):
-                logger.info("  %d/%d done", len(prior_results) + i, len(prior_results) + len(entries))
-
-            if i % checkpoint_every == 0 or i == len(entries):
-                all_so_far = prior_results + new_results
-                partial_metrics = evaluate(all_so_far, approach_name, dataset_name, nmd_handling)
+    if jobs <= 1 or len(entries) <= 1:
+        try:
+            for i, entry in enumerate(entries, 1):
+                result = approach.evaluate(entry)
+                slots[i - 1] = result
+                progress.update(result)
+                _log_finding(findings_log, entry, result)
+                logger.info(
+                    "[%s] %s → %s (%s) | %d tok  $%.4f  %.1fs",
+                    entry.id, entry.cwe_id, result.predicted_label,
+                    result.confidence or "?", result.tokens_used,
+                    result.cost_usd, result.elapsed_seconds,
+                )
+                if quiet and (i % 10 == 0 or i == len(entries)):
+                    logger.info(
+                        "  %d/%d done",
+                        len(prior_results) + i,
+                        len(prior_results) + len(entries),
+                    )
+                if i % checkpoint_every == 0 or i == len(entries):
+                    all_so_far = prior_results + _completed_results()
+                    partial_metrics = evaluate(
+                        all_so_far, approach_name, dataset_name, nmd_handling
+                    )
+                    partial_metrics.wall_seconds = time.monotonic() - pair_wall_start
+                    _save_checkpoint(
+                        run_dir, dataset_name, approach_name,
+                        all_so_far, partial_metrics, status="in_progress",
+                    )
+        except KeyboardInterrupt:
+            completed = _completed_results()
+            if completed:
+                all_so_far = prior_results + completed
+                partial_metrics = evaluate(
+                    all_so_far, approach_name, dataset_name, nmd_handling
+                )
+                partial_metrics.wall_seconds = time.monotonic() - pair_wall_start
                 _save_checkpoint(
                     run_dir, dataset_name, approach_name,
                     all_so_far, partial_metrics, status="in_progress",
                 )
+                logger.info(
+                    "Interrupted. Progress saved (%d/%d entries).",
+                    len(all_so_far), len(prior_results) + len(entries),
+                )
+            raise
+    else:
+        pool = ThreadPoolExecutor(max_workers=jobs, thread_name_prefix="vhx-bench")
+        try:
+            futures = {
+                pool.submit(approach.evaluate, entry): idx
+                for idx, entry in enumerate(entries)
+            }
+            try:
+                for future in as_completed(futures):
+                    idx = futures[future]
+                    entry = entries[idx]
+                    result = future.result()
+                    with state_lock:
+                        slots[idx] = result
+                        done_count += 1
+                        local_done = done_count
+                        progress.update(result)
+                        _log_finding(findings_log, entry, result)
+                    logger.info(
+                        "[%s] %s → %s (%s) | %d tok  $%.4f  %.1fs",
+                        entry.id, entry.cwe_id, result.predicted_label,
+                        result.confidence or "?", result.tokens_used,
+                        result.cost_usd, result.elapsed_seconds,
+                    )
+                    if quiet and (local_done % 10 == 0 or local_done == len(entries)):
+                        logger.info(
+                            "  %d/%d done",
+                            len(prior_results) + local_done,
+                            len(prior_results) + len(entries),
+                        )
+                    if local_done % checkpoint_every == 0 or local_done == len(entries):
+                        with state_lock:
+                            all_so_far = prior_results + _completed_results()
+                        partial_metrics = evaluate(
+                            all_so_far, approach_name, dataset_name, nmd_handling
+                        )
+                        partial_metrics.wall_seconds = time.monotonic() - pair_wall_start
+                        _save_checkpoint(
+                            run_dir, dataset_name, approach_name,
+                            all_so_far, partial_metrics, status="in_progress",
+                        )
+            except KeyboardInterrupt:
+                pool.shutdown(cancel_futures=True, wait=True)
+                with state_lock:
+                    completed = _completed_results()
+                if completed:
+                    all_so_far = prior_results + completed
+                    partial_metrics = evaluate(
+                        all_so_far, approach_name, dataset_name, nmd_handling
+                    )
+                    partial_metrics.wall_seconds = time.monotonic() - pair_wall_start
+                    _save_checkpoint(
+                        run_dir, dataset_name, approach_name,
+                        all_so_far, partial_metrics, status="in_progress",
+                    )
+                    logger.info(
+                        "Interrupted. Progress saved (%d/%d entries).",
+                        len(all_so_far), len(prior_results) + len(entries),
+                    )
+                raise
+        finally:
+            pool.shutdown(wait=True)
 
-    except KeyboardInterrupt:
-        # Best-effort checkpoint before surfacing the interrupt
-        if new_results:
-            all_so_far = prior_results + new_results
-            partial_metrics = evaluate(all_so_far, approach_name, dataset_name, nmd_handling)
-            _save_checkpoint(
-                run_dir, dataset_name, approach_name,
-                all_so_far, partial_metrics, status="in_progress",
-            )
-            logger.info(
-                "Interrupted. Progress saved (%d/%d entries).",
-                len(all_so_far), len(prior_results) + len(entries),
-            )
-        raise
-
-    all_results = prior_results + new_results
+    all_results = prior_results + _completed_results()
     metrics = evaluate(all_results, approach_name, dataset_name, nmd_handling)
+    metrics.wall_seconds = time.monotonic() - pair_wall_start
     progress.finish(metrics)
     return metrics, all_results
 
@@ -568,6 +718,23 @@ def main() -> int:
         help="Mock LLM responses for testing without API costs",
     )
     parser.add_argument(
+        "--ignore-quality-check",
+        action="store_true",
+        help=(
+            "Bypass the adapter quality gate (>50%% empty rule_id or "
+            ">30%% malformed cwe_id). Use when intentionally running an "
+            "adapter with known gaps."
+        ),
+    )
+    parser.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help=(
+            "Skip the one-shot LLM connectivity check before each "
+            "(provider, model) pair. Useful for offline tests."
+        ),
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help=(
@@ -597,6 +764,13 @@ def main() -> int:
         default=1,
         metavar="N",
         help="Save incremental checkpoint every N entries (default: 1).",
+    )
+    parser.add_argument(
+        "-j", "--jobs",
+        type=int,
+        default=4,
+        metavar="N",
+        help="Concurrent benchmark entries to evaluate (default: 4; set 1 to disable).",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -755,6 +929,15 @@ def main() -> int:
     all_metrics: list[ApproachMetrics] = []
     wall_start = time.monotonic()
 
+    # One-shot LLM pre-flight before the run starts. Skip when dry-running or
+    # when only raw-sast (no LLM) was requested.
+    if (
+        not args.dry_run
+        and not args.skip_preflight
+        and any(a != "raw-sast" for a in approaches)
+    ):
+        _llm_preflight(args.provider, args.model)
+
     try:
         for dataset_name in datasets:
             logger.info("Loading dataset: %s (limit=%d)", dataset_name, args.limit)
@@ -764,6 +947,16 @@ def main() -> int:
                 logger.error("%s", exc)
                 continue
             logger.info("  %d entries loaded", len(entries))
+
+            # Tier 2A: refuse to start a real (LLM) run on a degenerate dataset.
+            # Allow dry-run through unconditionally and let --ignore-quality-check
+            # override deliberately.
+            if not args.dry_run and not args.ignore_quality_check:
+                try:
+                    _validate_entries(dataset_name, entries)
+                except ValueError as exc:
+                    logger.error("Adapter quality check failed: %s", exc)
+                    continue
 
             iteration_values = [1, 2, 3] if args.iteration_sweep else [args.max_iterations]
 
@@ -800,6 +993,7 @@ def main() -> int:
                         checkpoint_every=args.checkpoint_every,
                         verbose=args.verbose,
                         quiet=args.quiet,
+                        jobs=args.jobs,
                     )
                     if result is not None:
                         metrics, results = result

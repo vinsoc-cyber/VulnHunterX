@@ -1096,7 +1096,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
         return 0
 
     # Create engine
-    engine = VerificationEngine(config)
+    engine = VerificationEngine(config, jobs=getattr(args, "jobs", None))
 
     if not quiet:
         print(f"Loaded {engine.questions_loader.rule_count} guided question templates")

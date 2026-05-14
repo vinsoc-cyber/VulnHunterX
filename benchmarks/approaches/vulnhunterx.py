@@ -84,6 +84,10 @@ class VulnHunterXApproach(BenchmarkApproach):
                 use_slicing=self._use_slicing, finding=finding,
             ),
             context_provider=None,
+            # Benchmark mode feeds one finding per engine call; the outer
+            # benchmark runner is what fans out across entries, so pin
+            # engine-level parallelism off to avoid a hidden second layer.
+            jobs=1,
         )
 
         _, match_type = self._questions_loader.get_questions_with_match_info(finding.rule_id)
