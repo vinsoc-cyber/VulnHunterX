@@ -1,41 +1,66 @@
 # VulnHunterX Benchmarks
 
-Standalone benchmark framework comparing VulnHunterX against baselines on three ground-truth datasets. No separate installation required — run directly as Python scripts from the repo root.
+Standalone benchmark framework comparing VulnHunterX against baselines on six ground-truth datasets. Runs as plain Python scripts from the repo root — no separate installation.
 
 ---
 
-## Approaches Compared
+## Table of Contents
 
-| Approach      | Description                                                                 |
-| ------------- | --------------------------------------------------------------------------- |
-| `raw-sast`    | Every SAST finding = TP, no LLM. Establishes upper-bound recall.            |
-| `vulnhunterx` | Full system: rule-specific guided questions + multi-turn context expansion. |
-| `ablation`    | Runs each finding through three variants (specific / generic / zero-shot) to isolate the contribution of guided questions. |
+- [What it does](#what-it-does)
+- [Approaches](#approaches)
+- [Datasets](#datasets)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Per-Dataset Playbooks](#per-dataset-playbooks)
+- [CLI Reference](#cli-reference)
+- [Metrics](#metrics)
+- [Output Structure](#output-structure)
+- [Interpreting Results](#interpreting-results)
+- [Resuming Interrupted Runs](#resuming-interrupted-runs)
+- [Adding Datasets or Approaches](#adding-datasets-or-approaches)
+
+---
+
+## What it does
+
+For each (dataset, approach) pair the harness produces a verdict per entry, scores it against ground truth, and emits precision / recall / F1, FP-reduction rate, NMD rate, mean tokens-per-finding, p95 latency, and confidence-calibration tables. Results are checkpointed per entry and can be resumed after Ctrl+C or process death.
+
+The design rationale, papers reviewed, and dataset selection criteria are in [RESEARCH.md](RESEARCH.md).
+
+---
+
+## Approaches
+
+| Approach      | What it does                                                                                                                |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `raw-sast`    | Every SAST finding is treated as TP, no LLM call. Establishes upper-bound recall and reveals the underlying FP rate.        |
+| `vulnhunterx` | Full pipeline: rule-specific guided questions + answer-before-verdict + multi-turn context expansion.                       |
+| `ablation`    | Runs each entry through three internal variants — *zero-shot*, *generic-questions*, *rule-specific* — to isolate the contribution of guided-question authorship vs. the protocol itself. |
+| `all`         | Shorthand for `raw-sast vulnhunterx ablation`.                                                                              |
 
 ---
 
 ## Datasets
 
-| Dataset                  | Size           | Language       | Ground Truth                                          |
-| ------------------------ | -------------- | -------------- | ----------------------------------------------------- |
-| **SecLLMHolmes**         | ~228 scenarios | C/C++, Python  | Handcrafted bad/good code pairs, 8 CWE classes        |
-| **Juliet C/C++ 1.3.1**   | 64K test cases | C, C++         | NIST synthetic bad()/good() function pairs, ~180 CWEs |
-| **DiverseVul**           | 349K functions | C, C++         | 18,945 CVE-backed vulnerable + 330,492 non-vulnerable |
-| **OWASP BenchmarkJava**  | ~2,740 cases   | Java           | `expectedresults-1.2.csv` (TP/FP per case, 11 CWE categories) — GPL-2.0 |
-| **OWASP BenchmarkPython**| ~1,230 cases   | Python         | `expectedresults-0.1.csv` (TP/FP per case) — GPL-3.0  |
-| **RealVuln Benchmark**   | ~796 findings  | Python         | Real CVEs as TPs + 120 FP traps (Flask/Django/FastAPI/aiohttp/Tornado) — MIT |
+| Dataset                  | Size           | Language       | Ground Truth                                                                                |
+| ------------------------ | -------------- | -------------- | ------------------------------------------------------------------------------------------- |
+| **SecLLMHolmes**         | ~228 scenarios | C/C++, Python  | Handcrafted bad/good pairs, 8 CWE classes (MIT)                                             |
+| **Juliet C/C++ 1.3.1**   | 64K cases      | C, C++         | NIST synthetic `bad()`/`good()` function pairs, ~180 CWEs                                   |
+| **DiverseVul**           | 349K functions | C, C++         | 18,945 CVE-backed vulnerable + 330,492 non-vulnerable                                       |
+| **OWASP BenchmarkJava**  | ~2,740 cases   | Java           | `expectedresults-1.2.csv` (TP/FP per case, 11 CWE categories) — GPL-2.0                     |
+| **OWASP BenchmarkPython**| ~1,230 cases   | Python         | `expectedresults-0.1.csv` — GPL-3.0                                                         |
+| **RealVuln Benchmark**   | 796 findings   | Python         | Real CVE TPs + curated FP traps across 26 web-framework repos (Flask/Django/FastAPI/aiohttp/Tornado) — MIT |
 
-See [RESEARCH.md](RESEARCH.md) for the literature review that motivated dataset selection and benchmark design decisions.
+OWASP suites are cloned at runtime under `benchmarks/datasets/` rather than vendored; project code stays MIT and the GPL applies only to the cloned corpora. See [RESEARCH.md § Future Work](RESEARCH.md#planned-future-work) for the SastBench → RealVuln substitution rationale.
 
 ---
 
 ## Prerequisites
 
 - Python 3.12+ with VulnHunterX installed (`uv pip install -e .`)
-- For LLM approaches: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or Ollama running locally
+- For LLM approaches: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or a local Ollama instance
 - For chart generation: `uv pip install -e ".[benchmark]"`
-- ~650 MB disk space for SecLLMHolmes + Juliet
-- ~2 GB additional for DiverseVul
+- Disk: ~650 MB for SecLLMHolmes + Juliet, ~2 GB more for DiverseVul, ~50 MB each for OWASP/RealVuln
 - CodeQL CLI (optional; only needed for Juliet "full" mode)
 
 ---
@@ -45,13 +70,12 @@ See [RESEARCH.md](RESEARCH.md) for the literature review that motivated dataset 
 ### 1. Smoke test — no LLM, no dataset download
 
 ```bash
-# Uses fixture files (10 hand-curated entries per dataset)
 python benchmarks/scripts/run_benchmark.py \
     --dataset secllmholmes --approach raw-sast --limit 10
-# Completes in <5 seconds
+# Uses the 10-entry fixture under benchmarks/fixtures/, completes in <5 s.
 ```
 
-### 2. Dry-run — mock LLM, test all code paths
+### 2. Dry-run — mock LLM, exercises every code path
 
 ```bash
 python benchmarks/scripts/run_benchmark.py \
@@ -61,34 +85,25 @@ python benchmarks/scripts/run_benchmark.py \
 ### 3. Download datasets
 
 ```bash
-# List available datasets
-python benchmarks/scripts/setup_datasets.py --list
-
-# Download a single dataset (~50 MB)
-python benchmarks/scripts/setup_datasets.py --dataset secllmholmes
-
-# Download all datasets (~3 GB total)
-python benchmarks/scripts/setup_datasets.py --dataset all
+python benchmarks/scripts/setup_datasets.py --list             # list available
+python benchmarks/scripts/setup_datasets.py --dataset secllmholmes   # single (~50 MB)
+python benchmarks/scripts/setup_datasets.py --dataset all      # everything (~3 GB)
 ```
 
-### 4. Real benchmark run (small)
+### 4. Small real run
 
 ```bash
-# All approaches, 50 entries, cheapest model
 python benchmarks/scripts/run_benchmark.py \
     --dataset secllmholmes --approach all \
     --model gpt-4o-mini --limit 50
 ```
 
-### 5. Generate report
+### 5. Generate the report
 
 ```bash
 python benchmarks/scripts/generate_report.py \
     --run-dir benchmarks/results/<timestamp>
-
-# With charts (requires matplotlib)
-python benchmarks/scripts/generate_report.py \
-    --run-dir benchmarks/results/<timestamp> --charts
+# Add --charts to render precision/recall plots (requires matplotlib).
 ```
 
 ### 6. Full benchmark
@@ -101,66 +116,64 @@ python benchmarks/scripts/run_benchmark.py \
 ### 7. Iteration sweep (measure multi-turn contribution)
 
 ```bash
-# Runs VulnHunterX at max_iterations = 1, 2, 3
 python benchmarks/scripts/run_benchmark.py \
     --dataset secllmholmes --approach vulnhunterx \
     --model gpt-4o-mini --iteration-sweep
+# Runs at max_iterations = 1, 2, 3.
 ```
 
 ### 8. Resumable run — survive Ctrl+C
 
 ```bash
-# Start a run with a named directory
+# Start with an explicit named directory:
 python benchmarks/scripts/run_benchmark.py \
     --dataset all --approach all --model gpt-4o \
     --run-dir benchmarks/results/my_run
 
-# Interrupted? Resume exactly where it stopped:
+# Resume after an interruption:
 python benchmarks/scripts/run_benchmark.py \
     --dataset all --approach all --model gpt-4o \
     --run-dir benchmarks/results/my_run --resume
 ```
 
----
+### Dataset size tiers
 
-## Dataset Size Tiers
-
-Use these as starting points when choosing `--limit` and dataset-specific flags:
+Starting points for `--limit` and dataset-specific flags:
 
 | Dataset    | Small                        | Medium                        | Large                              |
 | ---------- | ---------------------------- | ----------------------------- | ---------------------------------- |
-| SecLLMHolmes | `--limit 20` (~20 entries) | `--limit 100`                 | `--limit 0` (all, ~228)            |
-| Juliet     | `--juliet-per-cwe 5` (~40)   | `--juliet-per-cwe 20` (~160)  | `--juliet-per-cwe 0` (all, ~64K)   |
-| DiverseVul | `--limit 500`                | `--limit 5000`                | `--limit 0` (all, ~349K)           |
+| SecLLMHolmes | `--limit 20`               | `--limit 100`                 | `--limit 0` (all, ~228)            |
+| Juliet     | `--juliet-per-cwe 5` (~40)   | `--juliet-per-cwe 20` (~160)  | `--juliet-per-cwe 0` (~64K)        |
+| DiverseVul | `--limit 500`                | `--limit 5000`                | `--limit 0` (~349K)                |
 
-> **Note:** For large DiverseVul runs, a local model (Ollama) is strongly recommended to keep costs manageable.
+For runs over a few thousand entries, use a local Ollama model — commercial-API cost grows quickly. See [RESEARCH.md § Token / Cost Reference](RESEARCH.md#token-and-cost-reference).
 
 ---
 
-## Per-Dataset Examples
+## Per-Dataset Playbooks
 
 ### Juliet C/C++
 
-Juliet provides balanced synthetic TP/FP pairs per CWE. Use `--juliet-per-cwe` to control scale.
+Synthetic, balanced TP/FP pairs per CWE. `--juliet-per-cwe` controls scale.
 
 ```bash
-# Small — ~40 entries, quick sanity check
+# Small sanity check — ~40 entries
 python benchmarks/scripts/run_benchmark.py \
     --dataset juliet --approach vulnhunterx \
     --juliet-per-cwe 5 --model gpt-4o-mini --dry-run
 
-# Medium — ~160 entries, balanced TP/FP across 8 CWEs (standard run)
+# Standard run — 8 BENCHMARK_CWES × 20 entries, balanced TP/FP
 python benchmarks/scripts/run_benchmark.py \
     --dataset juliet --approach all \
     --juliet-per-cwe 20 --model gpt-4o-mini
 
-# Large — all CWEs, no per-CWE cap (~64K entries, local model recommended)
+# Full Juliet — local model strongly recommended
 python benchmarks/scripts/run_benchmark.py \
     --dataset juliet --approach vulnhunterx \
     --juliet-per-cwe 0 --model ollama/llama3.2 \
     --run-dir benchmarks/results/juliet_full
 
-# Iteration sweep — measure benefit of multi-turn on Juliet
+# Multi-turn iteration sweep
 python benchmarks/scripts/run_benchmark.py \
     --dataset juliet --approach vulnhunterx \
     --juliet-per-cwe 10 --model gpt-4o-mini --iteration-sweep
@@ -168,26 +181,26 @@ python benchmarks/scripts/run_benchmark.py \
 
 ### DiverseVul
 
-DiverseVul is a large C/C++ dataset with real CVE-backed labels. Use `--limit` for scale and `--cwe` to target specific vulnerability classes.
+Real-world C/C++ functions with CVE-backed labels. Use `--limit` for scale and `--cwe` to target specific classes.
 
 ```bash
-# Small — 500 entries, memory-safety CWEs only (dry-run)
+# Targeted memory-safety dry-run
 python benchmarks/scripts/run_benchmark.py \
     --dataset diversevul --approach vulnhunterx \
     --limit 500 --cwe CWE-787 CWE-416 --dry-run
 
-# Medium — 5 000 entries, all CWEs
+# Medium run, all CWEs
 python benchmarks/scripts/run_benchmark.py \
     --dataset diversevul --approach vulnhunterx \
     --limit 5000 --model gpt-4o-mini
 
-# Large — full dataset (~349K entries, local model strongly recommended)
+# Full dataset — local model only
 python benchmarks/scripts/run_benchmark.py \
     --dataset diversevul --approach vulnhunterx \
     --limit 0 --model ollama/llama3.2 \
     --run-dir benchmarks/results/diversevul_full
 
-# Per-CWE sweep — 500 entries per top memory-safety CWE
+# Per-CWE sweep
 for cwe in CWE-787 CWE-416 CWE-476 CWE-125; do
   python benchmarks/scripts/run_benchmark.py \
       --dataset diversevul --approach vulnhunterx \
@@ -198,39 +211,39 @@ done
 
 ### OWASP Benchmark (Java + Python)
 
-The OWASP Benchmark Project ships two SAST test suites with CSV ground truth (`expectedresults-*.csv`). Each test case is a single file with a known TP/FP label and CWE — designed specifically for SAST tool comparison. Closes the Java gap and adds a second Python source.
+Two SAST test suites maintained by the OWASP Benchmark Project, each with CSV ground truth (`expectedresults-*.csv`). Each test case is a single file with a known TP/FP label and CWE — designed for SAST comparison.
 
 ```bash
-# Smoke test (no LLM, fixture only — 5 entries)
+# Smoke test (no LLM, fixture only)
 python benchmarks/scripts/run_benchmark.py \
     --dataset owasp --approach raw-sast --limit 5
 
-# After cloning the suite:
+# Clone the suites
 python benchmarks/scripts/setup_datasets.py --dataset owasp-java
 python benchmarks/scripts/setup_datasets.py --dataset owasp-python
 
-# Full Java run with a small model
+# Java only
 python benchmarks/scripts/run_benchmark.py \
     --dataset owasp-java --approach all --model gpt-4o-mini \
     --run-dir benchmarks/results/owasp_java
 
-# Combined Java + Python
+# Java + Python combined (--dataset owasp runs both suites sequentially)
 python benchmarks/scripts/run_benchmark.py \
     --dataset owasp --approach vulnhunterx --model gpt-4o-mini
 ```
 
-License note: BenchmarkJava is GPL-2.0 and BenchmarkPython is GPL-3.0. We clone them at runtime under `benchmarks/datasets/` rather than vendoring; project code stays MIT.
+Use `--dataset owasp-java` or `--dataset owasp-python` to run one suite individually. `--dataset owasp` runs both.
 
-### RealVuln Benchmark (real CVEs + FP traps)
+### RealVuln Benchmark
 
-Adopted as a substitute for SastBench, whose public repository URL was not findable at the time of integration. RealVuln has the same shape (real CVE TPs + curated FP traps) and a documented JSON schema. Currently Python-only (Flask/Django/FastAPI/aiohttp/Tornado), 796 findings across 26 repos.
+Real CVE true-positives + curated false-positive traps across 26 Python web-framework repos. Currently Python-only (Flask / Django / FastAPI / aiohttp / Tornado), 796 findings.
 
 ```bash
 # Smoke test (no LLM, fixture only)
 python benchmarks/scripts/run_benchmark.py \
     --dataset realvuln --approach raw-sast --limit 5
 
-# After cloning the suite:
+# Clone the suite
 python benchmarks/scripts/setup_datasets.py --dataset realvuln
 
 # Real run with a small model
@@ -239,7 +252,7 @@ python benchmarks/scripts/run_benchmark.py \
     --run-dir benchmarks/results/realvuln
 ```
 
-For meaningful `code_snippet` content the adapter reads each function from a working tree under `benchmarks/datasets/realvuln/_repos/<repo_id>/`. You are responsible for checking out the matching `commit_sha` (recorded per-finding) into that path. When the working tree is absent the snippet is left empty and tagged `metadata.snippet_kind = "missing"` — the entry still scores correctly for raw-sast comparison but downstream LLM approaches need the source.
+For meaningful `code_snippet` content the adapter reads each function from a working tree at `benchmarks/datasets/realvuln/_repos/<repo_id>/`. You are responsible for checking out the matching `commit_sha` (recorded per finding) into that path. When the working tree is absent the snippet is left empty and tagged `metadata.snippet_kind = "missing"` — the entry still scores for `raw-sast` comparison, but downstream LLM approaches need the source.
 
 ---
 
@@ -252,25 +265,25 @@ For meaningful `code_snippet` content the adapter reads each function from a wor
                     owasp-java | owasp-python | owasp |
                     realvuln |
                     all  (default: secllmholmes)
-                    `owasp` runs both OWASP Java + Python; `all` includes them and realvuln.
+                    `owasp` runs both OWASP Java + Python; `all` runs every dataset.
 --approach          One or more of: raw-sast vulnhunterx ablation all  (default: all)
---model             LLM model name  (default: read from LLM_MODEL in .env, fallback gpt-4o)
---provider          openai | anthropic | ollama  (default: read from LLM_PROVIDER in .env)
---limit             Max entries per dataset, 0=all  (default: 0)
---lang LANG [...]   Filter fixture entries by language(s): c cpp python javascript php java go
+--model             LLM model name  (default: LLM_MODEL from .env, fallback gpt-4o)
+--provider          openai | anthropic | ollama  (default: LLM_PROVIDER from .env)
+--limit N           Max entries per dataset, 0=all  (default: 0)
+--lang LANG [...]   Filter fixture entries by language: c cpp python javascript php java go
 --cwe CWE [...]     DiverseVul only: filter by CWE ID(s), e.g. CWE-787 CWE-416
 --juliet-per-cwe N  Juliet only: max entries per CWE, balanced TP/FP.
                     5=small (~40)  20=standard (~160) [default]  0=all CWEs (~64K)
---max-iterations    Multi-turn rounds for vulnhunterx/generic  (default: 10)
+--max-iterations N  Multi-turn rounds for vulnhunterx/generic  (default: 10)
 --nmd-handling      exclude | fp  (default: exclude)
 --dry-run           Mock LLM responses — no API cost
 --resume            Skip completed pairs; continue in-progress pairs from last checkpoint
 --run-dir PATH      Explicit output directory (use with --resume for recovery)
 --run-id ID         Timestamp alias for --run-dir (e.g. 20260305_113225)
---checkpoint-every N  Save incremental checkpoint every N entries (default: 1)
---verbose / -v      Print a detailed line per entry during the run
---quiet             Suppress progress display; emit log lines only
---iteration-sweep   Run vulnhunterx at iterations=1,2,3
+--checkpoint-every N  Incremental checkpoint every N entries (default: 1)
+--verbose / -v      Detailed line per entry
+--quiet             Suppress progress display; log lines only
+--iteration-sweep   Run vulnhunterx at iterations = 1, 2, 3
 ```
 
 ### `setup_datasets.py`
@@ -297,12 +310,13 @@ For meaningful `code_snippet` content the adapter reads each function from a wor
 | -------------------------- | ------------------------------------------------------------------ |
 | **Precision**              | Of findings predicted TP, how many are actually vulnerable?        |
 | **Recall**                 | Of all truly vulnerable findings, how many did we catch?           |
+| **Effective Recall**       | Recall that counts NMDs on TPs as misses — see [RESEARCH.md § 2.5](RESEARCH.md#25-effective-recall-metric) |
 | **F1**                     | Harmonic mean of precision and recall                              |
 | **FP Reduction Rate**      | (raw-SAST FPs − approach FPs) / raw-SAST FPs                       |
 | **TP Preservation Rate**   | approach TPs / raw-SAST TPs (must stay high)                       |
-| **NMD Rate**               | Fraction returning "Needs More Data" (excluded from P/R/F1)        |
+| **NMD Rate**               | Fraction returning "Needs More Data" (excluded from P/R/F1 by default) |
 | **Confidence Calibration** | Within each confidence bucket, what % of predictions were correct? |
-| **Tokens/Finding**         | Average LLM tokens consumed per finding                            |
+| **Tokens/Finding**         | Mean LLM tokens consumed per finding                               |
 | **Latency p95**            | 95th-percentile wall-clock time per finding                        |
 
 BENIGN entries (clean code not flagged by SAST) are tracked for cost/latency but excluded from precision/recall computation.
@@ -318,7 +332,9 @@ benchmarks/results/<timestamp>/
 ├── secllmholmes_vulnhunterx_results.json
 ├── ...
 ├── REPORT.md                           # Human-readable report
-└── precision_recall.png                # Chart (if --charts used)
+├── benchmark.log                       # Full DEBUG/INFO log
+├── findings.jsonl                      # One structured record per entry
+└── precision_recall.png                # Chart (when --charts is set)
 ```
 
 ---
@@ -326,40 +342,50 @@ benchmarks/results/<timestamp>/
 ## Interpreting Results
 
 **Good result for VulnHunterX:**
-- `raw-sast`: recall=100% (by definition), precision=~40% (typical SAST noise)
-- `vulnhunterx`: precision improves to >80%, recall stays >85%
-- FP reduction rate: >50% (eliminates more than half of raw SAST false positives)
-- Confidence calibration: High confidence predictions are >90% accurate
+
+- `raw-sast`: recall = 100% by definition; precision ≈ 40% (typical SAST noise).
+- `vulnhunterx`: precision > 80%, recall > 85%.
+- FP reduction rate > 50% — eliminates more than half of raw-SAST false positives.
+- High-confidence predictions are > 90% accurate (calibration).
 
 **Warning signs:**
-- TP preservation rate <80% → VulnHunterX is suppressing real bugs
-- NMD rate >30% → LLM is not getting enough context to make decisions
-- Calibration flat across High/Medium/Low → confidence scores are meaningless
+
+- TP preservation rate < 80% → VulnHunterX is suppressing real bugs.
+- NMD rate > 30% → LLM is not getting enough context to decide.
+- Calibration flat across High/Medium/Low → confidence scores are noise.
+
+### Live progress
+
+```
+  ▶  secllmholmes × vulnhunterx  [228 entries]
+  [secllmholmes × vulnhunterx]  47/228  TP:23 FP:18 NMD:4 ERR:2  $0.42  3.2 s/entry  ETA 9m42s
+  ✓ secllmholmes × vulnhunterx  228/228  P=82.1% R=91.3% F1=86.5%  $1.84  12m15s
+```
+
+Use `--verbose` for one line per entry, `--quiet` for log lines only.
 
 ---
 
 ## Resuming Interrupted Runs
 
-By default every run creates a new timestamped directory and does **not** auto-resume.
-To recover from an interruption, use `--run-dir` with `--resume`:
+Every run creates a new timestamped directory and does **not** auto-resume. Pair `--run-dir` with `--resume` to recover:
 
 ```bash
-# 1. Start with an explicit, stable directory name
+# Start with a stable directory name
 python benchmarks/scripts/run_benchmark.py \
     --dataset all --approach all --model gpt-4o \
     --run-dir benchmarks/results/my_run
 
-# 2. Interrupted by Ctrl+C or system kill? Resume:
+# Resume after Ctrl+C or system kill
 python benchmarks/scripts/run_benchmark.py \
     --dataset all --approach all --model gpt-4o \
     --run-dir benchmarks/results/my_run --resume
 
-# 3. Inspect what has been completed vs in-progress:
+# Inspect status mid-run
 grep -h '"status"' benchmarks/results/my_run/*_results.json
 
-# 4. Generate report from partial or completed results:
-python benchmarks/scripts/generate_report.py \
-    --run-dir benchmarks/results/my_run
+# Generate a report from partial or completed results
+python benchmarks/scripts/generate_report.py --run-dir benchmarks/results/my_run
 ```
 
 ### Resume semantics
@@ -369,48 +395,29 @@ python benchmarks/scripts/generate_report.py \
 | `completed`                  | yes            | Skip pair entirely                                    |
 | `in_progress`                | yes            | Restore prior entries; continue from where it stopped |
 | `completed` or `in_progress` | no             | Overwrite and restart the pair (logged as warning)    |
-| Missing                      | either         | Start fresh                                           |
+| missing                      | either         | Start fresh                                           |
 
-Progress is checkpointed every entry by default (`--checkpoint-every 1`).
-You can increase this for faster approaches:
+Checkpointing is per-entry by default (`--checkpoint-every 1`). For cheap approaches you can amortize:
 
 ```bash
 python benchmarks/scripts/run_benchmark.py \
     --approach raw-sast --checkpoint-every 50 --run-dir benchmarks/results/my_run
 ```
 
-### CLI progress display
-
-During a run, each pair shows a live progress line on stderr:
-
-```
-  ▶  secllmholmes × vulnhunterx  [228 entries]
-  [secllmholmes × vulnhunterx]  47/228  TP:23 FP:18 NMD:4 ERR:2  $0.42  3.2s/entry  ETA 9m42s
-  ✓ secllmholmes × vulnhunterx  228/228  P=82.1% R=91.3% F1=86.5%  $1.84  12m15s
-```
-
-Use `--verbose` (or `-v`) for a detailed line per entry:
-
-```bash
-python benchmarks/scripts/run_benchmark.py \
-    --dataset secllmholmes --approach vulnhunterx --limit 20 --verbose --dry-run
-```
-
-Use `--quiet` to suppress progress display and get plain log lines only
-(useful when piping output to a file).
-
 ---
 
-## Adding New Datasets
+## Adding Datasets or Approaches
 
-1. Create an adapter in `benchmarks/adapters/` implementing `load() -> list[GroundTruthEntry]`
-2. Add dataset setup to `benchmarks/scripts/setup_datasets.py`
-3. Add loader branch to `_load_dataset()` in `benchmarks/scripts/run_benchmark.py`
-4. Add fixture file to `benchmarks/fixtures/<name>_sample.json`
-5. Add unit tests in `tests/test_benchmark_adapters.py`
+### New dataset
 
-## Adding New Approaches
+1. Create an adapter in `benchmarks/adapters/` implementing `load() -> list[GroundTruthEntry]`.
+2. Add a setup branch to `benchmarks/scripts/setup_datasets.py`.
+3. Add a loader branch to `_load_dataset()` in `benchmarks/scripts/run_benchmark.py`.
+4. Add a fixture file at `benchmarks/fixtures/<name>_sample.json`.
+5. Add unit tests in `tests/test_benchmark_adapters.py`.
 
-1. Create a class in `benchmarks/approaches/` extending `BenchmarkApproach`
-2. Implement `evaluate(entry: GroundTruthEntry) -> BenchmarkResult`
-3. Register in `_build_approach()` in `run_benchmark.py`
+### New approach
+
+1. Subclass `BenchmarkApproach` in `benchmarks/approaches/`.
+2. Implement `evaluate(entry: GroundTruthEntry) -> BenchmarkResult`.
+3. Register it in `_build_approach()` in `run_benchmark.py`.
