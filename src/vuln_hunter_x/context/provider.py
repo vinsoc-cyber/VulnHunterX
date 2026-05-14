@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class ContextProvider:
         self.output_dir = Path(output_dir)
         self.repos_dir = Path(repos_dir)
         self._cache: dict[str, list[dict]] = {}
+        self._cache_lock = threading.Lock()
 
     def _context_dir(self, lang: str, repo_name: str) -> Path:
         """Return context directory for a repo: output/<lang>/<repo_name>/context."""
@@ -117,24 +119,26 @@ class ContextProvider:
     def _load_csv(self, repo_name: str, lang: str, csv_name: str) -> list[dict]:
         """Load a CSV file from the context directory."""
         cache_key = f"{lang}/{repo_name}/{csv_name}"
-        if cache_key in self._cache:
-            return self._cache[cache_key]
+        with self._cache_lock:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached
 
-        csv_path = self._context_dir(lang, repo_name) / f"{csv_name}.csv"
-        if not csv_path.is_file():
-            return []
+            csv_path = self._context_dir(lang, repo_name) / f"{csv_name}.csv"
+            if not csv_path.is_file():
+                return []
 
-        try:
-            with open(csv_path, newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                rows = list(reader)
-            self._cache[cache_key] = rows
-            return rows
-        except Exception:
-            logger.warning(
-                "Failed to load CSV %s for %s/%s", csv_name, lang, repo_name, exc_info=True
-            )
-            return []
+            try:
+                with open(csv_path, newline="", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    rows = list(reader)
+                self._cache[cache_key] = rows
+                return rows
+            except Exception:
+                logger.warning(
+                    "Failed to load CSV %s for %s/%s", csv_name, lang, repo_name, exc_info=True
+                )
+                return []
 
     def _read_lines(
         self,

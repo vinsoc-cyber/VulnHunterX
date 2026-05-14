@@ -22,6 +22,7 @@ import json
 import logging
 from pathlib import Path
 
+from benchmarks.adapters.cwe_rule_map import cwe_to_rules, primary_rule
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
 
 logger = logging.getLogger(__name__)
@@ -130,16 +131,37 @@ class DiverseVulAdapter:
         if not func:
             return None
 
-        # Normalize CWE
-        cwe_raw = str(record.get("cwe", "")).strip()
-        if cwe_raw and not cwe_raw.upper().startswith("CWE-"):
-            cwe_id = f"CWE-{cwe_raw}"
+        # Normalize CWE: source field is a list (sometimes empty) per the
+        # DiverseVul schema; older variants may also serialise it as a bare
+        # string. Pick the primary CWE as the canonical id; keep the full
+        # list under metadata.all_cwes so nothing is silently dropped.
+        raw_cwe = record.get("cwe", []) or []
+        if isinstance(raw_cwe, str):
+            cwe_list = [raw_cwe] if raw_cwe.strip() else []
         else:
-            cwe_id = cwe_raw.upper() if cwe_raw else "Unknown"
+            cwe_list = [str(c).strip() for c in raw_cwe if str(c).strip()]
+        normalised: list[str] = []
+        for c in cwe_list:
+            c_upper = c.upper()
+            normalised.append(c_upper if c_upper.startswith("CWE-") else f"CWE-{c_upper}")
+        cwe_id = normalised[0] if normalised else "Unknown"
 
         # Apply CWE filter
         if cwe_filter and cwe_id not in cwe_filter:
             return None
+
+        # Synthesise a rule_id from the CWE so the questions loader can
+        # exact-match instead of falling to the default-question bucket.
+        # DiverseVul is C/C++, so prefer cpp/ rules; fall back to the primary
+        # rule when no cpp/ variant is registered.
+        rule_id = ""
+        if cwe_id != "Unknown":
+            for rule in cwe_to_rules(cwe_id):
+                if rule.startswith("cpp/") or rule.startswith("c/"):
+                    rule_id = rule
+                    break
+            if not rule_id:
+                rule_id = primary_rule(cwe_id) or ""
 
         # Deduplicate by function hash
         func_hash = hashlib.md5(func.encode(), usedforsecurity=False).hexdigest()[:12]
@@ -158,7 +180,7 @@ class DiverseVulAdapter:
             id=f"dvul_{func_hash}",
             source_dataset="diversevul",
             cwe_id=cwe_id,
-            rule_id="",
+            rule_id=rule_id,
             file_path=record.get("file", ""),
             function_name=record.get("func_name", ""),
             start_line=1,
@@ -168,5 +190,6 @@ class DiverseVulAdapter:
             metadata={
                 "project": record.get("project", ""),
                 "commit_id": record.get("commit_id", ""),
+                "all_cwes": normalised,
             },
         )

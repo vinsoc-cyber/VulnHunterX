@@ -7,10 +7,13 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 # Pattern that recognises a concrete code citation in reasoning text:
 # "line 42", "line: 42", "at line 42", "(line 42)", or "file.c:42".
@@ -70,6 +73,25 @@ from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
 
 
+class _ThreadSafeLogFile:
+    """Serializes write/flush on a shared log file handle so parallel
+    verification workers cannot interleave bytes mid-write."""
+
+    __slots__ = ("_fh", "_lock")
+
+    def __init__(self, fh: Any, lock: threading.Lock) -> None:
+        self._fh = fh
+        self._lock = lock
+
+    def write(self, data: str) -> int:
+        with self._lock:
+            return self._fh.write(data)
+
+    def flush(self) -> None:
+        with self._lock:
+            self._fh.flush()
+
+
 def _is_test_path(file_path: str) -> bool:
     """Return True if file_path is under a test/ or tests/ path segment."""
     if not file_path:
@@ -107,6 +129,7 @@ class VerificationEngine:
         context_extractor: ContextExtractor | None = None,
         context_provider: ContextProvider | None = None,
         llm_client: LLMClient | None = None,
+        jobs: int | None = None,
     ):
         """Initialize the verification engine.
 
@@ -116,8 +139,12 @@ class VerificationEngine:
             context_extractor: Custom context extractor (default: auto-created from config).
             context_provider: Custom CSV context provider (default: auto-created from config).
             llm_client: Custom LLM client (default: auto-created from config).
+            jobs: Concurrent findings to verify (ThreadPoolExecutor workers).
+                When ``None``, falls back to ``config.verification.jobs`` (default 4).
+                Set to 1 to disable parallelism and use the sequential code path.
         """
         self.config = config
+        self._jobs = jobs if jobs is not None else getattr(config.verification, "jobs", 4)
 
         # Initialize components
         self.questions_loader = questions_loader or QuestionsLoader(config.paths.prompts_dir)
@@ -155,16 +182,27 @@ class VerificationEngine:
         self._on_finding_start: Callable[[int, int, Finding], None] | None = None
         self._on_finding_complete: Callable[[int, int, Verdict], None] | None = None
 
-        # Open log file if configured
-        self._log_fh = (
+        # Open log file if configured. Wrap in a thread-safe shim so concurrent
+        # workers in parallel verification cannot interleave bytes mid-write.
+        self._log_lock = threading.Lock()
+        self._callback_lock = threading.Lock()
+        raw_log_fh = (
             open(config.output.log_file, "w", encoding="utf-8")  # noqa: SIM115
             if config.output.log_file
             else None
         )
+        self._raw_log_fh = raw_log_fh
+        self._log_fh: _ThreadSafeLogFile | None = (
+            _ThreadSafeLogFile(raw_log_fh, self._log_lock) if raw_log_fh is not None else None
+        )
 
     def __del__(self) -> None:
-        if self._log_fh:
-            self._log_fh.close()
+        raw = getattr(self, "_raw_log_fh", None)
+        if raw is not None:
+            try:
+                raw.close()
+            except Exception:
+                pass
 
     @classmethod
     def from_config(
@@ -296,7 +334,6 @@ class VerificationEngine:
             findings = findings[:limit]
 
         start_time = time.time()
-        verdicts: list[Verdict] = []
         stats: dict[str, int] = {
             "True Positive": 0,
             "False Positive": 0,
@@ -305,17 +342,38 @@ class VerificationEngine:
         }
 
         total = len(findings)
-        for i, finding in enumerate(findings, 1):
-            if self._on_finding_start:
-                self._on_finding_start(i, total, finding)
 
-            verdict = self._verify_single_finding(finding)
-            verdicts.append(verdict)
+        if self._jobs <= 1 or total <= 1:
+            verdicts: list[Verdict] = []
+            for i, finding in enumerate(findings, 1):
+                verdicts.append(self._verify_one_with_callbacks(i, total, finding))
+        else:
+            verdicts_by_index: dict[int, Verdict] = {}
+            pool = ThreadPoolExecutor(
+                max_workers=self._jobs, thread_name_prefix="vhx-verify"
+            )
+            try:
+                futures = {
+                    pool.submit(
+                        self._verify_one_with_callbacks, i, total, finding
+                    ): i
+                    for i, finding in enumerate(findings, 1)
+                }
+                try:
+                    for future in as_completed(futures):
+                        idx = futures[future]
+                        verdicts_by_index[idx] = future.result()
+                except BaseException:
+                    # Drop queued work; let in-flight LLM calls finish so we
+                    # don't leak partial network conversations.
+                    pool.shutdown(cancel_futures=True, wait=True)
+                    raise
+            finally:
+                pool.shutdown(wait=True)
+            verdicts = [verdicts_by_index[i] for i in sorted(verdicts_by_index)]
 
-            stats[verdict.verdict] = stats.get(verdict.verdict, 0) + 1
-
-            if self._on_finding_complete:
-                self._on_finding_complete(i, total, verdict)
+        for v in verdicts:
+            stats[v.verdict] = stats.get(v.verdict, 0) + 1
 
         total_time = time.time() - start_time
 
@@ -326,6 +384,23 @@ class VerificationEngine:
             provider=self.config.llm.provider,
             total_time_seconds=total_time,
         )
+
+    def _verify_one_with_callbacks(
+        self, i: int, total: int, finding: Finding
+    ) -> Verdict:
+        """Run one finding's verification with progress callbacks under a lock.
+
+        The callback lock ensures CLI progress prints from concurrent workers
+        do not interleave.
+        """
+        with self._callback_lock:
+            if self._on_finding_start:
+                self._on_finding_start(i, total, finding)
+        verdict = self._verify_single_finding(finding)
+        with self._callback_lock:
+            if self._on_finding_complete:
+                self._on_finding_complete(i, total, verdict)
+        return verdict
 
     def verify_finding_iter(
         self,
@@ -348,16 +423,29 @@ class VerificationEngine:
             findings = findings[:limit]
 
         total = len(findings)
-        for i, finding in enumerate(findings, 1):
-            if self._on_finding_start:
-                self._on_finding_start(i, total, finding)
 
-            verdict = self._verify_single_finding(finding)
+        if self._jobs <= 1 or total <= 1:
+            for i, finding in enumerate(findings, 1):
+                yield self._verify_one_with_callbacks(i, total, finding)
+            return
 
-            if self._on_finding_complete:
-                self._on_finding_complete(i, total, verdict)
-
-            yield verdict
+        # Parallel: yield verdicts in finish order (not input order).
+        pool = ThreadPoolExecutor(
+            max_workers=self._jobs, thread_name_prefix="vhx-verify"
+        )
+        try:
+            futures = [
+                pool.submit(self._verify_one_with_callbacks, i, total, finding)
+                for i, finding in enumerate(findings, 1)
+            ]
+            try:
+                for future in as_completed(futures):
+                    yield future.result()
+            except BaseException:
+                pool.shutdown(cancel_futures=True, wait=True)
+                raise
+        finally:
+            pool.shutdown(wait=True)
 
     def _verify_single_finding(self, finding: Finding) -> Verdict:
         """Verify a single finding."""

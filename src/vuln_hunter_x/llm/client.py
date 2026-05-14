@@ -96,7 +96,11 @@ class LLMClient:
             if not self.model.startswith("anthropic/"):
                 self.model = "anthropic/" + self.model
 
-    def _build_completion_kwargs(self, messages: list[dict]) -> dict:
+    def _build_completion_kwargs(
+        self,
+        messages: list[dict],
+        temperature: float | None = None,
+    ) -> dict:
         """Build kwargs for litellm.completion with provider-specific settings."""
         model = self.model
         api_base = None
@@ -110,7 +114,7 @@ class LLMClient:
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "temperature": self.temperature,
+            "temperature": self.temperature if temperature is None else temperature,
             "max_tokens": self.max_tokens,
         }
         if api_base:
@@ -138,6 +142,7 @@ class LLMClient:
         quiet: bool = False,
         force_decision: bool = True,
         prefetched_context: dict[str, str] | None = None,
+        temperature: float | None = None,
     ) -> Verdict:
         """
         Analyze a finding and return a verdict.
@@ -243,7 +248,7 @@ class LLMClient:
                 print("    Calling LLM...", end="", flush=True)
 
             try:
-                kwargs = self._build_completion_kwargs(messages)
+                kwargs = self._build_completion_kwargs(messages, temperature=temperature)
                 response = litellm.completion(**kwargs)
                 if not response.choices:
                     raise ValueError("LLM returned empty choices list")
@@ -353,6 +358,7 @@ class LLMClient:
                                 total_input_tokens,
                                 total_output_tokens,
                                 total_cached_input_tokens,
+                                temperature=temperature,
                             )
                             verdict = parsed.get("verdict", "False Positive")
                             iterations += 1
@@ -491,6 +497,7 @@ class LLMClient:
                     total_input_tokens,
                     total_output_tokens,
                     total_cached_input_tokens,
+                    temperature=temperature,
                 )
                 iterations += 1
                 elapsed = time.time() - start_time
@@ -598,30 +605,26 @@ class LLMClient:
                 prefetched_context=prefetched_context,
             )
 
-        # Sample N runs at the elevated voting temperature. We mutate
-        # self.temperature within the method only — restored in `finally`
-        # so concurrent callers (if any) see the original setting.
-        original_temp = self.temperature
-        self.temperature = voting_temperature
+        # Sample N runs at the elevated voting temperature. Threaded through
+        # as a per-call kwarg so the client instance remains stateless w.r.t.
+        # temperature, making concurrent callers safe.
         verdicts: list[Verdict] = []
-        try:
-            for k in range(samples):
-                v = self.analyze(
-                    finding=finding,
-                    context=context,
-                    questions=questions,
-                    func_name=func_name,
-                    context_provider=context_provider,
-                    max_iterations=max_iterations,
-                    verbose=verbose,
-                    log_file=log_file,
-                    quiet=quiet,
-                    force_decision=force_decision,
-                    prefetched_context=prefetched_context,
-                )
-                verdicts.append(v)
-        finally:
-            self.temperature = original_temp
+        for k in range(samples):
+            v = self.analyze(
+                finding=finding,
+                context=context,
+                questions=questions,
+                func_name=func_name,
+                context_provider=context_provider,
+                max_iterations=max_iterations,
+                verbose=verbose,
+                log_file=log_file,
+                quiet=quiet,
+                force_decision=force_decision,
+                prefetched_context=prefetched_context,
+                temperature=voting_temperature,
+            )
+            verdicts.append(v)
 
         return self._aggregate_votes(verdicts, tie_break=tie_break)
 
@@ -732,13 +735,14 @@ class LLMClient:
         total_input_tokens: int = 0,
         total_output_tokens: int = 0,
         total_cached_input_tokens: int = 0,
+        temperature: float | None = None,
     ) -> tuple[dict[str, Any], str, int, float, int, int, int]:
         """Execute one forced-decision LLM turn.
 
         Returns (parsed, raw, total_tokens, total_cost, total_input, total_output, total_cached_input).
         """
         messages.append({"role": "user", "content": self._FORCE_DECISION_PROMPT})
-        kwargs = self._build_completion_kwargs(messages)
+        kwargs = self._build_completion_kwargs(messages, temperature=temperature)
         response = litellm.completion(**kwargs)
         raw = response.choices[0].message.content or "" if response.choices else ""
         all_raw_responses.append(raw)

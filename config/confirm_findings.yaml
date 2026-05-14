@@ -37,6 +37,12 @@ temperature: 0.2
 # Maximum tokens in LLM response
 max_tokens: 5000
 
+# Concurrent findings to verify in parallel (ThreadPoolExecutor workers).
+# 1 disables parallelism (sequential path). Higher values speed up runs that
+# call many LLM round-trips, but may hit provider RPM/TPM limits on low tiers.
+# Override on the CLI with `verify -j N`.
+jobs: 4
+
 # =============================================================================
 # Output Settings
 # =============================================================================

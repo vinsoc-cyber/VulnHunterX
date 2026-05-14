@@ -148,6 +148,27 @@ Starting points for `--limit` and dataset-specific flags:
 
 For runs over a few thousand entries, use a local Ollama model — commercial-API cost grows quickly. See [RESEARCH.md § Token / Cost Reference](RESEARCH.md#token-and-cost-reference).
 
+### Parallel evaluation (`-j, --jobs`)
+
+Benchmark runs are I/O-bound on the LLM provider, so the runner evaluates entries concurrently with a `ThreadPoolExecutor`. Default `--jobs 4` typically yields ~3–4× wall-clock speedup over sequential mode.
+
+```bash
+# Default — 4 entries in flight at a time
+python benchmarks/scripts/run_benchmark.py --dataset owasp --approach vulnhunterx
+
+# Push harder on high-tier API keys or a self-hosted Ollama
+python benchmarks/scripts/run_benchmark.py --dataset diversevul --approach vulnhunterx -j 16
+
+# Strict sequential for debugging (clean stack traces, deterministic logs)
+python benchmarks/scripts/run_benchmark.py --dataset secllmholmes --approach vulnhunterx -j 1
+```
+
+Notes:
+- The `vulnhunterx` approach pins the inner `VerificationEngine` to `jobs=1` so only the outer benchmark layer fans out — no hidden double-parallelism.
+- Per-entry order in `findings.jsonl` and the per-approach results JSON is preserved (entries finish concurrently but slot into their input index), so resume semantics are unaffected.
+- On free/low-tier OpenAI keys, `-j 4` can surface 429 rate-limit errors; drop to `-j 1` or `-j 2` if you see those.
+- Progress display and per-entry log lines are serialized — output still reads top-to-bottom.
+
 ---
 
 ## Per-Dataset Playbooks
@@ -281,6 +302,7 @@ For meaningful `code_snippet` content the adapter reads each function from a wor
 --run-dir PATH      Explicit output directory (use with --resume for recovery)
 --run-id ID         Timestamp alias for --run-dir (e.g. 20260305_113225)
 --checkpoint-every N  Incremental checkpoint every N entries (default: 1)
+-j, --jobs N        Concurrent entries to evaluate (default: 4; set 1 to disable parallelism)
 --verbose / -v      Detailed line per entry
 --quiet             Suppress progress display; log lines only
 --iteration-sweep   Run vulnhunterx at iterations = 1, 2, 3
@@ -353,6 +375,16 @@ benchmarks/results/<timestamp>/
 - TP preservation rate < 80% → VulnHunterX is suppressing real bugs.
 - NMD rate > 30% → LLM is not getting enough context to decide.
 - Calibration flat across High/Medium/Low → confidence scores are noise.
+- `pred_api_error_count` > 0 in summary.json → some entries failed with an LLM API error (quota, rate-limit, network). REPORT.md surfaces this as a separate "LLM API failures" warning so it isn't conflated with model error. Re-run the affected entries with credit available before drawing conclusions about the methodology.
+
+### Snippet-only context — known ceilings
+
+Benchmark mode runs each entry against an in-memory code snippet only (no repo-wide context provider — see `_SnippetContextExtractor` in `benchmarks/approaches/base.py`). For most CWEs (injection, XSS, path traversal) the immediate snippet contains the source-to-sink flow and recall stays ≥90%. Two CWEs hit a hard floor because the deciding signal lives outside the snippet:
+
+- **CWE-328 (weak hashing)** — OWASP BenchmarkJava loads the algorithm name from `BenchmarkRunner.properties`; the snippet only shows `MessageDigest.getInstance(algo)` with no way to tell whether `algo` is `MD5` or `SHA-512`. The LLM correctly answers "no exploitable use" for the safe-default branch and gets graded as a false negative.
+- **CWE-78 (command injection)** — Polymorphic command builders (`helpers/Utils.executeCmd`) may strip or escape input before `Runtime.exec` runs; the snippet doesn't show the helper body.
+
+Mitigations available today: the question YAMLs for these rules declare `additional_context: ["caller", "global"]` and `min_iterations: 2` so a context-aware run (CLI verify with a populated `output/context/`) can request the helper file. A follow-up could wire a minimal `_SnippetContextProvider` for benchmark mode that serves an allow-listed set of repo-root helpers (`BenchmarkRunner.properties`, `helpers/Utils.java`).
 
 ### Live progress
 
