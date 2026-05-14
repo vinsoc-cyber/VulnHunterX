@@ -222,11 +222,17 @@ class ProgressDisplay:
     def _render_bar(self, done: int) -> None:
         """Overwrite current line with a compact progress summary."""
         t = self._totals
-        mean_e = t.mean_elapsed
-        if mean_e and mean_e > 0:
+        # Wall-clock throughput so the figure stays honest under parallel
+        # execution (-j > 1). Per-entry elapsed_seconds is roughly constant
+        # whether one worker or N run concurrently, so dividing total wall time
+        # by entries-actually-done naturally accounts for the speedup.
+        completed_now = done - self._resumed_count
+        wall_elapsed = time.monotonic() - self._start_time
+        if completed_now > 0 and wall_elapsed > 0:
+            wall_per_entry = wall_elapsed / completed_now
             remaining = self.total - done
-            eta = _fmt_seconds(remaining * mean_e)
-            speed = f"{mean_e:.1f}s/entry"
+            eta = _fmt_seconds(remaining * wall_per_entry)
+            speed = f"{wall_per_entry:.1f}s/entry"
         else:
             eta = "?"
             speed = "—"

@@ -387,6 +387,12 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     # Verification settings
     verify_group = parser.add_argument_group("Verification Settings")
     verify_group.add_argument("--max-iterations", type=int, help="Max LLM rounds")
+    verify_group.add_argument(
+        "-j", "--jobs",
+        type=int,
+        default=None,
+        help="Concurrent findings to verify (default: 4; set 1 to disable parallelism)",
+    )
 
     # Filters
     filter_group = parser.add_argument_group("Filters")

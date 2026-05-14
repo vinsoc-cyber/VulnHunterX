@@ -12,13 +12,39 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 logger = logging.getLogger(__name__)
+
+
+# Matches an older DiverseVul-shaped cwe_id (`CWE-['CWE-119']` / `CWE-[]`),
+# emitted before the adapter's list-handling fix. Lets reports rendered from
+# pre-fix summary JSONs still display readable CWE labels.
+_CWE_LIST_RE = re.compile(r"^CWE-\[(.*)\]$")
+
+
+def _clean_cwe(raw: str) -> str:
+    if not raw:
+        return "Unknown"
+    m = _CWE_LIST_RE.match(raw)
+    if m:
+        body = m.group(1).strip()
+        if not body:
+            return "Unknown"
+        try:
+            parsed = ast.literal_eval("[" + body + "]")
+        except (SyntaxError, ValueError):
+            return "Unknown"
+        if not parsed:
+            return "Unknown"
+        return str(parsed[0])
+    return raw
 
 
 def _pct(val: float | None, decimals: int = 1) -> str:
@@ -150,6 +176,22 @@ def _key_findings(summaries: list[dict]) -> str:
                 f"Consider increasing `--max-iterations` or providing more context."
             )
 
+    # API-failure warnings — separate operational misses from model errors so
+    # the "TP preservation" headline isn't dragged down by quota/network issues.
+    for s in llm_summaries:
+        api_err = s.get("pred_api_error_count") or 0
+        if api_err > 0:
+            denom = s.get("total_processed") or 0
+            pct = f"{(api_err / denom * 100):.1f}%" if denom else "?"
+            bullets.append(
+                f"⚠️ **LLM API failures**: `{s['approach']}` on `{s['dataset']}` "
+                f"had {api_err} findings ({pct}) fail with an LLM API error "
+                f"(rate-limit / quota / network). These count as misses but are "
+                f"**not** model errors. Re-run the affected entries to get an "
+                f"honest picture; precision/recall above will rise as those "
+                f"resolve to real verdicts."
+            )
+
     # VulnHunterX vs generic-questions comparison
     for dataset in {s.get("dataset") for s in summaries}:
         vhx = next((s for s in summaries if s.get("approach") == "vulnhunterx" and s.get("dataset") == dataset), None)
@@ -164,10 +206,15 @@ def _key_findings(summaries: list[dict]) -> str:
                     f"({_pct(vhx['f1'])} vs {_pct(gq['f1'])})."
                 )
 
-    # Per-CWE highlights (best and worst)
+    # Per-CWE highlights (best and worst). Exclude buckets with n<10 so a
+    # 2-entry CWE doesn't end up as "strongest" / "weakest" (Tier 3A).
     for s in llm_summaries:
         per_cwe = s.get("per_cwe", [])
-        scored_cwes = [(c.get("f1") or 0, c["cwe_id"]) for c in per_cwe if c.get("f1") is not None]
+        scored_cwes = [
+            (c.get("f1") or 0, _clean_cwe(c["cwe_id"]))
+            for c in per_cwe
+            if c.get("f1") is not None and (c.get("total") or 0) >= 10
+        ]
         if len(scored_cwes) >= 2:
             best_cwe = max(scored_cwes)
             worst_cwe = min(scored_cwes)
@@ -177,6 +224,32 @@ def _key_findings(summaries: list[dict]) -> str:
                     f"strongest on `{best_cwe[1]}` (F1={_pct(best_cwe[0])}), "
                     f"weakest on `{worst_cwe[1]}` (F1={_pct(worst_cwe[0])})."
                 )
+
+    # Inverted-calibration warning (Tier 3B): if High-confidence predictions
+    # are *less* accurate than Low, the confidence signal is misleading and
+    # the headline shouldn't quietly accept it. Calibration is a dict keyed
+    # by bucket name: {"High": {total, correct, accuracy}, "Low": {...}, ...}.
+    for s in llm_summaries:
+        cal = s.get("calibration") or {}
+        high = cal.get("High") if isinstance(cal, dict) else None
+        low = cal.get("Low") if isinstance(cal, dict) else None
+        if (
+            high
+            and low
+            and (high.get("total") or 0) >= 30
+            and (low.get("total") or 0) >= 30
+            and high.get("accuracy") is not None
+            and low.get("accuracy") is not None
+            and high["accuracy"] < low["accuracy"]
+        ):
+            bullets.append(
+                f"⚠️ **Inverted confidence calibration**: `{s['approach']}` on "
+                f"`{s['dataset']}` — High-confidence predictions "
+                f"({_pct(high['accuracy'])}) are *less* accurate than Low "
+                f"({_pct(low['accuracy'])}). The confidence signal is "
+                f"misleading or noise; tighten the High threshold or "
+                f"investigate adapter quality."
+            )
 
     if not bullets:
         return ""
@@ -256,9 +329,15 @@ def _cwe_table(summaries: list[dict]) -> str:
              "|---|---|---|---|---|---|"]
     for s in summaries:
         for cwe in s.get("per_cwe", []):
+            cwe_label = _clean_cwe(cwe.get("cwe_id", ""))
+            total = cwe.get("total")
+            # Mark small buckets (n<10) so a stray "F1=66.7% on n=2" doesn't
+            # look like a real signal in the report (Tier 3A).
+            if isinstance(total, int) and total < 10:
+                cwe_label = f"{cwe_label} *(n={total})*"
             lines.append(
-                f"| {s.get('approach','?')} | {cwe.get('cwe_id','?')} "
-                f"| {cwe.get('total','?')} "
+                f"| {s.get('approach','?')} | {cwe_label} "
+                f"| {total if total is not None else '?'} "
                 f"| {_pct(cwe.get('precision'))} "
                 f"| {_pct(cwe.get('recall'))} "
                 f"| {_pct(cwe.get('f1'))} |"
@@ -319,14 +398,39 @@ def _question_coverage_table(summaries: list[dict]) -> str:
     """Show which question rules from YAML files were exercised in this run."""
     # Collect rule_ids seen in benchmark results
     seen_rules: set[str] = set()
+    total_results = 0
+    default_match_total = 0
     for s in summaries:
         for r in s.get("per_rule", []):
             rid = r.get("rule_id", "")
             if rid and rid != "unknown":
                 seen_rules.add(rid)
+        # Sum the default-match share to differentiate "no rule_ids captured"
+        # from "rule_ids captured but every one fell to default".
+        match_counts = s.get("question_match_counts") or {}
+        for v in match_counts.values():
+            total_results += int(v or 0)
+        default_match_total += int(match_counts.get("default", 0) or 0)
 
     if not seen_rules:
-        return "_No per-rule data available. Run benchmark with current code to capture rule_id._"
+        # Tier 3C: surface this loudly. Either the adapter forgot to emit
+        # rule_ids (likely a regression) or the benchmark fell entirely to
+        # default questions — both are red flags worth a warning, not a
+        # placid "no data" placeholder.
+        if total_results > 0 and default_match_total > 0:
+            pct = 100.0 * default_match_total / total_results
+            return (
+                f"> ⚠️ **No rule IDs captured / 100% default-match** — "
+                f"{default_match_total}/{total_results} findings ({pct:.0f}%) "
+                f"fell to the default-question bucket. Check the responsible "
+                f"adapter — empty `rule_id` on every entry forces the loader "
+                f"to skip exact/prefix/lang-prefix matching and degrades "
+                f"verification quality."
+            )
+        return (
+            "> ⚠️ **No rule IDs captured** — run benchmark with current code "
+            "to capture `rule_id` per finding, or check the adapter."
+        )
 
     # Try to load all rules from the YAML files
     try:

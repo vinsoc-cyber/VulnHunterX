@@ -60,6 +60,10 @@ class VerificationConfig:
     self_consistency_samples: int = 1
     self_consistency_temperature: float = 0.7
     self_consistency_tie_break: str = "fp"
+    # Number of findings to verify concurrently (ThreadPoolExecutor workers).
+    # 1 disables parallelism. Override per-call with VerificationEngine(jobs=...)
+    # or the `verify -j N` CLI flag.
+    jobs: int = 4
 
 
 @dataclass
@@ -179,6 +183,7 @@ class Config:
             self_consistency_tie_break=str(
                 data.get("self_consistency_tie_break", "fp")
             ),
+            jobs=int(data.get("jobs", 4)),
         )
 
         # Paths: support both top-level keys and paths.* for backward compatibility

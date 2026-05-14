@@ -32,6 +32,34 @@ from benchmarks.metrics.stats import (
 )
 
 
+# Markers that an ERROR verdict came from an LLM-API failure (rate-limit, quota,
+# network) rather than a model decision. Used to separate operational misses
+# from genuine model errors when reporting per-pair metrics.
+_API_ERROR_MARKERS = (
+    "insufficient balance",
+    "rate limit",
+    "ratelimiterror",
+    "rate_limit_exceeded",
+    "openaiexception",
+    "anthropicexception",
+    "litellm.",
+    "apiconnectionerror",
+    "apitimeouterror",
+    "503 service unavailable",
+    "502 bad gateway",
+)
+
+
+def _is_api_error(reasoning: str | None) -> bool:
+    """Return True when an ERROR verdict's reasoning matches a known LLM-API
+    failure signature. Heuristic match — surface false-negatives by checking
+    the markers list above rather than silently miscategorising."""
+    if not reasoning:
+        return False
+    haystack = reasoning.lower()
+    return any(marker in haystack for marker in _API_ERROR_MARKERS)
+
+
 @dataclass
 class CWEMetrics:
     """Metrics for a single CWE class."""
@@ -125,6 +153,10 @@ class ApproachMetrics:
     pred_fp: int = 0
     pred_nmd: int = 0
     pred_error: int = 0
+    # Subset of pred_error caused by an LLM API failure (rate-limit, quota,
+    # network). These are NOT model errors — re-running with credit available
+    # is the right remedy, not prompt engineering.
+    pred_api_error_count: int = 0
     nmd_tp_count: int = 0  # NMD entries whose ground truth was TP
 
     # Core accuracy
@@ -161,6 +193,11 @@ class ApproachMetrics:
     total_cost_usd: float = 0.0
     elapsed_seconds: list[float] = field(default_factory=list)
     total_elapsed: float = 0.0
+    # Per-pair wall-clock duration measured by the runner. Under sequential
+    # execution this ≈ total_elapsed; under parallel execution
+    # (run_benchmark.py -j N) it equals the actual elapsed time, while
+    # total_elapsed continues to sum per-entry durations (cumulative compute).
+    wall_seconds: float | None = None
 
     # Iterations (multi-turn approaches)
     iterations_list: list[int] = field(default_factory=list)
@@ -329,12 +366,15 @@ class ApproachMetrics:
             "dataset": self.dataset_name,
             "nmd_handling": self.nmd_handling,
             "total_evaluated": self.total_evaluated,
+            "total_processed": self.total_processed,
             "precision": _fmt(self.precision),
             "recall": _fmt(self.recall),
             "f1": _fmt(self.f1),
             "effective_recall": _fmt(self.effective_recall),
             "nmd_rate": _fmt(self.nmd_rate),
             "error_rate": _fmt(self.error_rate),
+            "pred_error": self.pred_error,
+            "pred_api_error_count": self.pred_api_error_count,
             "total_tokens": self.total_tokens,
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
@@ -347,6 +387,9 @@ class ApproachMetrics:
             "total_cost_usd": round(self.total_cost_usd, 4),
             "tokens_per_finding": _fmt(self.tokens_per_finding),
             "total_elapsed_s": round(self.total_elapsed, 2),
+            "wall_seconds": (
+                round(self.wall_seconds, 2) if self.wall_seconds is not None else None
+            ),
             "mean_latency_s": _fmt(self.mean_latency),
             "median_latency_s": _fmt(self.median_latency),
             "p95_latency_s": _fmt(self.p95_latency),
@@ -487,6 +530,8 @@ def evaluate(
 
         if pred == PRED_ERROR:
             metrics.pred_error += 1
+            if _is_api_error(r.reasoning):
+                metrics.pred_api_error_count += 1
             metrics.total_processed += 1
             metrics.elapsed_seconds.append(r.elapsed_seconds)
             metrics.total_elapsed += r.elapsed_seconds

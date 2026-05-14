@@ -50,7 +50,8 @@ def _build_java_repo(root: Path, rows: list[tuple[str, bool, str, str]]) -> Path
 
 
 def _build_python_repo(root: Path, rows: list[tuple[str, bool, str, str]]) -> Path:
-    src = root / "src" / "benchmark" / "testcode"
+    """Mirror BenchmarkPython's real layout: testcode/BenchmarkTest*.py at root."""
+    src = root / "testcode"
     src.mkdir(parents=True, exist_ok=True)
     for name, _, _, _ in rows:
         num = name.removeprefix("BenchmarkTest")
@@ -150,6 +151,19 @@ class TestOwaspPythonAdapter:
         ])
         e = OwaspBenchmarkAdapter(root, lang="python").load()[0]
         assert e.function_name == "handle"
+
+    def test_python_requires_testcode_dir_not_src(self, tmp_path):
+        """BenchmarkPython ships files under testcode/, not src/. The adapter
+        must reject a repo that only has src/ for the python lang."""
+        root = tmp_path / "BenchmarkPython"
+        (root / "src" / "main").mkdir(parents=True)
+        (root / "src" / "main" / "BenchmarkTest00001.py").write_text(_PY_SNIPPET.format(num="00001"))
+        (root / "expectedresults-0.1.csv").write_text(
+            "# test name, category, real vulnerability, cwe, Benchmark version, time\n"
+            "BenchmarkTest00001,xss,true,79,0.1,1.0\n"
+        )
+        with pytest.raises(FileNotFoundError, match="testcode/"):
+            OwaspBenchmarkAdapter(root, lang="python").load()
 
 
 class TestOwaspAdapterValidation:
