@@ -179,7 +179,14 @@ class _SnippetContextExtractor(ContextExtractor):
         self._use_slicing = use_slicing
         self._finding = finding
 
-    def get_context(self, file_path: str, line: int, lang: str) -> CodeContext:  # type: ignore[override]
+    def get_context(
+        self,
+        file_path: str,
+        line: int,
+        lang: str,
+        context_lines: int = 50,
+        repo_name: str = "",
+    ) -> CodeContext:  # type: ignore[override]
         if self._use_slicing and self._finding is not None:
             # Use the last non-empty line as target_line — vulnerabilities are typically
             # near the end of a function (after setup code), not at line 1.
