@@ -33,6 +33,7 @@ class LLMConfig:
     temperature: float = DEFAULT_LLM_TEMPERATURE
     max_tokens: int = DEFAULT_LLM_MAX_TOKENS
     ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
+    num_retries: int = 5
 
     @property
     def is_openai(self) -> bool:
@@ -171,6 +172,7 @@ class Config:
             temperature=data.get("temperature", DEFAULT_LLM_TEMPERATURE),
             max_tokens=data.get("max_tokens", DEFAULT_LLM_MAX_TOKENS),
             ollama_base_url=ollama_url,
+            num_retries=int(data.get("num_retries", 5)),
         )
 
         verification = VerificationConfig(

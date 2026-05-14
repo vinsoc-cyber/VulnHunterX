@@ -162,6 +162,7 @@ class VerificationEngine:
             model=config.llm.model,
             temperature=config.llm.temperature,
             max_tokens=config.llm.max_tokens,
+            num_retries=config.llm.num_retries,
         )
 
         # Wire CWE → question mapping if rule_categories.yaml is available

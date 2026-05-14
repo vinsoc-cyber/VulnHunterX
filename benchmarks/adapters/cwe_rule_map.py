@@ -82,6 +82,26 @@ CWE_TO_RULES: dict[str, list[str]] = {
                  "cpp/input-validation"],
     "CWE-862": ["py/missing-access-control", "js/missing-authorization",
                  "php/missing-authorization", "cpp/missing-authorization"],
+
+    # Parent/category CWEs (DiverseVul labels heavily with these; route them
+    # to the corresponding leaf-CWE rules so guided-question lookup hits the
+    # exact-match tier instead of falling to default questions).
+    "CWE-189": ["cpp/integer-overflow", "cpp/integer-conversion"],          # Numeric Errors → CWE-190/197
+    "CWE-120": ["cpp/overflow-destination", "cpp/overrunning-write"],       # Buffer Copy w/o Size Check → CWE-787
+    "CWE-399": ["cpp/resource-leak"],                                       # Resource Management Errors → CWE-401
+    "CWE-772": ["cpp/resource-leak"],                                       # Missing Release of Resource → CWE-401
+    "CWE-310": ["cpp/weak-cryptography", "py/weak-cryptography",
+                 "java/weak-cryptographic-algorithm"],                       # Crypto Issues → CWE-327
+    "CWE-264": ["cpp/missing-authorization", "py/missing-access-control",
+                 "java/missing-authorization"],                              # Access Control → CWE-862
+    "CWE-269": ["cpp/missing-authorization", "py/missing-access-control"],   # Improper Privilege Mgmt → CWE-862
+    "CWE-287": ["cpp/missing-authorization", "py/missing-access-control"],   # Improper Authentication → CWE-862
+    "CWE-200": ["cpp/cleartext-storage", "py/clear-text-storage-sensitive-data",
+                 "php/cleartext-storage"],                                    # Info Exposure → CWE-312
+    "CWE-909": ["cpp/use-of-uninitialized-variable"],                       # Missing Initialization → CWE-457
+    "CWE-59":  ["cpp/path-injection", "py/path-injection"],                 # Link Resolution → CWE-22
+    "CWE-346": ["cpp/missing-authorization", "java/missing-authorization"], # Origin Validation Error → CWE-862
+    "CWE-16":  ["cpp/missing-authorization"],                               # Configuration (catch-all)
 }
 
 # Build reverse mapping: rule ID → CWE ID

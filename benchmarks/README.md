@@ -204,6 +204,8 @@ python benchmarks/scripts/run_benchmark.py \
 
 Real-world C/C++ functions with CVE-backed labels. Use `--limit` for scale and `--cwe` to target specific classes.
 
+When running through a low-RPM LLM proxy, leave `--llm-concurrency` at the default (4) even if you crank `--jobs` higher — DiverseVul fans out fast enough that 30 simultaneous model calls will exhaust a quota in seconds. LiteLLM also retries 429/transient failures automatically (`llm.num_retries`, default 5).
+
 By default, records whose source CVE has no CWE mapping are **dropped at load time**. These entries would otherwise land in a meaningless `"Unknown"` per-CWE bucket and force VulnHunterX into its generic-questions fallback, biasing the rule-specific ablation. Pass `--include-unknown-cwe` if you need the full corpus for binary classification only — the loader logs the dropped count either way.
 
 ```bash
@@ -306,6 +308,9 @@ For meaningful `code_snippet` content the adapter reads each function from a wor
 --run-id ID         Timestamp alias for --run-dir (e.g. 20260305_113225)
 --checkpoint-every N  Incremental checkpoint every N entries (default: 1)
 -j, --jobs N        Concurrent entries to evaluate (default: 4; set 1 to disable parallelism)
+--llm-concurrency N Cap concurrent in-flight LLM calls (default: 4; 0 disables).
+                    Independent of --jobs — threads still fan out at --jobs, but
+                    the model call is gated so rate-limited proxies don't 429.
 --verbose / -v      Detailed line per entry
 --quiet             Suppress progress display; log lines only
 --iteration-sweep   Run vulnhunterx at iterations = 1, 2, 3

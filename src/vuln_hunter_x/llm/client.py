@@ -71,6 +71,7 @@ class LLMClient:
         model: str = DEFAULT_LLM_MODEL,
         temperature: float = DEFAULT_LLM_TEMPERATURE,
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
+        num_retries: int = 5,
     ):
         """Initialize the LLM client.
 
@@ -79,11 +80,15 @@ class LLMClient:
             model: Model name (e.g. "gpt-4o", "claude-sonnet-4-20250514").
             temperature: Sampling temperature for LLM responses.
             max_tokens: Maximum tokens in LLM response.
+            num_retries: Times LiteLLM will retry transient failures
+                (RateLimitError, APIConnectionError, Timeout, InternalServerError)
+                with exponential backoff and Retry-After honored. 0 disables.
         """
         self.provider = provider
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.num_retries = num_retries
         self.prompt_builder = PromptBuilder()
 
         # Configure provider-specific settings
@@ -119,6 +124,11 @@ class LLMClient:
         }
         if api_base:
             kwargs["api_base"] = api_base
+        if self.num_retries:
+            # LiteLLM retries RateLimitError / APIConnectionError / Timeout /
+            # InternalServerError with exponential backoff and honors Retry-After.
+            kwargs["num_retries"] = self.num_retries
+            kwargs["retry_strategy"] = "exponential_backoff_retry"
         kwargs.update(
             openai_compat_kwargs(
                 provider=self.provider,

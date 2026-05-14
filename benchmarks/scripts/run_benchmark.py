@@ -468,6 +468,7 @@ def run_one(
     verbose: bool = False,
     quiet: bool = False,
     jobs: int = 1,
+    llm_concurrency: int = 0,
 ) -> tuple[ApproachMetrics, list[BenchmarkResult]] | None:
     """Evaluate one (dataset, approach) pair with incremental checkpointing.
 
@@ -530,13 +531,28 @@ def run_one(
     state_lock = threading.Lock()
     done_count = 0
 
+    # Concurrency gate for LLM-using approaches. ThreadPoolExecutor still runs
+    # at --jobs parallelism (cheap work like raw-sast fans out freely), but the
+    # actual model call is funnelled through a bounded semaphore so a low-RPM
+    # proxy doesn't see 30 simultaneous requests and 429 everyone.
+    llm_gate: threading.BoundedSemaphore | None = None
+    if llm_concurrency and llm_concurrency > 0 and approach_name != "raw-sast":
+        effective = min(llm_concurrency, max(jobs, 1))
+        llm_gate = threading.BoundedSemaphore(effective)
+
+    def _evaluate(entry: GroundTruthEntry) -> BenchmarkResult:
+        if llm_gate is None:
+            return approach.evaluate(entry)
+        with llm_gate:
+            return approach.evaluate(entry)
+
     def _completed_results() -> list[BenchmarkResult]:
         return [r for r in slots if r is not None]
 
     if jobs <= 1 or len(entries) <= 1:
         try:
             for i, entry in enumerate(entries, 1):
-                result = approach.evaluate(entry)
+                result = _evaluate(entry)
                 slots[i - 1] = result
                 progress.update(result)
                 _log_finding(findings_log, entry, result)
@@ -583,7 +599,7 @@ def run_one(
         pool = ThreadPoolExecutor(max_workers=jobs, thread_name_prefix="vhx-bench")
         try:
             futures = {
-                pool.submit(approach.evaluate, entry): idx
+                pool.submit(_evaluate, entry): idx
                 for idx, entry in enumerate(entries)
             }
             try:
@@ -782,6 +798,19 @@ def main() -> int:
         default=4,
         metavar="N",
         help="Concurrent benchmark entries to evaluate (default: 4; set 1 to disable).",
+    )
+    parser.add_argument(
+        "--llm-concurrency",
+        type=int,
+        default=4,
+        metavar="N",
+        help=(
+            "Cap concurrent in-flight LLM calls (default: 4). Independent of "
+            "--jobs: threads still spawn at --jobs parallelism, but the model "
+            "call is gated by a semaphore so rate-limited proxies don't see "
+            "all N requests at once. Set 0 to disable the cap. Has no effect "
+            "on the raw-sast approach."
+        ),
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -1005,6 +1034,7 @@ def main() -> int:
                         verbose=args.verbose,
                         quiet=args.quiet,
                         jobs=args.jobs,
+                        llm_concurrency=args.llm_concurrency,
                     )
                     if result is not None:
                         metrics, results = result
