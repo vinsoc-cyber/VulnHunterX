@@ -10,10 +10,16 @@
 
 import python
 
+int getFunctionEndLine(Function f) {
+  if exists(f.getLastStatement())
+  then result = f.getLastStatement().getLocation().getEndLine()
+  else result = f.getLocation().getEndLine()
+}
+
 from Function f
 select
   f.getName() as name,
   f.getLocation().getFile().getRelativePath() as file,
   f.getLocation().getStartLine() as start_line,
-  f.getLocation().getEndLine() as end_line,
+  getFunctionEndLine(f) as end_line,
   f.getScope().toString() as scope
