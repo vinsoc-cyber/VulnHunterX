@@ -94,7 +94,7 @@ system_prompt: |
     "answers": ["answer to Q1 with line references", "answer to Q2", ...],
     "data_flow": "source (line N) → transform (line M) → sink (line K)",
     "verdict": "True Positive" | "False Positive" | "Needs More Data",
-    "confidence": "High" | "Medium" | "Low",
+    "confidence": "High" | "Medium" | "Low",  // EXACTLY one of these three — no "Very High", "VeryHigh", or other variants
     "confidence_score": 0.85,
     "reasoning": "1-2 sentence explanation referencing your answers and data flow",
     "context_needed": ["caller:main", "struct:buffer_t"]

@@ -31,7 +31,7 @@ import hashlib
 import logging
 from pathlib import Path
 
-from benchmarks.adapters.cwe_rule_map import primary_rule
+from benchmarks.adapters.cwe_rule_map import primary_rule_for_lang
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
 
 logger = logging.getLogger(__name__)
@@ -116,7 +116,6 @@ class SecLLMHolmesAdapter:
                 if not cwe_dir.is_dir() or not cwe_dir.name.startswith("CWE-"):
                     continue
                 cwe_id = cwe_dir.name  # e.g., "CWE-416"
-                rule_id = primary_rule(cwe_id)
 
                 for code_file in sorted(cwe_dir.iterdir()):
                     if not code_file.is_file():
@@ -125,6 +124,9 @@ class SecLLMHolmesAdapter:
                         continue
 
                     lang = _LANG_MAP[code_file.suffix.lower()]
+                    # Pick the rule whose prefix matches this file's language
+                    # so per-rule and per-language metrics line up.
+                    rule_id = primary_rule_for_lang(cwe_id, lang)
                     # p_ prefix = patched (safe), otherwise vulnerable
                     label = LABEL_FP if code_file.name.startswith("p_") else LABEL_TP
 

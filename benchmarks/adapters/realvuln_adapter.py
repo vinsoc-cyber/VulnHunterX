@@ -50,7 +50,7 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from benchmarks.adapters.cwe_rule_map import primary_rule
+from benchmarks.adapters.cwe_rule_map import primary_rule_for_lang
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
 
 logger = logging.getLogger(__name__)
@@ -172,7 +172,7 @@ class RealVulnAdapter:
                         id=f"realvuln-{repo_id}-{finding_id}",
                         source_dataset="realvuln",
                         cwe_id=cwe_id,
-                        rule_id=primary_rule(cwe_id),
+                        rule_id=primary_rule_for_lang(cwe_id, lang),
                         file_path=file_rel,
                         function_name=func_name,
                         start_line=start_line or 1,

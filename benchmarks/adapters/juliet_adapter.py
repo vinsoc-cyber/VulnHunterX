@@ -25,7 +25,7 @@ import logging
 import re
 from pathlib import Path
 
-from benchmarks.adapters.cwe_rule_map import CWE_TO_RULES, primary_rule
+from benchmarks.adapters.cwe_rule_map import CWE_TO_RULES, primary_rule, primary_rule_for_lang
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
 
 logger = logging.getLogger(__name__)
@@ -170,11 +170,11 @@ class JulietAdapter:
             if cwe_no_dash not in active_cwes:
                 continue
 
-            rule_id = primary_rule(cwe_id)
             cwe_entries: list[GroundTruthEntry] = []
 
             for c_file in sorted(cwe_dir.rglob("*.c")) + sorted(cwe_dir.rglob("*.cpp")):
                 lang = "cpp" if c_file.suffix == ".cpp" else "c"
+                rule_id = primary_rule_for_lang(cwe_id, lang)
                 try:
                     code = c_file.read_text(encoding="utf-8", errors="replace")
                 except OSError:
