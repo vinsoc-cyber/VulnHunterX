@@ -51,10 +51,14 @@ def validate_file_path(path: Path, base: Path) -> Path:
 
 
 def normalize_ollama_model(model: str) -> str:
-    """Ensure Ollama model names have the 'ollama/' prefix."""
-    if not model.startswith("ollama/"):
-        return f"ollama/{model}"
-    return model
+    """Ensure Ollama model names have the 'ollama/' prefix.
+
+    Leaves 'ollama_chat/' prefixes alone — that's the chat-completions
+    route used for Ollama Cloud.
+    """
+    if model.startswith(("ollama/", "ollama_chat/")):
+        return model
+    return f"ollama/{model}"
 
 
 def openai_compat_kwargs(

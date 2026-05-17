@@ -302,6 +302,21 @@ def check_ollama(
     )
     api_base = api_base.strip() or None
 
+    # Ollama Cloud requires a bearer token and uses the chat-completions route.
+    # Detect cloud by endpoint OR model tag (:cloud / -cloud suffix).
+    bare_model = model.removeprefix("ollama_chat/").removeprefix("ollama/")
+    tag_is_cloud = bare_model.endswith(":cloud") or bare_model.endswith("-cloud")
+    is_cloud = bool((api_base and "ollama.com" in api_base) or tag_is_cloud)
+    if is_cloud:
+        cloud_key = os.environ.get("OLLAMA_API_KEY", "").strip()
+        if not cloud_key:
+            return False, (
+                "Ollama Cloud model detected but OLLAMA_API_KEY is not set"
+            )
+        model = "ollama_chat/" + bare_model
+        if not api_base or "ollama.com" not in api_base:
+            api_base = "https://ollama.com"
+
     try:
         kwargs: dict = {
             "model": model,
@@ -310,6 +325,8 @@ def check_ollama(
         }
         if api_base:
             kwargs["api_base"] = api_base.rstrip("/")
+        if is_cloud:
+            kwargs["api_key"] = os.environ["OLLAMA_API_KEY"].strip()
 
         resp = litellm.completion(**kwargs)
         text = (resp.choices[0].message.content or "").strip()

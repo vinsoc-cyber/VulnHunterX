@@ -66,7 +66,7 @@ cpp/use-after-free:
   short_description: "Use of pointer after memory has been freed"
   questions:
     - "ANCHOR FIRST: quote the EXACT statement at the flagged line. Name the function it lives in. Classify the flagged line as one of: (a) a pointer USE (deref / read / write / pass-to-function), (b) a free/delete/destructor call, (c) a function signature or declaration, (d) something else. If (c) or (d), the SAST flag is suspect — record this and weight your verdict accordingly."
-    - "If the snippet contains MULTIPLE functions (e.g. helperBad + goodG2B, or production + test), identify which function the flagged line belongs to. Reason ONLY about that function's behavior. Do NOT convict based on UAF patterns visible in sibling functions."
+    - "If the snippet contains MULTIPLE functions (e.g. a vulnerable variant alongside a patched or test variant, or a helper alongside its caller), identify which function the flagged line belongs to. Reason ONLY about that function's behavior. Do NOT convict based on UAF patterns visible in sibling functions, regardless of how those functions are named."
     - "Where is the pointer at the flagged line ALLOCATED (malloc, calloc, new, strdup, custom allocator)? If allocation is in a DIFFERENT function, name that function — request 'caller:<func>' or 'all_callers:<func>' context if you cannot see it."
     - "List ALL free()/delete calls reachable from the flagged use — include the function name, file, and line number for EACH. If you cannot enumerate them from the snippet, request 'free_sites:<pointer_name>' context. Mark which frees are conditional (inside if/switch/error paths)."
     - "Is the pointer set to NULL immediately after EACH free? If not, what value does it hold?"
@@ -74,17 +74,17 @@ cpp/use-after-free:
     - "Does the pointer escape this function — is it stored in a struct field, global, returned, or passed to another function that retains it? If so, who is responsible for its lifetime?"
     - "Are there ALIAS pointers (copies, struct members, array entries, void* casts) that reference the same memory? Could one alias free while another still holds a reference?"
     - "If the pointer is REASSIGNED between free and use, where and to what value — a new allocation, NULL, or another pointer?"
-    - "DECISION RULE: only mark TP if you can produce a SPECIFIC triple — (free_site file:line, use_site file:line, control-flow path reaching the use after the free, in the SAME function or via caller). If your evidence is just 'this looks like a UAF pattern' without specific line numbers from the flagged function, mark NEEDS_MORE_DATA, NOT TP. If reasoning relies on a function named like 'helperBad' while the flagged line is in 'goodG2B', that is grounds for FP."
-  context_hint: "TRACE: allocation -> free -> flagged_use | NEED: caller(ptr_origin), struct(ptr_type_members), callees(functions_ptr_passed_to), free_sites(ptr_name), destructor(owner_type), field_writes(owner.ptr_field)"
-  additional_context: ["caller", "struct", "callees", "all_callers", "free_sites", "destructor", "field_writes"]
-  min_iterations: 2
+    - "DECISION RULE: mark TP when EITHER (a) you can produce a SPECIFIC triple — (free_site file:line, use_site file:line, control-flow path reaching the use after the free), OR (b) you can name the FREE FUNCTION and identify the flagged USE in the same function or a clear caller, AND there is no NULL-assignment, reassignment, or fresh reallocation between them. Mark FP ONLY when you have POSITIVE evidence of a defense: NULL-after-free, pointer reassigned to a fresh allocation, free on an unreachable branch, or the flagged line is a signature/declaration. Pattern-only reasoning based on function NAMES (e.g. assuming a function is buggy because of a suggestive identifier) without supporting code evidence is NOT enough to mark FP — prefer NEEDS_MORE_DATA in that case. The default for an undefended free→use chain in the flagged function is TP, not FP."
+  context_hint: "TRACE: allocation -> free -> flagged_use | NEED: free_sites(ptr_name) FIRST, then caller(ptr_origin), struct(ptr_type_members), callees(functions_ptr_passed_to), destructor(owner_type), field_writes(owner.ptr_field)"
+  additional_context: ["free_sites", "caller", "all_callers", "struct", "callees", "destructor", "field_writes"]
+  min_iterations: 3
   snippet_window_lines: 60
 
 cpp/double-free:
   short_description: "Memory freed more than once"
   questions:
     - "ANCHOR FIRST: quote the flagged line and name the function. Classify it as (a) a free/delete call, (b) a use leading to free elsewhere, (c) a signature/declaration. If (c), the flag is suspect."
-    - "If the snippet contains MULTIPLE functions (bad/good Juliet variants, helper + caller), restrict your reasoning to the function containing the flagged line. Do NOT convict on free-pairs visible in sibling functions."
+    - "If the snippet contains MULTIPLE functions (e.g. vulnerable and patched variants side-by-side, or a helper and its caller), restrict your reasoning to the function containing the flagged line. Do NOT convict on free-pairs visible in sibling functions, regardless of how those functions are named."
     - "Where is the pointer ALLOCATED and what variable holds it?"
     - "List ALL free() calls reachable from the flagged location with file:line — request 'free_sites:<pointer_name>' context if needed."
     - "For each pair of free() calls, is there a SPECIFIC code path that reaches BOTH? Describe the path or mark NEEDS_MORE_DATA."

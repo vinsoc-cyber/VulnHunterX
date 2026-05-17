@@ -111,6 +111,20 @@ def _run_metadata(run_dir: Path, summaries: list[dict]) -> str:
         wall_str = f"{mins}m {secs}s" if mins else f"{secs}s"
 
     total_cost = sum(s.get("total_cost_usd", 0.0) for s in summaries)
+    # Imputed cost (tokens × API list price) — populated even when LiteLLM has
+    # no price for the provider (e.g. Ollama Cloud, local Ollama, self-hosted
+    # OpenAI-compatible endpoints). Surface it alongside the real cost so
+    # cloud/free-tier runs aren't misread as zero-cost.
+    imputed_costs = [
+        s.get("imputed_api_cost_usd")
+        for s in summaries
+        if s.get("imputed_api_cost_usd") is not None
+    ]
+    total_imputed = sum(imputed_costs) if imputed_costs else None
+    if total_imputed is not None and (total_cost == 0.0 or total_imputed > total_cost):
+        cost_str = f"${total_cost:.4f} (imputed: ${total_imputed:.4f})"
+    else:
+        cost_str = f"${total_cost:.4f}"
 
     lines = [
         "## Run Info",
@@ -121,7 +135,7 @@ def _run_metadata(run_dir: Path, summaries: list[dict]) -> str:
         f"| **Datasets** | {', '.join(datasets)} |",
         f"| **Approaches** | {', '.join(approaches)} |",
         f"| **Wall time** | {wall_str} |",
-        f"| **Total cost** | ${total_cost:.4f} |",
+        f"| **Total cost** | {cost_str} |",
         f"| **Run dir** | `{run_dir}` |",
     ]
     return "\n".join(lines)
@@ -555,17 +569,26 @@ def _question_match_table(summaries: list[dict]) -> str:
 
 def _cost_table(summaries: list[dict]) -> str:
     """Build cost and latency table."""
-    headers = ["Approach", "Dataset", "Total Tokens", "Total Cost", "Mean Latency", "p95 Latency", "Iterations (mean/max)"]
+    headers = [
+        "Approach", "Dataset", "Total Tokens", "Total Cost",
+        "Mean Latency", "p95 Latency", "Iterations (mean/max)",
+    ]
     rows = [headers, ["---"] * len(headers)]
     for s in summaries:
         iters = (
             f"{_num(s.get('mean_iterations'), 1)} / {s.get('max_iterations', '—')}"
         )
+        real_cost = s.get("total_cost_usd", 0.0) or 0.0
+        imputed = s.get("imputed_api_cost_usd")
+        if imputed is not None and (real_cost == 0.0 or imputed > real_cost):
+            cost_cell = f"${real_cost:.4f} (imputed ${imputed:.4f})"
+        else:
+            cost_cell = f"${real_cost:.4f}"
         rows.append([
             s.get("approach", "?"),
             s.get("dataset", "?"),
             str(s.get("total_tokens", 0)),
-            f"${s.get('total_cost_usd', 0):.4f}",
+            cost_cell,
             _num(s.get("mean_latency_s")),
             _num(s.get("p95_latency_s")),
             iters,

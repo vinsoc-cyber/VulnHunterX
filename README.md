@@ -50,7 +50,7 @@ The **Vulnhalla** methodology forces the LLM to:
 | **SAST engines** | CodeQL, Semgrep, OpenGrep (`--tool codeql\|semgrep\|opengrep\|both\|all`) |
 | **Security rule profiles** | `standard` → `extended` → `maximum` → `extended-registry` → `full` (see [config/RULES.md](config/RULES.md)) |
 | **Guided questions** | 316 rule-specific templates across 6 per-language banks plus a fallback |
-| **LLM providers** | OpenAI, Anthropic, Ollama (via [LiteLLM](https://github.com/BerriAI/litellm)) |
+| **LLM providers** | OpenAI, Anthropic, Ollama (local or [Ollama Cloud](https://ollama.com)) — via [LiteLLM](https://github.com/BerriAI/litellm) |
 | **Multi-turn verification** | Dynamic context expansion (callers, structs, globals, macros, free-sites) |
 | **Inputs** | Git URL, local directory, or batch list (`repos.yaml`) |
 | **Reports** | Markdown, EN/VI, executive summary + per-finding detail |
@@ -358,7 +358,8 @@ Priority: **CLI args > environment variables > config file > defaults**.
 |---|---|
 | `OPENAI_API_KEY` | OpenAI API key |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `OLLAMA_API_BASE` | Ollama server URL |
+| `OLLAMA_API_BASE` | Ollama server URL (`http://localhost:11434` for local, `https://ollama.com` for cloud) |
+| `OLLAMA_API_KEY` | API key for Ollama Cloud (only required when `OLLAMA_API_BASE` points at `ollama.com`) |
 | `LLM_PROVIDER` / `LLM_MODEL` | Override default provider / model |
 | `CODEQL_PATH` / `SEMGREP_PATH` / `OPENGREP_PATH` | Tool paths if not on `PATH` |
 

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 VinSOC Cyber
 
-"""LLM client abstraction for OpenAI and Ollama via LiteLLM."""
+"""LLM client abstraction for OpenAI, Anthropic, and Ollama (local + cloud) via LiteLLM."""
 
 from __future__ import annotations
 
@@ -92,8 +92,25 @@ class LLMClient:
         self.prompt_builder = PromptBuilder()
 
         # Configure provider-specific settings
+        self._is_ollama_cloud = False
         if provider == "ollama":
-            ollama_base = os.environ.get("OLLAMA_API_BASE", DEFAULT_OLLAMA_BASE_URL)
+            ollama_base = os.environ.get("OLLAMA_API_BASE", "").strip()
+            # Ollama Cloud (ollama.com) uses bearer-auth chat-completions; local
+            # ollama (localhost:11434) does not. Detect cloud by either the
+            # endpoint or the model tag (cloud models carry a ":cloud" or
+            # "-cloud" suffix, e.g. gpt-oss:120b-cloud, qwen3-coder-next:cloud).
+            bare_model = self.model.removeprefix("ollama_chat/").removeprefix("ollama/")
+            tag_is_cloud = bare_model.endswith(":cloud") or bare_model.endswith("-cloud")
+            self._is_ollama_cloud = "ollama.com" in ollama_base or tag_is_cloud
+            if self._is_ollama_cloud:
+                if "ollama.com" not in ollama_base:
+                    ollama_base = "https://ollama.com"
+                if not self.model.startswith("ollama_chat/"):
+                    self.model = "ollama_chat/" + bare_model
+            else:
+                ollama_base = ollama_base or DEFAULT_OLLAMA_BASE_URL
+                if not self.model.startswith(("ollama/", "ollama_chat/")):
+                    self.model = "ollama/" + self.model
             os.environ["OLLAMA_API_BASE"] = ollama_base
         elif provider == "anthropic":
             # LiteLLM reads ANTHROPIC_API_KEY from the environment automatically.
@@ -124,6 +141,11 @@ class LLMClient:
         }
         if api_base:
             kwargs["api_base"] = api_base
+        if self.provider == "ollama" and self._is_ollama_cloud:
+            kwargs["api_base"] = os.environ["OLLAMA_API_BASE"].rstrip("/")
+            cloud_key = os.environ.get("OLLAMA_API_KEY")
+            if cloud_key:
+                kwargs["api_key"] = cloud_key
         if self.num_retries:
             # LiteLLM retries RateLimitError / APIConnectionError / Timeout /
             # InternalServerError with exponential backoff and honors Retry-After.
@@ -807,23 +829,49 @@ class LLMClient:
         )
 
     _CONFIDENCE_SCORE_MAP = {"high": 0.85, "medium": 0.6, "low": 0.3}
+    # Variants outside the {High, Medium, Low} vocabulary that we silently
+    # remap. The LLM has historically emitted "Very High" / "VeryHigh" /
+    # "Highly Confident" despite the prompt schema; rather than rejecting
+    # them (which would lose signal), we collapse them to the nearest valid
+    # bucket so calibration and CISC voting remain meaningful.
+    _CONFIDENCE_ALIASES = {
+        "veryhigh": "High",
+        "very high": "High",
+        "highly confident": "High",
+        "extremely high": "High",
+        "certain": "High",
+        "high confidence": "High",
+        "medium-high": "High",
+        "mediumhigh": "High",
+        "moderate": "Medium",
+        "medium-low": "Low",
+        "mediumlow": "Low",
+        "very low": "Low",
+        "verylow": "Low",
+        "uncertain": "Low",
+    }
+    _VALID_CONFIDENCE = {"High", "Medium", "Low"}
+
+    @classmethod
+    def _normalize_confidence_label(cls, raw: Any) -> str:
+        """Map any incoming confidence label to {High, Medium, Low}."""
+        if not isinstance(raw, str):
+            return "Low"
+        key = raw.strip().casefold()
+        if key in cls._CONFIDENCE_SCORE_MAP:
+            return key.capitalize()
+        if key in cls._CONFIDENCE_ALIASES:
+            return cls._CONFIDENCE_ALIASES[key]
+        return "Low"
 
     @classmethod
     def _ensure_confidence_score(cls, parsed: dict[str, Any]) -> dict[str, Any]:
-        """Ensure parsed response has a numeric confidence_score field."""
-        if "confidence_score" not in parsed or not isinstance(
-            parsed.get("confidence_score"), (int, float)
-        ):
-            confidence_value = parsed.get("confidence", "Low")
-            if isinstance(confidence_value, str):
-                normalized_confidence = confidence_value.strip().casefold()
-            else:
-                normalized_confidence = ""
-            score = cls._CONFIDENCE_SCORE_MAP.get(normalized_confidence)
-            if score is None:
-                # Default to low confidence when the label is unrecognized
-                score = 0.3
-            parsed["confidence_score"] = score
+        """Normalize confidence label and ensure a numeric confidence_score."""
+        parsed["confidence"] = cls._normalize_confidence_label(parsed.get("confidence"))
+        if not isinstance(parsed.get("confidence_score"), (int, float)):
+            parsed["confidence_score"] = cls._CONFIDENCE_SCORE_MAP[
+                parsed["confidence"].casefold()
+            ]
         return parsed
 
     def _parse_response(self, raw: str) -> dict[str, Any]:

@@ -136,6 +136,36 @@ def primary_rule(cwe_id: str) -> str:
     return rules[0] if rules else ""
 
 
+# Map adapter-level language labels to the rule-prefix used in CWE_TO_RULES.
+# Adapters use "c" / "cpp" / "python" / "javascript" / "php" / "java"; the
+# rule IDs are prefixed with "cpp/" / "py/" / "js/" / "php/" / "java/".
+_LANG_TO_RULE_PREFIX: dict[str, str] = {
+    "c": "cpp/",
+    "cpp": "cpp/",
+    "python": "py/",
+    "javascript": "js/",
+    "typescript": "js/",
+    "php": "php/",
+    "java": "java/",
+}
+
+
+def primary_rule_for_lang(cwe_id: str, lang: str) -> str:
+    """Return the rule for ``cwe_id`` whose prefix matches ``lang``.
+
+    Falls back to :func:`primary_rule` when no rule matches the language.
+    Used by dataset adapters so that, e.g., a C file under ``CWE-22/`` gets
+    ``cpp/path-injection`` instead of ``py/path-injection`` (the latter
+    being the alphabetically-first entry in the CWE-22 list).
+    """
+    prefix = _LANG_TO_RULE_PREFIX.get(lang)
+    if prefix:
+        for rid in cwe_to_rules(cwe_id):
+            if rid.startswith(prefix):
+                return rid
+    return primary_rule(cwe_id)
+
+
 def all_mapped_cwes() -> list[str]:
     """Return all CWE IDs that have at least one rule mapping."""
     return sorted(CWE_TO_RULES.keys())
