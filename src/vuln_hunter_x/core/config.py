@@ -24,6 +24,20 @@ from vuln_hunter_x.core.constants import (
 )
 
 
+def _load_ollama_api_keys() -> list[str]:
+    """Parse OLLAMA_API_KEYS (comma-separated) or fall back to OLLAMA_API_KEY.
+
+    Returns an empty list when neither is set. Used by LLMConfig so the
+    LLMClient pool wiring can decide whether to enable round-robin rotation.
+    """
+    raw = os.environ.get("OLLAMA_API_KEYS", "")
+    keys = [k.strip() for k in raw.split(",") if k.strip()]
+    if keys:
+        return keys
+    single = os.environ.get("OLLAMA_API_KEY", "").strip()
+    return [single] if single else []
+
+
 @dataclass
 class LLMConfig:
     """LLM provider configuration."""
@@ -34,6 +48,11 @@ class LLMConfig:
     max_tokens: int = DEFAULT_LLM_MAX_TOKENS
     ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
     num_retries: int = 5
+    # Ollama Cloud key pool. When two or more keys are configured (via
+    # OLLAMA_API_KEYS=k1,k2,k3) LLMClient round-robins across them and parks
+    # any key that returns 429. A single key falls back to the existing
+    # OLLAMA_API_KEY env-var path.
+    ollama_api_keys: list[str] = field(default_factory=list)
 
     @property
     def is_openai(self) -> bool:
@@ -173,6 +192,7 @@ class Config:
             max_tokens=data.get("max_tokens", DEFAULT_LLM_MAX_TOKENS),
             ollama_base_url=ollama_url,
             num_retries=int(data.get("num_retries", 5)),
+            ollama_api_keys=_load_ollama_api_keys(),
         )
 
         verification = VerificationConfig(
@@ -262,6 +282,7 @@ class Config:
             temperature=kwargs.get("temperature", self.llm.temperature),
             max_tokens=kwargs.get("max_tokens", self.llm.max_tokens),
             ollama_base_url=kwargs.get("ollama_base_url", self.llm.ollama_base_url),
+            ollama_api_keys=kwargs.get("ollama_api_keys", self.llm.ollama_api_keys),
         )
 
         verification = VerificationConfig(

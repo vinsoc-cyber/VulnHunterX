@@ -437,16 +437,23 @@ def _llm_preflight(provider: str, model: str) -> None:
     set via ``OPENAI_API_BASE`` requires the ``openai/`` model prefix that
     LLMClient adds automatically).
     """
-    import litellm
-
+    from vuln_hunter_x.core.config import _load_ollama_api_keys
     from vuln_hunter_x.llm.client import LLMClient
 
     try:
-        client = LLMClient(provider=provider, model=model, temperature=0.0, max_tokens=4)
+        client = LLMClient(
+            provider=provider,
+            model=model,
+            temperature=0.0,
+            max_tokens=4,
+            ollama_api_keys=_load_ollama_api_keys(),
+        )
         kwargs = client._build_completion_kwargs(
             [{"role": "user", "content": "ok"}],
         )
-        litellm.completion(**kwargs)
+        # Route through _completion so a saturated first key rotates rather
+        # than aborting the whole run before the first entry.
+        client._completion(kwargs)
     except Exception as exc:  # noqa: BLE001 - surface any provider error
         raise SystemExit(
             f"LLM pre-flight failed for {provider}/{model}: {exc}\n"
