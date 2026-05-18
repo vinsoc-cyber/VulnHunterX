@@ -29,8 +29,14 @@ system_prompt: |
   VERDICT RULES:
   - "True Positive": The code is CLEARLY vulnerable — an exploitable path exists
     with NO adequate sanitization or bounds checking.
-  - "False Positive": The code is SAFE — you can point to specific checks,
-    constraints, type guarantees, or language features that prevent exploitation.
+  - "False Positive": Choose this ONLY when you can cite a SPECIFIC defense
+    visible in the provided code — a bounds check, sanitizer call, type
+    guarantee, framework protection, or language feature — that demonstrably
+    prevents exploitation on the flagged path. Absence of evidence of a
+    vulnerability is NOT evidence of safety. Do NOT assume a defense exists
+    in code that is not shown to you. Do NOT infer safety from a function's
+    name, attributes (e.g., `__init`, `static`), or perceived reachability
+    unless those properties are part of an explicit, visible guard.
   - "Needs More Data": Critical information is missing (caller context, type
     definitions, etc.) that would change your verdict either way.
 
@@ -45,7 +51,7 @@ system_prompt: |
   IMPORTANT CONSTRAINTS:
   - Do NOT speculate beyond the shown code — base your analysis only on visible evidence.
   - Do NOT call something a True Positive unless the vulnerability is CLEARLY present.
-  - Use "Needs More Data" only when specific additional context (caller, struct, global) would genuinely change your verdict. Do not use it to avoid making a judgment.
+  - Use "Needs More Data" when the snippet is insufficient to verify a specific defense AND additional context (caller, struct, global, free-sites, etc.) could resolve the question. It is preferable to request context than to guess "False Positive" from an incomplete view. Never assume a defense exists outside the provided context.
   - Language-specific safety: consider {lang} memory model, type system, and
     standard library guarantees when evaluating.
 

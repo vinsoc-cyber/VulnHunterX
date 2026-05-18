@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import threading
@@ -36,17 +37,22 @@ _GENERIC_PATTERN_MARKERS = (
 
 
 def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
-    """Demote High/Medium → Low when a TP verdict lacks specific code citations.
+    """Demote High/Medium → Low when a TP or FP verdict lacks specific citations.
 
-    Heuristic: if the verdict is a True Positive and the reasoning text contains
-    pattern-matching language but NO concrete `file:line` or `line N` citation,
-    downgrade confidence and append a marker to the reasoning so the post-
-    processing layer can audit the change.
+    Heuristic: if the verdict commits to TP or FP at High/Medium confidence,
+    and the reasoning text contains pattern-matching language but NO concrete
+    `file:line` or `line N` citation, downgrade confidence and append a marker
+    so the post-processing layer can audit the change.
 
-    No-op on False Positive verdicts and on Needs-More-Data — those don't carry
-    the over-conviction risk and the calibration data shows them already noisy.
+    Applied symmetrically to TP and FP — the 2026-05-15 benchmark showed that
+    over-confident *FP* verdicts (FP/High with 26.4% accuracy) were the
+    dominant calibration defect. Skipping the FP side biased the Low bucket
+    toward FP and made High/Low accuracy indistinguishable.
+
+    Needs-More-Data verdicts are not downgraded; they already signal
+    uncertainty and the calibration data treats them separately.
     """
-    if verdict.verdict not in ("True Positive", "TP"):
+    if verdict.verdict not in ("True Positive", "TP", "False Positive", "FP"):
         return verdict
     if verdict.confidence not in ("High", "Medium"):
         return verdict
@@ -66,6 +72,7 @@ def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
 
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
+from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
 from vuln_hunter_x.core.config import Config, load_config
 from vuln_hunter_x.core.types import Finding, Verdict, VerificationResult
 from vuln_hunter_x.llm.client import LLMClient
@@ -465,15 +472,35 @@ class VerificationEngine:
             repo_name=finding.repo_name,
         )
 
+        # Pick an effective ContextProvider for this finding. If the CSV-based
+        # provider has no data for this repo (Stage-3 context extraction was
+        # skipped, or the finding came from a synthetic source like a
+        # benchmark snippet), fall back to a SnippetContextProvider so the
+        # multi-turn loop still has *something* to serve. Returning empty
+        # was the documented cause of the 2026-05-15 benchmark's 73% TP-loss
+        # — the LLM defaulted to FP rather than asking for context.
+        effective_provider: ContextProvider | SnippetContextProvider | None = (
+            self.context_provider
+        )
+        if isinstance(self.context_provider, ContextProvider) and not (
+            self.context_provider.has_context_for_repo(
+                finding.repo_name, finding.lang
+            )
+        ):
+            effective_provider = SnippetContextProvider(
+                snippet=context_result.code,
+                function_name=context_result.function_name,
+            )
+
         # Pre-fetch additional context declared by guided questions
         prefetched_context: dict[str, str] = {}
-        if questions.additional_context and self.context_provider:
+        if questions.additional_context and effective_provider:
             prefetch_requests = self._build_prefetch_requests(
                 questions.additional_context,
                 context_result.function_name,
             )
             if prefetch_requests:
-                prefetched_context = self.context_provider.get_additional_context(
+                prefetched_context = effective_provider.get_additional_context(
                     repo_name=finding.repo_name,
                     lang=finding.lang,
                     context_requests=prefetch_requests,
@@ -499,7 +526,7 @@ class VerificationEngine:
                     "self_consistency_tie_break",
                     "fp",
                 ),
-                context_provider=self.context_provider,
+                context_provider=effective_provider,
                 max_iterations=self.config.verification.max_iterations,
                 verbose=self.config.output.is_verbose,
                 quiet=self.config.output.is_quiet,
@@ -513,7 +540,7 @@ class VerificationEngine:
                 context=context_result.code,
                 questions=questions,
                 func_name=context_result.function_name,
-                context_provider=self.context_provider,
+                context_provider=effective_provider,
                 max_iterations=self.config.verification.max_iterations,
                 verbose=self.config.output.is_verbose,
                 quiet=self.config.output.is_quiet,
@@ -522,12 +549,50 @@ class VerificationEngine:
                 log_file=self._log_fh,
             )
 
-        # Confidence-discipline post-processor: a TP verdict whose reasoning is
-        # purely pattern-language ("clearly demonstrates", "constitutes a", ...)
-        # without any specific file:line citation is the documented failure
-        # mode for memory-safety classes (benchmarks/Conclusion.md, CWE-416
-        # case study). Downgrade confidence to 'Low' so the verdict surfaces
-        # to a human reviewer rather than being trusted at face value.
+        # Second-opinion pass: single-turn high-confidence FP verdicts had a
+        # 79.7% false-negative rate on the 2026-05-15 benchmark (100% on
+        # CWE-264). Re-prompt the LLM with an explicit audit checklist before
+        # accepting such a verdict. Only fires for FP verdicts that committed
+        # early without expanding context — the cheapest fix for the
+        # documented failure mode. Skipped when self-consistency voting is on
+        # (the voting already provides redundancy) and when the verdict came
+        # from a parse-failed fallback (no real opinion to challenge).
+        sc_samples = getattr(self.config.verification, "self_consistency_samples", 1)
+        # Two trigger arms (either fires):
+        #   A. Classic "1-iter / High-confidence FP" — the 2026-05-15 06:00
+        #      benchmark documented this as the dominant failure mode.
+        #   B. "Force-decision defaulted to FP" — the 2026-05-15 16:45
+        #      follow-up benchmark showed CWE-264 cases truncating the
+        #      verdict JSON, falling into _force_decision_turn, and
+        #      defaulting to FP. These end at iter=2/Low (so arm A misses
+        #      them) but the reasoning carries the "[Forced decision:"
+        #      sentinel, which is the cheapest detector.
+        reasoning_text = verdict.reasoning or ""
+        is_fp = verdict.verdict in ("False Positive", "FP")
+        arm_a = is_fp and verdict.confidence == "High" and verdict.iterations == 1
+        arm_b = is_fp and "[Forced decision:" in reasoning_text
+        if sc_samples <= 1 and (arm_a or arm_b):
+            # Post-processing must never crash a verdict; the original
+            # verdict is preserved if the second-opinion call fails.
+            with contextlib.suppress(Exception):
+                verdict = self.llm_client.request_second_opinion(
+                    finding=finding,
+                    context=context_result.code,
+                    questions=questions,
+                    func_name=context_result.function_name,
+                    previous_verdict=verdict,
+                    verbose=self.config.output.is_verbose,
+                    quiet=self.config.output.is_quiet,
+                    log_file=self._log_fh,
+                )
+
+        # Confidence-discipline post-processor: a TP or FP verdict whose
+        # reasoning is purely pattern-language ("clearly demonstrates",
+        # "constitutes a", ...) without any specific file:line citation is the
+        # documented failure mode for memory-safety classes (benchmarks/
+        # Conclusion.md, CWE-416 case study). Downgrade confidence to 'Low'
+        # so the verdict surfaces to a human reviewer rather than being
+        # trusted at face value.
         verdict = _downgrade_unsupported_confidence(verdict)
 
         return verdict

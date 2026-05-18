@@ -125,14 +125,15 @@ js/code-injection:
 js/broken-authentication:
   short_description: "JWT without signature validation or missing session expiry"
   questions:
-    - "Is the JWT signature VERIFIED before trusting its payload - is the algorithm fixed server-side?"
-    - "Could an attacker set 'alg: none' to bypass signature verification?"
-    - "Does the JWT have an 'exp' claim and is it enforced?"
-    - "Is the JWT stored securely (HttpOnly cookie) or in localStorage/sessionStorage (XSS-accessible)?"
-    - "Is there a token revocation mechanism (blacklist, short TTL) if a token is compromised?"
-    - "Is the signing secret sufficiently long and random, or is it a weak default?"
+    - "Quote the EXACT authentication-handling statement the rule flagged (jwt.verify call, signature check, session creation, etc.) with line number."
+    - "What SPECIFIC mechanism would satisfy the rule? Name it concretely — e.g. 'jwt.verify(token, secret, { algorithms: [\"RS256\"] }) with explicit algorithm allow-list', 'crypto.timingSafeEqual for password compare', 'session cookie with httpOnly + secure + sameSite=strict'. 'Proper verification' is not acceptable."
+    - "Enumerate EVERY authentication path that reaches the flagged code (login, refresh, OAuth callback, password reset, magic link). For each, cite which SPECIFIC mechanism is enforced with file:line, or mark 'absent / not visible'."
+    - "Could an attacker bypass any path via 'alg: none', algorithm confusion, missing 'exp' claim, secret reuse, default secret, or skipping signature verification? Quote the path if so."
+    - "Is the signing secret loaded from a secure source (KMS, env var, vault) and long enough? Or is it a literal in source? Quote the literal if present."
+    - "If the specific required mechanism is not present on every authentication path, the rule is likely correct."
   context_hint: "Include token creation, verification, and storage logic."
-  additional_context: ["caller"]
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 js/hardcoded-credentials:
   short_description: "Hardcoded API key, token, or secret in JavaScript source"
@@ -537,14 +538,15 @@ js/insecure-websocket:
 js/missing-authorization:
   short_description: "Express/Koa/Fastify route handler without authentication or authorization middleware (CWE-862)"
   questions:
-    - "What PRIVILEGED OPERATION does this route handler perform — data modification, admin action, user management?"
-    - "Is there AUTH MIDDLEWARE applied to this route (passport.authenticate, jwt verification, session check)?"
-    - "Is authorization checked — does the handler verify the user has PERMISSION for this specific resource?"
-    - "Could an unauthenticated user reach this endpoint via the URL?"
-    - "Is there a GLOBAL middleware that protects all routes, or must each route opt in?"
-    - "What is the IMPACT if an unauthorized user calls this endpoint?"
+    - "Quote the EXACT route definition the rule flagged (app.get/router.post/etc.) with line number, and the privileged operation in its handler."
+    - "What SPECIFIC middleware or check would satisfy the rule? Name it concretely — e.g. 'passport.authenticate(\"jwt\", { session: false }) AND requireRole(\"admin\")', 'requireOwnership(req.user, req.params.id)'. 'An auth middleware' is not acceptable."
+    - "Enumerate EVERY way a request can reach this handler: direct URL hit, mounted sub-router, app.use() chain, websocket bridge. For each, list the SPECIFIC middleware in order with file:line citations. Missing middleware → mark explicitly."
+    - "Does the handler perform OBJECT-LEVEL authorization (the authenticated user owns/may modify THIS resource)? Quote the ownership check or mark 'absent / not visible'."
+    - "Is there a global app.use() that should cover this route? Quote it; if not visible, mark 'Not visible — assumption of guard rejected'."
+    - "If the specific required check is not present on every reachable path, the rule is likely correct."
   context_hint: "Include the route definition, middleware chain, and handler function."
-  additional_context: ["caller"]
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 js/input-validation:
   short_description: "Request parameters used without validation at endpoint boundary (CWE-20)"
@@ -601,38 +603,41 @@ js/electron-node-integration:
 js/missing-authentication:
   short_description: "Express/API route accessible without authentication performing privileged actions (CWE-306)"
   questions:
-    - "Does this route perform a PRIVILEGED action — data modification, admin operation, sensitive data access?"
-    - "Is authentication middleware (passport.authenticate, express-jwt, custom auth check) applied to this route or router?"
-    - "Could an UNAUTHENTICATED user reach this endpoint by directly calling its URL?"
-    - "Is this route in a router group that should have auth middleware applied but was accidentally excluded?"
-    - "Is this intentionally public (login, health check, webhook) or was authentication accidentally omitted?"
-    - "Is there a global auth middleware in app.use() that should protect this path?"
+    - "Quote the EXACT route definition the rule flagged with line number, and the privileged action in its handler."
+    - "What SPECIFIC authentication middleware would satisfy the rule? Name it concretely — e.g. 'passport.authenticate(\"jwt\", { session: false })', 'express-jwt({ secret, algorithms: [\"HS256\"] })'. 'Some auth middleware' is not acceptable."
+    - "Enumerate EVERY path that reaches this handler (direct URL, sub-router, app.use chain, websocket upgrade). For each, list which SPECIFIC middleware is enforced with file:line, or mark 'absent / not visible'."
+    - "Is this endpoint EXPLICITLY excluded from auth (login, health check, public webhook)? Quote the exclusion logic if so."
+    - "Is there a global app.use(authMiddleware) that should cover this path? Quote it or mark 'Not visible'."
+    - "If the specific required middleware is not present on every reachable path, the rule is likely correct."
   context_hint: "Include the route handler, middleware chain, and router configuration."
-  additional_context: ["caller"]
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 js/improper-privilege-management:
   short_description: "Privilege escalation via role manipulation or missing privilege boundary (CWE-269)"
   questions:
-    - "Can a user MODIFY their own role or admin status through an API endpoint (e.g., setting role in profile update body)?"
-    - "Is the role assignment endpoint protected — only admins can grant admin roles?"
-    - "Could request body fields (role, isAdmin, permissions) be mass-assigned to the user model without filtering?"
-    - "Is there a privilege boundary between user types (user, moderator, admin) consistently enforced?"
-    - "Are role checks performed using middleware or inline if-checks that could be missed on some routes?"
-    - "Could an attacker create an account with elevated privileges by including role fields in the registration request?"
+    - "Quote the EXACT statement the rule flagged (role assignment, mass-assignment via `...req.body`, privilege check) with line number."
+    - "What SPECIFIC guard would satisfy the rule? Name it concretely — e.g. 'admin-only middleware before User.update', 'allow-list filter excluding {role, isAdmin}', 'explicit User.findByIdAndUpdate(id, { name, email })'. 'A privilege check' is not acceptable."
+    - "Enumerate EVERY path that reaches the flagged statement: registration, profile update, admin endpoint, batch import. For each, state whether the SPECIFIC guard is present with file:line citations."
+    - "Can a low-privileged user influence the inputs (role field, target user ID, request body)? Quote the data flow if so."
+    - "Are role checks middleware-based or inline if-checks — could one route be missed? Show coverage on every path."
+    - "If the specific required guard is not present on every reachable path, the rule is likely correct."
   context_hint: "Include the user update route, model schema, and role-checking middleware."
-  additional_context: ["caller"]
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 js/incorrect-authorization:
   short_description: "Authorization check on wrong object or with incorrect logic (CWE-863)"
   questions:
-    - "Does the authorization check verify the user OWNS the specific resource they are accessing?"
-    - "Could an attacker change the resource ID in the URL (e.g., /api/users/OTHER_ID/data) to access another user's data?"
-    - "Is the database query filtered by the authenticated user's ID, or does it fetch any record by the provided ID?"
-    - "Are compound conditions (role AND ownership) implemented with correct boolean logic (&&, not ||)?"
-    - "Is the authorization check consistent across all HTTP methods (GET, PUT, DELETE) for this resource?"
-    - "Could a timing difference in the authorization check reveal whether a resource exists (information leak)?"
+    - "Quote the EXACT authorization check the code performs AND the EXACT resource access it gates, both with line numbers."
+    - "What SPECIFIC check would actually satisfy the rule for this resource? (e.g. 'resource.userId === req.user.id', 'resource.acl.includes(req.user.id) AND req.user.role === \"admin\"'.) 'A permission check' is not acceptable."
+    - "Compare the check the code performs to the SPECIFIC check required: do they reference the same authenticated identity and the same resource? Cite line numbers for both."
+    - "Could an attacker change the resource ID in the URL (IDOR) to access another user's data? Show whether the query is filtered by authenticated user ID."
+    - "Are compound conditions (role AND ownership) implemented with correct boolean logic (&&, not ||)? Quote the expression."
+    - "If the check performed differs from the check required on any reachable path, the rule is likely correct."
   context_hint: "Include the route handler, resource lookup query, and authorization check."
-  additional_context: ["caller"]
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 js/resource-leak:
   short_description: "Opened resource (stream, connection, handle) not properly closed in JavaScript"

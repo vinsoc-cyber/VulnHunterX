@@ -148,7 +148,7 @@ def _load_fixture(
     return entries
 
 
-def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[str] | None = None, cwes: list[str] | None = None, include_unknown_cwe: bool = False) -> list[GroundTruthEntry]:
+def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[str] | None = None, cwes: list[str] | None = None, include_unknown_cwe: bool = False, diversevul_negative_fraction: float | None = None) -> list[GroundTruthEntry]:
     """Load entries for a given dataset name."""
     # Check for fixture files first (for smoke tests)
     fixture = _REPO_ROOT / "benchmarks" / "fixtures" / f"{name}_sample.json"
@@ -218,6 +218,7 @@ def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[s
             from benchmarks.adapters.diversevul_adapter import DiverseVulAdapter
             return DiverseVulAdapter(ds_path).load(
                 limit=limit, cwes=cwes, include_unknown_cwe=include_unknown_cwe,
+                negative_fraction=diversevul_negative_fraction,
             )
         if fixture.exists():
             return _load_fixture(fixture, limit=limit, langs=langs, cwes=cwes)
@@ -720,6 +721,19 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--diversevul-negative-fraction",
+        type=float,
+        default=None,
+        metavar="FRAC",
+        help=(
+            "DiverseVul only: rebalance returned entries to include this "
+            "fraction of target=0 (non-vulnerable) records. e.g. 0.5 for a "
+            "50/50 positive/negative mix. Required to make FP-Reduction a "
+            "meaningful metric — by default raw-sast hits 100%% precision "
+            "by construction because the dataset is filtered to positives."
+        ),
+    )
+    parser.add_argument(
         "--juliet-per-cwe",
         type=int,
         default=20,
@@ -978,11 +992,30 @@ def main() -> int:
     ):
         _llm_preflight(args.provider, args.model)
 
+    # Statistical-noise guard: rebalancing diversevul to a fixed positive/
+    # negative fraction with a small --limit produces per-CWE F1 numbers
+    # that swing by ~25pp per misclassification. The 2026-05-15 16:45 run
+    # used --limit 40 and over half its CWEs ended up with n<5 — drawing
+    # conclusions from that is meaningless. Warn loudly so the user picks
+    # a real sample size.
+    if (
+        args.diversevul_negative_fraction is not None
+        and "diversevul" in datasets
+        and 0 < args.limit < 100
+    ):
+        logger.warning(
+            "--diversevul-negative-fraction is set but --limit=%d is small. "
+            "Per-CWE F1 will be noise at this sample size (e.g. 4 ground-"
+            "truth TPs in CWE-264 → ±25pp swing per misclassification). "
+            "Recommend --limit 200 or higher for stable numbers.",
+            args.limit,
+        )
+
     try:
         for dataset_name in datasets:
             logger.info("Loading dataset: %s (limit=%d)", dataset_name, args.limit)
             try:
-                entries = _load_dataset(dataset_name, args.limit, juliet_per_cwe=args.juliet_per_cwe, langs=args.lang, cwes=args.cwe, include_unknown_cwe=args.include_unknown_cwe)
+                entries = _load_dataset(dataset_name, args.limit, juliet_per_cwe=args.juliet_per_cwe, langs=args.lang, cwes=args.cwe, include_unknown_cwe=args.include_unknown_cwe, diversevul_negative_fraction=args.diversevul_negative_fraction)
             except FileNotFoundError as exc:
                 logger.error("%s", exc)
                 continue

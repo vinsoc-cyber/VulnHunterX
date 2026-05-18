@@ -618,14 +618,15 @@ cpp/use-after-move:
 cpp/missing-authorization:
   short_description: "Privileged operation performed without access control check (CWE-862)"
   questions:
-    - "What PRIVILEGED OPERATION is performed — file access, config change, admin action, data modification?"
-    - "Is there an AUTHORIZATION CHECK before the operation (role check, permission flag, capability test)?"
-    - "Who can reach this code path — is it behind authentication, or publicly accessible?"
-    - "Could an attacker bypass the check by calling this function directly (missing check in callee)?"
-    - "Are there any FRAMEWORK-LEVEL guards (middleware, decorator, capability system) protecting this path?"
-    - "What is the IMPACT if an unauthorized user triggers this operation?"
+    - "Quote the EXACT privileged operation the rule flagged (the file write, register modification, capability change, syscall, etc.) with its line number. Do not paraphrase."
+    - "What SPECIFIC check would satisfy the rule on this operation? Name it concretely — e.g. 'CAP_SYS_ADMIN via capable()', 'ns_capable(user_ns, CAP_NET_ADMIN)', 'matching owner UID', 'role == ADMIN', 'ACL entry for caller'. Vague answers like 'an authorization check' are not acceptable."
+    - "Enumerate EVERY reachable path to the operation: caller(s) in this function, callers of those, syscall/ioctl entry points, registered handlers. For each path, state whether the SPECIFIC check from the previous question is present with a file:line citation. If a path is not visible in the provided context, mark it 'Not visible — assumption of guard rejected'."
+    - "What is the LOWEST privilege level that can reach this code on the MOST permissive path you enumerated? (unauthenticated network, any local user, privileged user, root only.)"
+    - "If you cannot point to the specific required check on EVERY reachable path with concrete line numbers, the rule is likely correct. To verdict False Positive you MUST cite (a) the check name, (b) its location, and (c) why it covers every path. Otherwise verdict True Positive or Needs More Data."
+    - "What is the security impact if an unauthorized caller reaches this operation?"
   context_hint: "Include the function performing the operation and its callers to verify authorization flow."
-  additional_context: ["caller"]
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 cpp/input-validation:
   short_description: "External input used without validation at system boundary (CWE-20)"
@@ -757,26 +758,28 @@ cpp/resource-exhaustion:
 cpp/improper-privilege-management:
   short_description: "Privilege escalation via misuse of setuid/setgid or incomplete privilege drop (CWE-269)"
   questions:
-    - "Is setuid(), setgid(), seteuid(), or setegid() called to DROP privileges after startup?"
-    - "Is the RETURN VALUE of setuid/setgid checked — failure to drop privileges silently continues with elevated rights?"
-    - "Are supplementary groups cleared with setgroups(0, NULL) before dropping to the target user?"
-    - "Is the privilege drop performed in the correct ORDER — setgid() first, then setuid() (cannot call setgid after dropping root)?"
-    - "After dropping privileges, is there a VERIFICATION that getuid()/getgid() return the expected non-root values?"
-    - "Could an attacker exploit the window between startup and privilege drop to perform unauthorized actions?"
+    - "Quote the EXACT privilege-management statement(s) the rule flagged (setuid/setgid/capset/setresuid call, or the missing one) with line numbers."
+    - "What SPECIFIC sequence is required for a correct privilege drop on this path? (e.g. 'setgroups(0,NULL) → setgid(target) → setuid(target) → verify with getuid()==target'.) Name each call concretely, not 'a privilege drop'."
+    - "Enumerate EVERY path that reaches the flagged operation. For each path, list which of the required calls appear, in what order, with file:line citations. Missing call → mark explicitly; out-of-order → mark explicitly."
+    - "Is the RETURN VALUE of every setuid/setgid call checked on every path? Quote the check or mark 'unchecked'."
+    - "Could an attacker exploit the window between startup and the (incomplete) privilege drop to perform unauthorized actions?"
+    - "If the required sequence is not present on every path with concrete line numbers, the rule is likely correct. To verdict False Positive, cite (a) the required calls, (b) their locations, (c) why every path executes them in the correct order."
   context_hint: "Include all setuid/setgid calls, their return value checks, and the order of operations."
-  additional_context: ["caller"]
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 cpp/incorrect-authorization:
   short_description: "Authorization check on wrong UID/GID or capability allowing privilege bypass (CWE-863)"
   questions:
-    - "Is the authorization check comparing the correct USER ID or GROUP ID against the expected value?"
-    - "Is getuid() vs geteuid() used correctly — geteuid() reflects setuid bit, getuid() reflects real user?"
-    - "Could the check be bypassed by manipulating supplementary groups, capabilities, or setuid binaries?"
-    - "Is the authorization check performed BEFORE the privileged operation, or could the operation complete before the check?"
-    - "Are file permission checks using access() (which checks real UID) vs the actual open() (which uses effective UID) — TOCTOU risk?"
-    - "Is there a consistent authorization model, or do different code paths use different checks?"
+    - "Quote the EXACT authorization check the code performs AND the EXACT privileged operation it gates, both with line numbers."
+    - "What SPECIFIC check would actually satisfy the rule on the resource being accessed? (e.g. 'geteuid() == file_owner_uid', 'ns_capable(target_ns, CAP_X)', 'permission_t & WRITE'.) Vague answers like 'a permission check' are not acceptable."
+    - "Compare the check the code performs to the SPECIFIC check required: are they checking the same identity (real vs effective UID, current vs target namespace, requesting user vs resource owner)? Cite line numbers for both."
+    - "Enumerate EVERY reachable path. For each path, state whether the SPECIFIC required check is present (not just 'a check'), with file:line citations."
+    - "Is there a TOCTOU window — does the check use access()/stat() while the operation uses open()/exec()? Quote both calls."
+    - "If the check performed differs from the check required on any reachable path, the rule is likely correct. To verdict False Positive, cite the matching check on every path."
   context_hint: "Include the authorization check, UID/GID comparison, and the privileged operation."
-  additional_context: ["caller", "macro"]
+  additional_context: ["caller", "all_callers", "macro"]
+  min_iterations: 2
 
 cpp/log-injection:
   short_description: "User input written to log output without sanitization in C/C++"

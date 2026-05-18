@@ -307,10 +307,15 @@ class LLMClient:
                 # the questions YAML can require multiple analysis rounds before allowing
                 # a TP/FP verdict. Premature convergence is the documented failure mode
                 # for CWE-416 etc. — see benchmarks/Conclusion.md.
+                #
+                # This gate fires regardless of whether a context_provider is
+                # available — even when only "<unavailable>" can be served,
+                # the second turn forces the LLM to re-examine its evidence
+                # under explicit "context unavailable" framing, which the
+                # 2026-05-15 benchmark showed materially flips wrong FPs.
                 if (
                     iterations < questions.min_iterations
                     and verdict != "Needs More Data"
-                    and context_provider is not None
                 ):
                     suggested = ", ".join(
                         f"'{t}:<name>'" for t in questions.additional_context[:3]
@@ -725,6 +730,141 @@ class LLMClient:
             data_flow=rep.data_flow,
         )
 
+    _SECOND_OPINION_PROMPT = (
+        "Your previous verdict was 'False Positive' with high confidence, "
+        "reached in a single turn without requesting additional context.\n\n"
+        "The 2026-05-15 benchmark showed that this pattern (one-iteration "
+        "high-confidence FP) is wrong 80% of the time on memory-safety and "
+        "access-control CWEs — usually because the LLM assumed a defense "
+        "exists outside the snippet, inverted a missing-check finding "
+        "(saw checks and concluded 'no bug'), or treated an empty/init "
+        "function as inherently safe.\n\n"
+        "Verify your verdict by enumerating, with line references:\n"
+        "  (a) The SPECIFIC defense you observed (exact line, exact mechanism).\n"
+        "  (b) Why that defense covers ALL reachable paths to the sink.\n"
+        "  (c) Why the SAST tool flagged this finding — what does the rule "
+        "      look for, and is the defense you cited actually checking that?\n\n"
+        "If you cannot enumerate (a), (b), and (c) with concrete line references "
+        "from the provided code, change your verdict to 'True Positive' "
+        "(Low confidence) or 'Needs More Data'. Respond in the same strict JSON "
+        "format."
+    )
+
+    def request_second_opinion(
+        self,
+        finding: Finding,
+        context: str,
+        questions: GuidedQuestions,
+        func_name: str,
+        previous_verdict: Verdict,
+        temperature: float | None = None,
+        verbose: bool = False,
+        quiet: bool = True,
+        log_file: Any | None = None,
+    ) -> Verdict:
+        """One-shot re-prompt for a previously committed verdict.
+
+        Used by VerificationEngine to challenge single-turn high-confidence
+        FP verdicts (the 2026-05-15 benchmark's dominant failure mode).
+        Returns a fresh Verdict whose iteration/token counts are added to the
+        previous verdict by the caller. The previous verdict's reasoning is
+        included as assistant context so the model can audit its own logic.
+        """
+        user_prompt = self.prompt_builder.build_user_prompt(
+            finding, context, questions, func_name
+        )
+        sys_prompt = self.prompt_builder.get_system_prompt(
+            tool_name=finding.tool or "static analysis",
+            lang=finding.lang,
+        )
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt},
+            {
+                "role": "assistant",
+                "content": (
+                    previous_verdict.raw_response
+                    or json.dumps({
+                        "verdict": previous_verdict.verdict,
+                        "confidence": previous_verdict.confidence,
+                        "reasoning": previous_verdict.reasoning,
+                    })
+                ),
+            },
+            {"role": "user", "content": self._SECOND_OPINION_PROMPT},
+        ]
+        start_time = time.time()
+        try:
+            kwargs = self._build_completion_kwargs(messages, temperature=temperature)
+            response = litellm.completion(**kwargs)
+            raw = (
+                response.choices[0].message.content or ""
+                if response.choices
+                else ""
+            )
+        except Exception as e:
+            logger.debug("Second-opinion call failed", exc_info=True)
+            return Verdict(
+                finding=finding,
+                verdict=previous_verdict.verdict,
+                confidence=previous_verdict.confidence,
+                reasoning=previous_verdict.reasoning + f" [second-opinion failed: {e}]",
+                answers=previous_verdict.answers,
+                raw_response=previous_verdict.raw_response,
+                model=self.model,
+                elapsed_seconds=previous_verdict.elapsed_seconds,
+                iterations=previous_verdict.iterations,
+                tokens_used=previous_verdict.tokens_used,
+                input_tokens=previous_verdict.input_tokens,
+                output_tokens=previous_verdict.output_tokens,
+                cached_input_tokens=previous_verdict.cached_input_tokens,
+                cost_usd=previous_verdict.cost_usd,
+                confidence_score=previous_verdict.confidence_score,
+            )
+
+        _usage = getattr(response, "usage", None)
+        delta_tokens = getattr(_usage, "total_tokens", 0) or 0
+        delta_in = getattr(_usage, "prompt_tokens", 0) or 0
+        delta_out = getattr(_usage, "completion_tokens", 0) or 0
+        delta_cached = _extract_cached_input_tokens(_usage)
+        try:
+            delta_cost = litellm.completion_cost(completion_response=response)
+        except Exception:
+            delta_cost = 0.0
+
+        parsed = self._parse_response(raw)
+        elapsed = time.time() - start_time
+
+        if log_file:
+            log_file.write("### Second Opinion\n\n")
+            log_file.write(f"```json\n{raw}\n```\n\n")
+
+        return Verdict(
+            finding=finding,
+            verdict=parsed.get("verdict", previous_verdict.verdict),
+            confidence=parsed.get("confidence", "Low"),
+            reasoning=(
+                parsed.get("reasoning", "")
+                + " [second-opinion pass after 1-iter high-conf FP]"
+            ),
+            answers=parsed.get("answers", previous_verdict.answers),
+            raw_response=(
+                previous_verdict.raw_response
+                + "\n--- SECOND OPINION ---\n"
+                + raw
+            ),
+            model=self.model,
+            elapsed_seconds=previous_verdict.elapsed_seconds + elapsed,
+            context_needed=parsed.get("context_needed", []),
+            iterations=previous_verdict.iterations + 1,
+            tokens_used=previous_verdict.tokens_used + delta_tokens,
+            input_tokens=previous_verdict.input_tokens + delta_in,
+            output_tokens=previous_verdict.output_tokens + delta_out,
+            cached_input_tokens=previous_verdict.cached_input_tokens + delta_cached,
+            cost_usd=previous_verdict.cost_usd + delta_cost,
+            confidence_score=parsed.get("confidence_score", 0.3),
+        )
+
     _FORCE_DECISION_PROMPT = (
         "This is your final analysis attempt. Based on ALL the evidence you have seen so far, "
         "which direction does the balance of evidence lean? You MUST choose True Positive or "
@@ -774,13 +914,36 @@ class LLMClient:
         if parsed.get("verdict") == "Needs More Data":
             reasoning = (parsed.get("reasoning") or "").lower()
             raw_lower = raw.lower()
-            # Check for signals leaning toward vulnerable
-            tp_signals = ["likely vulnerable", "probably vulnerable", "appears vulnerable",
-                          "no sanitization", "no validation", "no bounds check",
-                          "unsafe", "exploitable", "unprotected"]
-            fp_signals = ["likely safe", "probably safe", "appears safe",
-                          "properly sanitized", "properly validated", "bounds checked",
-                          "protected", "mitigated", "not exploitable"]
+            # Check for signals leaning toward vulnerable. The access-control
+            # patterns (no authorization / no permission check / unprotected)
+            # were added 2026-05-15 after the diversevul benchmark showed
+            # `dvul_58f5580c074a` correctly identifying a missing capability
+            # check in its reasoning but defaulting to FP because the signal
+            # vocabulary did not cover this CWE class.
+            tp_signals = [
+                # Generic
+                "likely vulnerable", "probably vulnerable", "appears vulnerable",
+                "no sanitization", "no validation", "no bounds check",
+                "unsafe", "exploitable",
+                # Access-control / authorization (CWE-264/285/287/306/862/863)
+                "no authorization", "no access control", "no permission check",
+                "no capability check", "no auth check", "no authn", "no authz",
+                "missing authorization", "missing authentication",
+                "missing access control", "unauthenticated",
+                "unprotected", "directly callable", "no caller restriction",
+                "no privilege check", "without privilege", "without permission",
+            ]
+            fp_signals = [
+                # Generic
+                "likely safe", "probably safe", "appears safe",
+                "properly sanitized", "properly validated", "bounds checked",
+                "protected", "mitigated", "not exploitable",
+                # Access-control / authorization
+                "properly authorized", "capability check passes",
+                "permission check passes", "requires admin", "requires root",
+                "requires authentication", "requires permission",
+                "capable() check", "ns_capable", "checks privilege",
+            ]
             tp_score = sum(1 for s in tp_signals if s in reasoning or s in raw_lower)
             fp_score = sum(1 for s in fp_signals if s in reasoning or s in raw_lower)
 
@@ -856,39 +1019,27 @@ class LLMClient:
             except json.JSONDecodeError:
                 pass
 
-        # Manual extraction as fallback
+        # Manual extraction as fallback. JSON parsing failed, so we cannot
+        # trust the LLM's verdict label — force "Needs More Data" with no
+        # confidence score so the downstream evaluator can count parse
+        # failures as a distinct mode rather than as Low-confidence FP
+        # (which previously polluted the Low bucket and broke calibration).
+        # Detect a *truncated* response (more '{' than '}') so the telemetry
+        # can attribute it correctly — this was the smoking gun for the
+        # diversevul CWE-264 misses in 2026-05-15.
+        open_braces = raw.count("{")
+        close_braces = raw.count("}")
+        truncated = open_braces > close_braces and open_braces > 0
         result: dict[str, Any] = {
             "answers": [],
             "verdict": "Needs More Data",
             "confidence": "Low",
-            "reasoning": "",
+            "reasoning": raw[:500],
+            "parse_failed": True,
+            "truncated": truncated,
+            "confidence_score": 0.0,
         }
-
-        # Use word-boundary regex to avoid matching substrings like
-        # "this is NOT a true positive"
-        raw_lower = raw.lower()
-        negation_pattern = r"(?:not\s+a\s+|isn'?t\s+a\s+|is\s+not\s+a?\s*)"
-        for v in ["True Positive", "False Positive", "Needs More Data"]:
-            v_lower = v.lower()
-            # Check for negated form first — skip if negated
-            neg_re = negation_pattern + re.escape(v_lower)
-            if re.search(neg_re, raw_lower):
-                continue
-            # Match with word boundaries
-            word_re = r"\b" + re.escape(v_lower) + r"\b"
-            if re.search(word_re, raw_lower):
-                result["verdict"] = v
-                break
-
-        for c in ["High", "Medium", "Low"]:
-            if f'confidence": "{c}' in raw or f'confidence":"{c}' in raw:
-                result["confidence"] = c
-                break
-
-        result["reasoning"] = raw[:500]
-        # Penalize confidence when using fallback parsing (no valid JSON)
-        result["confidence"] = "Low"
-        return self._ensure_confidence_score(result)
+        return result
 
     def _log_final_verdict(
         self,

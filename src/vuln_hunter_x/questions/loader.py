@@ -22,6 +22,23 @@ _LANG_TO_QUESTION_PREFIX: dict[str, str] = {
     "go": "go",
 }
 
+# CWE classes that require semantic reachability / authorization analysis.
+# The 2026-05-15 benchmark showed that single-iteration verdicts on these
+# CWEs had a 100% false-negative rate (F1=17% for CWE-264). For these
+# classes, force min_iterations >= 2 so the LLM expands context before
+# committing to TP/FP, even when the matched question YAML did not set it.
+_CWE_MIN_ITERATIONS_OVERRIDE: dict[str, int] = {
+    # Access control / authorization
+    "CWE-200": 2,  # Information exposure
+    "CWE-264": 2,  # Permissions, privileges, and access controls (generic)
+    "CWE-269": 2,  # Improper privilege management
+    "CWE-285": 2,  # Improper authorization
+    "CWE-287": 2,  # Improper authentication
+    "CWE-306": 2,  # Missing authentication for critical function
+    "CWE-862": 2,  # Missing authorization
+    "CWE-863": 2,  # Incorrect authorization
+}
+
 
 class QuestionsLoader:
     """Loads and retrieves guided questions for CodeQL rules."""
@@ -157,6 +174,45 @@ class QuestionsLoader:
         Returns:
             (GuidedQuestions, match_type_str)
         """
+        # Resolve the question + match-type, then apply any CWE-class
+        # min_iterations override before returning.
+        questions, match = self._resolve_questions(rule_id, cwe_ids=cwe_ids, lang=lang)
+        questions = self._apply_cwe_min_iterations_override(questions, cwe_ids)
+        return questions, match
+
+    def _apply_cwe_min_iterations_override(
+        self,
+        questions: GuidedQuestions,
+        cwe_ids: list[str] | None,
+    ) -> GuidedQuestions:
+        """Raise ``questions.min_iterations`` if any of the finding's CWEs
+        is in the semantic-CWE override map. No-op when no override applies
+        or when the YAML already declares an equal-or-higher value."""
+        if not cwe_ids:
+            return questions
+        override = max(
+            (_CWE_MIN_ITERATIONS_OVERRIDE.get(cwe, 0) for cwe in cwe_ids),
+            default=0,
+        )
+        if override <= questions.min_iterations:
+            return questions
+        return GuidedQuestions(
+            rule_id=questions.rule_id,
+            short_description=questions.short_description,
+            questions=questions.questions,
+            context_hint=questions.context_hint,
+            additional_context=questions.additional_context,
+            min_iterations=override,
+            snippet_window_lines=questions.snippet_window_lines,
+        )
+
+    def _resolve_questions(
+        self,
+        rule_id: str,
+        *,
+        cwe_ids: list[str] | None = None,
+        lang: str = "",
+    ) -> tuple[GuidedQuestions, str]:
         # Try exact match
         if rule_id in self.questions:
             return self.questions[rule_id], "exact"
