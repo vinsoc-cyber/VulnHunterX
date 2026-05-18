@@ -33,6 +33,7 @@ from pathlib import Path
 
 from benchmarks.adapters.cwe_rule_map import primary_rule_for_lang
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
+from benchmarks.adapters.registry import DatasetAdapter, register_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +56,20 @@ _LANG_MAP: dict[str, str] = {
 }
 
 
-class SecLLMHolmesAdapter:
+@register_adapter
+class SecLLMHolmesAdapter(DatasetAdapter):
     """Parse SecLLMHolmes scenarios into GroundTruthEntry objects.
 
     Expects the repo to be cloned at `dataset_path` (the repo root or
     the `datasets/` directory inside it).
     """
+
+    name = "secllmholmes"
+    langs = ("c", "cpp", "python", "javascript", "php")
+    family = "academic"
+    option_schema: dict = {}
+    install_url = "https://github.com/Ahmed-Ucsd/SecLLMHolmes.git"
+    expected_files = ("datasets",)
 
     def __init__(self, dataset_path: Path) -> None:
         self.dataset_path = Path(dataset_path)

@@ -166,6 +166,27 @@ def primary_rule_for_lang(cwe_id: str, lang: str) -> str:
     return primary_rule(cwe_id)
 
 
+def primary_rule_for_langs(cwe_id: str, langs: tuple[str, ...]) -> str:
+    """Return the first CodeQL rule for ``cwe_id`` matching ANY of ``langs``.
+
+    This generalises :func:`primary_rule_for_lang` to dataset adapters
+    that span multiple languages (e.g. ``DiverseVulAdapter`` covers both
+    ``c`` and ``cpp`` — both prefer the ``cpp/`` rule family).
+    Falls back to :func:`primary_rule` if no rule matches.
+    """
+    seen: set[str] = set()
+    prefixes: list[str] = []
+    for lang in langs:
+        prefix = _LANG_TO_RULE_PREFIX.get(lang)
+        if prefix and prefix not in seen:
+            seen.add(prefix)
+            prefixes.append(prefix)
+    for rid in cwe_to_rules(cwe_id):
+        if any(rid.startswith(p) for p in prefixes):
+            return rid
+    return primary_rule(cwe_id)
+
+
 def all_mapped_cwes() -> list[str]:
     """Return all CWE IDs that have at least one rule mapping."""
     return sorted(CWE_TO_RULES.keys())

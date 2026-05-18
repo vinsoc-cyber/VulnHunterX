@@ -22,8 +22,15 @@ import json
 import logging
 from pathlib import Path
 
-from benchmarks.adapters.cwe_rule_map import cwe_to_rules, primary_rule
+from benchmarks.adapters.cwe_rule_map import primary_rule_for_langs
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
+from benchmarks.adapters.registry import (
+    DatasetAdapter,
+    OptionSpec,
+    _to_bool,
+    _to_csv_list,
+    register_adapter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +38,32 @@ logger = logging.getLogger(__name__)
 _MAX_SNIPPET_CHARS = 8000
 
 
-class DiverseVulAdapter:
+@register_adapter
+class DiverseVulAdapter(DatasetAdapter):
     """Adapter for the DiverseVul dataset."""
+
+    name = "diversevul"
+    langs = ("c", "cpp")
+    family = "cve"
+    option_schema = {
+        "cwes": OptionSpec(
+            _to_csv_list,
+            default=None,
+            help="Comma-separated CWE IDs to filter (e.g. CWE-787,CWE-416).",
+        ),
+        "include_unknown_cwe": OptionSpec(
+            _to_bool,
+            default=False,
+            help="Keep records whose CVE has no CWE mapping (dropped by default).",
+        ),
+        "negative_fraction": OptionSpec(
+            float,
+            default=None,
+            help="Rebalance to this fraction of target=0 records (e.g. 0.5).",
+        ),
+    }
+    install_url = "https://drive.google.com/uc?id=1-1Lhr-Fp1jB7CRf3lEpoFvz3UPDDfQOj"
+    expected_files = ("diversevul_20230702.json",)
 
     def __init__(self, dataset_path: Path) -> None:
         self.dataset_path = Path(dataset_path)
@@ -291,16 +322,12 @@ class DiverseVulAdapter:
 
         # Synthesise a rule_id from the CWE so the questions loader can
         # exact-match instead of falling to the default-question bucket.
-        # DiverseVul is C/C++, so prefer cpp/ rules; fall back to the primary
-        # rule when no cpp/ variant is registered.
+        # The language-preference logic lives in cwe_rule_map.primary_rule_for_langs,
+        # so adding a new dataset with different language coverage is a
+        # one-line change (just pass the adapter's `langs` tuple).
         rule_id = ""
         if cwe_id != "Unknown":
-            for rule in cwe_to_rules(cwe_id):
-                if rule.startswith("cpp/") or rule.startswith("c/"):
-                    rule_id = rule
-                    break
-            if not rule_id:
-                rule_id = primary_rule(cwe_id) or ""
+            rule_id = primary_rule_for_langs(cwe_id, self.langs) or ""
 
         # Deduplicate by function hash
         func_hash = hashlib.md5(func.encode(), usedforsecurity=False).hexdigest()[:12]

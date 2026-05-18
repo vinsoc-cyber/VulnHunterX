@@ -44,6 +44,7 @@ from pathlib import Path
 
 from benchmarks.adapters.cwe_rule_map import cwe_to_rules, primary_rule
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
+from benchmarks.adapters.registry import DatasetAdapter, register_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -171,3 +172,40 @@ class OwaspBenchmarkAdapter:
             self.lang, len(entries), self.dataset_path, manifest.name,
         )
         return entries
+
+
+# ── Registry-facing thin subclasses ──────────────────────────────────
+# The base ``OwaspBenchmarkAdapter`` takes ``lang`` at __init__ time,
+# which doesn't fit the DatasetAdapter contract (``Adapter(dataset_path)``).
+# These subclasses pin ``lang`` at the class level so the registry can
+# instantiate them generically. Behaviour is otherwise identical.
+
+
+@register_adapter
+class OwaspJavaAdapter(OwaspBenchmarkAdapter, DatasetAdapter):
+    """OWASP BenchmarkJava — registry-facing wrapper."""
+
+    name = "owasp-java"
+    langs = ("java",)
+    family = "owasp"
+    option_schema: dict = {}
+    install_url = "https://github.com/OWASP-Benchmark/BenchmarkJava.git"
+    expected_files = ("expectedresults-",)
+
+    def __init__(self, dataset_path: Path) -> None:
+        super().__init__(dataset_path, lang="java")
+
+
+@register_adapter
+class OwaspPythonAdapter(OwaspBenchmarkAdapter, DatasetAdapter):
+    """OWASP BenchmarkPython — registry-facing wrapper."""
+
+    name = "owasp-python"
+    langs = ("python",)
+    family = "owasp"
+    option_schema: dict = {}
+    install_url = "https://github.com/OWASP-Benchmark/BenchmarkPython.git"
+    expected_files = ("expectedresults-",)
+
+    def __init__(self, dataset_path: Path) -> None:
+        super().__init__(dataset_path, lang="python")

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Any
 
 from vuln_hunter_x.core.config import Config
 from vuln_hunter_x.core.types import GuidedQuestions
@@ -30,13 +31,18 @@ from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.verification.engine import VerificationEngine
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry
+from benchmarks.adapters.registry import OptionSpec
 from benchmarks.approaches.base import (
-    BenchmarkApproach,
     BenchmarkResult,
     _SnippetContextExtractor,
     _dry_run_result,
     entry_to_finding,
     verdict_to_pred,
+)
+from benchmarks.approaches.registry import (
+    LLMConfig,
+    RegisteredApproach,
+    register_approach,
 )
 
 # Default prompts directory (all language-specific YAMLs)
@@ -44,7 +50,8 @@ _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "config" / "prompts"
 _DEFAULT_QUESTIONS_FILE = _PROMPTS_DIR / "default_questions.yaml"
 
 
-class AblationApproach(BenchmarkApproach):
+@register_approach
+class AblationApproach(RegisteredApproach):
     """Runs each finding through three question variants and returns all three results.
 
     Because BenchmarkApproach.evaluate() returns a single BenchmarkResult, this
@@ -58,6 +65,27 @@ class AblationApproach(BenchmarkApproach):
     """
 
     name = "ablation"
+    requires_llm = True
+    is_baseline = False
+    option_schema = {
+        "max_iterations": OptionSpec(
+            int,
+            default=3,
+            help="Max LLM turns per finding (applied to each ablation variant).",
+        ),
+    }
+
+    @classmethod
+    def from_options(
+        cls, llm: LLMConfig | None, options: dict[str, Any]
+    ) -> "AblationApproach":
+        llm = llm or LLMConfig()
+        return cls(
+            provider=llm.provider,
+            model=llm.model,
+            dry_run=llm.dry_run,
+            max_iterations=options.get("max_iterations", 3),
+        )
 
     def __init__(
         self,
