@@ -39,6 +39,8 @@ Usage examples:
 from __future__ import annotations
 
 import argparse
+import warnings
+from typing import Any
 import json
 import logging
 import os
@@ -148,86 +150,90 @@ def _load_fixture(
     return entries
 
 
-def _load_dataset(name: str, limit: int, juliet_per_cwe: int = 20, langs: list[str] | None = None, cwes: list[str] | None = None, include_unknown_cwe: bool = False, diversevul_negative_fraction: float | None = None) -> list[GroundTruthEntry]:
-    """Load entries for a given dataset name."""
-    # Check for fixture files first (for smoke tests)
+def _parse_kv_options(items: list[str] | None) -> dict[str, str]:
+    """Parse ``KEY=VALUE`` strings from ``action="append"`` argparse args.
+
+    Returns a dict mapping key -> raw string value (further coercion happens
+    inside the registry's ``option_schema``). A bare key with no ``=`` is
+    treated as ``key=true`` so flag-shaped options stay convenient.
+    """
+    result: dict[str, str] = {}
+    for raw in items or []:
+        if "=" in raw:
+            key, _, value = raw.partition("=")
+        else:
+            key, value = raw, "true"
+        key = key.strip()
+        if not key:
+            continue
+        result[key] = value.strip()
+    return result
+
+
+# Dataset on-disk directory mapping is read from benchmarks/datasets.yaml
+# (the single source of truth shared with setup_datasets.py). If the
+# manifest is missing or a dataset isn't listed, we fall back to using
+# the registered name as the directory name.
+_MANIFEST_PATH = _REPO_ROOT / "benchmarks" / "datasets.yaml"
+_DATASET_DIRNAMES: dict[str, str] = {}
+if _MANIFEST_PATH.is_file():
+    try:
+        import yaml as _yaml
+        _raw = _yaml.safe_load(_MANIFEST_PATH.read_text(encoding="utf-8")) or {}
+        _DATASET_DIRNAMES = {
+            n: cfg["dirname"]
+            for n, cfg in (_raw.get("datasets") or {}).items()
+            if "dirname" in cfg
+        }
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to load benchmark dataset manifest", exc_info=True)
+
+
+def _resolve_dataset_path(name: str) -> Path:
+    return DATASETS_DIR / _DATASET_DIRNAMES.get(name, name)
+
+
+def _load_dataset(
+    name: str,
+    limit: int,
+    options: dict[str, Any] | None = None,
+    langs: list[str] | None = None,
+    fallback_cwes: list[str] | None = None,
+) -> list[GroundTruthEntry]:
+    """Load entries for a given dataset name via the registry.
+
+    Falls back to a fixture file under ``benchmarks/fixtures/`` if the
+    dataset has not been downloaded. The ``options`` dict is validated
+    against the adapter's ``option_schema`` by ``load_dataset()``; unknown
+    keys produce a warning.
+    """
+    from benchmarks.adapters.registry import get_adapter, load_dataset
+
+    options = dict(options or {})
+    ds_path = _resolve_dataset_path(name)
     fixture = _REPO_ROOT / "benchmarks" / "fixtures" / f"{name}_sample.json"
 
-    if name == "secllmholmes":
-        ds_path = DATASETS_DIR / "secllmholmes"
-        if ds_path.exists():
-            from benchmarks.adapters.secllmholmes_adapter import SecLLMHolmesAdapter
-            return SecLLMHolmesAdapter(ds_path).load(limit=limit)
-        if fixture.exists():
-            return _load_fixture(fixture, limit=limit, langs=langs, cwes=cwes)
-        raise FileNotFoundError(
-            f"SecLLMHolmes dataset not found at {ds_path}. "
-            "Run: python benchmarks/scripts/setup_datasets.py --dataset secllmholmes"
-        )
+    if ds_path.exists():
+        return load_dataset(name, ds_path, limit=limit, options=options)
 
-    if name == "juliet":
-        ds_path = DATASETS_DIR / "juliet"
-        if ds_path.exists():
-            from benchmarks.adapters.juliet_adapter import JulietAdapter
-            return JulietAdapter(ds_path).load(
-                mode="offline",
-                limit=limit,
-                per_cwe_limit=juliet_per_cwe,
-                benchmark_cwes_only=(juliet_per_cwe > 0),
-            )
-        if fixture.exists():
-            return _load_fixture(fixture, limit=limit, langs=langs, cwes=cwes)
-        raise FileNotFoundError(
-            f"Juliet dataset not found at {ds_path}. "
-            "Run: python benchmarks/scripts/setup_datasets.py --dataset juliet"
-        )
+    if fixture.exists():
+        return _load_fixture(fixture, limit=limit, langs=langs, cwes=fallback_cwes)
 
-    if name == "realvuln":
-        ds_path = DATASETS_DIR / "realvuln"
-        if ds_path.exists():
-            from benchmarks.adapters.realvuln_adapter import RealVulnAdapter
-            return RealVulnAdapter(ds_path).load(limit=limit)
-        if fixture.exists():
-            return _load_fixture(fixture, limit=limit, langs=langs, cwes=cwes)
-        raise FileNotFoundError(
-            f"RealVuln dataset not found at {ds_path}. "
-            "Run: python benchmarks/scripts/setup_datasets.py --dataset realvuln"
-        )
-
-    if name in ("owasp-java", "owasp-python"):
-        lang = "java" if name == "owasp-java" else "python"
-        ds_path = DATASETS_DIR / f"owasp-benchmark-{lang}"
-        if ds_path.exists():
-            from benchmarks.adapters.owasp_benchmark_adapter import OwaspBenchmarkAdapter
-            return OwaspBenchmarkAdapter(ds_path, lang=lang).load(limit=limit)
-        if fixture.exists():
-            return _load_fixture(fixture, limit=limit, langs=langs, cwes=cwes)
-        # Fall back to the shared owasp_benchmark fixture if specific one absent
+    # OWASP variants share a single bundled fixture
+    if name.startswith("owasp-"):
         shared = _REPO_ROOT / "benchmarks" / "fixtures" / "owasp_benchmark_sample.json"
         if shared.exists():
-            entries = _load_fixture(shared, limit=0, langs=[lang], cwes=cwes)
+            lang = name.split("-", 1)[1]
+            entries = _load_fixture(shared, limit=0, langs=[lang], cwes=fallback_cwes)
             return entries[: limit or len(entries)]
-        raise FileNotFoundError(
-            f"OWASP Benchmark dataset not found at {ds_path}. "
-            f"Run: python benchmarks/scripts/setup_datasets.py --dataset {name}"
-        )
 
-    if name == "diversevul":
-        ds_path = DATASETS_DIR / "diversevul"
-        if ds_path.exists():
-            from benchmarks.adapters.diversevul_adapter import DiverseVulAdapter
-            return DiverseVulAdapter(ds_path).load(
-                limit=limit, cwes=cwes, include_unknown_cwe=include_unknown_cwe,
-                negative_fraction=diversevul_negative_fraction,
-            )
-        if fixture.exists():
-            return _load_fixture(fixture, limit=limit, langs=langs, cwes=cwes)
-        raise FileNotFoundError(
-            f"DiverseVul dataset not found at {ds_path}. "
-            "Download from: https://github.com/wagner-group/diversevul"
-        )
-
-    raise ValueError(f"Unknown dataset: {name!r}")
+    # Touch the adapter to surface a clean KeyError if the name is unknown
+    # before reporting a missing-dataset error.
+    get_adapter(name)
+    raise FileNotFoundError(
+        f"Dataset {name!r} not found at {ds_path}. "
+        f"Run: python benchmarks/scripts/setup_datasets.py --dataset {name}"
+    )
 
 
 # ── Approach factory ─────────────────────────────────────────────────────────
@@ -236,22 +242,24 @@ def _build_approach(
     name: str,
     model: str,
     provider: str,
-    max_iterations: int,
     dry_run: bool,
-    force_decision: bool = True,
-    use_slicing: bool = False,
+    options: dict[str, Any] | None = None,
 ) -> BenchmarkApproach:
-    common = {"provider": provider, "model": model, "dry_run": dry_run}
-    if name == "raw-sast":
-        return RawSastApproach()
-    if name == "vulnhunterx":
-        return VulnHunterXApproach(
-            **common, max_iterations=max_iterations,
-            force_decision=force_decision, use_slicing=use_slicing,
-        )
-    if name == "ablation":
-        return AblationApproach(**common, max_iterations=max_iterations)
-    raise ValueError(f"Unknown approach: {name!r}")
+    """Construct an approach instance via the registry.
+
+    Per-approach knobs (``max_iterations``, ``force_decision``,
+    ``use_slicing``) live in ``options`` and are validated against the
+    approach's ``option_schema``. Unknown options for the chosen approach
+    produce a warning, not a crash — see ``build_approach`` in the
+    approach registry.
+    """
+    from benchmarks.approaches.registry import LLMConfig, build_approach
+
+    return build_approach(
+        name,
+        llm=LLMConfig(provider=provider, model=model, dry_run=dry_run),
+        options=options or {},
+    )
 
 
 # ── Checkpoint helpers ────────────────────────────────────────────────────────
@@ -672,20 +680,30 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
+    # ``--dataset`` and ``--approach`` accept any name registered with the
+    # respective registry, plus ``all`` and family tags (e.g. ``owasp``).
+    # No closed ``choices`` list — keeping the parser open lets a newly-
+    # added adapter or approach work without editing this file.
+    from benchmarks.adapters.registry import all_adapter_names
+    from benchmarks.approaches.registry import all_approach_names
+
+    _adapter_names = all_adapter_names()
+    _approach_names = all_approach_names()
     parser.add_argument(
         "--dataset",
-        choices=["secllmholmes", "juliet", "diversevul",
-                 "owasp-java", "owasp-python", "owasp",
-                 "realvuln", "all"],
         default="secllmholmes",
+        metavar="DATASET",
+        help=(
+            f"Dataset name: one of {_adapter_names!r}, a family tag, or "
+            f"'all'. (Adapters auto-discovered from the registry.)"
+        ),
     )
     parser.add_argument(
         "--approach",
         nargs="+",
-        choices=["raw-sast", "vulnhunterx", "ablation", "all"],
         default=["all"],
         metavar="APPROACH",
-        help="One or more of: raw-sast vulnhunterx ablation all",
+        help=f"One or more of: {' '.join(_approach_names)} all",
     )
     parser.add_argument("--model", default=os.environ.get("LLM_MODEL", "gpt-4o"))
     parser.add_argument("--provider", default=os.environ.get("LLM_PROVIDER", "openai"))
@@ -746,7 +764,35 @@ def main() -> int:
         ),
     )
     parser.add_argument("--max-iterations", type=int, default=_DEFAULT_MAX_ITERATIONS,
-                        help=f"Max iterations for multi-turn approaches (default: {_DEFAULT_MAX_ITERATIONS}, from benchmarks/config/benchmark.yaml)")
+                        help=f"Max iterations for multi-turn approaches (default: {_DEFAULT_MAX_ITERATIONS}, from benchmarks/config/benchmark.yaml). "
+                             "Deprecated; prefer --approach-option max_iterations=N.")
+    parser.add_argument(
+        "--dataset-option",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Set a dataset-adapter option (repeatable). The key is "
+            "validated against the chosen dataset's option_schema; "
+            "unknown keys warn. Examples: "
+            "--dataset-option negative_fraction=0.5 (diversevul), "
+            "--dataset-option per_cwe_limit=20 (juliet), "
+            "--dataset-option include_unknown_cwe=true (diversevul)."
+        ),
+    )
+    parser.add_argument(
+        "--approach-option",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Set an approach option (repeatable). Validated against the "
+            "chosen approach's option_schema. Examples: "
+            "--approach-option max_iterations=4 (vulnhunterx/ablation), "
+            "--approach-option force_decision=false (vulnhunterx), "
+            "--approach-option use_slicing=true (vulnhunterx)."
+        ),
+    )
     parser.add_argument(
         "--nmd-handling",
         choices=["exclude", "fp"],
@@ -896,17 +942,24 @@ def main() -> int:
     except Exception:
         pass
 
-    # Determine datasets and approaches
+    # Determine datasets and approaches via the registries.
+    # ``all`` expands to every registered adapter. A family tag (e.g.
+    # ``owasp``) expands to every adapter whose ``family`` attribute
+    # matches — discovered from the registry, not hard-coded. A specific
+    # adapter name is used as-is.
+    from benchmarks.adapters.registry import (
+        adapters_in_family,
+        all_adapter_names,
+    )
+    from benchmarks.approaches.registry import all_approach_names
+
     if args.dataset == "all":
-        datasets = ["secllmholmes", "juliet", "diversevul",
-                    "owasp-java", "owasp-python", "realvuln"]
-    elif args.dataset == "owasp":
-        datasets = ["owasp-java", "owasp-python"]
+        datasets = all_adapter_names()
     else:
-        datasets = [args.dataset]
-    _ALL_APPROACHES = ["raw-sast", "vulnhunterx", "ablation"]
+        family_expansion = adapters_in_family(args.dataset)
+        datasets = family_expansion if family_expansion else [args.dataset]
     approaches = (
-        _ALL_APPROACHES
+        all_approach_names()
         if "all" in args.approach
         else list(dict.fromkeys(args.approach))
     )
@@ -1011,11 +1064,56 @@ def main() -> int:
             args.limit,
         )
 
+    # Merge --dataset-option / --approach-option KEY=VALUE entries (free-
+    # form) with deprecated per-dataset / per-approach flags. The
+    # deprecated flags still work for one release but emit a warning and
+    # only apply to the target they were originally scoped to.
+    user_dataset_options = _parse_kv_options(args.dataset_option)
+    user_approach_options = _parse_kv_options(args.approach_option)
+
+    def _options_for_dataset(name: str) -> dict[str, Any]:
+        opts: dict[str, Any] = dict(user_dataset_options)
+        if name == "diversevul":
+            if args.include_unknown_cwe and "include_unknown_cwe" not in opts:
+                warnings.warn(
+                    "--include-unknown-cwe is deprecated; use "
+                    "--dataset-option include_unknown_cwe=true",
+                    DeprecationWarning, stacklevel=2,
+                )
+                opts["include_unknown_cwe"] = True
+            if (args.diversevul_negative_fraction is not None
+                    and "negative_fraction" not in opts):
+                warnings.warn(
+                    "--diversevul-negative-fraction is deprecated; use "
+                    "--dataset-option negative_fraction=<float>",
+                    DeprecationWarning, stacklevel=2,
+                )
+                opts["negative_fraction"] = args.diversevul_negative_fraction
+            if args.cwe and "cwes" not in opts:
+                opts["cwes"] = list(args.cwe)
+        elif name == "juliet":
+            if "per_cwe_limit" not in opts and args.juliet_per_cwe != 20:
+                warnings.warn(
+                    "--juliet-per-cwe is deprecated; use "
+                    "--dataset-option per_cwe_limit=N",
+                    DeprecationWarning, stacklevel=2,
+                )
+                opts["per_cwe_limit"] = args.juliet_per_cwe
+            opts.setdefault("per_cwe_limit", args.juliet_per_cwe)
+            opts.setdefault("benchmark_cwes_only", args.juliet_per_cwe > 0)
+        return opts
+
     try:
         for dataset_name in datasets:
             logger.info("Loading dataset: %s (limit=%d)", dataset_name, args.limit)
             try:
-                entries = _load_dataset(dataset_name, args.limit, juliet_per_cwe=args.juliet_per_cwe, langs=args.lang, cwes=args.cwe, include_unknown_cwe=args.include_unknown_cwe, diversevul_negative_fraction=args.diversevul_negative_fraction)
+                entries = _load_dataset(
+                    dataset_name,
+                    args.limit,
+                    options=_options_for_dataset(dataset_name),
+                    langs=args.lang,
+                    fallback_cwes=args.cwe,
+                )
             except FileNotFoundError as exc:
                 logger.error("%s", exc)
                 continue
@@ -1044,14 +1142,34 @@ def main() -> int:
                         if args.iteration_sweep
                         else approach_name
                     )
+                    approach_options = dict(user_approach_options)
+                    # Deprecation shims: the historic CLI flags still set
+                    # these options unless the user passed them explicitly
+                    # via --approach-option. We only propagate options the
+                    # chosen approach actually declares — otherwise raw-sast
+                    # (which has an empty option_schema) would spam warnings
+                    # for every default flag value.
+                    from benchmarks.approaches.registry import get_approach
+                    schema = get_approach(approach_name).option_schema
+                    if "max_iterations" in schema:
+                        approach_options.setdefault("max_iterations", max_iters)
+                    if (
+                        "force_decision" in schema
+                        and "force_decision" not in approach_options
+                    ):
+                        approach_options["force_decision"] = args.force_decision
+                    if (
+                        "use_slicing" in schema
+                        and args.sliced_context
+                        and "use_slicing" not in approach_options
+                    ):
+                        approach_options["use_slicing"] = True
                     approach = _build_approach(
                         approach_name,
                         args.model,
                         args.provider,
-                        max_iters,
                         args.dry_run,
-                        force_decision=args.force_decision,
-                        use_slicing=args.sliced_context,
+                        options=approach_options,
                     )
                     approach.name = effective_name
 

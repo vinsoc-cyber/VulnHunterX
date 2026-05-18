@@ -8,19 +8,26 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from typing import Any
+
 from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
 from vuln_hunter_x.core.config import Config
 from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.verification.engine import VerificationEngine
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry
+from benchmarks.adapters.registry import OptionSpec, _to_bool
 from benchmarks.approaches.base import (
-    BenchmarkApproach,
     BenchmarkResult,
     _SnippetContextExtractor,
     _dry_run_result,
     entry_to_finding,
     verdict_to_pred,
+)
+from benchmarks.approaches.registry import (
+    LLMConfig,
+    RegisteredApproach,
+    register_approach,
 )
 
 # Default prompts directory containing all per-language *_questions.yaml files
@@ -29,7 +36,8 @@ _PROMPTS_DIR = (
 )
 
 
-class VulnHunterXApproach(BenchmarkApproach):
+@register_approach
+class VulnHunterXApproach(RegisteredApproach):
     """Approach 4 — the system under test.
 
     Uses the full VulnHunterX pipeline:
@@ -38,6 +46,39 @@ class VulnHunterXApproach(BenchmarkApproach):
     """
 
     name = "vulnhunterx"
+    requires_llm = True
+    is_baseline = False
+    option_schema = {
+        "max_iterations": OptionSpec(
+            int,
+            default=3,
+            help="Max LLM turns per finding.",
+        ),
+        "force_decision": OptionSpec(
+            _to_bool,
+            default=True,
+            help="If True, force a TP/FP verdict after max_iterations (no NMD).",
+        ),
+        "use_slicing": OptionSpec(
+            _to_bool,
+            default=False,
+            help="Use variable-aware code slicing instead of full snippet.",
+        ),
+    }
+
+    @classmethod
+    def from_options(
+        cls, llm: LLMConfig | None, options: dict[str, Any]
+    ) -> "VulnHunterXApproach":
+        llm = llm or LLMConfig()
+        return cls(
+            provider=llm.provider,
+            model=llm.model,
+            dry_run=llm.dry_run,
+            max_iterations=options.get("max_iterations", 3),
+            force_decision=options.get("force_decision", True),
+            use_slicing=options.get("use_slicing", False),
+        )
 
     def __init__(
         self,

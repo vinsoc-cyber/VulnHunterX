@@ -27,6 +27,12 @@ from pathlib import Path
 
 from benchmarks.adapters.cwe_rule_map import CWE_TO_RULES, primary_rule, primary_rule_for_lang
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
+from benchmarks.adapters.registry import (
+    DatasetAdapter,
+    OptionSpec,
+    _to_bool,
+    register_adapter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +89,36 @@ def _contains_good_function(code: str) -> bool:
     return bool(re.search(r"\bvoid\s+good\d*\s*\(", code))
 
 
-class JulietAdapter:
+@register_adapter
+class JulietAdapter(DatasetAdapter):
     """Parse Juliet C/C++ test cases into GroundTruthEntry objects.
 
     Mode "offline": synthesize entries from filename/function conventions.
                     Does not require CodeQL to be installed.
     """
+
+    name = "juliet"
+    langs = ("c", "cpp")
+    family = "synthetic"
+    option_schema = {
+        "mode": OptionSpec(
+            str,
+            default="offline",
+            help="Operational mode: 'offline' (filename convention) or 'full' (requires CodeQL).",
+        ),
+        "per_cwe_limit": OptionSpec(
+            int,
+            default=0,
+            help="Max entries per CWE, balanced TP/FP (N//2 each). 0 = no per-CWE cap.",
+        ),
+        "benchmark_cwes_only": OptionSpec(
+            _to_bool,
+            default=True,
+            help="Restrict to the standard benchmark CWE set.",
+        ),
+    }
+    install_url = "https://samate.nist.gov/SARD/downloads/test-suites/2017-10-01-juliet-test-suite-for-c-cplusplus-v1-3.zip"
+    expected_files = ("C/testcases",)
 
     def __init__(self, dataset_path: Path) -> None:
         self.dataset_path = Path(dataset_path)
