@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 VinSOC Cyber
+#
+# Single source of truth for benchmark dataset install metadata.
+# Read by:
+#   - benchmarks/scripts/setup_datasets.py (download + extract)
+#   - benchmarks/scripts/run_benchmark.py  (dataset-name resolution
+#     happens via the adapter registry, but `dirname` overrides for
+#     on-disk path quirks like the "owasp-benchmark-" prefix)
+#
+# Adding a new dataset:
+#   1. Implement the adapter (inherit DatasetAdapter, self-register).
+#   2. Add an entry here with install info.
+#   No edits to run_benchmark.py or setup_datasets.py are needed.
+
+datasets:
+  secllmholmes:
+    description: "SecLLMHolmes: 228 C/C++ & Python scenarios (8 CWE classes)"
+    type: git
+    url: "https://github.com/ai4cloudops/SecLLMHolmes"
+    dirname: secllmholmes
+    disk_mb: 50
+
+  juliet:
+    description: "Juliet C/C++ 1.3.1: 64K test cases across ~180 CWEs (NIST SARD)"
+    type: zip
+    url: "https://samate.nist.gov/SARD/downloads/test-suites/2017-10-01-juliet-test-suite-for-c-cplusplus-v1-3.zip"
+    dirname: juliet
+    disk_mb: 600
+
+  owasp-java:
+    description: "OWASP BenchmarkJava v1.2: ~2,740 Java test cases, 11 CWE categories (GPL-2.0)"
+    type: git
+    url: "https://github.com/OWASP-Benchmark/BenchmarkJava"
+    dirname: owasp-benchmark-java
+    disk_mb: 200
+
+  owasp-python:
+    description: "OWASP BenchmarkPython v0.1: ~1,230 Python test cases (GPL-3.0)"
+    type: git
+    url: "https://github.com/OWASP-Benchmark/BenchmarkPython"
+    dirname: owasp-benchmark-python
+    disk_mb: 80
+
+  realvuln:
+    description: "RealVuln Benchmark: real-CVE TPs + FP traps across Python web frameworks (MIT)"
+    type: git
+    url: "https://github.com/kolega-ai/Real-Vuln-Benchmark"
+    dirname: realvuln
+    disk_mb: 30
+
+  diversevul:
+    description: "DiverseVul: 349K C/C++ functions with real CVE-backed labels (150 CWEs)"
+    type: gdrive
+    gdrive_id: "12IWKhmLhq7qn5B_iXgn5YerOQtkH-6RG"
+    filename: diversevul.json
+    dirname: diversevul
+    disk_mb: 2000

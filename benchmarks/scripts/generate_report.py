@@ -141,13 +141,30 @@ def _run_metadata(run_dir: Path, summaries: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _is_baseline(approach_name: str) -> bool:
+    """Return True if the approach is a non-LLM baseline.
+
+    Consults the approach registry's ``is_baseline`` class attribute when
+    available; falls back to the historic string match on ``"raw-sast"``
+    if the registry can't be queried (e.g. summary loaded from a JSON
+    whose approach name isn't registered in this checkout).
+    """
+    try:
+        from benchmarks.approaches.registry import get_approach
+        return get_approach(approach_name).is_baseline
+    except (KeyError, ImportError):
+        return approach_name == "raw-sast"
+
+
 def _key_findings(summaries: list[dict]) -> str:
     """Auto-generate a Key Findings prose section from the summary data."""
     if not summaries:
         return ""
 
-    llm_summaries = [s for s in summaries if s.get("approach") != "raw-sast"]
-    next((s for s in summaries if s.get("approach") == "raw-sast"), None)
+    llm_summaries = [
+        s for s in summaries if not _is_baseline(s.get("approach", ""))
+    ]
+    next((s for s in summaries if _is_baseline(s.get("approach", ""))), None)
 
     bullets: list[str] = []
 
@@ -722,7 +739,7 @@ def _generate_charts(summaries: list[dict], out_dir: Path) -> list[tuple[str, st
     # ── Chart 2: F1 Score comparison ──────────────────────────────────────────
     f1_vals = [(s.get("f1") or 0) * 100 for s in summaries]
     fig, ax = plt.subplots(figsize=(max(6, len(approaches) * 1.5), 5))
-    colors = ["#4C72B0" if a != "raw-sast" else "#8c8c8c" for a in approaches]
+    colors = ["#4C72B0" if not _is_baseline(a) else "#8c8c8c" for a in approaches]
     bars = ax.bar(x, f1_vals, color=colors)
     ax.bar_label(bars, fmt="%.1f%%", padding=3, fontsize=9)
     ax.set_xticks(x)
@@ -741,7 +758,7 @@ def _generate_charts(summaries: list[dict], out_dir: Path) -> list[tuple[str, st
     fp_vals = [(s.get("fp_reduction_rate") or 0) * 100 for s in summaries]
     tp_vals = [(s.get("tp_preservation_rate") or 0) * 100 for s in summaries]
     fig, ax = plt.subplots(figsize=(7, 6))
-    scatter_colors = ["#8c8c8c" if a == "raw-sast" else "#4C72B0" for a in approaches]
+    scatter_colors = ["#8c8c8c" if _is_baseline(a) else "#4C72B0" for a in approaches]
     ax.scatter(fp_vals, tp_vals, c=scatter_colors, s=120, zorder=3)
     for i, label in enumerate(approaches):
         ax.annotate(label, (fp_vals[i], tp_vals[i]),
@@ -821,7 +838,10 @@ def _generate_charts(summaries: list[dict], out_dir: Path) -> list[tuple[str, st
         logger.info("Chart saved: %s", p)
 
     # ── Chart 5: Latency comparison ───────────────────────────────────────────
-    llm_s = [s for s in summaries if s.get("approach") != "raw-sast" and (s.get("mean_latency_s") or 0) > 0]
+    llm_s = [
+        s for s in summaries
+        if not _is_baseline(s.get("approach", "")) and (s.get("mean_latency_s") or 0) > 0
+    ]
     if llm_s:
         llm_approaches = [s.get("approach", "?") for s in llm_s]
         mean_lats = [s.get("mean_latency_s") or 0 for s in llm_s]

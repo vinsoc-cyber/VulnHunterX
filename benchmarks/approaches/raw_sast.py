@@ -6,12 +6,19 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry
-from benchmarks.approaches.base import PRED_TP, BenchmarkApproach, BenchmarkResult
+from benchmarks.approaches.base import PRED_TP, BenchmarkResult
+from benchmarks.approaches.registry import (
+    LLMConfig,
+    RegisteredApproach,
+    register_approach,
+)
 
 
-class RawSastApproach(BenchmarkApproach):
+@register_approach
+class RawSastApproach(RegisteredApproach):
     """Baseline 1: every finding is a TP.
 
     This measures CodeQL/Semgrep's native precision and establishes the upper bound
@@ -20,6 +27,16 @@ class RawSastApproach(BenchmarkApproach):
     """
 
     name = "raw-sast"
+    requires_llm = False
+    is_baseline = True
+    option_schema: dict = {}
+
+    @classmethod
+    def from_options(
+        cls, llm: LLMConfig | None, options: dict[str, Any]
+    ) -> "RawSastApproach":
+        # No options or LLM context to apply.
+        return cls()
 
     def evaluate(self, entry: GroundTruthEntry) -> BenchmarkResult:
         start = time.monotonic()

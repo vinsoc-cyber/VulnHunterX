@@ -52,6 +52,7 @@ from pathlib import Path
 
 from benchmarks.adapters.cwe_rule_map import primary_rule_for_lang
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
+from benchmarks.adapters.registry import DatasetAdapter, register_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -85,15 +86,25 @@ def _read_lines(path: Path, start: int, end: int, pad: int = 0) -> str:
     return "\n".join(lines[s:e])
 
 
-class RealVulnAdapter:
+@register_adapter
+class RealVulnAdapter(DatasetAdapter):
     """Parse RealVuln Benchmark ground-truth JSON files into GroundTruthEntry.
 
     Args:
         dataset_path: Root of the cloned Real-Vuln-Benchmark repository.
         repos_cache: Optional directory containing checked-out source trees
             keyed by repo_id. If absent, snippets are left empty.
+            Programmatic-only — not exposed via the registry CLI.
         code_resolver: Optional callable for tests to inject snippets.
+            Programmatic-only — not exposed via the registry CLI.
     """
+
+    name = "realvuln"
+    langs = ("python",)
+    family = "cve"
+    option_schema: dict = {}
+    install_url = "https://github.com/kolega-ai/Real-Vuln-Benchmark.git"
+    expected_files = ("ground-truth",)
 
     def __init__(
         self,
