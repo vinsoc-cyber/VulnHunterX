@@ -63,6 +63,7 @@ class DiverseVulAdapter:
         limit: int = 0,
         cwes: list[str] | None = None,
         include_unknown_cwe: bool = False,
+        negative_fraction: float | None = None,
     ) -> list[GroundTruthEntry]:
         """Load entries from DiverseVul dataset.
 
@@ -74,6 +75,12 @@ class DiverseVulAdapter:
                 VulnHunterX's guided-question routing into a generic fallback,
                 biasing the rule-specific ablation comparison. Pass True to
                 keep the full corpus for binary-classification-only use.
+            negative_fraction: If set (0.0–1.0), enforce this fraction of
+                target=0 (non-vulnerable / FP-label) records in the returned
+                set. Without negatives the FP-Reduction metric is unmeasurable
+                because raw-sast achieves 100% precision by construction.
+                Defaults to None (no rebalancing — preserves the dataset's
+                natural ~5% positive ratio after filtering by CWE).
 
         Returns:
             List of GroundTruthEntry objects.
@@ -91,6 +98,13 @@ class DiverseVulAdapter:
         dropped_unknown_cwe = [0]
 
         cwe_filter = set(cwes) if cwes else None
+
+        # When negative_fraction is requested, we cannot honour `limit`
+        # streaming-fast — we have to load both pools (positive/negative)
+        # past `limit` and then rebalance. So in that mode we ignore the
+        # streaming early-stop and rebalance at the end.
+        rebalance = negative_fraction is not None
+        load_limit = 0 if rebalance else limit
 
         with open(data_file, encoding="utf-8") as f:
             for line_no, line in enumerate(f, 1):
@@ -111,7 +125,7 @@ class DiverseVulAdapter:
                             )
                             if entry is not None:
                                 entries.append(entry)
-                                if limit and len(entries) >= limit:
+                                if load_limit and len(entries) >= load_limit:
                                     break
                         break
                     continue
@@ -122,8 +136,11 @@ class DiverseVulAdapter:
                 )
                 if entry is not None:
                     entries.append(entry)
-                    if limit and len(entries) >= limit:
+                    if load_limit and len(entries) >= load_limit:
                         break
+
+        if rebalance:
+            entries = self._rebalance(entries, negative_fraction, limit)
 
         logger.info(
             "Loaded %d entries from DiverseVul (%d TP, %d FP)",
@@ -137,6 +154,101 @@ class DiverseVulAdapter:
                 dropped_unknown_cwe[0],
             )
         return entries
+
+    @staticmethod
+    def _rebalance(
+        entries: list[GroundTruthEntry],
+        negative_fraction: float,
+        limit: int,
+    ) -> list[GroundTruthEntry]:
+        """Return a subset of ``entries`` with the requested negative ratio,
+        stratified per CWE.
+
+        Stratification matters because the raw diversevul positive ratio
+        varies hugely across CWEs — CWE-264 is ~9% positive, CWE-787 is
+        100% positive. A naive global rebalance over-weights whichever CWE
+        appears first in the file. Per-CWE stratification gives each CWE a
+        fair share of the cap, so per-CWE F1 numbers reflect real signal
+        rather than file ordering.
+
+        Deterministic — no random sampling. Within each CWE, the first
+        ``n_pos`` positives and first ``n_neg`` negatives are kept (by
+        original file order). When ``limit`` is set, the cap is divided
+        evenly across CWEs (with any remainder going to CWEs that have
+        spare capacity).
+        """
+        if not 0.0 <= negative_fraction <= 1.0:
+            raise ValueError(
+                f"negative_fraction must be in [0.0, 1.0], got {negative_fraction!r}"
+            )
+
+        # Group by CWE, preserving file order within each group.
+        by_cwe: dict[str, dict[str, list[GroundTruthEntry]]] = {}
+        for e in entries:
+            cwe = e.cwe_id or "Unknown"
+            slot = by_cwe.setdefault(cwe, {"pos": [], "neg": []})
+            if e.label == LABEL_TP:
+                slot["pos"].append(e)
+            else:
+                slot["neg"].append(e)
+
+        n_cwes = max(len(by_cwe), 1)
+
+        # Per-CWE caps.
+        if limit <= 0:
+            # No global cap: take all positives in every CWE, then take
+            # enough negatives in each CWE to hit the requested ratio
+            # (capped by availability).
+            out: list[GroundTruthEntry] = []
+            for slot in by_cwe.values():
+                n_pos = len(slot["pos"])
+                n_neg_wanted = int(
+                    n_pos * negative_fraction / max(1 - negative_fraction, 1e-6)
+                )
+                n_neg = min(len(slot["neg"]), n_neg_wanted)
+                out.extend(slot["pos"][:n_pos])
+                out.extend(slot["neg"][:n_neg])
+            return out
+
+        # Global cap: distribute roughly evenly across CWEs. Track shortfalls
+        # so a CWE with fewer positives/negatives than its share doesn't
+        # waste capacity — redistribute to CWEs that still have slack.
+        per_cwe_quota = max(1, limit // n_cwes)
+        remainder = limit - per_cwe_quota * n_cwes  # may be negative if n_cwes > limit
+
+        # First pass: take fair share from each CWE.
+        out = []
+        shortfall_pool: list[GroundTruthEntry] = []
+        for slot in by_cwe.values():
+            n_neg = int(round(per_cwe_quota * negative_fraction))
+            n_pos = per_cwe_quota - n_neg
+            n_pos = min(n_pos, len(slot["pos"]))
+            n_neg = min(n_neg, len(slot["neg"]))
+            out.extend(slot["pos"][:n_pos])
+            out.extend(slot["neg"][:n_neg])
+            shortfall_pool.extend(slot["pos"][n_pos:])
+            shortfall_pool.extend(slot["neg"][n_neg:])
+
+        # Second pass: top up from the shortfall pool to hit `limit`,
+        # preserving the requested negative_fraction approximately.
+        needed = limit - len(out)
+        if needed > 0:
+            # Sort the shortfall by label so we can pull positives and
+            # negatives in the right ratio.
+            pool_pos = [e for e in shortfall_pool if e.label == LABEL_TP]
+            pool_neg = [e for e in shortfall_pool if e.label == LABEL_FP]
+            n_neg_extra = int(round(needed * negative_fraction))
+            n_pos_extra = needed - n_neg_extra
+            n_pos_extra = min(n_pos_extra, len(pool_pos))
+            n_neg_extra = min(n_neg_extra, len(pool_neg))
+            out.extend(pool_pos[:n_pos_extra])
+            out.extend(pool_neg[:n_neg_extra])
+            # Final greedy top-up if still short (one side exhausted).
+            still_needed = limit - len(out)
+            if still_needed > 0:
+                remaining = pool_pos[n_pos_extra:] + pool_neg[n_neg_extra:]
+                out.extend(remaining[:still_needed])
+        return out
 
     def _record_to_entry(
         self,

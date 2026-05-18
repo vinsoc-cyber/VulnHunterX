@@ -6,7 +6,7 @@
 
 Usage:
     python benchmarks/scripts/generate_report.py --run-dir benchmarks/results/<timestamp>
-    python benchmarks/scripts/generate_report.py --run-dir benchmarks/results/<timestamp> --charts
+    python benchmarks/scripts/generate_report.py --run-dir benchmarks/results/<timestamp> --no-charts
 """
 
 from __future__ import annotations
@@ -323,6 +323,81 @@ def _calibration_table(summaries: list[dict]) -> str:
     return table + "\n\n" + explanation
 
 
+def _force_decision_table(summaries: list[dict]) -> str:
+    """Telemetry for force-decision verdicts (LLM did not produce a confident
+    verdict and the engine synthesized one from signal heuristics).
+
+    The 2026-05-15 16:45 diversevul run showed CWE-264 TP→FP misclassifications
+    *all* ended with the `[Forced decision: defaulted to FP]` sentinel —
+    surfacing the count makes that failure mode visible without grepping
+    raw_response.
+    """
+    rows: list[str] = []
+    for s in summaries:
+        total = s.get("forced_decision_total")
+        if not total:
+            continue
+        defaulted_fp = s.get("forced_decision_defaulted_fp", 0)
+        leaned_tp = s.get("forced_decision_leaned_tp", 0)
+        evaluated = s.get("total_evaluated") or 0
+        share = (total / evaluated * 100) if evaluated else 0
+        rows.append(
+            f"| {s.get('approach','?')} | {s.get('dataset','?')} | "
+            f"{total} | {defaulted_fp} | {leaned_tp} | {share:.1f}% |"
+        )
+    if not rows:
+        return ""
+    lines = [
+        "| Approach | Dataset | Forced Total | Defaulted FP | Leaned TP | % of Evaluated |",
+        "|---|---|---|---|---|---|",
+        *rows,
+    ]
+    explanation = (
+        "> **How to read this table:** Force-decision verdicts are cases "
+        "where the LLM did not produce a confident verdict in normal "
+        "iteration (most often because the response truncated mid-JSON), "
+        "and the engine synthesized one from signal heuristics. "
+        "`Defaulted FP` is the dangerous bucket — if it dominates and "
+        "TP-preservation is low, the model is hitting `max_tokens` "
+        "before completing verdicts. `% of Evaluated` >5% is a smell."
+    )
+    return "\n".join(lines) + "\n\n" + explanation
+
+
+def _iteration_calibration_table(summaries: list[dict]) -> str:
+    """Build iteration × confidence calibration table.
+
+    Surfaces the 2026-05-15 failure mode: 1-iter/High verdicts had a 26%
+    accuracy on diversevul, invisible in the flat confidence table.
+    """
+    rows: list[str] = []
+    for s in summaries:
+        cal = s.get("iteration_calibration") or {}
+        if not cal:
+            continue
+        for bucket, data in cal.items():
+            rows.append(
+                f"| {s.get('approach','?')} | {s.get('dataset','?')} | {bucket} "
+                f"| {data.get('total','?')} | {data.get('correct','?')} "
+                f"| {_pct(data.get('accuracy'))} |"
+            )
+    if not rows:
+        return ""
+    lines = [
+        "| Approach | Dataset | Iter/Confidence | Total | Correct | Accuracy |",
+        "|---|---|---|---|---|---|",
+        *rows,
+    ]
+    explanation = (
+        "> **How to read this table:** Accuracy stratified by both iteration "
+        "count and confidence label. The 1-iter/High bucket is the canonical "
+        "early-termination failure mode — when it underperforms multi-iter "
+        "buckets, the approach is committing too quickly without expanding "
+        "context."
+    )
+    return "\n".join(lines) + "\n\n" + explanation
+
+
 def _cwe_table(summaries: list[dict]) -> str:
     """Build per-CWE breakdown table for all approaches."""
     lines = ["| Approach | CWE | Total | Precision | Recall | F1 |",
@@ -466,13 +541,25 @@ def _question_coverage_table(summaries: list[dict]) -> str:
     total_all = len(all_yaml_rules)
     total_seen = len(seen_rules & all_yaml_rules)
 
+    coverage_pct = total_seen / total_all * 100 if total_all else 0.0
     lines = [
         f"> **Total rules in YAML**: {total_all} | **Rules exercised this run**: {total_seen} "
-        f"({total_seen/total_all*100:.0f}%)",
+        f"({coverage_pct:.0f}%)",
         "",
+    ]
+    if total_all > 0 and coverage_pct < 10.0:
+        lines.append(
+            f"> ⚠️ **Low question coverage**: only {coverage_pct:.0f}% of YAML-defined "
+            f"rules were exercised this run. Conclusions about overall recall, FP "
+            f"reduction, and calibration generalize poorly from such a small slice — "
+            f"expand the dataset (add languages, broaden CWE filter) before tuning "
+            f"prompts or models against these numbers."
+        )
+        lines.append("")
+    lines.extend([
         "| Language | Rules in YAML | Rules Exercised | Coverage |",
         "|---|---|---|---|",
-    ]
+    ])
     for lang in sorted(lang_stats):
         stat = lang_stats[lang]
         coverage = stat["exercised"] / stat["total"] if stat["total"] else 0
@@ -833,6 +920,30 @@ def generate_report(run_dir: Path, include_charts: bool = False) -> Path:
         "",
         _calibration_table(summaries),
         "",
+        *(
+            [
+                "---",
+                "",
+                "## Iteration × Confidence Calibration",
+                "",
+                _iteration_calibration_table(summaries),
+                "",
+            ]
+            if _iteration_calibration_table(summaries)
+            else []
+        ),
+        *(
+            [
+                "---",
+                "",
+                "## Force-Decision Telemetry",
+                "",
+                _force_decision_table(summaries),
+                "",
+            ]
+            if _force_decision_table(summaries)
+            else []
+        ),
         "---",
         "",
         "## Per-CWE Breakdown",
@@ -886,7 +997,12 @@ def generate_report(run_dir: Path, include_charts: bool = False) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True, type=Path, help="Benchmark run directory")
-    parser.add_argument("--charts", action="store_true", help="Generate matplotlib charts")
+    parser.add_argument(
+        "--charts",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Generate matplotlib charts (default: on; use --no-charts to skip)",
+    )
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir)

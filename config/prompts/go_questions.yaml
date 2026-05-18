@@ -416,47 +416,54 @@ go/input-validation:
 go/missing-authentication:
   short_description: "Endpoint accessible without authentication"
   questions:
-    - "Does the HTTP handler or route require authentication (token, session, API key)?"
-    - "Is an authentication middleware applied to this route or router group?"
-    - "Could an unauthenticated user access sensitive data or perform privileged actions?"
-    - "Is the route intentionally public (login, health check, static assets) or should it be protected?"
-    - "Is the authentication check in middleware (applied to all routes) or per-handler (could be missed)?"
+    - "Quote the EXACT route registration and handler the rule flagged with line numbers, and the privileged operation it performs."
+    - "What SPECIFIC authentication mechanism would satisfy the rule? Name it concretely — e.g. 'jwtauth.Verifier middleware', 'session.Auth().Required handler', 'manual ctx.Value(\"user\") check at line N'. 'An auth middleware' is not acceptable."
+    - "Enumerate EVERY path that reaches this handler: direct mux registration, sub-router, gRPC unary interceptor, scheduled task. For each, list the SPECIFIC middleware in registration order with file:line citations."
+    - "Is this endpoint EXPLICITLY public (login, /healthz, static assets)? Quote the justification."
+    - "Is there a global middleware (chi.Use, gin.Use) that should cover this path? Quote it or mark 'Not visible'."
+    - "If the specific required mechanism is not present on every reachable path, the rule is likely correct."
   context_hint: "Check the route registration and middleware chain for auth checks."
-  additional_context: ["caller"]
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 go/missing-authorization:
   short_description: "Authenticated user can access resources beyond their permission"
   questions:
-    - "Is authorization checked after authentication — does the handler verify the user has permission for the specific resource?"
-    - "Is the resource ID (user ID, document ID) taken from the URL/request and compared against the authenticated user's permissions?"
-    - "Could an authenticated user access another user's data by changing an ID parameter (IDOR)?"
-    - "Is role-based or attribute-based access control enforced?"
-    - "Is the authorization logic in a middleware or in each handler — could it be inconsistently applied?"
+    - "Quote the EXACT handler and the privileged operation the rule flagged, with line numbers."
+    - "What SPECIFIC authorization check would satisfy the rule? Name it concretely — e.g. 'role := ctx.Value(\"role\").(string); if role != \"admin\" { return forbidden }', 'casbin enforcer.Enforce(user, obj, act)', 'resource.OwnerID == authedUserID'. 'A role check' is not acceptable."
+    - "Enumerate EVERY path that reaches this handler. For each path, list the SPECIFIC required check with file:line citations, or mark 'absent / not visible'."
+    - "Could an authenticated user reach this resource via IDOR (changing an ID param)? Show whether the query filters by authed user ID."
+    - "Is the authorization decision based on TRUSTED server-side identity (session/JWT claim), not a client-supplied header/cookie? Quote the source."
+    - "If the specific required check is not present on every reachable path, the rule is likely correct."
   context_hint: "Check that the handler verifies the authenticated user's access to the specific resource."
-  additional_context: ["caller"]
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 go/incorrect-authorization:
   short_description: "Authorization check that can be bypassed"
   questions:
-    - "How is authorization checked — role comparison, ownership check, permission flag?"
-    - "Is the check based on client-supplied data (cookie, header, request body) that could be tampered with?"
-    - "Could the check be bypassed by case manipulation, extra whitespace, or encoding differences?"
-    - "Is the authorization decision made server-side using trusted session data?"
-    - "Are there code paths that skip the authorization check (early returns, error handling)?"
-    - "Is the authorization logic consistently applied across all access points for the same resource?"
+    - "Quote the EXACT authorization check the code performs AND the EXACT resource access it gates, with line numbers."
+    - "What SPECIFIC check would actually satisfy the rule? (e.g. 'resource.OwnerID == authedUserID && role == \"admin\"', 'casbin Enforce on (sub, obj, act)'.) 'A permission check' is not acceptable."
+    - "Compare the check performed to the check required: same authenticated identity, same resource? Cite line numbers."
+    - "Is the decision based on client-supplied data (header, cookie, body) that could be tampered with? Quote the source vs server-trusted identity."
+    - "Are there code paths that skip the check (early return, error path, fallback handler)? Enumerate them with line numbers."
+    - "If the check performed differs from the check required on any reachable path, the rule is likely correct."
   context_hint: "Examine the authorization logic and all code paths that could bypass it."
-  additional_context: ["caller"]
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 go/improper-privilege-management:
   short_description: "Application runs with excessive privileges or fails to drop them"
   questions:
-    - "Does the application run as root or with elevated capabilities unnecessarily?"
-    - "Are privileges dropped (syscall.Setuid, syscall.Setgid) after startup operations that require them?"
-    - "Is least privilege applied — does each component run with only the permissions it needs?"
-    - "Could a vulnerability in the application be exploited with elevated privileges for greater impact?"
-    - "Are file permissions set restrictively (0600/0700 instead of 0777)?"
+    - "Quote the EXACT privilege-related statement the rule flagged (syscall.Setuid/Setgid call, capability set, or its absence) with line number."
+    - "What SPECIFIC sequence would satisfy the rule? Name it concretely — e.g. 'syscall.Setgid(targetGID) → syscall.Setuid(targetUID) → verify with syscall.Getuid() == targetUID', 'cap.SetProc with required-only capabilities'. 'Privilege drop' is not acceptable."
+    - "Enumerate EVERY path that reaches the flagged operation. For each, list which calls of the required sequence appear, in order, with file:line citations. Missing or out-of-order → mark explicitly."
+    - "Is the RETURN VALUE / error of every privilege call checked on every path? Quote the check or mark 'unchecked'."
+    - "Could an attacker exploit the window between startup and the (incomplete) drop?"
+    - "If the specific required sequence is not present on every reachable path, the rule is likely correct."
   context_hint: "Check privilege level at startup and whether privileges are dropped after initialization."
-  additional_context: []
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 go/overly-permissive-file:
   short_description: "File or directory created with overly permissive permissions"

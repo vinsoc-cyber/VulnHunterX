@@ -13,7 +13,13 @@ import multiprocessing
 DEFAULT_LLM_PROVIDER = "openai"
 DEFAULT_LLM_MODEL = "gpt-4o"
 DEFAULT_LLM_TEMPERATURE = 0.2
-DEFAULT_LLM_MAX_TOKENS = 1500
+# 4096 was chosen after the 2026-05-15 diversevul benchmark revealed mid-
+# verdict JSON truncation at 1500 (case dvul_58f5580c074a): the LLM had
+# already enumerated the missing authorization check in its reasoning but
+# ran out of budget before closing the JSON object, so the force-decision
+# fallback fired and defaulted to FP. 4096 fits a 6-question verdict with
+# line-cited answers comfortably.
+DEFAULT_LLM_MAX_TOKENS = 4096
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
 # ── Verification defaults ─────────────────────────────────────────────

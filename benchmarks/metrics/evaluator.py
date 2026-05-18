@@ -158,6 +158,15 @@ class ApproachMetrics:
     # is the right remedy, not prompt engineering.
     pred_api_error_count: int = 0
     nmd_tp_count: int = 0  # NMD entries whose ground truth was TP
+    # Force-decision telemetry. Counts results whose reasoning carries the
+    # "[Forced decision:" sentinel — i.e. cases where the LLM did not
+    # produce a confident verdict in normal iteration and the engine
+    # synthesized one from signal heuristics. Surfaced separately because
+    # these are the canonical truncation / context-starvation failure
+    # mode (2026-05-15 16:45 diversevul run).
+    forced_decision_total: int = 0
+    forced_decision_defaulted_fp: int = 0   # "defaulted to FP" sentinel
+    forced_decision_leaned_tp: int = 0      # "evidence leans toward TP" sentinel
 
     # Core accuracy
     tp_correct: int = 0    # label=TP, predicted TP
@@ -179,6 +188,11 @@ class ApproachMetrics:
 
     # Calibration
     calibration: dict[str, CalibrationBucket] = field(default_factory=dict)
+    # Iteration × confidence calibration. Buckets keyed by "<iters>/<conf>"
+    # (e.g. "1/High"). The 2026-05-15 benchmark identified 1-iter High-
+    # confidence as the failure mode invisible to the flat confidence
+    # report; this matrix surfaces it.
+    iteration_calibration: dict[str, CalibrationBucket] = field(default_factory=dict)
 
     # Cost & latency. Two cost columns:
     #   total_cost_usd      -> local-marginal cost (from provider; ~0 for Ollama)
@@ -375,6 +389,9 @@ class ApproachMetrics:
             "error_rate": _fmt(self.error_rate),
             "pred_error": self.pred_error,
             "pred_api_error_count": self.pred_api_error_count,
+            "forced_decision_total": self.forced_decision_total,
+            "forced_decision_defaulted_fp": self.forced_decision_defaulted_fp,
+            "forced_decision_leaned_tp": self.forced_decision_leaned_tp,
             "total_tokens": self.total_tokens,
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
@@ -425,6 +442,29 @@ class ApproachMetrics:
                 "accuracy": _fmt(cb.accuracy),
             }
         d["calibration"] = cal
+
+        # Iteration × confidence calibration (sorted by iter then confidence
+        # for stable diffing across runs).
+        def _cal_sort_key(item: tuple[str, Any]) -> tuple[int, int]:
+            key, _ = item
+            try:
+                iters_str, conf = key.split("/", 1)
+                iters = int(iters_str)
+            except (ValueError, AttributeError):
+                iters, conf = 0, key
+            conf_rank = {"High": 0, "Medium": 1, "Low": 2}.get(conf, 3)
+            return (iters, conf_rank)
+
+        iter_cal: dict[str, Any] = {}
+        for bucket, cb in sorted(
+            self.iteration_calibration.items(), key=_cal_sort_key,
+        ):
+            iter_cal[bucket] = {
+                "total": cb.total,
+                "correct": cb.correct,
+                "accuracy": _fmt(cb.accuracy),
+            }
+        d["iteration_calibration"] = iter_cal
 
         # Per-CWE
         cwe_summary = []
@@ -506,6 +546,17 @@ def evaluate(
             metrics.question_match_counts[match_type] = (
                 metrics.question_match_counts.get(match_type, 0) + 1
             )
+
+        # Force-decision telemetry. The LLM client tags fallback verdicts
+        # with one of two sentinels in the reasoning text — see
+        # llm/client.py:_force_decision_turn.
+        reasoning_str = r.reasoning or ""
+        if "[Forced decision:" in reasoning_str:
+            metrics.forced_decision_total += 1
+            if "defaulted to FP" in reasoning_str:
+                metrics.forced_decision_defaulted_fp += 1
+            elif "evidence leans toward TP" in reasoning_str:
+                metrics.forced_decision_leaned_tp += 1
 
         # Resolve NMD based on nmd_handling policy
         pred = r.predicted_label
@@ -653,11 +704,21 @@ def evaluate(
             metrics.calibration[confidence] = CalibrationBucket(bucket=confidence)
         cb = metrics.calibration[confidence]
         cb.total += 1
-        # "correct" means predicted label matches ground truth label
-        if (pred == PRED_TP and gt_label == LABEL_TP) or (
+        is_correct = (pred == PRED_TP and gt_label == LABEL_TP) or (
             pred == PRED_FP and gt_label == LABEL_FP
-        ):
+        )
+        if is_correct:
             cb.correct += 1
+
+        # Iteration × confidence calibration. "0" iterations means the
+        # approach reported no iteration count (e.g. raw-sast).
+        iter_key = f"{r.iterations or 0}/{confidence}"
+        if iter_key not in metrics.iteration_calibration:
+            metrics.iteration_calibration[iter_key] = CalibrationBucket(bucket=iter_key)
+        ib = metrics.iteration_calibration[iter_key]
+        ib.total += 1
+        if is_correct:
+            ib.correct += 1
 
     return metrics
 

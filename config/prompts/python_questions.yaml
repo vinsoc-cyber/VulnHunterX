@@ -117,14 +117,15 @@ py/ssrf:
 py/broken-authentication:
   short_description: "Insecure session token generation or missing session expiry"
   questions:
-    - "How are session tokens generated - what entropy source is used (secrets.token_hex, os.urandom, or weak random)?"
-    - "Are session tokens INVALIDATED after logout or timeout - is there a server-side expiry enforced?"
-    - "Is the session token sent over HTTPS only (Secure flag) and inaccessible to JavaScript (HttpOnly flag)?"
-    - "Is the session ID rotated after privilege escalation (e.g., after login to prevent session fixation)?"
-    - "Are there concurrent session limits, or can an attacker reuse a stolen token indefinitely?"
-    - "Does the authentication path validate credentials before creating a session, or can sessions be created without auth?"
+    - "Quote the EXACT authentication / session statement the rule flagged (token generation, login, password check) with line number."
+    - "What SPECIFIC mechanism would satisfy the rule? Name it concretely — e.g. 'secrets.token_urlsafe(32) for token generation', 'hmac.compare_digest for password compare', 'session cookie with httponly=True + secure=True + samesite=\"Strict\"'. 'Proper auth' is not acceptable."
+    - "Enumerate EVERY authentication path (login form, API token, refresh, password reset, SSO). For each, cite which SPECIFIC mechanism is enforced with file:line."
+    - "Could an attacker bypass any path via weak randomness, missing expiry, session-fixation (no rotate on login), default secret, or skipping verification?"
+    - "Are session tokens INVALIDATED server-side after logout/timeout? Quote the invalidation."
+    - "If the specific required mechanism is not present on every path, the rule is likely correct."
   context_hint: "Include token generation, session creation, and session validation logic."
-  additional_context: ["caller"]
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
 
 py/hardcoded-credentials:
   short_description: "Hardcoded password, API key, or secret in source code"
@@ -684,38 +685,41 @@ py/resource-exhaustion:
 py/missing-authentication:
   short_description: "View or endpoint accessible without authentication performing privileged actions (CWE-306)"
   questions:
-    - "Does this view perform a PRIVILEGED action — data modification, admin operation, sensitive data access?"
-    - "Is @login_required (Django), @jwt_required (Flask-JWT), or IsAuthenticated (DRF) applied to this view?"
-    - "Could an UNAUTHENTICATED user reach this endpoint by directly calling its URL?"
-    - "Is this endpoint in a URL namespace that is supposed to be protected by a middleware/decorator?"
-    - "Is this intentionally public (login page, health check, public API) or was authentication accidentally omitted?"
-    - "Is there a global authentication middleware that should protect this path but has an exclusion?"
+    - "Quote the EXACT view function/class and the privileged action it performs, with line numbers."
+    - "What SPECIFIC authentication mechanism would satisfy the rule? Name it concretely — e.g. '@login_required (Django)', 'permission_classes = [IsAuthenticated] (DRF)', '@jwt_required() (Flask-JWT-Extended)'. 'Some auth decorator' is not acceptable."
+    - "Enumerate EVERY URL pattern that resolves to this view (urls.py, router registration, blueprint, view set actions). For each, cite which SPECIFIC mechanism is enforced with file:line."
+    - "Is this endpoint EXPLICITLY public (login, password reset, public API)? Quote the justification."
+    - "Is there a global middleware/AUTHENTICATION_BACKENDS / DEFAULT_PERMISSION_CLASSES that should cover this view? Quote it or mark 'Not visible'."
+    - "If the specific required mechanism is not present on every reachable path, the rule is likely correct."
   context_hint: "Include the view function/class, URL configuration, and any authentication decorators."
-  additional_context: ["caller", "class"]
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
 
 py/improper-privilege-management:
   short_description: "Privilege escalation via role manipulation or missing privilege boundary (CWE-269)"
   questions:
-    - "Can a user MODIFY their own role or is_staff/is_superuser field through an API endpoint?"
-    - "Is the role assignment endpoint protected — only admins can grant admin roles?"
-    - "Could a serializer (DRF) or form include role/privilege fields not intended for user modification?"
-    - "Is there a privilege boundary between user types that is consistently enforced across all endpoints?"
-    - "Could os.setuid()/os.seteuid() calls in the application drop privileges incorrectly?"
-    - "Are Django's @permission_required or DRF's IsAdminUser permissions used to guard privilege-changing operations?"
+    - "Quote the EXACT statement the rule flagged (role mutation, is_staff/is_superuser assignment, serializer fields including role) with line number."
+    - "What SPECIFIC guard would satisfy the rule? Name it concretely — e.g. 'IsAdminUser permission class before the mutation', 'role excluded from ModelSerializer.Meta.fields / included in read_only_fields', 'explicit User.objects.update(name=..., email=...) excluding role'. 'A privilege check' is not acceptable."
+    - "Enumerate EVERY path that can mutate the role/privilege field: registration, profile update, admin endpoint, management command. For each, cite the SPECIFIC guard with file:line."
+    - "Can a low-privileged user influence the role field via JSON body, multipart form, or query? Quote the data flow."
+    - "Are Django @permission_required / DRF permission_classes used? Quote them or mark 'Not visible'."
+    - "If the specific required guard is not present on every reachable path, the rule is likely correct."
   context_hint: "Include the user update view, serializer fields, and permission checks."
-  additional_context: ["caller", "class"]
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
 
 py/incorrect-authorization:
   short_description: "Authorization check on wrong object or with incorrect logic (CWE-863)"
   questions:
-    - "Does the authorization check verify the user OWNS the specific resource they are accessing (object-level permission)?"
-    - "Could an attacker change the resource ID in the URL to access ANOTHER user's data (IDOR)?"
-    - "Is get_object_or_404() used with a filter on the current user, or does it fetch any object by ID?"
-    - "Are DRF object-level permissions (has_object_permission) implemented, or only view-level permissions?"
-    - "Is the authorization logic consistent across all HTTP methods (GET, PUT, DELETE) for this resource?"
-    - "Could a race condition between the permission check and the action allow bypass?"
+    - "Quote the EXACT authorization check the code performs AND the EXACT resource access it gates, both with line numbers."
+    - "What SPECIFIC check would satisfy the rule for this resource? (e.g. 'resource.owner == request.user', 'has_object_permission(request, view, obj) implementing ownership'.) 'A permission check' is not acceptable."
+    - "Compare the check performed to the check required: same request.user, same resource? Cite line numbers."
+    - "Could an attacker change the resource ID (IDOR) to access another user's data? Show whether get_object_or_404 filters by request.user or fetches any object by pk."
+    - "For DRF: is has_object_permission implemented, or only has_permission (view-level only)? Quote it."
+    - "If the check performed differs from the check required on any reachable path, the rule is likely correct."
   context_hint: "Include the view, object lookup, permission class, and queryset filtering."
-  additional_context: ["caller", "class"]
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
 
 py/resource-leak:
   short_description: "Opened resource (file, connection, socket) not properly closed in Python"

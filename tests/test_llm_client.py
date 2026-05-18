@@ -73,15 +73,21 @@ class TestLLMClientParseResponse:
         assert result["verdict"] == "Needs More Data"
         assert "caller:foo" in result.get("context_needed", [])
 
-    def test_parse_manual_fallback_true_positive(self):
+    def test_parse_failed_returns_nmd_not_fp(self):
+        # 2026-05-15 calibration fix: when JSON parsing fails, we cannot trust
+        # the LLM's intent, so the fallback path returns NMD with parse_failed
+        # set — not a Low-confidence FP that would pollute the Low bucket.
         raw = "The code has a use-after-free. I believe this is a True Positive with High confidence."
         result = self.client._parse_response(raw)
-        assert result["verdict"] == "True Positive"
+        assert result["verdict"] == "Needs More Data"
+        assert result.get("parse_failed") is True
+        assert result["confidence_score"] == 0.0
 
-    def test_parse_manual_fallback_false_positive(self):
+    def test_parse_failed_for_false_positive_text(self):
         raw = "After careful analysis, this is a False Positive."
         result = self.client._parse_response(raw)
-        assert result["verdict"] == "False Positive"
+        assert result["verdict"] == "Needs More Data"
+        assert result.get("parse_failed") is True
 
     def test_parse_returns_needs_more_data_for_garbage(self):
         raw = "this is completely unparseable garbage @#$%"
@@ -89,6 +95,7 @@ class TestLLMClientParseResponse:
         assert result["verdict"] == "Needs More Data"
         assert "confidence" in result
         assert "reasoning" in result
+        assert result.get("parse_failed") is True
 
     def test_parse_markdown_block_without_json_label(self):
         raw = '```\n{"verdict": "True Positive", "confidence": "Low", "reasoning": "ok", "answers": []}\n```'

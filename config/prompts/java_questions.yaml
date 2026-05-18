@@ -439,62 +439,67 @@ java/input-validation:
 java/missing-authentication:
   short_description: "Endpoint accessible without authentication performing privileged actions (CWE-306)"
   questions:
-    - "Does this endpoint perform a PRIVILEGED action — data modification, admin operation, sensitive data access?"
-    - "Is the endpoint listed in Spring Security's permitAll() or ignored in the security filter chain?"
-    - "Is there an @PreAuthorize, @Secured, @RolesAllowed annotation, or manual SecurityContext check on this method?"
-    - "Could an UNAUTHENTICATED user reach this endpoint by directly calling its URL?"
-    - "Is this endpoint intentionally public (health check, login page, public API) or was authentication accidentally omitted?"
-    - "Is there a global security configuration (WebSecurityConfigurerAdapter, SecurityFilterChain) that should protect this path?"
+    - "Quote the EXACT endpoint signature the rule flagged (@RequestMapping/@GetMapping/@PostMapping/etc.) with line number, and the privileged action it performs."
+    - "What SPECIFIC authentication mechanism would satisfy the rule? Name it concretely — e.g. '@PreAuthorize(\"isAuthenticated()\")', 'SecurityFilterChain.authorizeHttpRequests().anyRequest().authenticated()', 'manual SecurityContextHolder.getContext().getAuthentication() check'. 'Some authentication' is not acceptable."
+    - "Enumerate EVERY path an unauthenticated request can take to reach this endpoint: direct URL hit, internal forwarder, async handler, scheduled invoker. For each, state whether the SPECIFIC mechanism from the previous question is present with file:line citations. Mark unseen configuration as 'Not visible — assumption of guard rejected'."
+    - "Is this endpoint EXPLICITLY listed in a permitAll() / WebSecurityCustomizer.ignoring() block? Quote the line if so."
+    - "If you cannot point to the specific required authentication mechanism on EVERY reachable path with concrete line numbers, the rule is likely correct. To verdict False Positive, cite (a) the mechanism, (b) where it is enforced, (c) why every reachable path executes it."
+    - "What is the security impact if an unauthenticated caller reaches this endpoint?"
   context_hint: "Include the controller method, Spring Security configuration, and any authentication annotations."
-  additional_context: ["caller", "class"]
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
 
 java/missing-authorization:
   short_description: "Authenticated endpoint missing role or permission check (CWE-862)"
   questions:
-    - "Does this endpoint perform an action that should be restricted to specific ROLES or PERMISSIONS?"
-    - "Is @PreAuthorize('hasRole(...)'), @Secured, @RolesAllowed, or manual authority check present?"
-    - "Could an authenticated user with LOW privileges access this endpoint and perform actions reserved for ADMIN or higher roles?"
-    - "Is there object-level authorization — does the code verify the user OWNS the resource they are accessing/modifying?"
-    - "Is the authorization check performed BEFORE the business logic executes, or could the action complete before the check?"
-    - "Is Spring Method Security enabled (@EnableGlobalMethodSecurity or @EnableMethodSecurity) in the configuration?"
+    - "Quote the EXACT endpoint and the action it performs (line number). What RESOURCE or PRIVILEGE does the rule expect to be gated?"
+    - "What SPECIFIC authorization check satisfies the rule? Name it concretely — e.g. '@PreAuthorize(\"hasRole(\\'ADMIN\\')\")', '@PostAuthorize(\"returnObject.owner == authentication.name\")', 'manual SecurityContextHolder check for AUTHORITY_X'. 'A role check' is not acceptable."
+    - "Enumerate EVERY path an authenticated-but-unprivileged user can take to reach this endpoint. For each path, list the SPECIFIC required check with file:line citation, or mark 'absent / not visible'."
+    - "Is OBJECT-LEVEL authorization required (the user owns/may modify THIS specific resource), and if so, is that ownership check present with the right identity (authenticated user vs path parameter)?"
+    - "Is Spring Method Security enabled (@EnableMethodSecurity / @EnableGlobalMethodSecurity)? Quote the enabling annotation, or mark 'Not visible'."
+    - "If the SPECIFIC required check is not present on every reachable path, the rule is likely correct. To verdict False Positive, cite (a) the check, (b) its location, (c) why every path executes it before the business logic."
   context_hint: "Include the controller method, security annotations, and how the user's role/authority is checked."
-  additional_context: ["caller", "class"]
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
 
 java/incorrect-authorization:
   short_description: "Authorization check performed on wrong object or with incorrect logic (CWE-863)"
   questions:
-    - "What RESOURCE or OBJECT is the user trying to access — does the authorization check verify ownership/permission on THAT specific object?"
-    - "Is the authorization check using the resource ID from the URL/request (attacker-controlled) to look up the resource, then checking ownership?"
-    - "Could an attacker change the resource ID in the request to access ANOTHER user's data (Insecure Direct Object Reference / IDOR)?"
-    - "Is the role/permission check using the correct enum/string — could a typo or case mismatch cause the check to always pass or fail?"
-    - "Are compound authorization conditions (role AND ownership, role OR specific permission) implemented with correct boolean logic?"
-    - "Is the authorization check consistent across all endpoints that access this resource (GET, PUT, DELETE)?"
+    - "Quote the EXACT authorization check the code performs AND the EXACT resource access it gates, both with line numbers."
+    - "What SPECIFIC check would actually satisfy the rule for the resource being accessed? (e.g. 'resource.owner.equals(currentUser)', 'hasAuthority(\"X\") AND resource.acl.contains(user)'.) 'A permission check' is not acceptable."
+    - "Compare the check the code performs to the SPECIFIC check required: do they reference the same identity (current user vs path parameter vs principal name) and the same resource? Cite line numbers for both."
+    - "Could an attacker change a resource ID in the request to access ANOTHER user's data (IDOR)? Show whether the check rebinds the resource ID to the authenticated user."
+    - "Is the role/permission string compared with equals(), contains(), or a typo-prone literal — could a mismatch make the check always pass or always fail?"
+    - "If the check performed differs from the check required on any reachable path, the rule is likely correct. To verdict False Positive, cite the matching check on every path."
   context_hint: "Include the authorization check, resource lookup, and all endpoints accessing this resource."
-  additional_context: ["caller", "class"]
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
 
 java/broken-authentication:
   short_description: "Weak authentication mechanism allowing credential compromise (CWE-287)"
   questions:
-    - "Is password comparison done with a constant-time function, or could timing attacks reveal password characters?"
-    - "Is there BRUTE FORCE protection — account lockout, rate limiting, CAPTCHA after failed attempts?"
-    - "Are passwords hashed with BCryptPasswordEncoder, SCryptPasswordEncoder, or Argon2 — NOT MD5, SHA-1, or plain SHA-256?"
-    - "Is the authentication state stored securely — HttpSession with secure cookie, or JWT with proper signing?"
-    - "Could an attacker bypass authentication via parameter manipulation, default credentials, or missing auth checks on alternate paths?"
-    - "Is multi-factor authentication available for high-privilege accounts?"
+    - "Quote the EXACT authentication-handling statement the rule flagged (password comparison, session creation, JWT verification, etc.) with line number."
+    - "What SPECIFIC mechanism would satisfy the rule on this code? Name it concretely — e.g. 'MessageDigest.isEqual(...) constant-time compare', 'BCryptPasswordEncoder.matches()', 'Jwts.parserBuilder().setSigningKey(...).build().parseClaimsJws(...)'. 'Proper authentication' is not acceptable."
+    - "Enumerate EVERY authentication path that reaches the flagged code (login form, API token, refresh, password-reset, SSO callback). For each, state which SPECIFIC mechanism is used, with file:line citations."
+    - "Could an attacker bypass any of these paths via parameter manipulation, default credentials, type juggling, or a missing-check alternate path? Quote the path if so."
+    - "Is BRUTE-FORCE protection (lockout, rate limit, CAPTCHA) enforced on every path? Quote the mechanism or mark 'Not visible'."
+    - "If the specific required mechanism is not present on every authentication path with concrete line numbers, the rule is likely correct."
   context_hint: "Include the authentication flow, password verification, and session creation logic."
-  additional_context: ["caller", "class"]
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
 
 java/improper-privilege-management:
   short_description: "Privilege escalation via role manipulation or missing privilege boundary (CWE-269)"
   questions:
-    - "Can a user MODIFY their own role or privilege level through an API endpoint (e.g., changing role field in profile update)?"
-    - "Is the role/privilege assignment protected by authorization checks — only admins can grant admin roles?"
-    - "Could mass assignment (binding all request fields to entity) allow setting role/admin fields not intended for user modification?"
-    - "Is there a privilege boundary between user types (regular user, moderator, admin) that is consistently enforced?"
-    - "Are elevated privileges granted temporarily and properly revoked (e.g., @RunAs, SecurityContext manipulation)?"
-    - "Could an attacker create a new account with elevated privileges by manipulating registration parameters?"
+    - "Quote the EXACT statement the rule flagged (role assignment, privilege check, mass-assignment binding, @RunAs, etc.) with line number."
+    - "What SPECIFIC guard would satisfy the rule on this operation? Name it concretely — e.g. 'admin-only @PreAuthorize before role mutation', 'allow-list of bindable fields excluding role/admin', 'explicit revoke of elevated privilege in a finally{} block'. 'A privilege check' is not acceptable."
+    - "Enumerate EVERY path that can reach the flagged statement: registration, profile update, admin panel, mass-assignment via DataBinder. For each, state whether the SPECIFIC guard is present with file:line citations."
+    - "Can a low-privileged user influence the inputs to this operation (role field, target user ID, request body)? Quote the data flow if so."
+    - "Are elevated privileges granted transiently (e.g., @RunAs, SecurityContextHolder mutation) and is the revoke guaranteed on every exit path (including exceptions)?"
+    - "If the specific required guard is not present on every reachable path, the rule is likely correct."
   context_hint: "Include role assignment logic, user update endpoints, and privilege check code."
-  additional_context: ["caller", "class"]
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
 
 # ==============================================================================
 # Java - Resource Exhaustion and DoS (CWE-770, CWE-776, CWE-1333)

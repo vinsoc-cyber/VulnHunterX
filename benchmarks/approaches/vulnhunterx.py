@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
 from vuln_hunter_x.core.config import Config
 from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.verification.engine import VerificationEngine
@@ -83,7 +84,16 @@ class VulnHunterXApproach(BenchmarkApproach):
                 entry.code_snippet, entry.function_name,
                 use_slicing=self._use_slicing, finding=finding,
             ),
-            context_provider=None,
+            # SnippetContextProvider serves snippet-derived answers and an
+            # explicit <unavailable> sentinel when a request is out of scope.
+            # This restores the multi-turn context-expansion path (previously
+            # disabled with context_provider=None), which the 2026-05-15
+            # benchmark identified as the dominant cause of FP-default
+            # behaviour on memory-safety and access-control CWEs.
+            context_provider=SnippetContextProvider(
+                snippet=entry.code_snippet,
+                function_name=entry.function_name,
+            ),
             # Benchmark mode feeds one finding per engine call; the outer
             # benchmark runner is what fans out across entries, so pin
             # engine-level parallelism off to avoid a hidden second layer.
