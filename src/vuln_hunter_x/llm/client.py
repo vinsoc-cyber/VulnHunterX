@@ -26,6 +26,7 @@ from vuln_hunter_x.core.constants import (
 )
 from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
 from vuln_hunter_x.core.validation import openai_compat_kwargs
+from vuln_hunter_x.llm.key_pool import KeyPool, extract_retry_after
 from vuln_hunter_x.llm.prompts import PromptBuilder
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class LLMClient:
         temperature: float = DEFAULT_LLM_TEMPERATURE,
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         num_retries: int = 5,
+        ollama_api_keys: list[str] | None = None,
     ):
         """Initialize the LLM client.
 
@@ -83,6 +85,11 @@ class LLMClient:
             num_retries: Times LiteLLM will retry transient failures
                 (RateLimitError, APIConnectionError, Timeout, InternalServerError)
                 with exponential backoff and Retry-After honored. 0 disables.
+            ollama_api_keys: Optional list of Ollama Cloud API keys. When 2+
+                keys are provided and the model targets Ollama Cloud, requests
+                round-robin across them and a 429 parks the offending key
+                until ``Retry-After`` elapses. A single key (or none) keeps
+                the existing ``OLLAMA_API_KEY`` env-var behavior.
         """
         self.provider = provider
         self.model = model
@@ -118,6 +125,18 @@ class LLMClient:
             if not self.model.startswith("anthropic/"):
                 self.model = "anthropic/" + self.model
 
+        # Build key pool only when there's something to rotate. Single-key
+        # callers stay on the OLLAMA_API_KEY env-var path inside
+        # _build_completion_kwargs so no behavior changes for them.
+        self._ollama_pool: KeyPool | None = None
+        if (
+            self.provider == "ollama"
+            and self._is_ollama_cloud
+            and ollama_api_keys
+            and len(ollama_api_keys) >= 2
+        ):
+            self._ollama_pool = KeyPool(ollama_api_keys)
+
     def _build_completion_kwargs(
         self,
         messages: list[dict],
@@ -143,12 +162,19 @@ class LLMClient:
             kwargs["api_base"] = api_base
         if self.provider == "ollama" and self._is_ollama_cloud:
             kwargs["api_base"] = os.environ["OLLAMA_API_BASE"].rstrip("/")
-            cloud_key = os.environ.get("OLLAMA_API_KEY")
-            if cloud_key:
-                kwargs["api_key"] = cloud_key
-        if self.num_retries:
+            if self._ollama_pool is not None:
+                pooled = self._ollama_pool.acquire()
+                if pooled:
+                    kwargs["api_key"] = pooled
+            else:
+                cloud_key = os.environ.get("OLLAMA_API_KEY")
+                if cloud_key:
+                    kwargs["api_key"] = cloud_key
+        if self.num_retries and self._ollama_pool is None:
             # LiteLLM retries RateLimitError / APIConnectionError / Timeout /
             # InternalServerError with exponential backoff and honors Retry-After.
+            # When the pool is active our wrapper rotates keys instead, so we
+            # disable LiteLLM's own retry to avoid hammering the exhausted key.
             kwargs["num_retries"] = self.num_retries
             kwargs["retry_strategy"] = "exponential_backoff_retry"
         kwargs.update(
@@ -160,6 +186,35 @@ class LLMClient:
             )
         )
         return kwargs
+
+    def _completion(self, kwargs: dict) -> Any:
+        """Call ``litellm.completion``, rotating keys on 429 when a pool is active.
+
+        Without a pool this is a pass-through and LiteLLM's own retry layer
+        (``num_retries``, exponential backoff) handles transient errors.
+        With a pool, LiteLLM retries are disabled in
+        ``_build_completion_kwargs`` and we rotate to a fresh key after each
+        ``RateLimitError``, parking the offending key for the duration
+        indicated by ``Retry-After`` (60s fallback).
+        """
+        if self._ollama_pool is None:
+            return litellm.completion(**kwargs)
+
+        max_attempts = max(len(self._ollama_pool), (self.num_retries or 0) + 1)
+        last_err: Exception | None = None
+        for _ in range(max_attempts):
+            try:
+                return litellm.completion(**kwargs)
+            except litellm.RateLimitError as exc:
+                key = kwargs.get("api_key")
+                if key:
+                    self._ollama_pool.cooldown(key, extract_retry_after(exc))
+                last_err = exc
+                next_key = self._ollama_pool.acquire()
+                if next_key:
+                    kwargs["api_key"] = next_key
+        assert last_err is not None
+        raise last_err
 
     def analyze(
         self,
@@ -281,7 +336,7 @@ class LLMClient:
 
             try:
                 kwargs = self._build_completion_kwargs(messages, temperature=temperature)
-                response = litellm.completion(**kwargs)
+                response = self._completion(kwargs)
                 if not response.choices:
                     raise ValueError("LLM returned empty choices list")
                 raw_response = response.choices[0].message.content or ""
@@ -775,7 +830,7 @@ class LLMClient:
         """
         messages.append({"role": "user", "content": self._FORCE_DECISION_PROMPT})
         kwargs = self._build_completion_kwargs(messages, temperature=temperature)
-        response = litellm.completion(**kwargs)
+        response = self._completion(kwargs)
         raw = response.choices[0].message.content or "" if response.choices else ""
         all_raw_responses.append(raw)
         _usage = getattr(response, "usage", None)

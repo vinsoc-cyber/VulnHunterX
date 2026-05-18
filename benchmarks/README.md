@@ -169,6 +169,19 @@ Notes:
 - On free/low-tier OpenAI keys, `-j 4` can surface 429 rate-limit errors; drop to `-j 1` or `-j 2` if you see those.
 - Progress display and per-entry log lines are serialized — output still reads top-to-bottom.
 
+### Multiple Ollama Cloud keys (`OLLAMA_API_KEYS`)
+
+To scale `--jobs` past a single key's RPM ceiling, set a comma-separated pool. The LLM client round-robins across keys and parks any key that returns 429 for `Retry-After` seconds (60s fallback) before trying it again.
+
+```bash
+export OLLAMA_API_KEYS="key1,key2,key3"
+python benchmarks/scripts/run_benchmark.py \
+    --dataset secllmholmes --approach vulnhunterx \
+    --model ollama/qwen3-coder-next:cloud --jobs 12
+```
+
+A single `OLLAMA_API_KEY=...` still works unchanged — the pool only activates with 2+ keys. The mechanism applies to every `LLMClient` caller (verify CLI, benchmark runner), not just benchmarks.
+
 ---
 
 ## Per-Dataset Playbooks
