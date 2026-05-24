@@ -1,8 +1,24 @@
 # Custom Semgrep / OpenGrep Rules
 
-This directory holds project-authored Semgrep rules to fill gaps the public
-registry packs do not cover. One file per language. Loaded by the `full`
-rule profile via `${LANG}` template expansion.
+This directory holds project-authored Semgrep / OpenGrep rules to fill gaps
+the public registry packs do not cover. One file per language. Loaded by the
+`full` rule profile via `${LANG}` template expansion. Both `SemgrepAnalyzer`
+and `OpenGrepAnalyzer` consume these files unchanged.
+
+## Languages covered
+
+| File | Rule count |
+|---|---|
+| [python.yaml](python.yaml) | 12 |
+| [javascript.yaml](javascript.yaml) | 9 |
+| [java.yaml](java.yaml) | 7 |
+| [go.yaml](go.yaml) | 8 |
+| [php.yaml](php.yaml) | 7 |
+| [cpp.yaml](cpp.yaml) | 4 |
+
+Rules target structural / configuration / dangerous-default patterns. Cross-
+procedural taint flows are handled by custom CodeQL queries in
+[../codeql-custom/](../codeql-custom/) and intentionally not duplicated here.
 
 ## Wiring contract
 
@@ -37,5 +53,10 @@ rules:
 ## Local linting
 
 ```bash
-semgrep --validate --config config/semgrep-custom/<lang>.yaml
+# Per file
+opengrep --validate --config config/semgrep-custom/<lang>.yaml
+# All files
+for f in config/semgrep-custom/*.yaml; do opengrep --validate --config "$f"; done
+# Wiring audit — every metadata.cwe must resolve via cwe_question_map
+python scripts/audit_rule_coverage.py --fail-on-gaps
 ```

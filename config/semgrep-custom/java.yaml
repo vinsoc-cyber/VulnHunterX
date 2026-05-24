@@ -1,0 +1,204 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 VinSOC Cyber
+#
+# Custom Semgrep rules for Java vulnerabilities not covered by registry
+# packs (p/java, p/security-audit, p/owasp-top-ten).
+#
+# Target: structural / config / dangerous-default patterns. Taint-driven
+# CWEs (SQLi, XSS, command injection, JNDI, Log4j, JWT-decode-without-verify,
+# mass-assignment) are handled by custom CodeQL queries in
+# config/codeql-custom/java/src/ and are intentionally NOT duplicated here.
+#
+# Validate: opengrep --validate --config config/semgrep-custom/java.yaml
+
+rules:
+
+  # ── CWE-327/328: Weak cipher (DES family) or ECB mode ──
+  - id: vulnhunterx.java.weak-cipher
+    languages: [java]
+    severity: ERROR
+    message: |
+      Cipher.getInstance with a weak algorithm (DES / 3DES / RC2 / RC4 /
+      Blowfish) or ECB mode. DES family is broken; ECB leaks plaintext
+      structure (identical 16-byte blocks encrypt to identical ciphertext).
+      Use AES/GCM/NoPadding or AES/CBC/PKCS5Padding with a fresh IV
+      (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+        - https://owasp.org/www-community/Using_the_Java_Cryptographic_Extensions
+    patterns:
+      - pattern-either:
+          - pattern: Cipher.getInstance("DES")
+          - pattern: Cipher.getInstance("DES/...")
+          - pattern: Cipher.getInstance("DESede")
+          - pattern: Cipher.getInstance("DESede/...")
+          - pattern: Cipher.getInstance("3DES")
+          - pattern: Cipher.getInstance("RC2")
+          - pattern: Cipher.getInstance("RC2/...")
+          - pattern: Cipher.getInstance("RC4")
+          - pattern: Cipher.getInstance("ARCFOUR")
+          - pattern: Cipher.getInstance("Blowfish")
+          - pattern: Cipher.getInstance("Blowfish/...")
+          - pattern: Cipher.getInstance("AES/ECB/...")
+          - pattern: Cipher.getInstance("AES")
+
+  # ── CWE-327/328: MessageDigest with MD5 / SHA-1 ──
+  - id: vulnhunterx.java.weak-hash
+    languages: [java]
+    severity: WARNING
+    message: |
+      MessageDigest.getInstance with MD5 or SHA-1. Both are collision-
+      vulnerable. Use SHA-256 or stronger for password hashing (prefer
+      a memory-hard KDF like Argon2/BCrypt/PBKDF2), HMAC, signatures,
+      and integrity checks (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+    patterns:
+      - pattern-either:
+          - pattern: MessageDigest.getInstance("MD5")
+          - pattern: MessageDigest.getInstance("SHA1")
+          - pattern: MessageDigest.getInstance("SHA-1")
+          - pattern: MessageDigest.getInstance("md5")
+          - pattern: MessageDigest.getInstance("sha1")
+          - pattern: MessageDigest.getInstance("sha-1")
+
+  # ── CWE-330/338: java.util.Random in security-named method ──
+  - id: vulnhunterx.java.insecure-rng
+    languages: [java]
+    severity: WARNING
+    message: |
+      java.util.Random is a Linear Congruential Generator — output is
+      predictable from a small window of samples. Use java.security.
+      SecureRandom for tokens, secrets, passwords, keys, nonces, CSRF,
+      OTP, session ids (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+        - https://docs.oracle.com/javase/8/docs/api/java/security/SecureRandom.html
+    patterns:
+      - pattern-either:
+          - pattern: new java.util.Random()
+          - pattern: new Random()
+      - pattern-inside: |
+          $T $M(...) {
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $M
+          regex: '.*(Token|Secret|Password|Passwd|Pwd|Key|Nonce|Csrf|OTP|Session|Generate).*'
+
+  # ── CWE-352: Spring Security CSRF disabled ──
+  - id: vulnhunterx.java.spring-csrf-disabled
+    languages: [java]
+    severity: WARNING
+    message: |
+      Spring Security HttpSecurity.csrf().disable() turns off CSRF
+      protection for state-changing endpoints. Only acceptable when the
+      application is purely stateless (e.g. token-authenticated REST
+      API). For session-cookie-authenticated endpoints this is a
+      vulnerability (CWE-352).
+    metadata:
+      cwe: ["CWE-352"]
+      category: security
+      owasp: "A01:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/352.html
+        - https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html
+    patterns:
+      - pattern-either:
+          - pattern: $HTTP.csrf().disable()
+          - pattern: $HTTP.csrf(csrf -> csrf.disable())
+          - pattern: $HTTP.csrf(AbstractHttpConfigurer::disable)
+
+  # ── CWE-611: DocumentBuilderFactory without secure-processing feature ──
+  - id: vulnhunterx.java.xml-no-secure-features
+    languages: [java]
+    severity: ERROR
+    message: |
+      DocumentBuilderFactory created without explicitly disabling external
+      entity expansion (XXE-prone defaults). Set the secure-processing
+      feature and disable DOCTYPE expansion before parsing untrusted XML
+      (CWE-611).
+    metadata:
+      cwe: ["CWE-611"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/611.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $F = DocumentBuilderFactory.newInstance();
+              ...
+              $F.newDocumentBuilder().parse(...);
+      - pattern-not: |
+          $F = DocumentBuilderFactory.newInstance();
+          ...
+          $F.setFeature("http://javax.xml.XMLConstants/feature/secure-processing", true);
+          ...
+          $F.newDocumentBuilder().parse(...);
+      - pattern-not: |
+          $F = DocumentBuilderFactory.newInstance();
+          ...
+          $F.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+          ...
+          $F.newDocumentBuilder().parse(...);
+
+  # ── CWE-798 / CWE-259: Hardcoded JWT signing secret ──
+  - id: vulnhunterx.java.hardcoded-jwt-secret
+    languages: [java]
+    severity: ERROR
+    message: |
+      JWT signing key is a string literal embedded in source. Anyone
+      with repository / classfile access can forge tokens (CWE-798/259).
+      Load from env / vault / KMS / Spring property placeholder.
+    metadata:
+      cwe: ["CWE-798", "CWE-259"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/798.html
+    patterns:
+      - pattern-either:
+          # com.auth0:java-jwt
+          - pattern: Algorithm.HMAC256("...")
+          - pattern: Algorithm.HMAC384("...")
+          - pattern: Algorithm.HMAC512("...")
+          # io.jsonwebtoken:jjwt
+          - pattern: Jwts.parser().setSigningKey("...".getBytes())
+          - pattern: Jwts.parser().setSigningKey("...")
+          - pattern: Jwts.parserBuilder().setSigningKey("...".getBytes())
+          - pattern: Jwts.builder().signWith(SignatureAlgorithm.$ALG, "...")
+
+  # ── CWE-601: Servlet/Spring open redirect from request parameter ──
+  - id: vulnhunterx.java.open-redirect
+    languages: [java]
+    severity: WARNING
+    message: |
+      Redirect target read directly from a request parameter without an
+      allowlist check enables open-redirect (phishing pivot, OAuth token
+      theft) (CWE-601). Validate against a fixed list of permitted
+      destinations.
+    metadata:
+      cwe: ["CWE-601"]
+      category: security
+      owasp: "A01:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/601.html
+    patterns:
+      - pattern-either:
+          - pattern: $RES.sendRedirect($REQ.getParameter($K))
+          - pattern: $RES.sendRedirect($REQ.getHeader($K))
+          - pattern: new RedirectView($REQ.getParameter($K))
+          - pattern: "\"redirect:\" + $REQ.getParameter($K)"

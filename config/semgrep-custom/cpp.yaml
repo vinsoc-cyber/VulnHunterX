@@ -1,0 +1,111 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 VinSOC Cyber
+#
+# Custom Semgrep rules for C / C++ vulnerabilities not covered by
+# registry packs (p/c, p/cpp, p/security-audit).
+#
+# Target: structural / policy patterns where Semgrep's pattern matching
+# adds value. Memory-safety taint flows (uncontrolled-allocation-size,
+# integer-truncation, dangling pointer, use-after-move, missing-return-
+# value-check, untrusted-search-path, format-string-injection,
+# overflow-destination, input-validation) are handled by custom CodeQL
+# queries in config/codeql-custom/cpp/src/ and intentionally not
+# duplicated here.
+#
+# Validate: opengrep --validate --config config/semgrep-custom/cpp.yaml
+
+rules:
+
+  # ── CWE-327/328: OpenSSL weak hash entry points ──
+  - id: vulnhunterx.cpp.weak-hash
+    languages: [c, cpp]
+    severity: WARNING
+    message: |
+      OpenSSL MD5 / SHA1 entry points are collision-vulnerable. Use
+      EVP_sha256() (or stronger) for password hashing, HMAC, signatures,
+      and integrity checks (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+    patterns:
+      - pattern-either:
+          - pattern: MD5(...)
+          - pattern: SHA1(...)
+          - pattern: EVP_md5()
+          - pattern: EVP_sha1()
+          - pattern: MD5_Init(...)
+          - pattern: SHA1_Init(...)
+
+  # ── CWE-330/338: C-stdlib RNG used in security-named function ──
+  - id: vulnhunterx.cpp.insecure-rng
+    languages: [c, cpp]
+    severity: WARNING
+    message: |
+      rand() / random() / lrand48() / drand48() are not cryptographically
+      secure — the seed space is small and the state recoverable from
+      a few samples. Use /dev/urandom, getrandom(2), RAND_bytes
+      (OpenSSL), or std::random_device with a CSPRNG-backed generator
+      for tokens, secrets, passwords, keys, nonces, OTP (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+    patterns:
+      - pattern-either:
+          - pattern: rand()
+          - pattern: random()
+          - pattern: lrand48()
+          - pattern: drand48()
+          - pattern: srand(...)
+      - pattern-inside: |
+          $T $F(...) {
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $F
+          regex: '(?i).*(token|secret|password|passwd|pwd|key|nonce|otp|generate_id|gen_id).*'
+
+  # ── CWE-676: bare unsafe C string functions ──
+  - id: vulnhunterx.cpp.unsafe-functions
+    languages: [c, cpp]
+    severity: WARNING
+    message: |
+      Use of an unsafe C string function (strcpy / strcat / gets / sprintf
+      with no length bound). Each is a classic stack-overflow primitive.
+      Use strncpy_s / strlcpy / snprintf / fgets, or std::string in C++
+      (CWE-676).
+    metadata:
+      cwe: ["CWE-676"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/676.html
+    patterns:
+      - pattern-either:
+          - pattern: strcpy($DST, $SRC)
+          - pattern: strcat($DST, $SRC)
+          - pattern: gets($DST)
+          - pattern: sprintf($DST, $FMT, ...)
+          - pattern: vsprintf($DST, $FMT, ...)
+
+  # ── CWE-259 / CWE-798: Hardcoded password / API key / secret string ──
+  - id: vulnhunterx.cpp.hardcoded-password
+    languages: [c, cpp]
+    severity: ERROR
+    message: |
+      A string literal assigned to a variable named like a credential
+      (password / passwd / pwd / secret / api_key / token) is a hardcoded
+      secret. Anyone with read access to source / binary can recover it
+      (CWE-259 / CWE-798). Load from env / secret manager / KMS at
+      startup.
+    metadata:
+      cwe: ["CWE-259", "CWE-798"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/259.html
+        - https://cwe.mitre.org/data/definitions/798.html
+    pattern-regex: '(?i)(const\s+char\s*\*|static\s+const\s+char\s*\*|char\s*\*|const\s+std::string|std::string|auto)\s+(password|passwd|pwd|secret|api_key|apikey|token|access_key|private_key)\s*=\s*"[^"]{4,}"'

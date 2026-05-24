@@ -109,3 +109,218 @@ rules:
           - pattern: re.sub(request.$X.$M(...), ..., ...)
       - pattern-not: re.compile(re.escape(...))
       - pattern-not: re.compile(re.escape(...), ...)
+
+  # ── CWE-327/328: hashlib weak hash algorithms ──
+  - id: vulnhunterx.python.weak-hash
+    languages: [python]
+    severity: WARNING
+    message: |
+      Weak cryptographic hash algorithm (MD5 / SHA-1). Both are vulnerable to
+      collision and length-extension attacks. Use SHA-256 or stronger for
+      password hashing, HMAC, signatures, and integrity checks (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+        - https://cwe.mitre.org/data/definitions/328.html
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.sha1(...)
+          - pattern: hashlib.new("md5", ...)
+          - pattern: hashlib.new("sha1", ...)
+          - pattern: hashlib.new("MD5", ...)
+          - pattern: hashlib.new("SHA1", ...)
+          - pattern: hashlib.new("SHA-1", ...)
+
+  # ── CWE-330/338: random module used in security contexts ──
+  - id: vulnhunterx.python.insecure-rng
+    languages: [python]
+    severity: WARNING
+    message: |
+      The 'random' module is not cryptographically secure — predictable from
+      a small amount of output. Use secrets.token_bytes() / secrets.token_hex()
+      / os.urandom() for tokens, passwords, keys, nonces, CSRF, OTP, session
+      ids (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+        - https://docs.python.org/3/library/secrets.html
+    patterns:
+      - pattern-either:
+          - pattern: |
+              def $F(...):
+                ...
+                random.random()
+                ...
+          - pattern: |
+              def $F(...):
+                ...
+                random.randint(...)
+                ...
+          - pattern: |
+              def $F(...):
+                ...
+                random.choice(...)
+                ...
+          - pattern: |
+              def $F(...):
+                ...
+                random.randbytes(...)
+                ...
+      - metavariable-regex:
+          metavariable: $F
+          regex: '(?i).*(token|secret|password|passwd|pwd|key|nonce|csrf|otp|session).*'
+
+  # ── CWE-295: requests / httpx with verify=False ──
+  - id: vulnhunterx.python.requests-verify-false
+    languages: [python]
+    severity: ERROR
+    message: |
+      HTTP client called with verify=False disables TLS certificate
+      validation — MITM attacks become trivial on the network path
+      (CWE-295). Provide a custom CA bundle if the cert is genuinely
+      self-signed, never disable validation in production.
+    metadata:
+      cwe: ["CWE-295"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/295.html
+        - https://requests.readthedocs.io/en/latest/user/advanced/#ssl-cert-verification
+    patterns:
+      - pattern-either:
+          - pattern: requests.get(..., verify=False, ...)
+          - pattern: requests.post(..., verify=False, ...)
+          - pattern: requests.put(..., verify=False, ...)
+          - pattern: requests.patch(..., verify=False, ...)
+          - pattern: requests.delete(..., verify=False, ...)
+          - pattern: requests.head(..., verify=False, ...)
+          - pattern: requests.request(..., verify=False, ...)
+          - pattern: httpx.get(..., verify=False, ...)
+          - pattern: httpx.post(..., verify=False, ...)
+          - pattern: httpx.Client(..., verify=False, ...)
+          - pattern: httpx.AsyncClient(..., verify=False, ...)
+
+  # ── CWE-489 / CWE-200: Django DEBUG = True in settings file ──
+  - id: vulnhunterx.python.django-debug-prod
+    languages: [python]
+    severity: WARNING
+    message: |
+      DEBUG = True at module scope in a Django settings file leaks stack
+      traces, query history, and request internals when shipped to
+      production (CWE-489 + CWE-200). Drive DEBUG from an environment
+      variable defaulting to False.
+    metadata:
+      cwe: ["CWE-489", "CWE-200"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/489.html
+        - https://docs.djangoproject.com/en/stable/ref/settings/#debug
+    paths:
+      include:
+        - "*settings*.py"
+        - "*/settings/*.py"
+    pattern: |
+      DEBUG = True
+
+  # ── CWE-200: Django ALLOWED_HOSTS contains "*" ──
+  - id: vulnhunterx.python.django-allowed-hosts-wildcard
+    languages: [python]
+    severity: WARNING
+    message: |
+      ALLOWED_HOSTS = ["*"] disables Django's Host-header validation,
+      allowing host-header injection and password-reset poisoning
+      (CWE-200). Enumerate exact production hostnames.
+    metadata:
+      cwe: ["CWE-200"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/200.html
+        - https://docs.djangoproject.com/en/stable/ref/settings/#allowed-hosts
+    paths:
+      include:
+        - "*settings*.py"
+        - "*/settings/*.py"
+    pattern-either:
+      - pattern: ALLOWED_HOSTS = ["*"]
+      - pattern: ALLOWED_HOSTS = [..., "*", ...]
+
+  # ── CWE-377: tempfile.mktemp / NamedTemporaryFile(delete=False) ──
+  - id: vulnhunterx.python.predictable-temp-file
+    languages: [python]
+    severity: WARNING
+    message: |
+      tempfile.mktemp() is a race-condition primitive — the filename is
+      returned but the file is not opened atomically, so an attacker can
+      pre-create it. NamedTemporaryFile(delete=False) leaves a predictable
+      path that's not auto-cleaned (CWE-377). Use tempfile.mkstemp() or
+      a context-managed NamedTemporaryFile.
+    metadata:
+      cwe: ["CWE-377"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/377.html
+    patterns:
+      - pattern-either:
+          - pattern: tempfile.mktemp(...)
+          - pattern: tempfile.NamedTemporaryFile(..., delete=False, ...)
+      - pattern-not: tempfile.NamedTemporaryFile(..., delete=True, ...)
+
+  # ── CWE-78: subprocess with shell=True and non-literal command ──
+  - id: vulnhunterx.python.shell-true
+    languages: [python]
+    severity: ERROR
+    message: |
+      subprocess.* with shell=True and a non-literal first argument lets
+      attacker-controlled values reach /bin/sh as shell metacharacters
+      (CWE-78). Pass the command as a list (shell=False) — argv-style
+      invocation is immune to shell injection.
+    metadata:
+      cwe: ["CWE-78"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/78.html
+        - https://docs.python.org/3/library/subprocess.html#security-considerations
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.Popen($CMD, ..., shell=True, ...)
+          - pattern: subprocess.run($CMD, ..., shell=True, ...)
+          - pattern: subprocess.call($CMD, ..., shell=True, ...)
+          - pattern: subprocess.check_call($CMD, ..., shell=True, ...)
+          - pattern: subprocess.check_output($CMD, ..., shell=True, ...)
+      - metavariable-pattern:
+          metavariable: $CMD
+          patterns:
+            - pattern-not: '"..."'
+            - pattern-not: "'...'"
+
+  # ── CWE-532: Sensitive variable logged in clear ──
+  - id: vulnhunterx.python.cleartext-password-log
+    languages: [python]
+    severity: WARNING
+    message: |
+      A variable whose name suggests it is a password, secret, token, or
+      API key is being written to a log or stdout. Even ephemeral log
+      lines reach disk + log aggregators (CWE-532). Redact or omit.
+    metadata:
+      cwe: ["CWE-532", "CWE-200"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/532.html
+    patterns:
+      - pattern-either:
+          - pattern: $LOGGER.info(..., $SECRET, ...)
+          - pattern: $LOGGER.debug(..., $SECRET, ...)
+          - pattern: $LOGGER.warning(..., $SECRET, ...)
+          - pattern: $LOGGER.error(..., $SECRET, ...)
+          - pattern: $LOGGER.critical(..., $SECRET, ...)
+          - pattern: print(..., $SECRET, ...)
+      - metavariable-regex:
+          metavariable: $SECRET
+          regex: '(?i).*(password|passwd|pwd|secret|api_key|apikey|token|access_key|private_key).*'

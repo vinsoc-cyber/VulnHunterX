@@ -103,3 +103,135 @@ rules:
               (*$T)(unsafe.Pointer($Y))
       - pattern-not: |
           (*$T)(unsafe.Pointer(uintptr($X)))
+
+  # ── CWE-327/328: crypto/md5 / crypto/sha1 used for security ──
+  - id: vulnhunterx.go.weak-hash
+    languages: [go]
+    severity: WARNING
+    message: |
+      crypto/md5 and crypto/sha1 are vulnerable to collision and
+      length-extension attacks. Use crypto/sha256 (or higher) for
+      password hashing, HMAC, signatures, and integrity checks
+      (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+    patterns:
+      - pattern-either:
+          - pattern: md5.New()
+          - pattern: md5.Sum(...)
+          - pattern: sha1.New()
+          - pattern: sha1.Sum(...)
+
+  # ── CWE-330/338: math/rand used in security-named function ──
+  - id: vulnhunterx.go.math-rand-secret
+    languages: [go]
+    severity: WARNING
+    message: |
+      math/rand is a deterministic PRNG seeded predictably. Use crypto/rand
+      for tokens, secrets, passwords, keys, nonces, CSRF, OTP, session
+      ids (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+        - https://pkg.go.dev/crypto/rand
+    patterns:
+      - pattern-either:
+          - pattern: rand.Int(...)
+          - pattern: rand.Intn(...)
+          - pattern: rand.Int31(...)
+          - pattern: rand.Int63(...)
+          - pattern: rand.Read(...)
+          - pattern: rand.Float64()
+      - pattern-inside: |
+          func $F(...) {
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $F
+          regex: '.*(Token|Secret|Password|Passwd|Pwd|Key|Nonce|Csrf|OTP|Session|Generate).*'
+
+  # ── CWE-295: tls.Config{InsecureSkipVerify: true} ──
+  - id: vulnhunterx.go.insecure-skip-verify
+    languages: [go]
+    severity: ERROR
+    message: |
+      tls.Config with InsecureSkipVerify: true disables TLS certificate
+      validation — MITM attacks become trivial on the network path.
+      Set to false (default) and provide a custom RootCAs if needed
+      (CWE-295).
+    metadata:
+      cwe: ["CWE-295"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/295.html
+        - https://pkg.go.dev/crypto/tls#Config
+    patterns:
+      - pattern-either:
+          - pattern: 'tls.Config{ ..., InsecureSkipVerify: true, ... }'
+          - pattern: '&tls.Config{ ..., InsecureSkipVerify: true, ... }'
+
+  # ── CWE-732 / CWE-276: world-writable file permissions ──
+  - id: vulnhunterx.go.world-writable-file
+    languages: [go]
+    severity: WARNING
+    message: |
+      File created with world-writable mode (0o666 / 0o777 / 0o646).
+      Any local user can modify the file's contents, which is dangerous
+      for state files, credentials, and configuration (CWE-732 /
+      CWE-276). Restrict to 0o600 or 0o640 for sensitive data.
+    metadata:
+      cwe: ["CWE-732", "CWE-276"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/732.html
+    patterns:
+      - pattern-either:
+          - pattern: os.OpenFile(..., 0o666)
+          - pattern: os.OpenFile(..., 0o777)
+          - pattern: os.OpenFile(..., 0o646)
+          - pattern: os.OpenFile(..., 0666)
+          - pattern: os.OpenFile(..., 0777)
+          - pattern: os.WriteFile(..., 0o666)
+          - pattern: os.WriteFile(..., 0o777)
+          - pattern: os.WriteFile(..., 0666)
+          - pattern: os.WriteFile(..., 0777)
+          - pattern: ioutil.WriteFile(..., 0o666)
+          - pattern: ioutil.WriteFile(..., 0o777)
+          - pattern: ioutil.WriteFile(..., 0666)
+          - pattern: ioutil.WriteFile(..., 0777)
+
+  # ── CWE-798 / CWE-259: Hardcoded JWT signing secret (literal string) ──
+  - id: vulnhunterx.go.hardcoded-jwt-secret
+    languages: [go]
+    severity: ERROR
+    message: |
+      JWT signing key is a string/byte-slice literal embedded in source.
+      Anyone with read access to the binary or repository can forge
+      tokens (CWE-798/259). Load from env / secret manager / KMS.
+    metadata:
+      cwe: ["CWE-798", "CWE-259"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/798.html
+    patterns:
+      - pattern-either:
+          - pattern: jwt.NewWithClaims($A, $C).SignedString([]byte("..."))
+          - pattern: jwt.NewWithClaims($A, $C).SignedString([]byte($K))
+          - pattern: |
+              $K := "..."
+              ...
+              jwt.NewWithClaims($A, $C).SignedString([]byte($K))
+          - pattern: |
+              $K := []byte("...")
+              ...
+              jwt.NewWithClaims($A, $C).SignedString($K)
+          - pattern: jwt.Parse($T, func(...) (interface{}, error) { return []byte("..."), nil })
+          - pattern: jwt.ParseWithClaims($T, ..., func(...) (interface{}, error) { return []byte("..."), nil })

@@ -111,3 +111,156 @@ rules:
       - pattern: $EL.insertAdjacentHTML($POS, req.body.$X)
       - pattern: $EL.insertAdjacentHTML($POS, req.query.$X)
       - pattern: $EL.insertAdjacentHTML($POS, location.hash)
+
+  # ── CWE-327/328: Node crypto with MD5 / SHA-1 ──
+  - id: vulnhunterx.js.weak-hash
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: |
+      crypto.createHash with 'md5' / 'sha1' produces collisions cheaply.
+      Use 'sha256', 'sha384', or 'sha512' for password hashing, HMAC,
+      signatures, and integrity checks (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createHash("md5")
+          - pattern: crypto.createHash("sha1")
+          - pattern: crypto.createHash("MD5")
+          - pattern: crypto.createHash("SHA1")
+          - pattern: crypto.createHash('md5')
+          - pattern: crypto.createHash('sha1')
+
+  # ── CWE-330/338: Math.random() inside security-named function ──
+  - id: vulnhunterx.js.math-random-secret
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: |
+      Math.random() is a pseudo-random generator seeded predictably — output
+      can be reversed from a few samples. Use crypto.randomBytes() or
+      crypto.randomUUID() for tokens, secrets, passwords, keys, nonces,
+      CSRF, OTP, session ids (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+    patterns:
+      - pattern: Math.random()
+      - pattern-either:
+          - pattern-inside: |
+              function $F(...) {
+                ...
+              }
+          - pattern-inside: |
+              const $F = (...) => {
+                ...
+              };
+          - pattern-inside: |
+              const $F = function(...) {
+                ...
+              };
+      - metavariable-regex:
+          metavariable: $F
+          regex: '(?i).*(token|secret|password|passwd|pwd|key|nonce|csrf|otp|session|generate).*'
+
+  # ── CWE-347: JWT verify with algorithm 'none' allowed ──
+  - id: vulnhunterx.js.jwt-none
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      JWT verification configured to accept algorithm 'none' — a forged
+      token with `{"alg":"none"}` will pass without a signature.
+      Set algorithms to an explicit allowlist (HS256, RS256, ES256, …)
+      and never include 'none' (CWE-347).
+    metadata:
+      cwe: ["CWE-347"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/347.html
+        - https://www.rfc-editor.org/rfc/rfc8725
+    patterns:
+      - pattern-either:
+          - pattern: 'jwt.verify($T, $K, { algorithms: ["none", ...] })'
+          - pattern: 'jwt.verify($T, $K, { algorithms: [..., "none", ...] })'
+          - pattern: 'jwt.verify($T, $K, { algorithms: ["none"] })'
+          - pattern: 'jwt.sign($P, $K, { algorithm: "none" })'
+          - pattern: "jwt.sign($P, $K, { algorithm: 'none' })"
+
+  # ── CWE-942: CORS with origin "*" and credentials ──
+  - id: vulnhunterx.js.cors-credentials-wildcard
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      CORS configured with origin "*" AND credentials: true. Browsers
+      refuse this combination, but the misconfiguration itself often
+      reveals broken intent — either the wildcard or the credentials
+      flag is wrong (CWE-942). For authenticated cross-origin requests,
+      use a strict allowlist.
+    metadata:
+      cwe: ["CWE-942"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/942.html
+        - https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS/Errors/CORSNotSupportingCredentials
+    patterns:
+      - pattern-either:
+          - pattern: 'cors({ origin: "*", credentials: true, ... })'
+          - pattern: 'cors({ credentials: true, origin: "*", ... })'
+          - pattern: 'cors({ origin: true, credentials: true, ... })'
+          - pattern: 'cors({ credentials: true, origin: true, ... })'
+
+  # ── CWE-79: React dangerouslySetInnerHTML with non-literal ──
+  - id: vulnhunterx.js.react-dangerously-set-html
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: |
+      dangerouslySetInnerHTML bypasses React's auto-escaping. When the
+      __html value is anything other than a hand-controlled string literal,
+      an XSS sink is exposed (CWE-79). Sanitise with DOMPurify or render
+      as text.
+    metadata:
+      cwe: ["CWE-79"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/79.html
+        - https://react.dev/reference/react-dom/components/common#dangerously-setting-the-inner-html
+    # Semgrep's JS grammar can't parse the JSX form
+    # `dangerouslySetInnerHTML={{__html: ...}}` directly. Match on the object
+    # expression instead — it's the unique payload shape React requires.
+    patterns:
+      - pattern-either:
+          - pattern: '{__html: $X}'
+      - pattern-not: '{__html: "..."}'
+      - pattern-not: "{__html: '...'}"
+      - pattern-not: '{__html: DOMPurify.sanitize(...)}'
+      - pattern-not: '{__html: DOMPurify.sanitize(..., ...)}'
+
+  # ── CWE-943: Mongoose / Mongo $where with non-literal ──
+  - id: vulnhunterx.js.mongoose-where
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      MongoDB $where operator evaluates the value as JavaScript on the
+      server. Passing a user-controlled string enables NoSQL injection
+      with full JS expression power (CWE-943). Replace with native
+      query operators ($eq, $gt, $in …).
+    metadata:
+      cwe: ["CWE-943"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/943.html
+        - https://www.mongodb.com/docs/manual/reference/operator/query/where/
+    patterns:
+      - pattern-either:
+          - pattern: '$M.find({ $where: $X })'
+          - pattern: '$M.findOne({ $where: $X })'
+          - pattern: '$M.find({ ..., $where: $X, ... })'
+          - pattern: '$M.findOne({ ..., $where: $X, ... })'

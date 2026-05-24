@@ -125,3 +125,84 @@ rules:
               $X = $_GET[...];
               ...
               require($X);
+
+  # ── CWE-327/328: PHP weak hash functions ──
+  - id: vulnhunterx.php.weak-hash
+    languages: [php]
+    severity: WARNING
+    message: |
+      MD5 / SHA-1 are collision-vulnerable. Use hash("sha256", ...) or
+      stronger for password hashing (prefer password_hash with PASSWORD_DEFAULT),
+      HMAC, signatures, and integrity checks (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+        - https://www.php.net/manual/en/function.password-hash.php
+    patterns:
+      - pattern-either:
+          - pattern: md5($X)
+          - pattern: md5($X, ...)
+          - pattern: sha1($X)
+          - pattern: sha1($X, ...)
+          - pattern: hash("md5", ...)
+          - pattern: hash("sha1", ...)
+          - pattern: hash('md5', ...)
+          - pattern: hash('sha1', ...)
+
+  # ── CWE-330/338: rand() / mt_rand() used for security tokens ──
+  - id: vulnhunterx.php.insecure-rand
+    languages: [php]
+    severity: WARNING
+    message: |
+      rand() / mt_rand() are not cryptographically secure — the seed
+      and state can be recovered from a small amount of output. Use
+      random_bytes() / random_int() for tokens, secrets, passwords,
+      keys, nonces, CSRF, OTP (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+        - https://www.php.net/manual/en/function.random-bytes.php
+    patterns:
+      - pattern-either:
+          - pattern: |
+              function $F(...) {
+                ...
+                rand(...);
+                ...
+              }
+          - pattern: |
+              function $F(...) {
+                ...
+                mt_rand(...);
+                ...
+              }
+      - metavariable-regex:
+          metavariable: $F
+          regex: '(?i).*(token|secret|password|passwd|pwd|key|nonce|csrf|otp|generate).*'
+
+  # ── CWE-377: predictable temp file via tempnam / tmpfile ──
+  - id: vulnhunterx.php.predictable-tempnam
+    languages: [php]
+    severity: WARNING
+    message: |
+      tempnam() in /tmp returns a predictable filename that an attacker
+      with local access can pre-create or rebind. Use tempnam() with a
+      private prefix outside /tmp, or open the file with O_EXCL semantics
+      via fopen(..., 'x') (CWE-377).
+    metadata:
+      cwe: ["CWE-377"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/377.html
+        - https://www.php.net/manual/en/function.tempnam.php
+    patterns:
+      - pattern-either:
+          - pattern: tempnam(sys_get_temp_dir(), $X)
+          - pattern: tempnam("/tmp", $X)
+          - pattern: tempnam('/tmp', $X)
+          - pattern: tmpfile()
