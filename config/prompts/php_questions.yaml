@@ -670,3 +670,27 @@ php/mass-assignment:
     - "For non-Laravel frameworks, is the request data filtered before being passed to the ORM?"
   context_hint: "Check the model's $fillable/$guarded, and how request data flows to create/update."
   additional_context: ["caller", "class"]
+
+php/timing-unsafe-comparison:
+  short_description: "Secret/HMAC/token compared with == or === instead of hash_equals"
+  questions:
+    - "What value is compared at the flagged line — API key, HMAC, signature, password hash, CSRF token?"
+    - "Which comparison is used — ==, ===, strcmp, or hash_equals?"
+    - "Is the user-controlled operand from $_GET / $_POST / $_COOKIE / $_SERVER / request body?"
+    - "Could timing leak — particularly given PHP's interpreted byte-by-byte string comparison?"
+    - "Is hash_equals() (or password_verify for password hashes) available and used?"
+    - "Could a remote attacker exploit response-time variance to extract the secret?"
+  context_hint: "Locate comparison + tainted operand."
+  additional_context: ["caller"]
+
+php/csv-formula-injection:
+  short_description: "User input written to CSV/Excel cell without leading-character escaping"
+  questions:
+    - "Which writer is used — fputcsv, PhpSpreadsheet, league/csv, or string concatenation?"
+    - "Where does each cell value originate — $_GET/$_POST/DB row populated from user input?"
+    - "Does the writer escape leading '=', '+', '-', '@', tab, or CR characters?"
+    - "Will the resulting file be opened in Excel / LibreOffice that interprets leading '=' as a formula?"
+    - "Could an attacker craft a DDE / HYPERLINK / WEBSERVICE payload that phishes or runs commands?"
+    - "Is OWASP CSV-injection guidance (prefix with `'`) applied?"
+  context_hint: "Locate writer + tainted source."
+  additional_context: ["caller"]

@@ -810,3 +810,63 @@ py/sensitive-data-exposure:
     - "Could the exposure violate GDPR, HIPAA, or PCI-DSS compliance requirements?"
   context_hint: "Trace sensitive data flow to all output channels (HTTP response, logs, error handlers)."
   additional_context: ["caller", "class"]
+
+py/timing-unsafe-comparison:
+  short_description: "Secret/HMAC/token compared with == instead of hmac.compare_digest"
+  questions:
+    - "What value is being compared at the flagged line — password digest, HMAC, signature, session token, API key?"
+    - "Which comparison operator is used — ==, !=, operator.eq, or hmac.compare_digest / secrets.compare_digest?"
+    - "Is the user-supplied operand from request.headers / request.GET / request.POST / request.body / cookies?"
+    - "CPython's str/bytes == short-circuits on first differing byte — could a remote attacker exploit timing to recover the secret?"
+    - "Is hmac.compare_digest or secrets.compare_digest available and used?"
+    - "Could the comparison's response-time variance be measured against a Flask/Django/FastAPI endpoint?"
+  context_hint: "Identify comparison + attacker-controlled operand."
+  additional_context: ["caller"]
+
+py/csv-formula-injection:
+  short_description: "User-controlled value written to CSV/XLSX cell without leading-character escaping"
+  questions:
+    - "Which writer is used — csv.writer, pandas.to_csv, openpyxl, xlsxwriter, or manual file write?"
+    - "Where does the cell value originate — request body, file upload, DB row populated from user input?"
+    - "Does the writer escape leading '=', '+', '-', '@', tab, or carriage-return characters?"
+    - "Will the output file be opened in Excel / LibreOffice / Google Sheets that interpret leading '=' as a formula?"
+    - "Could an attacker inject =HYPERLINK / DDE / =cmd payloads to phish or run commands on a victim?"
+    - "Is the OWASP recommendation (prefix with `'` or write as text) applied?"
+  context_hint: "Locate writer + tainted source."
+  additional_context: ["caller"]
+
+py/insecure-cookie:
+  short_description: "Cookie set without HttpOnly or SameSite attribute"
+  questions:
+    - "Where is the cookie set — response.set_cookie (Django/Flask), starlette.Response, FastAPI Response.set_cookie?"
+    - "Is httponly=True passed to set_cookie / SESSION_COOKIE_HTTPONLY = True configured? (CWE-1004)"
+    - "Is samesite='Lax' or 'Strict' set explicitly? (CWE-1275) — Django default is 'Lax' but older versions or custom code may omit it."
+    - "Is secure=True set when the site is HTTPS-only? (CWE-614)"
+    - "Does the cookie hold session id, auth token, or other sensitive data?"
+    - "Could an XSS payload exfiltrate the cookie via document.cookie?"
+  context_hint: "Locate cookie set + options."
+  additional_context: ["caller"]
+
+py/unsafe-reflection:
+  short_description: "importlib.import_module / __import__ / getattr with attacker-controlled name"
+  questions:
+    - "Which reflection API is called — importlib.import_module, __import__, getattr, eval, exec, or pkgutil.get_loader?"
+    - "Where does the module/attribute name originate? Trace back to the request or external file."
+    - "Is the name validated against an allowlist of permitted modules/attributes?"
+    - "Could an attacker import a module with side effects in module-level code (e.g. os, subprocess, ctypes)?"
+    - "Is the resolved object subsequently called or used in a way that turns module loading into RCE?"
+    - "Is the reflection used as a 'plugin dispatcher' that could be safely replaced with a static dict lookup?"
+  context_hint: "Trace input to the reflective call."
+  additional_context: ["caller"]
+
+py/overflow-destination:
+  short_description: "bytearray/bytes slice assignment or struct.pack_into length derived from source"
+  questions:
+    - "What is the DESTINATION bytearray/memoryview/buffer size at the flagged line?"
+    - "What LENGTH or end-index is used in the slice assignment / struct.pack_into / ctypes.memmove?"
+    - "Could the length exceed the destination's capacity?"
+    - "Is the length derived from a tainted protocol field?"
+    - "Is there an explicit bounds check before the write?"
+    - "Could the write extend the bytearray unexpectedly (slice-assignment auto-resizes) and break invariants?"
+  context_hint: "Examine destination, length, and source together."
+  additional_context: ["caller"]

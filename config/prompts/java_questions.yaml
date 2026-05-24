@@ -716,3 +716,63 @@ java/regex-injection:
     - "Would Pattern.CANON_EQ or Pattern.COMMENTS make the regex more vulnerable to injection?"
   context_hint: "Identify whether user input reaches Pattern.compile() and check for backtracking patterns."
   additional_context: ["caller"]
+
+java/timing-unsafe-comparison:
+  short_description: "Secret/HMAC/token compared with String.equals or Arrays.equals (non-constant-time)"
+  questions:
+    - "What is being compared at the flagged line — password, signature, HMAC, JWT signature, API token, or session id?"
+    - "Which comparison method is used — String.equals, ==, Arrays.equals, or MessageDigest.isEqual?"
+    - "MessageDigest.isEqual is constant-time in modern JDKs (≥ 6u17). Is one of String.equals / Arrays.equals being used instead?"
+    - "Is the user-supplied side attacker-controlled — taken from a request header, parameter, cookie, or body?"
+    - "Could a remote attacker measure response-time differences to recover the secret byte-by-byte?"
+    - "Could the application use MessageDigest.isEqual or a hand-written constant-time loop?"
+  context_hint: "Identify the comparison call and trace the attacker-controlled operand."
+  additional_context: ["caller"]
+
+java/csv-formula-injection:
+  short_description: "User-controlled value written to CSV/Excel cell without leading-character escaping"
+  questions:
+    - "Which library is writing the cell — Apache Commons CSV, OpenCSV, Apache POI, Jackson CSV, or a manual StringBuilder?"
+    - "What value flows into the cell, and where does it originate — HTTP request, DB record populated from user input, file upload?"
+    - "Does the writer reject or prefix leading '=', '+', '-', '@', tab, or carriage-return characters?"
+    - "Will the CSV/XLSX be opened in Excel / LibreOffice where leading '=' executes as a formula?"
+    - "Could an attacker inject =HYPERLINK / DDE / =cmd payloads to phish or execute commands on a victim's machine?"
+    - "Is OWASP's CSV-escape recommendation (prefix with single-quote or rewrite to text format) applied?"
+  context_hint: "Locate cell writer + user-input source."
+  additional_context: ["caller"]
+
+java/insecure-cookie:
+  short_description: "Cookie set without HttpOnly or SameSite attribute"
+  questions:
+    - "Where is the cookie created — new Cookie(...), ResponseCookie.from(), Set-Cookie header construction, Spring SecurityContextRepository?"
+    - "Is cookie.setHttpOnly(true) called on every code path? (CWE-1004)"
+    - "Is the SameSite attribute set to 'Lax' or 'Strict'? (CWE-1275) — defaults to 'None' in many servlet containers, exposing CSRF risk."
+    - "Is cookie.setSecure(true) called when the application is HTTPS-only? (CWE-614)"
+    - "Does the cookie carry session state, authentication, or other sensitive data?"
+    - "Could JavaScript on the page (or in an XSS payload) read the cookie via document.cookie?"
+  context_hint: "Find the cookie construction and walk the attribute setters."
+  additional_context: ["caller"]
+
+java/unsafe-reflection:
+  short_description: "Class.forName / ClassLoader.loadClass / Method.invoke with attacker-controlled name"
+  questions:
+    - "Which reflection API is called — Class.forName, ClassLoader.loadClass, MethodHandles.Lookup.findVirtual, Method.invoke, Constructor.newInstance?"
+    - "Where does the class/method name string originate? Trace back to the source."
+    - "Is the input validated against an allowlist of permitted class/method names?"
+    - "Could an attacker name a class that triggers a side effect in <clinit>, a Runtime.exec gadget, or a serialization-related class?"
+    - "Is a SecurityManager / AccessController policy in place to restrict reflective loading?"
+    - "Could this be a gadget chain entry point (e.g. javax.script.ScriptEngineManager, javax.naming.InitialContext)?"
+  context_hint: "Trace from input source to the reflective call; list allowlist checks if any."
+  additional_context: ["caller"]
+
+java/overflow-destination:
+  short_description: "System.arraycopy or Arrays.copyOfRange length derived from source instead of destination"
+  questions:
+    - "What is the DESTINATION array's declared length at the flagged line?"
+    - "What LENGTH argument is passed to System.arraycopy / ByteBuffer.put / Arrays.copyOfRange?"
+    - "Could that length exceed the destination's capacity for any input?"
+    - "Is the length bounded by an explicit check against destination.length before the copy?"
+    - "Could a tainted input control the length (e.g. parsed protocol length field)?"
+    - "Would the resulting ArrayIndexOutOfBoundsException be caught/swallowed, hiding a logical bug?"
+  context_hint: "Examine source, destination, and length all at once."
+  additional_context: ["caller"]

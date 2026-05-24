@@ -434,3 +434,37 @@ cwe_question_map:
   # Obsolete / debug
   CWE-477:  "deprecated-api"
   CWE-489:  "flask-debug"
+
+  # ── Broader CWE coverage (Part B) ──
+  # Timing & integrity
+  CWE-208:  "timing-unsafe-comparison"     # NEW question key
+  CWE-345:  "input-validation"
+  CWE-924:  "input-validation"
+  CWE-494:  "trust-boundary-violation"
+
+  # Permissions (CWE-275 already maps to overly-permissive-file)
+  CWE-276:  "overly-permissive-file"
+  CWE-732:  "overly-permissive-file"
+
+  # Cookies (Secure flag handled by CWE-614)
+  CWE-1004: "insecure-cookie"
+  CWE-1275: "insecure-cookie"
+
+  # Authorization & authentication extras
+  CWE-285:  "missing-authorization"
+  CWE-307:  "broken-authentication"
+  CWE-639:  "incorrect-authorization"
+
+  # Web protocol
+  CWE-444:  "input-validation"
+  CWE-693:  "input-validation"
+  CWE-1236: "csv-formula-injection"        # NEW question key
+
+  # Memory / bounds
+  CWE-129:  "input-validation"
+  CWE-805:  "overflow-destination"
+  CWE-806:  "overflow-destination"
+  CWE-839:  "input-validation"
+
+  # Data exposure
+  CWE-922:  "sensitive-data-exposure"

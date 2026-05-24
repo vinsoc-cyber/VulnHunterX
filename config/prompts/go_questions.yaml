@@ -615,3 +615,51 @@ go/integer-overflow:
     - "Could an attacker supply a value that causes overflow to bypass a size check or allocate an incorrect amount?"
   context_hint: "Trace the integer from input through arithmetic to its security-sensitive use."
   additional_context: ["caller"]
+
+go/timing-unsafe-comparison:
+  short_description: "Secret/HMAC/token compared with == instead of crypto/subtle.ConstantTimeCompare"
+  questions:
+    - "What value is being compared at the flagged line — HMAC, signature, session token, API key, JWT signature?"
+    - "Which comparison is used — ==, bytes.Equal, strings.EqualFold, or subtle.ConstantTimeCompare?"
+    - "Is the user-supplied operand from r.Header / r.URL.Query / r.Cookie / r.Body / gRPC metadata?"
+    - "bytes.Equal and == short-circuit on the first differing byte — could remote timing measurements recover the secret?"
+    - "Is crypto/subtle.ConstantTimeCompare available and used? Is it applied to byte slices of equal length?"
+    - "Could length-mismatch handling itself leak length via early return before the constant-time loop?"
+  context_hint: "Locate comparison and tainted operand."
+  additional_context: ["caller"]
+
+go/csv-formula-injection:
+  short_description: "User-controlled value written to CSV/Excel cell without leading-character escaping"
+  questions:
+    - "Which library is used — encoding/csv, excelize, tealeg/xlsx, or manual concatenation?"
+    - "Where does the cell value originate — http.Request, message queue payload, DB row from user input?"
+    - "Does the writer escape leading '=', '+', '-', '@', tab, or CR before writing the cell?"
+    - "Will the file be opened in Excel / LibreOffice that treats leading '=' as a formula?"
+    - "Could an attacker craft a DDE / HYPERLINK / WEBSERVICE formula payload that phishes or executes commands?"
+    - "Is the OWASP recommendation (prefix with `'` or quote as text) applied?"
+  context_hint: "Locate writer and tainted source."
+  additional_context: ["caller"]
+
+go/insecure-cookie:
+  short_description: "http.Cookie set without HttpOnly or SameSite attribute"
+  questions:
+    - "Where is the cookie set — http.SetCookie, w.Header().Add('Set-Cookie', ...), gorilla/sessions, gin-contrib/sessions?"
+    - "Is HttpOnly: true set on the http.Cookie struct? (CWE-1004)"
+    - "Is SameSite set to http.SameSiteLaxMode or http.SameSiteStrictMode explicitly? (CWE-1275) Go default is SameSiteDefaultMode which sends no SameSite attribute."
+    - "Is Secure: true set when deployment is HTTPS-only? (CWE-614)"
+    - "Does the cookie carry a session id, auth token, or other sensitive value?"
+    - "Could an XSS / browser extension reading document.cookie exfiltrate the cookie?"
+  context_hint: "Locate cookie set + struct field/options."
+  additional_context: ["caller"]
+
+go/missing-return-value-check:
+  short_description: "Function returning error has its result discarded or unchecked"
+  questions:
+    - "Which function is called whose error return is being discarded — Close, Write, Verify, Validate, Commit, Authenticate, Decode?"
+    - "Is the error pattern `_ = fn()` / `fn()` / `defer fn()` without a separate Close-error check?"
+    - "Could an undetected error here leave the system in an inconsistent state — unflushed buffer, uncommitted transaction, partially-validated token?"
+    - "Is this a security-relevant function (signature verification, authentication, authorization, certificate validation)?"
+    - "Would a wrapped errcheck-style lint flag this, and is there a //nolint or build-tag suppressing detection?"
+    - "Could the ignored error mask a security failure (e.g. ignored VerifyJWT error treats invalid token as valid)?"
+  context_hint: "Identify the discarded call and what would normally be in the error path."
+  additional_context: ["caller"]

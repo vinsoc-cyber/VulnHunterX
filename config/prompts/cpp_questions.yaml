@@ -840,3 +840,39 @@ cpp/cors-misconfiguration:
     - "Is the CORS header set globally or per-endpoint — are sensitive endpoints properly restricted?"
   context_hint: "Check CORS header values and how Origin validation is performed."
   additional_context: ["caller"]
+
+cpp/timing-unsafe-comparison:
+  short_description: "Secret/HMAC/token compared with non-constant-time function in C/C++"
+  questions:
+    - "What VALUE is being compared at the flagged line — a password digest, HMAC, session token, API key, or other secret?"
+    - "Which function performs the comparison — memcmp / strcmp / strncmp / == / a custom byte-loop?"
+    - "Does the comparison short-circuit on the first differing byte (memcmp/strcmp do), leaking length information via timing?"
+    - "Is the secret attacker-influenced — supplied via HTTP header, query string, RPC body, or environment?"
+    - "Is a constant-time helper available (CRYPTO_memcmp from OpenSSL, sodium_memcmp from libsodium) and used here?"
+    - "Could remote timing attacks recover the secret byte-by-byte against this comparison?"
+  context_hint: "Identify both operands of the comparison and trace where the user-supplied side originates."
+  additional_context: ["caller"]
+
+cpp/csv-formula-injection:
+  short_description: "User-controlled value written to CSV/spreadsheet cell without leading-character escaping"
+  questions:
+    - "What value is being written into the CSV/TSV/XLSX output at the flagged line?"
+    - "Where does that value come from — HTTP request, file upload, database row populated from user input?"
+    - "Does the writer escape or reject leading '=', '+', '-', '@', tab, or carriage-return characters?"
+    - "Will the output be opened in Excel / LibreOffice / Google Sheets where leading '=' triggers formula evaluation?"
+    - "Could an attacker inject =HYPERLINK / =cmd|'/c calc'! / DDE payloads that exfiltrate data or execute commands when a victim opens the file?"
+    - "Is the value wrapped in quotes or prefixed with a tab/space to neutralise formula interpretation?"
+  context_hint: "Trace input source to the CSV/spreadsheet write site and check for escaping/sanitisation."
+  additional_context: ["caller"]
+
+cpp/overflow-destination:
+  short_description: "memcpy/memmove/strncpy length derived from source size instead of destination size"
+  questions:
+    - "What is the DESTINATION buffer at the flagged copy site — its declared size and how it was allocated?"
+    - "What LENGTH value is passed to the copy — is it derived from sizeof(src), strlen(src), or otherwise from the source?"
+    - "If the source is a pointer (not an array), is sizeof(src) the pointer width (4/8 bytes) rather than its allocation size?"
+    - "Could the length exceed the destination's actual capacity in any code path?"
+    - "Are there any bounds checks on the length BEFORE the copy?"
+    - "Is the destination guaranteed to be NUL-terminated after the copy if it is a C string?"
+  context_hint: "Examine both destination allocation and the length expression in the copy."
+  additional_context: ["caller", "struct"]

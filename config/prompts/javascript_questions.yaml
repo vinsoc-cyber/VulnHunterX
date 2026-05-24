@@ -698,3 +698,51 @@ js/regex-injection:
     - "Is a safe regex library (re2, safe-regex) used instead of the built-in RegExp?"
   context_hint: "Identify whether user input reaches new RegExp() and check for backtracking patterns."
   additional_context: ["caller"]
+
+js/timing-unsafe-comparison:
+  short_description: "Secret/token compared with == or === instead of crypto.timingSafeEqual"
+  questions:
+    - "What value is compared at the flagged line — API key, HMAC, session id, password hash, JWT signature?"
+    - "Which comparison is used — ===, ==, Buffer comparison, or crypto.timingSafeEqual?"
+    - "Is the user-controlled operand taken from req.headers / req.query / req.body / req.cookies?"
+    - "Does the comparison short-circuit on first differing character (=== / == do), revealing length-prefix matches via timing?"
+    - "Could a remote attacker iteratively guess bytes from response-time measurements?"
+    - "Is crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b)) available and the buffers length-padded to avoid leaking length?"
+  context_hint: "Locate the comparison and identify the user-supplied operand."
+  additional_context: ["caller"]
+
+js/csv-formula-injection:
+  short_description: "User input written to CSV/Excel cell without leading-character escaping"
+  questions:
+    - "Which library produces the CSV — papaparse, csv-stringify, exceljs, xlsx, fast-csv, or manual concatenation?"
+    - "Where does each cell value originate — req.body, query string, DB row populated from user input?"
+    - "Does the writer escape leading '=', '+', '-', '@', tab, or CR characters that Excel/LibreOffice would treat as formula?"
+    - "Could a malicious value execute DDE / HYPERLINK / WEBSERVICE formula when a victim opens the file?"
+    - "Is the OWASP recommendation (prefix with `'` or write as text-formatted cell) applied?"
+    - "Is the export endpoint reachable without authentication, broadening attack surface?"
+  context_hint: "Identify cell writer + tainted source path."
+  additional_context: ["caller"]
+
+js/insecure-cookie:
+  short_description: "Cookie set without HttpOnly or SameSite attribute"
+  questions:
+    - "Where is the cookie set — res.cookie(), Set-Cookie header, express-session, cookie-session, fastify-cookie?"
+    - "Is `httpOnly: true` set in the options object on every cookie that carries auth/session state? (CWE-1004)"
+    - "Is `sameSite: 'lax' | 'strict'` set explicitly? (CWE-1275) Default behaviour varies between frameworks and browsers."
+    - "Is `secure: true` set when the deployment is HTTPS-only? (CWE-614)"
+    - "Could client-side JS or an XSS payload read this cookie via document.cookie?"
+    - "Does the cookie need to be accessible from cross-site contexts at all, or can SameSite be tightened?"
+  context_hint: "Locate cookie-setting call and inspect options."
+  additional_context: ["caller"]
+
+js/overflow-destination:
+  short_description: "Buffer.copy / TypedArray.set / Buffer.write length derived from source instead of destination"
+  questions:
+    - "What is the DESTINATION Buffer / TypedArray's byteLength at the flagged copy?"
+    - "What LENGTH argument is passed to the copy/write call?"
+    - "Could that length exceed destination.byteLength for any input?"
+    - "Is the length value derived from a tainted protocol field (e.g. parsed packet length, request header)?"
+    - "Is there an explicit length check against destination capacity before the copy?"
+    - "Could a partial write leave the destination in an inconsistent / undefined state?"
+  context_hint: "Examine both buffer allocation and the copy call."
+  additional_context: ["caller"]
