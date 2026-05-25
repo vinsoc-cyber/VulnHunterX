@@ -332,13 +332,13 @@ MarkdownReportGenerator().generate(
 |---|---|
 | Rule profiles | 5 (`standard` → `full`) |
 | Security categories | 12 |
-| CWE entries in routing map | 103 |
-| Custom CodeQL queries | 6 (5 C/C++, 1 Go) |
-| Custom Semgrep rules | 14 (Python 4, JS/TS 3, Go 3, PHP 4) |
+| CWE entries in routing map | 123 |
+| Custom CodeQL queries | 73 (C/C++ 21, Java 14, JavaScript 15, Python 12, Go 11) |
+| Custom Semgrep rules | 47 (Python 12, JavaScript 9, Java 7, Go 8, PHP 7, C/C++ 4) |
 | Built-in CodeQL suites | `security-extended` (~200), `security-and-quality` (~400) |
 | Built-in Semgrep universal packs | 8 |
 | Built-in Semgrep per-language packs | 10 (django, flask, nodejs, gosec, …) |
-| Guided-question templates | 316 across 6 per-language banks + 1 fallback |
+| Guided-question templates | 342 across 6 per-language banks + 1 fallback |
 
 Coverage growth from `--profile standard` to `--profile full` is roughly **5×–10×** more rules per scan. Per-language registry packs (`p/django`, `p/gosec`, …) are only applied to matching repos so cross-language scans aren't polluted.
 
