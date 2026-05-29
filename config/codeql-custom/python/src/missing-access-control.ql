@@ -23,16 +23,16 @@ predicate sensitivePath(string s) {
 }
 
 /** A route-registering decorator (Flask @app.route / FastAPI @app.get etc.) */
-class RouteDecorator extends Decorator {
+class RouteDecorator extends Call {
   RouteDecorator() {
     exists(string s |
-      s = this.getName() and
+      s = this.getFunc().(Attribute).getName() and
       s in ["route", "get", "post", "put", "delete", "patch"]
     )
   }
 
   string getPath() {
-    result = this.getACall().getArg(0).(StrConst).getText()
+    result = this.getArg(0).(StringLiteral).getText()
   }
 }
 
@@ -44,15 +44,23 @@ predicate looksLikeAuthDecorator(string name) {
 }
 
 predicate hasAuthDecorator(Function f) {
-  exists(Decorator d |
-    d.getScope() = f and
-    looksLikeAuthDecorator(d.getName())
+  exists(Expr d |
+    d = f.getADecorator() and
+    (
+      looksLikeAuthDecorator(d.(Name).getId())
+      or
+      looksLikeAuthDecorator(d.(Attribute).getName())
+      or
+      looksLikeAuthDecorator(d.(Call).getFunc().(Name).getId())
+      or
+      looksLikeAuthDecorator(d.(Call).getFunc().(Attribute).getName())
+    )
   )
 }
 
 from Function f, RouteDecorator route, string path
 where
-  route.getScope() = f and
+  route = f.getADecorator() and
   path = route.getPath() and
   sensitivePath(path) and
   not hasAuthDecorator(f)

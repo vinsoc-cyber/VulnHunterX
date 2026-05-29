@@ -29,9 +29,9 @@ class CsvWriteSink extends DataFlow::Node {
     or
     // pandas DataFrame.to_csv — the data being written is implicit;
     // anchor on the value passed into DataFrame()/Series()
-    exists(DataFlow::CallCfgNode c |
-      c.getFunction().(DataFlow::AttrRead).getAttributeName() = "to_csv" and
-      this = c.getObject()
+    exists(DataFlow::MethodCallNode m |
+      m.getMethodName() = "to_csv" and
+      this = m.getObject()
     )
     or
     // openpyxl ws.cell(row, column, value=...)

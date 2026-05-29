@@ -31,6 +31,4 @@ benchmarks/results/
 CLAUDE.md
 .ruff_cache/
 pricing*
-docs/paper/vulnhunterx_paper_tmp.html
-docs/paper/vulnhunterx_paper.html
-docs/paper/vulnhunterx_paper.md
+docs/paper/

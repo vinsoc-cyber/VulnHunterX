@@ -17,7 +17,7 @@
 
 import cpp
 import semmle.code.cpp.security.FlowSources
-import semmle.code.cpp.dataflow.new.TaintTracking
+import semmle.code.cpp.ir.dataflow.TaintTracking
 import CommandInjectionFlow::PathGraph
 
 /** An argument expression to a shell/exec sink. */

@@ -16,7 +16,7 @@
 
 import cpp
 import semmle.code.cpp.security.FlowSources
-import semmle.code.cpp.dataflow.new.TaintTracking
+import semmle.code.cpp.ir.dataflow.TaintTracking
 import CsvFlow::PathGraph
 
 /** Argument to a file-write where the file extension hint is .csv/.tsv. */

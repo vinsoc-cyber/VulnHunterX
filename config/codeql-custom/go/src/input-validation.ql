@@ -27,8 +27,8 @@ class HeaderGet extends DataFlow::MethodCallNode {
 
 from FuncDecl handler, HeaderGet contentLen, HeaderGet transferEnc
 where
-  contentLen.getRoot() = handler.getEntryNode().getRoot() and
-  transferEnc.getRoot() = handler.getEntryNode().getRoot() and
+  contentLen.getRoot() = handler and
+  transferEnc.getRoot() = handler and
   contentLen.getHeader().toLowerCase() = "content-length" and
   transferEnc.getHeader().toLowerCase() = "transfer-encoding"
 select handler,

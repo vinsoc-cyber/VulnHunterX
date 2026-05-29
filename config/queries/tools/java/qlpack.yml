@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 VinSOC Cyber
+
+name: vulnhunterx/java-tools
+version: 0.0.1
+dependencies:
+  codeql/java-all: "*"

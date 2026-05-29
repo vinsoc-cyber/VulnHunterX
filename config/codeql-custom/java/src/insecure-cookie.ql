@@ -19,7 +19,7 @@
 import java
 
 /** Construction of a Servlet Cookie. */
-class ServletCookieConstruction extends ConstructorCall {
+class ServletCookieConstruction extends ClassInstanceExpr {
   ServletCookieConstruction() {
     this.getConstructedType()
         .hasQualifiedName(["javax.servlet.http", "jakarta.servlet.http"], "Cookie")

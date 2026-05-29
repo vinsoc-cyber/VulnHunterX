@@ -28,7 +28,7 @@ from CallExpr call, ExprStmt s, FuncDecl callee
 where
   s.getExpr() = call and
   // The result is silently discarded — call is in expression-statement position
-  callee = call.getCalleeFunction*() and
+  call.getTarget() = callee.getFunction() and
   isSecurityRelevant(callee.getName()) and
   // Function returns at least one error
   callee.getType().(SignatureType).getResultType(_).hasQualifiedName(_, "error")

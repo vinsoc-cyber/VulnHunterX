@@ -21,7 +21,7 @@ import DataFlow::PathGraph
 class EventHandlerSink extends DataFlow::Node {
   EventHandlerSink() {
     // element.onclick = ...
-    exists(PropWrite pw |
+    exists(DataFlow::PropWrite pw |
       pw.getPropertyName().regexpMatch("on[a-z]+") and
       this = pw.getRhs()
     )

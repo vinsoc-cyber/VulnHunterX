@@ -13,7 +13,7 @@ import go
 from CallExpr call, FuncDecl callee, FuncDecl caller
 where
   call.getTarget() = callee.getFunction() and
-  call.getEnclosingFunction() = caller.getFunction() and
+  call.getEnclosingFunction() = caller and
   callee.getFile().getRelativePath() != "" and
   caller.getFile().getRelativePath() != ""
 select

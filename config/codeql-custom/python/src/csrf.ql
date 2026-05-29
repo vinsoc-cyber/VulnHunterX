@@ -18,9 +18,9 @@ import python
 /** A function decorated with @csrf_exempt. */
 class CsrfExemptView extends Function {
   CsrfExemptView() {
-    exists(Decorator d |
-      d.getScope() = this and
-      d.getName() = "csrf_exempt"
+    exists(Expr d |
+      d = this.getADecorator() and
+      d.(Name).getId() = "csrf_exempt"
     )
   }
 }

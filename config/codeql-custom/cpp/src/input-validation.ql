@@ -16,7 +16,7 @@
 
 import cpp
 import semmle.code.cpp.security.FlowSources
-import semmle.code.cpp.dataflow.new.TaintTracking
+import semmle.code.cpp.ir.dataflow.TaintTracking
 import IndexFlow::PathGraph
 
 /** An array-subscript expression's offset position. */
@@ -31,7 +31,7 @@ class ArraySubscriptIndex extends Expr {
 predicate inUpperBoundGuard(Expr indexUse) {
   exists(IfStmt ifs, RelationalOperation cmp |
     ifs.getCondition() = cmp and
-    cmp.getLessOperand().(VariableAccess).getTarget() =
+    cmp.getLesserOperand().(VariableAccess).getTarget() =
       indexUse.(VariableAccess).getTarget() and
     indexUse.getEnclosingStmt().getParentStmt*() = ifs.getThen()
   )

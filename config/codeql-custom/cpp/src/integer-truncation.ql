@@ -18,7 +18,7 @@
 
 import cpp
 import semmle.code.cpp.security.FlowSources
-import semmle.code.cpp.dataflow.new.TaintTracking
+import semmle.code.cpp.ir.dataflow.TaintTracking
 import TaintFlow::PathGraph
 
 /** Narrowing conversion: cast or implicit conversion from a wider int to a narrower one. */
