@@ -39,11 +39,10 @@ class SensitiveField extends Field {
     )
     or
     // @Column(updatable=false)
-    exists(Annotation a, AnnotationElement e |
+    exists(Annotation a |
       a = this.getAnAnnotation() and
       a.getType().hasName("Column") and
-      a.getValue(_) = e and
-      e.toString().regexpMatch(".*updatable.*false.*")
+      a.getValue("updatable").(BooleanLiteral).getBooleanValue() = false
     )
     or
     // Names that strongly suggest sensitivity

@@ -19,7 +19,7 @@
 
 import cpp
 import semmle.code.cpp.security.FlowSources
-import semmle.code.cpp.dataflow.new.TaintTracking
+import semmle.code.cpp.ir.dataflow.TaintTracking
 import TaintFlow::PathGraph
 
 /** Size argument of an allocation routine. */

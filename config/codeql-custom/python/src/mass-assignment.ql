@@ -19,8 +19,9 @@ import python
 /** A Class with `Meta.fields = '__all__'`. */
 class WildcardFieldsForm extends Class {
   WildcardFieldsForm() {
-    exists(Class meta, AssignStmt a, StrConst s |
-      meta = this.getInnerClass("Meta") and
+    exists(Class meta, AssignStmt a, StringLiteral s |
+      meta.getName() = "Meta" and
+      meta.getEnclosingScope() = this and
       a.getScope() = meta and
       a.getATarget().(Name).getId() = "fields" and
       a.getValue() = s and

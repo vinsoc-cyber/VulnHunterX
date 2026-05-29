@@ -24,28 +24,6 @@ class SpringConfigFile extends File {
   }
 }
 
-/** A line in a Spring config file exposing dangerous actuator endpoints. */
-class ActuatorExposeLine extends Top {
-  string content;
-  Location loc;
-
-  ActuatorExposeLine() {
-    exists(SpringConfigFile f |
-      // Use the file's lines (CodeQL provides ResourceFiles with lines)
-      f.getAbsolutePath() = loc.getFile().getAbsolutePath() and
-      // Pattern: management.endpoints.web.exposure.include=
-      // (in .properties) or management.endpoints.web.exposure.include: ...
-      // (in .yml). We match on the raw file content via the YAML/property reader if
-      // available; otherwise this rule is best-effort.
-      content.regexpMatch(".*management\\.endpoints\\.web\\.exposure\\.include\\s*[=:]\\s*.*\\*.*")
-    ) and
-    this = loc.getFile()
-  }
-
-  string getContent() { result = content }
-  Location getMyLocation() { result = loc }
-}
-
 // NOTE: a complete implementation would parse application.{properties,yml}
 // via codeql/yaml-all and codeql/properties. Many Java packs do not include
 // those by default; the rule is kept simple and intentionally low-noise.

@@ -193,9 +193,32 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
     elif provider == "ollama":
         ollama_model = os.environ.get("OLLAMA_MODEL", "ollama/llama3.2")
         raw = model or ollama_model
-        # LiteLLM requires "ollama/<name>" prefix
-        llm_model = raw if raw.startswith("ollama/") else f"ollama/{raw}"
         api_base = (os.environ.get("OLLAMA_API_BASE", "").strip() or None)
+
+        # Mirror LLMClient cloud-handling: a :cloud / -cloud tag or an
+        # ollama.com api_base means Ollama Cloud, which needs chat-completions
+        # (ollama_chat/<name>) + a bearer token from OLLAMA_API_KEYS.
+        bare = raw.removeprefix("ollama_chat/").removeprefix("ollama/")
+        tag_is_cloud = bare.endswith(":cloud") or bare.endswith("-cloud")
+        is_cloud = bool((api_base and "ollama.com" in api_base) or tag_is_cloud)
+        if is_cloud:
+            from vuln_hunter_x.core.config import _load_ollama_api_keys
+
+            cloud_keys = _load_ollama_api_keys()
+            if not cloud_keys:
+                logger.warning(
+                    "Ollama Cloud detected but OLLAMA_API_KEYS is not set; "
+                    "falling back to English"
+                )
+                return texts
+            ollama_cloud_key = cloud_keys[0]
+            llm_model = "ollama_chat/" + bare
+            if not api_base or "ollama.com" not in api_base:
+                api_base = "https://ollama.com"
+        else:
+            ollama_cloud_key = None
+            llm_model = raw if raw.startswith(("ollama/", "ollama_chat/")) else f"ollama/{raw}"
+
         if api_base:
             api_base = api_base.rstrip("/")
     elif api_key:
@@ -227,6 +250,8 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
             kwargs["api_base"] = api_base
         if provider == "anthropic":
             kwargs["api_key"] = anthropic_key
+        elif provider == "ollama" and ollama_cloud_key:
+            kwargs["api_key"] = ollama_cloud_key
         elif api_key and provider != "ollama":
             kwargs["api_key"] = api_key
 

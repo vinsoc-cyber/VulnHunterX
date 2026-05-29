@@ -18,7 +18,7 @@
 
 import cpp
 import semmle.code.cpp.security.FlowSources
-import semmle.code.cpp.dataflow.new.TaintTracking
+import semmle.code.cpp.ir.dataflow.TaintTracking
 import OobReadFlow::PathGraph
 
 /** Index or length argument used in a read-style buffer access. */

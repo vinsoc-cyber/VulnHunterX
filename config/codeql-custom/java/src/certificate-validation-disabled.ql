@@ -1,6 +1,6 @@
 /**
  * @name TrustManager or HostnameVerifier accepts any certificate / host
- * @description A `X509TrustManager` whose `checkClientTrusted` or
+ * @descriptionription A `X509TrustManager` whose `checkClientTrusted` or
  *              `checkServerTrusted` body is empty, OR a `HostnameVerifier`
  *              whose `verify` returns `true` unconditionally, disables
  *              TLS authentication and exposes the connection to MITM.
@@ -48,13 +48,13 @@ class AlwaysTrueHostnameVerifier extends Method {
   }
 }
 
-from Method m, string desc
+from Method m, string description
 where
   (m instanceof TrustManagerCheckMethod and isNoOp(m) and
-   desc = "TrustManager." + m.getName() + " is a no-op")
+   description = "TrustManager." + m.getName() + " is a no-op")
   or
   (m instanceof AlwaysTrueHostnameVerifier and
-   desc = "HostnameVerifier.verify unconditionally returns true")
+   description = "HostnameVerifier.verify unconditionally returns true")
 select m,
-  desc + " — TLS authentication is effectively disabled, exposing the " +
+  description + " — TLS authentication is effectively disabled, exposing the " +
   "connection to MITM."

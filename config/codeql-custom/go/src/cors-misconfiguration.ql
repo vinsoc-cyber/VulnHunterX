@@ -29,10 +29,9 @@ class HeaderSetCall extends DataFlow::MethodCallNode {
   Expr getValueExpr() { result = this.getArgument(1).asExpr() }
 }
 
-from HeaderSetCall origin, HeaderSetCall creds, Function f
+from HeaderSetCall origin, HeaderSetCall creds
 where
-  origin.getRoot() = f.getEntryNode().getRoot() and
-  creds.getRoot() = f.getEntryNode().getRoot() and
+  origin.getRoot() = creds.getRoot() and
   origin.getHeaderName() = "Access-Control-Allow-Origin" and
   origin.getArgument(1).getStringValue() = "*" and
   creds.getHeaderName() = "Access-Control-Allow-Credentials" and

@@ -1,7 +1,7 @@
 """Thread-safe API-key pool with round-robin selection and per-key cooldown.
 
 Used by ``LLMClient`` to distribute outbound Ollama Cloud calls across
-multiple ``OLLAMA_API_KEYS`` so a single key's RPM limit doesn't bottleneck
+multiple keys (comma-separated ``OLLAMA_API_KEYS``) so a single key's RPM limit doesn't bottleneck
 parallel verification runs. When a key returns 429, it is parked for
 ``Retry-After`` seconds (or a 60s fallback) and skipped on subsequent
 acquires; the next available key serves the call instead.

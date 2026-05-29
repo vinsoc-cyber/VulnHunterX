@@ -18,7 +18,7 @@
 
 import cpp
 import semmle.code.cpp.security.FlowSources
-import semmle.code.cpp.dataflow.new.TaintTracking
+import semmle.code.cpp.ir.dataflow.TaintTracking
 import UncontrolledResourceFlow::PathGraph
 
 /** An expression that drives unbounded resource allocation or iteration. */

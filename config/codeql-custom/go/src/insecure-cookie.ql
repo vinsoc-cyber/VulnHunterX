@@ -28,7 +28,7 @@ class CookieLiteral extends CompositeLit {
     exists(KeyValueExpr kv |
       kv = this.getAnElement() and
       kv.getKey().(Ident).getName() = name and
-      kv.getValue().(BoolLit).getBoolValue() = true
+      kv.getValue().getBoolValue() = true
     )
   }
 

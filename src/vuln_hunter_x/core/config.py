@@ -25,17 +25,15 @@ from vuln_hunter_x.core.constants import (
 
 
 def _load_ollama_api_keys() -> list[str]:
-    """Parse OLLAMA_API_KEYS (comma-separated) or fall back to OLLAMA_API_KEY.
+    """Parse OLLAMA_API_KEYS (comma-separated) as the Ollama Cloud bearer pool.
 
-    Returns an empty list when neither is set. Used by LLMConfig so the
-    LLMClient pool wiring can decide whether to enable round-robin rotation.
+    Returns an empty list when unset. ``LLMClient`` only treats these as
+    Ollama Cloud bearers when the configured endpoint resolves to cloud
+    (``OLLAMA_API_BASE`` contains ``ollama.com`` or the model carries a
+    ``:cloud`` / ``-cloud`` tag).
     """
     raw = os.environ.get("OLLAMA_API_KEYS", "")
-    keys = [k.strip() for k in raw.split(",") if k.strip()]
-    if keys:
-        return keys
-    single = os.environ.get("OLLAMA_API_KEY", "").strip()
-    return [single] if single else []
+    return [k.strip() for k in raw.split(",") if k.strip()]
 
 
 @dataclass
@@ -50,8 +48,7 @@ class LLMConfig:
     num_retries: int = 5
     # Ollama Cloud key pool. When two or more keys are configured (via
     # OLLAMA_API_KEYS=k1,k2,k3) LLMClient round-robins across them and parks
-    # any key that returns 429. A single key falls back to the existing
-    # OLLAMA_API_KEY env-var path.
+    # any key that returns 429. A single key is used directly without rotation.
     ollama_api_keys: list[str] = field(default_factory=list)
 
     @property

@@ -362,7 +362,7 @@ Priority: **CLI args > environment variables > config file > defaults**.
 | `OPENAI_API_KEY` | OpenAI API key |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
 | `OLLAMA_API_BASE` | Ollama server URL (`http://localhost:11434` for local, `https://ollama.com` for cloud) |
-| `OLLAMA_API_KEY` | API key for Ollama Cloud (only required when `OLLAMA_API_BASE` points at `ollama.com`) |
+| `OLLAMA_API_KEYS` | Ollama Cloud bearer token(s). Comma-separated for a pool (`k1,k2,k3`); 2+ keys enable round-robin rotation with per-key 429 cooldown. Required when `OLLAMA_API_BASE` points at `ollama.com` or the model carries a `:cloud` / `-cloud` tag. |
 | `LLM_PROVIDER` / `LLM_MODEL` | Override default provider / model |
 | `CODEQL_PATH` / `SEMGREP_PATH` / `OPENGREP_PATH` | Tool paths if not on `PATH` |
 

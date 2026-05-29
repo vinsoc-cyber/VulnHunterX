@@ -17,6 +17,12 @@ from vuln_hunter_x.core.types import Finding, Verdict
 
 _SUPPORTED_LANGS = {"c", "cpp", "python", "javascript", "php", "java", "go"}
 
+# Bundled assets ship with the installed VulnHunterX package, so resolve them
+# from __file__ rather than cwd — the CLI must work when invoked from a target
+# project directory. Mirrors llm/prompts.py:140. parents[3] of
+# src/vuln_hunter_x/cli/commands.py is the repo root.
+_BUNDLED_CONFIG = Path(__file__).resolve().parents[3] / "config"
+
 
 def _find_db_name_by_source_root(
     local_path: Path, lang: str, output_dir: Path
@@ -200,7 +206,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         return 0 if ok else 1
 
     # ── Config mode (default) ──
-    config_path = args.config or base_path / "config" / "repos.yaml"
+    config_path = args.config or _BUNDLED_CONFIG / "repos.yaml"
 
     if not config_path.exists():
         print(f"Config not found: {config_path}", file=sys.stderr)
@@ -352,7 +358,7 @@ def _run_codeql_analyze(
         extra_suites: list[str] = []
         if getattr(args, "_profile_include_custom_codeql", False):
             codeql_lang = "cpp" if lang in ("c", "cpp") else lang
-            custom_suite = base_path / "config" / "codeql-custom" / codeql_lang / "suite.qls"
+            custom_suite = _BUNDLED_CONFIG / "codeql-custom" / codeql_lang / "suite.qls"
             if custom_suite.is_file():
                 # Skip empty custom packs to avoid CodeQL "no queries" failures.
                 src_dir = custom_suite.parent / "src"
@@ -460,7 +466,7 @@ def _run_semgrep_analyze(
     """Run Semgrep analysis on repos from config or filesystem discovery. Returns exit code."""
     from vuln_hunter_x.semgrep.analyzer import SemgrepAnalyzer
 
-    config_path = getattr(args, "config", None) or base_path / "config" / "repos.yaml"
+    config_path = getattr(args, "config", None) or _BUNDLED_CONFIG / "repos.yaml"
     repo_list: list[tuple[str, str]] = []
 
     if config_path.is_file():
@@ -584,7 +590,7 @@ def _run_opengrep_analyze(
     """Run OpenGrep analysis on repos from config or filesystem discovery. Returns exit code."""
     from vuln_hunter_x.opengrep.analyzer import OpenGrepAnalyzer
 
-    config_path = getattr(args, "config", None) or base_path / "config" / "repos.yaml"
+    config_path = getattr(args, "config", None) or _BUNDLED_CONFIG / "repos.yaml"
     repo_list: list[tuple[str, str]] = []
 
     if config_path.is_file():
@@ -698,7 +704,7 @@ def _load_analyze_defaults(base_path: Path) -> tuple[str | None, list[str], list
     """Load codeql_suite, semgrep_configs, and opengrep_configs from config if present."""
     import yaml
 
-    config_path = base_path / "config" / "confirm_findings.yaml"
+    config_path = _BUNDLED_CONFIG / "confirm_findings.yaml"
     if not config_path.is_file():
         return None, [], []
     try:
@@ -785,7 +791,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         try:
             from vuln_hunter_x.core.rule_profiles import RuleProfileManager
 
-            mgr = RuleProfileManager(base_path / "config" / "rule_categories.yaml")
+            mgr = RuleProfileManager(_BUNDLED_CONFIG / "rule_categories.yaml")
             profile = mgr.get_profile(profile_name)
             if getattr(args, "codeql_suite", None) is None:
                 # Store suffix for per-language resolution in _run_codeql_analyze
@@ -962,7 +968,7 @@ def _run_context_extraction(
             print(f"Extracting context from {len(codeql_dbs)} CodeQL database(s)\n")
             extractor = ContextExtractorDB(
                 codeql_path=codeql_path,
-                queries_dir=base_path / "config" / "queries" / "tools",
+                queries_dir=_BUNDLED_CONFIG / "queries" / "tools",
                 output_dir=output_dir,
             )
             results = extractor.extract_all(
@@ -1030,7 +1036,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     if args.config:
         config = load_config(args.config, base_path)
     else:
-        default_config = base_path / "config" / "confirm_findings.yaml"
+        default_config = _BUNDLED_CONFIG / "confirm_findings.yaml"
         config = load_config(default_config, base_path) if default_config.exists() else Config()
 
     # Build overrides from args
@@ -1181,7 +1187,7 @@ def cmd_build_sanitized(args: argparse.Namespace) -> int:
     from vuln_hunter_x.fuzz.build_sanitized import build_sanitized
 
     base_path = Path.cwd()
-    config_path = args.config or base_path / "config" / "repos.yaml"
+    config_path = args.config or _BUNDLED_CONFIG / "repos.yaml"
     repos: list[dict] = []
 
     if config_path.exists():
@@ -1252,7 +1258,7 @@ def cmd_extract_fuzz_context(args: argparse.Namespace) -> int:
 
     base_path = Path.cwd()
     output_dir = base_path / "output"
-    queries_dir = base_path / "config" / "queries" / "tools"
+    queries_dir = _BUNDLED_CONFIG / "queries" / "tools"
 
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
     results = extract_fuzz_context_all(
@@ -1291,7 +1297,7 @@ def cmd_generate_fuzz_drivers(args: argparse.Namespace) -> int:
 
     base_path = Path.cwd()
     output_dir = base_path / "output"
-    config_path = args.config or base_path / "config" / "confirm_findings.yaml"
+    config_path = args.config or _BUNDLED_CONFIG / "confirm_findings.yaml"
     config = load_config(config_path, base_path) if config_path.exists() else Config()
 
     results = generate_fuzz_drivers(
@@ -1534,7 +1540,7 @@ def cmd_info(args: argparse.Namespace) -> int:
         config = load_config(args.config, base_path)
         print(f"Config file: {args.config}")
     else:
-        default_config = base_path / "config" / "confirm_findings.yaml"
+        default_config = _BUNDLED_CONFIG / "confirm_findings.yaml"
         if default_config.exists():
             config = load_config(default_config, base_path)
             print(f"Config file: {default_config}")

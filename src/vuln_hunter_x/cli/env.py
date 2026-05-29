@@ -307,33 +307,49 @@ def check_ollama(
     bare_model = model.removeprefix("ollama_chat/").removeprefix("ollama/")
     tag_is_cloud = bare_model.endswith(":cloud") or bare_model.endswith("-cloud")
     is_cloud = bool((api_base and "ollama.com" in api_base) or tag_is_cloud)
+    cloud_keys: list[str] = []
     if is_cloud:
-        cloud_key = os.environ.get("OLLAMA_API_KEY", "").strip()
-        if not cloud_key:
-            return False, (
-                "Ollama Cloud model detected but OLLAMA_API_KEY is not set"
-            )
+        from vuln_hunter_x.core.config import _load_ollama_api_keys
+
+        cloud_keys = _load_ollama_api_keys()
+        if not cloud_keys:
+            return False, "Ollama Cloud detected but OLLAMA_API_KEYS is not set"
         model = "ollama_chat/" + bare_model
         if not api_base or "ollama.com" not in api_base:
             api_base = "https://ollama.com"
 
-    try:
-        kwargs: dict = {
-            "model": model,
-            "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
-            "max_tokens": 10,
-        }
-        if api_base:
-            kwargs["api_base"] = api_base.rstrip("/")
-        if is_cloud:
-            kwargs["api_key"] = os.environ["OLLAMA_API_KEY"].strip()
+    base_kwargs: dict = {
+        "model": model,
+        "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+        "max_tokens": 10,
+    }
+    if api_base:
+        base_kwargs["api_base"] = api_base.rstrip("/")
+    base_info = f" @ {api_base}" if api_base else ""
 
-        resp = litellm.completion(**kwargs)
-        text = (resp.choices[0].message.content or "").strip()
-        base_info = f" @ {api_base}" if api_base else ""
-        return True, f"Ollama ({model}){base_info}: {text[:50]}"
-    except Exception as e:
-        return False, f"Ollama error: {e}"
+    if not is_cloud:
+        try:
+            resp = litellm.completion(**base_kwargs)
+            text = (resp.choices[0].message.content or "").strip()
+            return True, f"Ollama ({model}){base_info}: {text[:50]}"
+        except Exception as e:
+            return False, f"Ollama error: {e}"
+
+    # Cloud: smoke-test every key so a silently-revoked pool member is caught
+    # before the verification engine relies on it.
+    per_key: list[str] = []
+    failures = 0
+    for key in cloud_keys:
+        tail = key[-4:] if len(key) >= 4 else key
+        try:
+            resp = litellm.completion(**{**base_kwargs, "api_key": key})
+            text = (resp.choices[0].message.content or "").strip()
+            per_key.append(f"…{tail}=OK ({text[:20]})")
+        except Exception as e:
+            failures += 1
+            per_key.append(f"…{tail}=FAIL ({e})")
+    summary = f"Ollama ({model}){base_info}: {len(cloud_keys)} key(s); " + "; ".join(per_key)
+    return failures == 0, summary
 
 
 def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:

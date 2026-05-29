@@ -86,11 +86,11 @@ class LLMClient:
             num_retries: Times LiteLLM will retry transient failures
                 (RateLimitError, APIConnectionError, Timeout, InternalServerError)
                 with exponential backoff and Retry-After honored. 0 disables.
-            ollama_api_keys: Optional list of Ollama Cloud API keys. When 2+
+            ollama_api_keys: Optional list of Ollama Cloud API keys (sourced
+                from ``OLLAMA_API_KEYS`` as comma-separated values). When 2+
                 keys are provided and the model targets Ollama Cloud, requests
                 round-robin across them and a 429 parks the offending key
-                until ``Retry-After`` elapses. A single key (or none) keeps
-                the existing ``OLLAMA_API_KEY`` env-var behavior.
+                until ``Retry-After`` elapses. A single key is sent verbatim.
         """
         self.provider = provider
         self.model = model
@@ -126,10 +126,13 @@ class LLMClient:
             if not self.model.startswith("anthropic/"):
                 self.model = "anthropic/" + self.model
 
-        # Build key pool only when there's something to rotate. Single-key
-        # callers stay on the OLLAMA_API_KEY env-var path inside
-        # _build_completion_kwargs so no behavior changes for them.
+        # Build key pool only when there's something to rotate. A single key
+        # is stashed on the client and sent directly.
         self._ollama_pool: KeyPool | None = None
+        self._ollama_single_key: str | None = None
+        if self.provider == "ollama" and self._is_ollama_cloud and ollama_api_keys:
+            if len(ollama_api_keys) == 1:
+                self._ollama_single_key = ollama_api_keys[0]
         if (
             self.provider == "ollama"
             and self._is_ollama_cloud
@@ -180,10 +183,8 @@ class LLMClient:
                 pooled = self._ollama_pool.acquire()
                 if pooled:
                     kwargs["api_key"] = pooled
-            else:
-                cloud_key = os.environ.get("OLLAMA_API_KEY")
-                if cloud_key:
-                    kwargs["api_key"] = cloud_key
+            elif self._ollama_single_key:
+                kwargs["api_key"] = self._ollama_single_key
         if self.num_retries and self._ollama_pool is None:
             # LiteLLM retries RateLimitError / APIConnectionError / Timeout /
             # InternalServerError with exponential backoff and honors Retry-After.
