@@ -25,17 +25,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from vuln_hunter_x.core.config import Config
-from vuln_hunter_x.core.types import GuidedQuestions
-from vuln_hunter_x.questions.loader import QuestionsLoader
-from vuln_hunter_x.verification.engine import VerificationEngine
-
 from benchmarks.adapters.ground_truth import GroundTruthEntry
 from benchmarks.adapters.registry import OptionSpec
 from benchmarks.approaches.base import (
     BenchmarkResult,
-    _SnippetContextExtractor,
     _dry_run_result,
+    _SnippetContextExtractor,
     entry_to_finding,
     verdict_to_pred,
 )
@@ -44,6 +39,10 @@ from benchmarks.approaches.registry import (
     RegisteredApproach,
     register_approach,
 )
+from vuln_hunter_x.core.config import Config
+from vuln_hunter_x.core.types import GuidedQuestions
+from vuln_hunter_x.questions.loader import QuestionsLoader
+from vuln_hunter_x.verification.engine import VerificationEngine
 
 # Default prompts directory (all language-specific YAMLs)
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "config" / "prompts"
@@ -78,7 +77,7 @@ class AblationApproach(RegisteredApproach):
     @classmethod
     def from_options(
         cls, llm: LLMConfig | None, options: dict[str, Any]
-    ) -> "AblationApproach":
+    ) -> AblationApproach:
         llm = llm or LLMConfig()
         return cls(
             provider=llm.provider,

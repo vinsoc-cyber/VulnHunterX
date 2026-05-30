@@ -281,11 +281,15 @@ The standard `vulnhunterx` run adds multi-turn context expansion on top — whic
 | ------------------------------------ | ------------------------------------------- | ----------- |
 | CPG-guided slicing (Phase 2)         | LLMxCPG: 68–91% code reduction              | **Planned** — needs CodeQL data-flow |
 | Self-consistency voting (CISC)       | 46% fewer samples for same accuracy         | **Optional** via `force_decision_samples` |
-| DiverseVul per-CWE sampling          | Same strategy as Juliet (balanced TP/FP)    | **Planned** |
+| Model matrix (Ollama/GPT/DeepSeek)   | Apples-to-apples cross-model comparison (Track 1) | **In progress** — see § 6.1 |
+| OpenVuln/ZeroFalse adapter           | Real CodeQL alerts + human TP/FP (best Track-1 fit) | **In progress** — see § 6.3 |
+| `security-rules` adapter             | Finding-shaped Go/PHP/JS coverage for this repo's rules | **In progress** — see § 6.4 |
+| DiverseVul → Track-2 (recall-only)   | ≈60% label accuracy; not FP-reduction       | **In progress** — see § 6.2 |
 | Confidence-calibration charts        | Validate High/Medium/Low confidence signals | **Planned** |
 | Youden Index + MCC scoring           | Match OWASP scorecard + SastBench paper     | **Planned** |
-| PrimeVul adapter                     | Cleaner C/C++ labels than DiverseVul        | **Planned** |
-| SastBench REST `/analyze` harness    | Submit to SastBench leaderboard             | **Planned** — see below |
+| PrimeVul adapter                     | Cleaner C/C++ Track-2 labels than DiverseVul | **Planned** — see § 6.2 |
+| SecBench.js / SARD-PHP / gosec       | Per-language Track-1 supplements            | **Planned** — see § 6.4 |
+| SastBench REST `/analyze` harness    | Submit to SastBench leaderboard             | **Planned** — data gated, see § 6.5 |
 
 ### Web-language coverage via OWASP Benchmark
 
@@ -308,6 +312,118 @@ Snippet extraction is best-effort: the adapter reads function lines from a per-r
 
 ---
 
+## 6. Dataset Selection Guide — what to benchmark on, and why
+
+This section records a web-verified (May 2026) review of which datasets fit
+VulnHunterX's actual task, and **why function-level CVE datasets (DiverseVul,
+CVEfixes) produced poor, misleading benchmark numbers**. Every dataset below was
+verified against its canonical repo/paper; citations are in § References.
+
+### 6.1 The task framing — two tracks, kept separate
+
+VulnHunterX is a **finding-level SAST false-positive reducer**: given a static
+analysis *alert* (rule_id + file + sink line + dataflow + guided questions), it
+decides True Positive vs False Positive. It is **not** a function-level
+vulnerability *detector*. These are different tasks and demand different datasets.
+The benchmark therefore reports two tracks that are **never folded into one
+headline P/R/F1**:
+
+| Track | Question answered | Datasets |
+| ----- | ----------------- | -------- |
+| **Track 1 — FP-reduction (primary)** | Given a real SAST alert, is it TP or FP? | OpenVuln/ZeroFalse, OWASP Java/Python, RealVuln, SecLLMHolmes, Juliet, `security-rules` |
+| **Track 2 — detection (secondary, caveated)** | Is this whole function vulnerable? | DiverseVul (recall-only), PrimeVul (future) |
+
+The cross-model comparison (Ollama / GPT / DeepSeek) is computed on **Track 1
+only**, so model rankings reflect the deployed task rather than detection noise.
+
+### 6.2 Why DiverseVul & CVEfixes benchmarked badly — **[Diagnosed]**
+
+Observed in `benchmarks/results/`: on DiverseVul, `vulnhunterx` showed **recall
+0.6 / TP-preservation 0.6** (dropping 40% of real vulns) and a per-CWE bucket at
+**precision 0.09** (near-random). Root causes are structural, not tuning:
+
+1. **Task mismatch.** The DiverseVul adapter emits a whole function with
+   `start_line=1`, **no sink, no dataflow**, and a `rule_id` *synthesized from the
+   CWE*. The verifier — built around a specific alert location — reasons blind.
+   This is the function-level detection task that SecLLMHolmes showed frontier
+   LLMs cap at ~40% accuracy on.
+2. **Label-semantics mismatch.** `target=0` (non-vulnerable function) is mapped to
+   `LABEL_FP`, but a non-vulnerable function is **not** a SAST false positive —
+   SAST never fires on most of them. Scoring on them measures classification, not
+   FP-reduction.
+3. **No real SAST stage.** The `raw-sast` baseline marks every entry TP (it echoes
+   the label; it does not run CodeQL/Semgrep), so `fp_reduction_rate` is
+   structurally unmeasurable on these datasets.
+4. **Label noise (verified).** DiverseVul's measured label accuracy is **≈60%**
+   (PrimeVul's independent manual analysis, matching DiverseVul's own noise
+   analysis); Croft et al. (ICSE 2023) found **20–71% of labels inaccurate** and
+   **17–99% duplicated** across real-world vuln datasets. CVEfixes is worse: labels
+   are fix-commit-derived at file/method level (`file_change.code_before/code_after`,
+   link table `fixes`, CWE in `cwe_classification`), so the fix is often in a
+   *different* function than the flagged one (tangled-commit noise), and it ships
+   **no negatives at all**.
+
+**Decision:** DiverseVul → Track-2, **recall / TP-preservation only**, excluded
+from the headline and the model matrix. **CVEfixes is dropped** (strictly worse for
+this tool). The *correct* (heavy) way to use function-level data for FP-reduction
+is to run real CodeQL/Semgrep over each function, keep only functions where a tool
+actually fires, then score the verifier against the function label — tracked as
+future work. **PrimeVul** ([arXiv:2403.18624](https://arxiv.org/abs/2403.18624),
+86–92% label accuracy, C/C++ only) is the cleaner Track-2 successor — but note a
+SOTA 7B model drops from 68% F1 (BigVul) to 3% F1 (PrimeVul); low absolute scores
+on PrimeVul are the *honest* signal, not a regression.
+
+### 6.3 Verified finding-shaped (Track-1) inventory
+
+| Dataset | Lang | Shape | Size | License | Status |
+| ------- | ---- | ----- | ---- | ------- | ------ |
+| **OpenVuln / ZeroFalse** | Java | **real CodeQL SARIF alerts + human TP/FP** | 58 (23 TP / 35 FP) | MIT | the exact shape of our pipeline — **highest-fidelity real set found** |
+| **OWASP Java/Python** | Java, Python | test-case TP/FP CSV; you run the tool | ~2,740 / ~1,230 | GPL-2.0 / 3.0 | wired |
+| **RealVuln** | Python web | per-finding TP + curated FP traps; ships Semgrep/Snyk/Sonar results | 796 | MIT | wired |
+| **SecLLMHolmes** | C/C++, Python | hand-crafted bad/good pairs | ~228 | MIT | wired |
+| **Juliet** | C, C++ | synthetic `bad()`/`good()` | 64K | CC0 | wired |
+| **`security-rules`** | Go, PHP, JS, Python | in-repo `vuln`/`clean` pairs per custom rule | 14 pairs | (repo) | planned — validates this repo's own new rules |
+
+### 6.4 Go / PHP / JavaScript coverage — the gap and the verified fix
+
+VulnHunterX now ships custom rules for Go/PHP/JS, but **no mainstream dataset
+covers them finding-shaped** — verified non-existent: OWASP Benchmark for
+Go/PHP/JS, and NIST SARD Go/JS/TS suites. The verified, recognized fix is to use
+**SAST rule test fixtures as ground truth** (Semgrep `// ruleid:` / `// ok:`
+annotations with `semgrep --test`; CodeQL `.expected` files with `codeql test
+run`). The in-repo [tests/fixtures/security-rules/](../tests/fixtures/security-rules/)
+already follows this pattern, so the `security-rules` adapter is the first instance.
+Per-language verified supplements (roadmap):
+
+- **JavaScript** — [SecBench.js](https://github.com/cristianstaicu/SecBench.js)
+  (ICSE 2023): 600 real server-side JS vulns with **file+line `sinkLocation`** +
+  fix commit (prototype pollution, path traversal, command injection, ReDoS, code
+  injection) — maps directly to a SARIF region.
+- **PHP** — NIST SARD PHP suites
+  ([103](https://samate.nist.gov/SARD/test-suites/103) /
+  [114](https://samate.nist.gov/SARD/test-suites/114)): tens of thousands of
+  CWE-labeled synthetic XSS/SQLi cases, public domain — **same shape as Juliet**, so
+  the adapter is largely a JulietAdapter clone.
+- **Go** — [gosec](https://github.com/securego/gosec) `testutils`/`testdata`
+  (Apache-2.0): finding-shaped rule samples with expected-issue counts, category-
+  aligned with our Go rules; small N per rule.
+- Multi-language real CVE volume (Track-2 only, function-level/noisy): CVEfixes (JS
+  46,802 / PHP 4,758 / Go 1,880) and [CrossVul](https://zenodo.org/records/4734050)
+  (40+ langs) — usable for recall studies, **not** for precision/FP-reduction.
+
+### 6.5 Datasets evaluated and rejected
+
+- **SastBench** ([arXiv:2601.02941](https://arxiv.org/abs/2601.02941)) — ideal shape
+  (real CVE TPs + Semgrep FPs, 38 langs) but the **public data is gated/early-access**;
+  RealVuln remains the substitute until it ships.
+- **D2A** (IBM, Apache-2.0) — large Infer alert-level set, but **archived (Jul 2024)**,
+  C/C++/Infer-only, and Croft et al. rate >⅔ of its labels inaccurate
+  (consistency 0.531). Only worth wiring if Infer support is added.
+- **CASTLE** ([arXiv:2503.09433](https://arxiv.org/abs/2503.09433)) — clean balanced
+  micro-benchmark but **C-only**; does not help the Go/PHP/JS gap.
+
+---
+
 ## References
 
 - [LLM4FPM](https://arxiv.org/abs/2411.03079) — Su F. et al. (2024). Juliet C/C++ multi-turn LLM FP mitigation.
@@ -324,3 +440,12 @@ Snippet extraction is best-effort: the adapter reads function lines from a per-r
 - [SastBench](https://arxiv.org/abs/2601.02941) — agentic SAST triage benchmark; public repo URL not located at integration time.
 - [RealVuln Benchmark](https://github.com/kolega-ai/Real-Vuln-Benchmark) — real CVE TPs + FP traps for Python web frameworks (MIT); used as the SastBench substitute.
 - [Juliet C/C++ 1.3.1](https://samate.nist.gov/SARD/test-suites/116) — NIST SARD test suite.
+- [ZeroFalse / OpenVuln](https://github.com/mhsniranmanesh/ZeroFalse) — 58 real CodeQL SARIF alerts with human TP/FP labels across 7 Java projects (MIT).
+- [PrimeVul](https://github.com/DLVulDet/PrimeVul) — Ding Y., et al. (2024). Re-labeled C/C++ vuln dataset (86–92% label accuracy); ICSE 2025. [arXiv:2403.18624](https://arxiv.org/abs/2403.18624).
+- [Croft et al. Data Quality](https://arxiv.org/abs/2301.05456) — 20–71% of vuln-dataset labels inaccurate, 17–99% duplicated. ICSE 2023.
+- [SecBench.js](https://github.com/cristianstaicu/SecBench.js) — 600 real server-side JS vulns with file+line sink locations. ICSE 2023.
+- [NIST SARD PHP suites](https://samate.nist.gov/SARD/test-suites) — CWE-labeled synthetic PHP cases ([103](https://samate.nist.gov/SARD/test-suites/103), [114](https://samate.nist.gov/SARD/test-suites/114)); public domain. SARD covers C/C++/Java/PHP/C# only.
+- [gosec](https://github.com/securego/gosec) — Go SAST with finding-shaped rule testdata (Apache-2.0).
+- [CVEfixes](https://github.com/secureIT-project/CVEfixes) — multi-language CVE-fix SQLite DB; function-level/fix-commit labels (Track-2 only). [arXiv:2107.08760](https://arxiv.org/abs/2107.08760).
+- [CrossVul](https://zenodo.org/records/4734050) — 40+ language file-level vuln/patch pairs. ESEC/FSE 2021.
+- Semgrep [rule testing](https://semgrep.dev/docs/writing-rules/testing-rules) & CodeQL [query testing](https://docs.github.com/en/code-security/codeql-cli/using-the-advanced-functionality-of-the-codeql-cli/testing-custom-queries) — `ruleid:`/`ok:` and `.expected` fixtures as ground truth.

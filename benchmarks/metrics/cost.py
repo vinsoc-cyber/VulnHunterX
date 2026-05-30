@@ -115,6 +115,11 @@ DEFAULT_PRICING: dict[str, Pricing] = {
     "gpt-4.1":           Pricing(2.00, 8.00,  input_cache_hit_per_million=0.50),
     "gpt-4.1-mini":      Pricing(0.40, 1.60,  input_cache_hit_per_million=0.10),
     "gpt-4.1-nano":      Pricing(0.10, 0.40,  input_cache_hit_per_million=0.025),
+    # GPT-5 family — OpenAI public pricing (snapshot 2026-01). Cache-hit
+    # input billed at 10% of cache-miss.
+    "gpt-5":             Pricing(1.25, 10.00, input_cache_hit_per_million=0.125),
+    "gpt-5-mini":        Pricing(0.25, 2.00,  input_cache_hit_per_million=0.025),
+    "gpt-5-nano":        Pricing(0.05, 0.40,  input_cache_hit_per_million=0.005),
     # Reasoning models — list pricing as of 2026-01 snapshot.
     "o1":                Pricing(15.00, 60.00, input_cache_hit_per_million=7.50),
     "o3":                Pricing(2.00, 8.00,  input_cache_hit_per_million=0.50),
@@ -215,6 +220,37 @@ def resolve_pricing(
     return None
 
 
+# Models served locally or via Ollama incur no per-token API cost, so their
+# imputed cost is $0 rather than "unknown". Matched by prefix on the LiteLLM
+# id (``ollama/...``, ``ollama_chat/...``) so the model-matrix cost column and
+# the cost-vs-F1 frontier plot local models at zero instead of dropping them.
+_LOCAL_PROVIDER_PREFIXES = ("ollama/", "ollama_chat/")
+_ZERO_PRICING = Pricing(0.0, 0.0, input_cache_hit_per_million=0.0)
+
+
+def auto_pricing(
+    model: str,
+    schedule: dict[str, Pricing] | Pricing | None = None,
+) -> Pricing | None:
+    """Resolve a ``Pricing`` for ``model`` with sensible defaults.
+
+    - ``schedule`` defaults to ``DEFAULT_PRICING`` (covers GPT, DeepSeek,
+      Qwen, Claude) so callers need not pass ``--pricing`` for known models.
+    - Local / Ollama models (``ollama/...``) resolve to a zero-cost
+      ``Pricing`` so their imputed cost is $0, not ``None``.
+    - Returns ``None`` only for an unknown *paid* model — the honest signal
+      that a pricing entry is missing.
+    """
+    if schedule is None:
+        schedule = DEFAULT_PRICING
+    hit = resolve_pricing(schedule, model)
+    if hit is not None:
+        return hit
+    if model.startswith(_LOCAL_PROVIDER_PREFIXES):
+        return _ZERO_PRICING
+    return None
+
+
 def imputed_cost(
     input_tokens: int,
     output_tokens: int,
@@ -229,8 +265,11 @@ def imputed_cost(
     no ``input_cache_hit_per_million`` set, this argument is ignored
     (cached tokens are billed at the regular input rate, preserving
     back-compat).
+
+    Local / Ollama models resolve to $0 (via ``auto_pricing``) rather than
+    ``None``; ``None`` is returned only for an unknown *paid* model.
     """
-    p = resolve_pricing(schedule, model)
+    p = auto_pricing(model, schedule)
     if p is None:
         return None
     return p.cost(input_tokens, output_tokens, input_cached_tokens=input_cached_tokens)

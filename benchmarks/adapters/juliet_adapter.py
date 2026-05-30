@@ -25,7 +25,7 @@ import logging
 import re
 from pathlib import Path
 
-from benchmarks.adapters.cwe_rule_map import CWE_TO_RULES, primary_rule, primary_rule_for_lang
+from benchmarks.adapters.cwe_rule_map import primary_rule_for_lang
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
 from benchmarks.adapters.registry import (
     DatasetAdapter,

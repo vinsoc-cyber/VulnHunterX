@@ -42,16 +42,28 @@ The design rationale, papers reviewed, and dataset selection criteria are in [RE
 
 ## Datasets
 
+Two tracks (see [RESEARCH.md § 6](RESEARCH.md#6-dataset-selection-guide--what-to-benchmark-on-and-why)).
+**Track 1 — FP-reduction** (finding-shaped: real SAST alert + TP/FP label):
+
 | Dataset                  | Size           | Language       | Ground Truth                                                                                |
 | ------------------------ | -------------- | -------------- | ------------------------------------------------------------------------------------------- |
+| **OpenVuln / ZeroFalse** | 58 alerts      | Java           | Real **CodeQL alerts** with human TP/FP labels, 7 projects — MIT (best real-world fit)      |
 | **SecLLMHolmes**         | ~228 scenarios | C/C++, Python  | Handcrafted bad/good pairs, 8 CWE classes (MIT)                                             |
 | **Juliet C/C++ 1.3.1**   | 64K cases      | C, C++         | NIST synthetic `bad()`/`good()` function pairs, ~180 CWEs                                   |
-| **DiverseVul**           | 349K functions | C, C++         | 18,945 CVE-backed vulnerable + 330,492 non-vulnerable (CWE-Unknown rows dropped by default — see playbook) |
 | **OWASP BenchmarkJava**  | ~2,740 cases   | Java           | `expectedresults-1.2.csv` (TP/FP per case, 11 CWE categories) — GPL-2.0                     |
 | **OWASP BenchmarkPython**| ~1,230 cases   | Python         | `expectedresults-0.1.csv` — GPL-3.0                                                         |
-| **RealVuln Benchmark**   | 796 findings   | Python         | Real CVE TPs + curated FP traps across 26 web-framework repos (Flask/Django/FastAPI/aiohttp/Tornado) — MIT |
+| **RealVuln Benchmark**   | 796 findings   | Python         | Real CVE TPs + curated FP traps across 26 web-framework repos — MIT                         |
+| **security-rules**       | 14 pairs       | Go/PHP/JS/Py   | In-repo `vuln`/`clean` fixtures for this project's custom rules — no download                |
 
-OWASP suites are cloned at runtime under `benchmarks/datasets/` rather than vendored; project code stays MIT and the GPL applies only to the cloned corpora. See [RESEARCH.md § Future Work](RESEARCH.md#planned-future-work) for the SastBench → RealVuln substitution rationale.
+**Track 2 — detection** (whole-function vuln labels; recall-only, *not* in the headline/model-matrix):
+
+| Dataset                  | Size           | Language       | Ground Truth                                                                                |
+| ------------------------ | -------------- | -------------- | ------------------------------------------------------------------------------------------- |
+| **DiverseVul** †         | 349K functions | C, C++         | CVE-backed function labels (~60% label accuracy — see RESEARCH.md §6.2)                      |
+
+† DiverseVul/CVEfixes are function-level detection sets: no real SAST alert, `target=0`≠SAST-FP, and labels are noisy. They measure recall/TP-preservation, **not** FP-reduction. The report marks them with `†` and excludes them from the model matrix.
+
+OWASP/OpenVuln/RealVuln suites are cloned at runtime under `benchmarks/datasets/` rather than vendored; project code stays MIT and any GPL applies only to the cloned corpora. See [RESEARCH.md § 6](RESEARCH.md#6-dataset-selection-guide--what-to-benchmark-on-and-why) for the full selection rationale and the SastBench → RealVuln substitution.
 
 ---
 
@@ -95,7 +107,7 @@ python benchmarks/scripts/setup_datasets.py --dataset all      # everything (~3 
 ```bash
 python benchmarks/scripts/run_benchmark.py \
     --dataset secllmholmes --approach all \
-    --model gpt-4o-mini --limit 50
+    --model gpt-4.1 --limit 50
 ```
 
 ### 5. Generate the report
@@ -110,7 +122,7 @@ python benchmarks/scripts/generate_report.py \
 
 ```bash
 python benchmarks/scripts/run_benchmark.py \
-    --dataset all --approach all --model gpt-4o
+    --dataset all --approach all --model gpt-5
 ```
 
 ### 7. Iteration sweep (measure multi-turn contribution)
@@ -118,7 +130,7 @@ python benchmarks/scripts/run_benchmark.py \
 ```bash
 python benchmarks/scripts/run_benchmark.py \
     --dataset secllmholmes --approach vulnhunterx \
-    --model gpt-4o-mini --iteration-sweep
+    --model gpt-4.1 --iteration-sweep
 # Runs at max_iterations = 1, 2, 3.
 ```
 
@@ -127,12 +139,12 @@ python benchmarks/scripts/run_benchmark.py \
 ```bash
 # Start with an explicit named directory:
 python benchmarks/scripts/run_benchmark.py \
-    --dataset all --approach all --model gpt-4o \
+    --dataset all --approach all --model gpt-5 \
     --run-dir benchmarks/results/my_run
 
 # Resume after an interruption:
 python benchmarks/scripts/run_benchmark.py \
-    --dataset all --approach all --model gpt-4o \
+    --dataset all --approach all --model gpt-5 \
     --run-dir benchmarks/results/my_run --resume
 ```
 
@@ -184,6 +196,46 @@ A single `OLLAMA_API_KEY=...` still works unchanged — the pool only activates 
 
 ---
 
+## Model Comparison Matrix (Ollama / GPT / DeepSeek)
+
+`run_benchmark.py` evaluates one model per run. To compare models head-to-head on
+the **same** dataset/approach, use the matrix runner — it launches one
+`run_benchmark.py` subprocess per model (each with an isolated credential env, so
+DeepSeek's `OPENAI_BASE_URL` doesn't bleed into a plain-OpenAI run) and writes a
+`matrix.json`. Then `compare_models.py` aggregates them into one `COMPARISON.md`.
+
+The matrix is defined in [config/models.yaml](config/models.yaml) — edit it to add
+models, pin a `pricing` file, or point at a per-model `.env`. Default tiers:
+`gpt-4.1` / `gpt-5` (GPT), `deepseek-chat` / `deepseek-reasoner` (DeepSeek),
+`ollama/qwen3-coder:480b-cloud` (bulk).
+
+```bash
+# Dry-run the whole matrix (mock LLM, no API cost)
+python benchmarks/scripts/run_model_matrix.py \
+    --dataset security-rules --approach all --dry-run
+
+# Real comparison on a fixed subset across three models
+python benchmarks/scripts/run_model_matrix.py \
+    --models gpt-4.1,deepseek-chat,ollama-qwen3-coder \
+    --dataset openvuln --approach vulnhunterx --limit 50 \
+    --run-dir benchmarks/results/matrix_2026q2
+
+# Aggregate into a side-by-side table (+ optional charts)
+python benchmarks/scripts/compare_models.py \
+    --run-dir benchmarks/results/matrix_2026q2 --charts
+```
+
+Pricing auto-resolves per model from the built-in `DEFAULT_PRICING` (covers
+`gpt-*`, `gpt-5`, `deepseek-*`, `qwen*`, `claude*`); local/Ollama models impute to
+$0. Pass `--pricing <file>` or set `pricing:` in `models.yaml` to override.
+Forward dataset-specific flags after `--`, e.g. `… -- --juliet-per-cwe 20`.
+
+> Run the matrix on **Track-1** datasets (OpenVuln, OWASP, RealVuln, SecLLMHolmes,
+> security-rules). Track-2 detection sets (DiverseVul) are excluded from the
+> comparison — their numbers reflect the wrong task (see RESEARCH.md §6).
+
+---
+
 ## Per-Dataset Playbooks
 
 ### Juliet C/C++
@@ -194,12 +246,12 @@ Synthetic, balanced TP/FP pairs per CWE. `--juliet-per-cwe` controls scale.
 # Small sanity check — ~40 entries
 python benchmarks/scripts/run_benchmark.py \
     --dataset juliet --approach vulnhunterx \
-    --juliet-per-cwe 5 --model gpt-4o-mini --dry-run
+    --juliet-per-cwe 5 --model gpt-4.1 --dry-run
 
 # Standard run — 8 BENCHMARK_CWES × 20 entries, balanced TP/FP
 python benchmarks/scripts/run_benchmark.py \
     --dataset juliet --approach all \
-    --juliet-per-cwe 20 --model gpt-4o-mini
+    --juliet-per-cwe 20 --model gpt-4.1
 
 # Full Juliet — local model strongly recommended
 python benchmarks/scripts/run_benchmark.py \
@@ -210,7 +262,7 @@ python benchmarks/scripts/run_benchmark.py \
 # Multi-turn iteration sweep
 python benchmarks/scripts/run_benchmark.py \
     --dataset juliet --approach vulnhunterx \
-    --juliet-per-cwe 10 --model gpt-4o-mini --iteration-sweep
+    --juliet-per-cwe 10 --model gpt-4.1 --iteration-sweep
 ```
 
 ### DiverseVul
@@ -230,7 +282,7 @@ python benchmarks/scripts/run_benchmark.py \
 # Medium run, all CWEs
 python benchmarks/scripts/run_benchmark.py \
     --dataset diversevul --approach vulnhunterx \
-    --limit 5000 --model gpt-4o-mini
+    --limit 5000 --model gpt-4.1
 
 # Full dataset — local model only
 python benchmarks/scripts/run_benchmark.py \
@@ -262,12 +314,12 @@ python benchmarks/scripts/setup_datasets.py --dataset owasp-python
 
 # Java only
 python benchmarks/scripts/run_benchmark.py \
-    --dataset owasp-java --approach all --model gpt-4o-mini \
+    --dataset owasp-java --approach all --model gpt-4.1 \
     --run-dir benchmarks/results/owasp_java
 
 # Java + Python combined (--dataset owasp runs both suites sequentially)
 python benchmarks/scripts/run_benchmark.py \
-    --dataset owasp --approach vulnhunterx --model gpt-4o-mini
+    --dataset owasp --approach vulnhunterx --model gpt-4.1
 ```
 
 Use `--dataset owasp-java` or `--dataset owasp-python` to run one suite individually. `--dataset owasp` runs both.
@@ -286,7 +338,7 @@ python benchmarks/scripts/setup_datasets.py --dataset realvuln
 
 # Real run with a small model
 python benchmarks/scripts/run_benchmark.py \
-    --dataset realvuln --approach all --model gpt-4o-mini \
+    --dataset realvuln --approach all --model gpt-4.1 \
     --run-dir benchmarks/results/realvuln
 ```
 
@@ -327,11 +379,11 @@ or pass `repos_cache` programmatically when calling
 ```
 --dataset           secllmholmes | juliet | diversevul |
                     owasp-java | owasp-python | owasp |
-                    realvuln |
+                    realvuln | openvuln | security-rules |
                     all  (default: secllmholmes)
                     `owasp` runs both OWASP Java + Python; `all` runs every dataset.
 --approach          One or more of: raw-sast vulnhunterx ablation all  (default: all)
---model             LLM model name  (default: LLM_MODEL from .env, fallback gpt-4o)
+--model             LLM model name  (default: LLM_MODEL from .env, fallback gpt-4.1)
 --provider          openai | anthropic | ollama  (default: LLM_PROVIDER from .env)
 --limit N           Max entries per dataset, 0=all  (default: 0)
 --lang LANG [...]   Filter fixture entries by language: c cpp python javascript php java go
@@ -359,8 +411,9 @@ or pass `repos_cache` programmatically when calling
 
 ```
 --dataset  secllmholmes | juliet | diversevul |
-           owasp-java | owasp-python | realvuln |
+           owasp-java | owasp-python | realvuln | openvuln |
            all  (default: all)
+           (security-rules is in-repo — no download needed)
 --list     List available datasets and exit
 ```
 
@@ -452,12 +505,12 @@ Every run creates a new timestamped directory and does **not** auto-resume. Pair
 ```bash
 # Start with a stable directory name
 python benchmarks/scripts/run_benchmark.py \
-    --dataset all --approach all --model gpt-4o \
+    --dataset all --approach all --model gpt-5 \
     --run-dir benchmarks/results/my_run
 
 # Resume after Ctrl+C or system kill
 python benchmarks/scripts/run_benchmark.py \
-    --dataset all --approach all --model gpt-4o \
+    --dataset all --approach all --model gpt-5 \
     --run-dir benchmarks/results/my_run --resume
 
 # Inspect status mid-run

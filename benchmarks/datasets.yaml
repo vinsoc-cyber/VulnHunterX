@@ -49,6 +49,21 @@ datasets:
     dirname: realvuln
     disk_mb: 30
 
+  openvuln:
+    description: "OpenVuln (ZeroFalse): 58 real CodeQL alerts with human TP/FP labels, 7 Java projects (MIT)"
+    type: git
+    url: "https://github.com/mhsniranmanesh/ZeroFalse"
+    dirname: openvuln
+    disk_mb: 60
+
+  # security-rules is in-repo (tests/fixtures/security-rules/) — no download.
+  # run_benchmark resolves its path directly; listed here for discoverability.
+  security-rules:
+    description: "In-repo custom-rule vuln/clean fixtures (Go/PHP/JS/Python) — finding-shaped, no download"
+    type: builtin
+    dirname: security-rules
+    disk_mb: 0
+
   diversevul:
     description: "DiverseVul: 349K C/C++ functions with real CVE-backed labels (150 CWEs)"
     type: gdrive

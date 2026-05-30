@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -25,7 +24,6 @@ from benchmarks.adapters.ground_truth import (
     load_entries,
     save_entries,
 )
-
 
 # ── GroundTruthEntry ──────────────────────────────────────────────────────────
 
@@ -379,3 +377,85 @@ class TestDiverseVulAdapter:
         entries = DiverseVulAdapter(tmp_path).load(include_unknown_cwe=True)
         assert len(entries) == 3
         assert sum(1 for e in entries if e.cwe_id == "Unknown") == 1
+
+
+class TestSecurityRulesAdapter:
+    def test_loads_in_repo_fixtures_as_tp_fp_pairs(self):
+        from benchmarks.adapters.security_rules_adapter import SecurityRulesAdapter
+
+        # Nonexistent path -> adapter falls back to the in-repo fixtures dir.
+        entries = SecurityRulesAdapter(Path("benchmarks/datasets/security-rules")).load()
+        assert len(entries) > 0
+        tp = [e for e in entries if e.label == LABEL_TP]
+        fp = [e for e in entries if e.label == LABEL_FP]
+        # vuln/clean pairs -> balanced TP/FP.
+        assert len(tp) == len(fp)
+        # Every entry carries a rule_id so it clears the quality gate.
+        assert all(e.rule_id for e in entries)
+
+    def test_rule_id_and_cwe_resolution(self):
+        from benchmarks.adapters.security_rules_adapter import SecurityRulesAdapter
+
+        entries = SecurityRulesAdapter(Path("nonexistent")).load()
+        by_id = {e.id: e for e in entries}
+        # Go goroutine-leak maps to the semgrep custom rule + its CWE.
+        leak = by_id.get("secrule-go-goroutine-leak-vuln")
+        assert leak is not None
+        assert leak.rule_id == "vulnhunterx.go.goroutine-leak"
+        assert leak.cwe_id == "CWE-405"
+        assert leak.lang == "go"
+
+    def test_langs_filter(self):
+        from benchmarks.adapters.security_rules_adapter import SecurityRulesAdapter
+
+        entries = SecurityRulesAdapter(Path("nonexistent")).load(langs=["php"])
+        assert entries
+        assert {e.lang for e in entries} == {"php"}
+
+    def test_limit(self):
+        from benchmarks.adapters.security_rules_adapter import SecurityRulesAdapter
+
+        entries = SecurityRulesAdapter(Path("nonexistent")).load(limit=3)
+        assert len(entries) == 3
+
+
+class TestOpenVulnAdapter:
+    @staticmethod
+    def _write_dataset(tmp_path: Path) -> Path:
+        base = tmp_path / "OpenVuln"
+        (base / "code-context" / "baseline" / "proj").mkdir(parents=True)
+        (base / "ground_truth.csv").write_text(
+            "project_slug,alert_number,cve_id,filename,is_vulnerable\n"
+            "proj,1,CVE-2016-9177,vulnerability_java_path-injection_1.txt,True\n"
+            "proj,2,CVE-2016-9177,vulnerability_java_path-injection_2.txt,False\n"
+        )
+        (base / "Projects_info.csv").write_text(
+            "project_slug,cve_id,cwe_id,cwe_name\n"
+            "proj,CVE-2016-9177,CWE-022,Path Traversal\n"
+        )
+        (base / "code-context" / "baseline" / "proj"
+         / "vulnerability_java_path-injection_1.txt").write_text("File f = new File(p);")
+        return tmp_path
+
+    def test_parses_ground_truth_labels_and_cwe(self, tmp_path):
+        from benchmarks.adapters.openvuln_adapter import OpenVulnAdapter
+
+        self._write_dataset(tmp_path)
+        entries = OpenVulnAdapter(tmp_path).load()
+        assert len(entries) == 2
+        labels = {e.metadata["alert_number"]: e.label for e in entries}
+        assert labels["1"] == LABEL_TP
+        assert labels["2"] == LABEL_FP
+        # CWE-022 normalized to CWE-22; rule_id derived from filename.
+        assert all(e.cwe_id == "CWE-22" for e in entries)
+        assert all(e.rule_id == "java/path-injection" for e in entries)
+
+    def test_snippet_found_and_missing(self, tmp_path):
+        from benchmarks.adapters.openvuln_adapter import OpenVulnAdapter
+
+        self._write_dataset(tmp_path)
+        entries = OpenVulnAdapter(tmp_path).load()
+        by_alert = {e.metadata["alert_number"]: e for e in entries}
+        assert by_alert["1"].code_snippet  # snippet present
+        assert by_alert["1"].metadata["snippet_kind"] == "code-context"
+        assert by_alert["2"].metadata["snippet_kind"] == "missing"

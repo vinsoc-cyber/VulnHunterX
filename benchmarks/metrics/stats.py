@@ -25,9 +25,8 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Callable
 
 # ---- Wilson CI ------------------------------------------------------------
 

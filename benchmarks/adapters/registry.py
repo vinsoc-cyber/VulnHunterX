@@ -209,6 +209,8 @@ def _ensure_loaded() -> None:
         "benchmarks.adapters.secllmholmes_adapter",
         "benchmarks.adapters.realvuln_adapter",
         "benchmarks.adapters.owasp_benchmark_adapter",
+        "benchmarks.adapters.security_rules_adapter",
+        "benchmarks.adapters.openvuln_adapter",
     ):
         try:
             __import__(modname)

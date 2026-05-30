@@ -119,6 +119,9 @@ def setup_dataset(name: str) -> bool:
             _download_and_extract(cfg["url"], cfg["target_dir"])
         elif cfg["type"] == "gdrive":
             _download_gdrive(cfg["gdrive_id"], cfg["filename"], cfg["target_dir"])
+        elif cfg["type"] == "builtin":
+            logger.info("✓ %s is in-repo (no download needed)", name)
+            return True
         else:
             logger.error("Unknown dataset type: %s", cfg["type"])
             return False

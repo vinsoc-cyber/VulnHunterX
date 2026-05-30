@@ -13,43 +13,43 @@ Usage examples:
     python benchmarks/scripts/run_benchmark.py \\
         --dataset secllmholmes --approach all --limit 20 --dry-run
 
-    # Real run with GPT-4o-mini (cheapest):
+    # Real run with gpt-4.1 (cost-effective frontier):
     python benchmarks/scripts/run_benchmark.py \\
-        --dataset secllmholmes --approach all --model gpt-4o-mini --limit 50
+        --dataset secllmholmes --approach all --model gpt-4.1 --limit 50
 
     # Full benchmark:
     python benchmarks/scripts/run_benchmark.py \\
-        --dataset all --approach all --model gpt-4o
+        --dataset all --approach all --model gpt-5
 
     # Resumable run — target a named directory, resume after interruption:
     python benchmarks/scripts/run_benchmark.py \\
-        --dataset all --approach all --model gpt-4o \\
+        --dataset all --approach all --model gpt-5 \\
         --run-dir benchmarks/results/my_run
     # ... Ctrl+C ...
     python benchmarks/scripts/run_benchmark.py \\
-        --dataset all --approach all --model gpt-4o \\
+        --dataset all --approach all --model gpt-5 \\
         --run-dir benchmarks/results/my_run --resume
 
     # Iteration sweep (VulnHunterX at max_iterations=1,2,3):
     python benchmarks/scripts/run_benchmark.py \\
         --dataset secllmholmes --approach vulnhunterx \\
-        --model gpt-4o-mini --iteration-sweep
+        --model gpt-4.1 --iteration-sweep
 """
 
 from __future__ import annotations
 
 import argparse
-import warnings
-from typing import Any
 import json
 import logging
 import os
 import sys
 import threading
 import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 # Allow running as script without installing the package
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -60,6 +60,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 # Load .env before argparse so LLM_MODEL / LLM_PROVIDER become default values
 from dotenv import load_dotenv  # noqa: E402
+
 load_dotenv(_REPO_ROOT / ".env")
 
 # Load benchmark.yaml defaults (CLI flags override these)
@@ -78,9 +79,6 @@ _DEFAULT_MAX_ITERATIONS: int = (
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry, load_entries  # noqa: E402
 from benchmarks.approaches.base import BenchmarkApproach, BenchmarkResult  # noqa: E402
-from benchmarks.approaches.raw_sast import RawSastApproach  # noqa: E402
-from benchmarks.approaches.ablation import AblationApproach  # noqa: E402
-from benchmarks.approaches.vulnhunterx import VulnHunterXApproach  # noqa: E402
 from benchmarks.metrics.cost import Pricing, load_pricing  # noqa: E402
 from benchmarks.metrics.evaluator import ApproachMetrics, evaluate  # noqa: E402
 from benchmarks.scripts._progress import (  # noqa: E402
@@ -190,6 +188,10 @@ if _MANIFEST_PATH.is_file():
 
 
 def _resolve_dataset_path(name: str) -> Path:
+    if name == "security-rules":
+        # In-repo finding-shaped fixtures (Go/PHP/JS/Python). No download —
+        # the adapter walks the project's own custom-rule vuln/clean pairs.
+        return _REPO_ROOT / "tests" / "fixtures" / "security-rules"
     return DATASETS_DIR / _DATASET_DIRNAMES.get(name, name)
 
 
@@ -740,7 +742,7 @@ def main() -> int:
         metavar="APPROACH",
         help=f"One or more of: {' '.join(_approach_names)} all",
     )
-    parser.add_argument("--model", default=os.environ.get("LLM_MODEL", "gpt-4o"))
+    parser.add_argument("--model", default=os.environ.get("LLM_MODEL", "gpt-4.1"))
     parser.add_argument("--provider", default=os.environ.get("LLM_PROVIDER", "openai"))
     parser.add_argument("--limit", type=int, default=0, help="Cap entries per dataset (0=all)")
     parser.add_argument(

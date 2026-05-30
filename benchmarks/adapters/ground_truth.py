@@ -9,7 +9,6 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 # Valid label values
 LABEL_TP = "TP"       # Code IS vulnerable (ground truth)
 LABEL_FP = "FP"       # Code is SAFE but SAST incorrectly flags it

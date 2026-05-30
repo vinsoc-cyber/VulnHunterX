@@ -31,7 +31,6 @@ from benchmarks.metrics.stats import (
     wilson_ci,
 )
 
-
 # Markers that an ERROR verdict came from an LLM-API failure (rate-limit, quota,
 # network) rather than a model decision. Used to separate operational misses
 # from genuine model errors when reporting per-pair metrics.

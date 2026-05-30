@@ -1,0 +1,450 @@
+[
+  {
+    "id": "secrule-go-goroutine-leak-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-405",
+    "rule_id": "vulnhunterx.go.goroutine-leak",
+    "file_path": "go/goroutine-leak/vuln.go",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "go",
+    "label": "TP",
+    "code_snippet": "// CWE-405: goroutine writes to unbuffered channel without receiver guard\npackage main\n\nimport \"fmt\"\n\nfunc leaker() {\n\tch := make(chan int)\n\tgo func() {\n\t\tch <- 42\n\t\tfmt.Println(\"done\") // unreachable if no receiver\n\t}()\n\t// no receive \u2014 goroutine leaks\n}\n",
+    "metadata": {
+      "rule_name": "goroutine-leak",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-go-goroutine-leak-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-405",
+    "rule_id": "vulnhunterx.go.goroutine-leak",
+    "file_path": "go/goroutine-leak/clean.go",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "go",
+    "label": "FP",
+    "code_snippet": "// Buffered channel \u2014 goroutine completes without a receiver\npackage main\n\nimport \"fmt\"\n\nfunc bounded() {\n\tch := make(chan int, 1)\n\tgo func() {\n\t\tch <- 42\n\t\tfmt.Println(\"done\")\n\t}()\n\tv := <-ch\n\tfmt.Println(v)\n}\n",
+    "metadata": {
+      "rule_name": "goroutine-leak",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-go-panic-in-handler-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-248",
+    "rule_id": "vulnhunterx.go.panic-in-handler",
+    "file_path": "go/panic-in-handler/vuln.go",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "go",
+    "label": "TP",
+    "code_snippet": "// CWE-248: handler panics without defer recover\npackage main\n\nimport \"net/http\"\n\nfunc handler(w http.ResponseWriter, r *http.Request) {\n\tif r.URL.Path == \"/crash\" {\n\t\tpanic(\"boom\") // unrecovered\n\t}\n\tw.Write([]byte(\"ok\"))\n}\n",
+    "metadata": {
+      "rule_name": "panic-in-handler",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-go-panic-in-handler-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-248",
+    "rule_id": "vulnhunterx.go.panic-in-handler",
+    "file_path": "go/panic-in-handler/clean.go",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "go",
+    "label": "FP",
+    "code_snippet": "// Recovered handler \u2014 panic caught by deferred recover\npackage main\n\nimport (\n\t\"log\"\n\t\"net/http\"\n)\n\nfunc handler(w http.ResponseWriter, r *http.Request) {\n\tdefer func() {\n\t\tif rec := recover(); rec != nil {\n\t\t\tlog.Printf(\"recovered: %v\", rec)\n\t\t\thttp.Error(w, \"internal error\", 500)\n\t\t}\n\t}()\n\tif r.URL.Path == \"/crash\" {\n\t\tpanic(\"boom\")\n\t}\n\tw.Write([]byte(\"ok\"))\n}\n",
+    "metadata": {
+      "rule_name": "panic-in-handler",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-go-unsafe-pointer-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-704",
+    "rule_id": "vulnhunterx.go.unsafe-pointer",
+    "file_path": "go/unsafe-pointer/vuln.go",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "go",
+    "label": "TP",
+    "code_snippet": "// CWE-704: unsafe.Pointer cast for type punning between unrelated types\npackage main\n\nimport \"unsafe\"\n\nfunc punned(buf []byte) uint32 {\n\treturn *(*uint32)(unsafe.Pointer(&buf[0]))\n}\n",
+    "metadata": {
+      "rule_name": "unsafe-pointer",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-go-unsafe-pointer-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-704",
+    "rule_id": "vulnhunterx.go.unsafe-pointer",
+    "file_path": "go/unsafe-pointer/clean.go",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "go",
+    "label": "FP",
+    "code_snippet": "// encoding/binary \u2014 safe, portable\npackage main\n\nimport \"encoding/binary\"\n\nfunc parsed(buf []byte) uint32 {\n\treturn binary.LittleEndian.Uint32(buf)\n}\n",
+    "metadata": {
+      "rule_name": "unsafe-pointer",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-javascript-electron-node-integration-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-1188",
+    "rule_id": "vulnhunterx.js.electron-node-integration",
+    "file_path": "javascript/electron-node-integration/vuln.js",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "javascript",
+    "label": "TP",
+    "code_snippet": "// CWE-1188: Electron BrowserWindow with nodeIntegration enabled\nconst { BrowserWindow } = require(\"electron\");\n\nfunction createWindow() {\n  const win = new BrowserWindow({\n    width: 800,\n    height: 600,\n    webPreferences: {\n      nodeIntegration: true,\n      contextIsolation: false,\n    },\n  });\n  win.loadURL(\"https://example.com\");\n  return win;\n}\n",
+    "metadata": {
+      "rule_name": "electron-node-integration",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-javascript-electron-node-integration-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-1188",
+    "rule_id": "vulnhunterx.js.electron-node-integration",
+    "file_path": "javascript/electron-node-integration/clean.js",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "javascript",
+    "label": "FP",
+    "code_snippet": "// Safe Electron defaults \u2014 nodeIntegration off, contextIsolation on\nconst { BrowserWindow } = require(\"electron\");\n\nfunction createWindow() {\n  const win = new BrowserWindow({\n    width: 800,\n    height: 600,\n    webPreferences: {\n      nodeIntegration: false,\n      contextIsolation: true,\n      preload: \"./preload.js\",\n    },\n  });\n  win.loadURL(\"https://example.com\");\n  return win;\n}\n",
+    "metadata": {
+      "rule_name": "electron-node-integration",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-javascript-html-injection-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-79",
+    "rule_id": "vulnhunterx.js.html-injection",
+    "file_path": "javascript/html-injection/vuln.js",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "javascript",
+    "label": "TP",
+    "code_snippet": "// CWE-79: innerHTML written from req.body \u2014 XSS\nfunction render(el, req) {\n  el.innerHTML = req.body.message;\n}\n",
+    "metadata": {
+      "rule_name": "html-injection",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-javascript-html-injection-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-79",
+    "rule_id": "vulnhunterx.js.html-injection",
+    "file_path": "javascript/html-injection/clean.js",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "javascript",
+    "label": "FP",
+    "code_snippet": "// Sanitized via DOMPurify \u2014 safe\nimport DOMPurify from \"dompurify\";\nfunction render(el, req) {\n  el.innerHTML = DOMPurify.sanitize(req.body.message);\n}\n",
+    "metadata": {
+      "rule_name": "html-injection",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-javascript-prototype-pollution-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-1321",
+    "rule_id": "vulnhunterx.js.prototype-pollution",
+    "file_path": "javascript/prototype-pollution/vuln.js",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "javascript",
+    "label": "TP",
+    "code_snippet": "// CWE-1321: bracket-property write keyed by req.body directly\nfunction merge(target, req) {\n  target[req.body.key] = req.body.value;\n  return target;\n}\nmodule.exports = { merge };\n",
+    "metadata": {
+      "rule_name": "prototype-pollution",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-javascript-prototype-pollution-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-1321",
+    "rule_id": "vulnhunterx.js.prototype-pollution",
+    "file_path": "javascript/prototype-pollution/clean.js",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "javascript",
+    "label": "FP",
+    "code_snippet": "// Guarded write \u2014 checks key against an allowlist\nfunction merge(target, req) {\n  const key = req.body.key;\n  if (key === \"__proto__\" || key === \"constructor\" || key === \"prototype\") {\n    throw new Error(\"forbidden key\");\n  }\n  target[key] = req.body.value;\n  return target;\n}\nmodule.exports = { merge };\n",
+    "metadata": {
+      "rule_name": "prototype-pollution",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-php-extract-injection-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-1062",
+    "rule_id": "vulnhunterx.php.extract-injection",
+    "file_path": "php/extract-injection/vuln.php",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "php",
+    "label": "TP",
+    "code_snippet": "<?php\n// CWE-1062: extract() from $_GET \u2014 attacker controls all local vars\nextract($_GET);\necho \"Logged in as \" . $user;\n",
+    "metadata": {
+      "rule_name": "extract-injection",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-php-extract-injection-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-1062",
+    "rule_id": "vulnhunterx.php.extract-injection",
+    "file_path": "php/extract-injection/clean.php",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "php",
+    "label": "FP",
+    "code_snippet": "<?php\n// EXTR_SKIP prevents overwriting existing variables\n$is_admin = false;\nextract($_GET, EXTR_SKIP);\nif ($is_admin) {\n    echo \"Admin panel\";\n}\n",
+    "metadata": {
+      "rule_name": "extract-injection",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-php-file-inclusion-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-98",
+    "rule_id": "vulnhunterx.php.file-inclusion",
+    "file_path": "php/file-inclusion/vuln.php",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "php",
+    "label": "TP",
+    "code_snippet": "<?php\n// CWE-98: user-controlled include path \u2192 LFI/RFI\n$page = $_GET[\"page\"];\ninclude($page);\n",
+    "metadata": {
+      "rule_name": "file-inclusion",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-php-file-inclusion-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-98",
+    "rule_id": "vulnhunterx.php.file-inclusion",
+    "file_path": "php/file-inclusion/clean.php",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "php",
+    "label": "FP",
+    "code_snippet": "<?php\n// Allowlist dispatch \u2014 safe\n$allowed = [\"home\" => \"home.php\", \"about\" => \"about.php\"];\n$page = $_GET[\"page\"] ?? \"home\";\nif (isset($allowed[$page])) {\n    include($allowed[$page]);\n}\n",
+    "metadata": {
+      "rule_name": "file-inclusion",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-php-type-juggling-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-1025",
+    "rule_id": "vulnhunterx.php.type-juggling",
+    "file_path": "php/type-juggling/vuln.php",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "php",
+    "label": "TP",
+    "code_snippet": "<?php\n// CWE-1025: loose comparison vs user input \u2014 type juggling bypass\n$expected_token = \"abc123\";\nif ($expected_token == $_POST[\"token\"]) {\n    echo \"Authenticated\";\n}\n",
+    "metadata": {
+      "rule_name": "type-juggling",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-php-type-juggling-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-1025",
+    "rule_id": "vulnhunterx.php.type-juggling",
+    "file_path": "php/type-juggling/clean.php",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "php",
+    "label": "FP",
+    "code_snippet": "<?php\n// Strict comparison \u2014 safe from type juggling\n$expected_token = \"abc123\";\nif ($expected_token === $_POST[\"token\"]) {\n    echo \"Authenticated\";\n}\n",
+    "metadata": {
+      "rule_name": "type-juggling",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-php-variable-variables-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-621",
+    "rule_id": "vulnhunterx.php.variable-variables",
+    "file_path": "php/variable-variables/vuln.php",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "php",
+    "label": "TP",
+    "code_snippet": "<?php\n// CWE-621: variable-variable assignment from user input\n$name = $_GET[\"name\"];\n$$name = $_GET[\"value\"];\n",
+    "metadata": {
+      "rule_name": "variable-variables",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-php-variable-variables-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-621",
+    "rule_id": "vulnhunterx.php.variable-variables",
+    "file_path": "php/variable-variables/clean.php",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "php",
+    "label": "FP",
+    "code_snippet": "<?php\n// Direct assignment, no variable-variables\n$user = $_GET[\"user\"] ?? \"anonymous\";\necho $user;\n",
+    "metadata": {
+      "rule_name": "variable-variables",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-python-flask-debug-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-489",
+    "rule_id": "vulnhunterx.py.flask-debug",
+    "file_path": "python/flask-debug/vuln.py",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "python",
+    "label": "TP",
+    "code_snippet": "# CWE-489: Flask debug mode enabled in production\nfrom flask import Flask\n\napp = Flask(__name__)\n\n\n@app.route(\"/\")\ndef index():\n    return \"ok\"\n\n\nif __name__ == \"__main__\":\n    app.run(host=\"0.0.0.0\", debug=True)\n",
+    "metadata": {
+      "rule_name": "flask-debug",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-python-flask-debug-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-489",
+    "rule_id": "vulnhunterx.py.flask-debug",
+    "file_path": "python/flask-debug/clean.py",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "python",
+    "label": "FP",
+    "code_snippet": "# Debug disabled \u2014 safe for production\nfrom flask import Flask\n\napp = Flask(__name__)\n\n\n@app.route(\"/\")\ndef index():\n    return \"ok\"\n\n\nif __name__ == \"__main__\":\n    app.run(host=\"0.0.0.0\", debug=False)\n",
+    "metadata": {
+      "rule_name": "flask-debug",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-python-insecure-tls-context-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-295",
+    "rule_id": "vulnhunterx.py.insecure-tls-context",
+    "file_path": "python/insecure-tls-context/vuln.py",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "python",
+    "label": "TP",
+    "code_snippet": "# CWE-295: SSLContext with verification disabled\nimport ssl\n\nctx = ssl.create_default_context()\nctx.check_hostname = False\nctx.verify_mode = ssl.CERT_NONE\n",
+    "metadata": {
+      "rule_name": "insecure-tls-context",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-python-insecure-tls-context-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-295",
+    "rule_id": "vulnhunterx.py.insecure-tls-context",
+    "file_path": "python/insecure-tls-context/clean.py",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "python",
+    "label": "FP",
+    "code_snippet": "# Default-secure context \u2014 safe\nimport ssl\n\nctx = ssl.create_default_context()\n# check_hostname and CERT_REQUIRED are the defaults \u2014 don't disable them\n",
+    "metadata": {
+      "rule_name": "insecure-tls-context",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-python-regex-injection-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-1333",
+    "rule_id": "vulnhunterx.py.regex-injection",
+    "file_path": "python/regex-injection/vuln.py",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "python",
+    "label": "TP",
+    "code_snippet": "# CWE-1333: user input compiled as a regex directly\nimport re\nfrom flask import request\n\n\ndef search():\n    re.compile(request.args.get(\"pattern\", \"\"))\n    return \"ok\"\n",
+    "metadata": {
+      "rule_name": "regex-injection",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-python-regex-injection-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-1333",
+    "rule_id": "vulnhunterx.py.regex-injection",
+    "file_path": "python/regex-injection/clean.py",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "python",
+    "label": "FP",
+    "code_snippet": "# re.escape \u2014 input treated as a literal substring, not a pattern\nimport re\nfrom flask import request\n\n\ndef search():\n    raw = request.args.get(\"pattern\", \"\")\n    pattern = re.compile(re.escape(raw))\n    return \"ok\"\n",
+    "metadata": {
+      "rule_name": "regex-injection",
+      "variant": "clean"
+    }
+  },
+  {
+    "id": "secrule-python-unsafe-yaml-vuln",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-502",
+    "rule_id": "vulnhunterx.py.unsafe-yaml",
+    "file_path": "python/unsafe-yaml/vuln.py",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "python",
+    "label": "TP",
+    "code_snippet": "# CWE-502: yaml.load without SafeLoader\nimport yaml\n\n\ndef load_config(path: str):\n    with open(path) as f:\n        return yaml.load(f)\n",
+    "metadata": {
+      "rule_name": "unsafe-yaml",
+      "variant": "vuln"
+    }
+  },
+  {
+    "id": "secrule-python-unsafe-yaml-clean",
+    "source_dataset": "security-rules",
+    "cwe_id": "CWE-502",
+    "rule_id": "vulnhunterx.py.unsafe-yaml",
+    "file_path": "python/unsafe-yaml/clean.py",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "python",
+    "label": "FP",
+    "code_snippet": "# SafeLoader \u2014 only loads YAML primitive types\nimport yaml\n\n\ndef load_config(path: str):\n    with open(path) as f:\n        return yaml.safe_load(f)\n",
+    "metadata": {
+      "rule_name": "unsafe-yaml",
+      "variant": "clean"
+    }
+  }
+]

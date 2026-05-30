@@ -256,3 +256,32 @@ def test_pricing_cache_hit_clamps_cached_to_input():
     # Claim 2M cached but only 1M input -> clamp to 1M cached, 0 uncached.
     cost = p.cost(1_000_000, 0, input_cached_tokens=2_000_000)
     assert math.isclose(cost, 0.1)
+
+
+class TestAutoPricing:
+    def test_known_paid_models_resolve(self):
+        from benchmarks.metrics.cost import auto_pricing
+
+        assert auto_pricing("gpt-4.1") is not None
+        assert auto_pricing("gpt-5") is not None
+        assert auto_pricing("deepseek-chat") is not None
+        assert auto_pricing("deepseek-reasoner") is not None
+
+    def test_ollama_models_are_zero_cost(self):
+        from benchmarks.metrics.cost import auto_pricing
+
+        p = auto_pricing("ollama/qwen3-coder:480b-cloud")
+        assert p is not None
+        assert p.input_per_million == 0.0
+        assert p.output_per_million == 0.0
+
+    def test_unknown_paid_model_returns_none(self):
+        from benchmarks.metrics.cost import auto_pricing
+
+        assert auto_pricing("definitely-not-a-real-model-xyz") is None
+
+    def test_imputed_cost_zero_for_local(self):
+        from benchmarks.metrics.cost import DEFAULT_PRICING, imputed_cost
+
+        c = imputed_cost(1000, 500, DEFAULT_PRICING, "ollama/llama3.2")
+        assert c == 0.0

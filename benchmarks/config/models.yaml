@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 VinSOC Cyber
+#
+# Model matrix for cross-model benchmark comparison (Ollama / GPT / DeepSeek).
+# Read by benchmarks/scripts/run_model_matrix.py.
+#
+# Each entry runs the SAME dataset(s)/approach(es) as a separate
+# `run_benchmark.py` subprocess into its own results subdir, then
+# compare_models.py aggregates them into one COMPARISON.md.
+#
+# Fields per entry:
+#   id        unique label; names the results subdir and the COMPARISON row
+#   provider  openai | ollama | anthropic  (passed as --provider)
+#   model     model id passed as --model (LLMClient adds provider prefixes)
+#   tier      dev | bulk | headline  (documentation; not enforced)
+#   env       optional path (repo-root-relative) to a .env file whose vars are
+#             overlaid on the subprocess environment — gives each model a clean,
+#             isolated credential set (DeepSeek vs OpenAI vs Ollama don't collide)
+#   pricing   optional path to a JSON pricing schedule; omit to use the built-in
+#             DEFAULT_PRICING (covers gpt-*, gpt-5, deepseek-*, qwen*, claude*;
+#             ollama/* imputes to $0)
+#
+# Pricing note: GPT models are gpt-4.1 (cost-effective frontier) and gpt-5
+# (frontier ceiling). DeepSeek is the cheap frontier-reasoning tier. Ollama
+# (local or cloud pool) is the only viable option at full-Juliet/DiverseVul scale.
+
+models:
+  # ── Headline tier (publishable, fixed-seed Track-1 subset) ──
+  - id: gpt-4.1
+    provider: openai
+    model: gpt-4.1
+    tier: headline
+    env: .env.openai
+
+  - id: gpt-5
+    provider: openai
+    model: gpt-5
+    tier: headline
+    env: .env.openai
+
+  - id: deepseek-reasoner
+    provider: openai
+    model: deepseek-reasoner
+    tier: headline
+    env: .env.deepseek
+
+  # ── Bulk / scale tier ──
+  - id: deepseek-chat
+    provider: openai
+    model: deepseek-chat
+    tier: bulk
+    env: .env.deepseek
+
+  - id: ollama-qwen3-coder
+    provider: ollama
+    model: ollama/qwen3-coder:480b-cloud
+    tier: bulk
+    env: .env.ollama

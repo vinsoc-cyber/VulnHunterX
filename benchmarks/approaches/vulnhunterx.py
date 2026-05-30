@@ -7,20 +7,14 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-
 from typing import Any
-
-from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
-from vuln_hunter_x.core.config import Config
-from vuln_hunter_x.questions.loader import QuestionsLoader
-from vuln_hunter_x.verification.engine import VerificationEngine
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry
 from benchmarks.adapters.registry import OptionSpec, _to_bool
 from benchmarks.approaches.base import (
     BenchmarkResult,
-    _SnippetContextExtractor,
     _dry_run_result,
+    _SnippetContextExtractor,
     entry_to_finding,
     verdict_to_pred,
 )
@@ -29,6 +23,10 @@ from benchmarks.approaches.registry import (
     RegisteredApproach,
     register_approach,
 )
+from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
+from vuln_hunter_x.core.config import Config
+from vuln_hunter_x.questions.loader import QuestionsLoader
+from vuln_hunter_x.verification.engine import VerificationEngine
 
 # Default prompts directory containing all per-language *_questions.yaml files
 _PROMPTS_DIR = (
@@ -69,7 +67,7 @@ class VulnHunterXApproach(RegisteredApproach):
     @classmethod
     def from_options(
         cls, llm: LLMConfig | None, options: dict[str, Any]
-    ) -> "VulnHunterXApproach":
+    ) -> VulnHunterXApproach:
         llm = llm or LLMConfig()
         return cls(
             provider=llm.provider,

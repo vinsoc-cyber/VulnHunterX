@@ -423,6 +423,17 @@ def _key_findings(
     return "\n".join(lines)
 
 
+# Function-level *detection* datasets (whole-function vuln labels, no real SAST
+# alert). They are NOT finding-level FP-reduction sets: their precision/FP-
+# reduction numbers are not comparable to Track-1 and should be read as
+# recall/TP-preservation on noisy CVE labels only. See benchmarks/RESEARCH.md §6.
+_DETECTION_TRACK_DATASETS = {"diversevul", "cvefixes", "primevul", "bigvul", "devign"}
+
+
+def _is_detection_track(dataset: str) -> bool:
+    return (dataset or "").lower() in _DETECTION_TRACK_DATASETS
+
+
 def _main_table(summaries: list[dict]) -> str:
     """Build the main Markdown comparison table."""
     headers = [
@@ -433,10 +444,15 @@ def _main_table(summaries: list[dict]) -> str:
     rows = [headers]
     rows.append(["---"] * len(headers))
 
+    has_detection = any(_is_detection_track(s.get("dataset", "")) for s in summaries)
     for s in summaries:
+        dataset = s.get("dataset", "?")
+        # Mark function-level detection datasets so their numbers aren't read
+        # as finding-level FP-reduction results.
+        dataset_label = f"{dataset} †" if _is_detection_track(dataset) else dataset
         rows.append([
             s.get("approach", "?"),
-            s.get("dataset", "?"),
+            dataset_label,
             _pct(s.get("precision")),
             _pct(s.get("recall")),
             _pct(s.get("effective_recall")),
@@ -450,7 +466,7 @@ def _main_table(summaries: list[dict]) -> str:
         ])
 
     table = "\n".join("| " + " | ".join(r) + " |" for r in rows)
-    explanation = "\n".join([
+    explanation_lines = [
         "> **How to read this table:**",
         "> - **Precision**: Of findings the approach labeled as vulnerabilities, what fraction are truly vulnerable.",
         ">   Higher = fewer false alarms. Target: >80% for LLM approaches.",
@@ -460,8 +476,15 @@ def _main_table(summaries: list[dict]) -> str:
         "> - **FP Reduc.**: How many raw-SAST false positives the approach eliminated. Higher is better.",
         "> - **TP Pres.**: How many raw-SAST true positives the approach kept. Should stay >80%.",
         "> - **NMD Rate**: Fraction of findings where the LLM could not decide. >30% indicates insufficient context.",
-    ])
-    return table + "\n\n" + explanation
+    ]
+    if has_detection:
+        explanation_lines.append(
+            "> - **† Track-2 (detection)**: whole-function vuln-detection datasets "
+            "(no real SAST alert; ~60% label accuracy). Read Precision/FP-Reduc. "
+            "as recall/TP-preservation only — **not** comparable to finding-level "
+            "FP-reduction. See RESEARCH.md §6."
+        )
+    return table + "\n\n" + "\n".join(explanation_lines)
 
 
 def _calibration_table(summaries: list[dict]) -> str:

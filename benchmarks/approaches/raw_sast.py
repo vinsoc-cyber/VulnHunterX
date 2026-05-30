@@ -34,7 +34,7 @@ class RawSastApproach(RegisteredApproach):
     @classmethod
     def from_options(
         cls, llm: LLMConfig | None, options: dict[str, Any]
-    ) -> "RawSastApproach":
+    ) -> RawSastApproach:
         # No options or LLM context to apply.
         return cls()
 

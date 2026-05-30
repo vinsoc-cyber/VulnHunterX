@@ -14,11 +14,12 @@ datasets:
 # ── LLM settings ──────────────────────────────────────────────────────────────
 llm:
   provider: openai
-  model: gpt-4o           # default model; override with --model
+  model: gpt-4.1          # default model; override with --model
   # Alternatives:
-  #   model: claude-sonnet-4-6   # Anthropic (set ANTHROPIC_API_KEY)
-  #   model: gpt-4o-mini          # cheaper, faster
-  #   model: ollama/llama3.2      # local (set OLLAMA_API_BASE)
+  #   model: gpt-5                # frontier ceiling (more expensive)
+  #   model: deepseek-reasoner    # cost-effective frontier reasoning
+  #   model: claude-sonnet-4-6    # Anthropic (set ANTHROPIC_API_KEY)
+  #   model: ollama/qwen3-coder:480b-cloud  # bulk/scale (set OLLAMA_API_BASE/KEYS)
 
 # ── Verification settings ─────────────────────────────────────────────────────
 verification:

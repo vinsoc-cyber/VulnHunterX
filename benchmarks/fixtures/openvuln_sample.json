@@ -1,0 +1,56 @@
+[
+  {
+    "id": "openvuln-perwendel__spark_CVE-2016-9177_2.5.1-1",
+    "source_dataset": "openvuln",
+    "cwe_id": "CWE-22",
+    "rule_id": "java/path-injection",
+    "file_path": "vulnerability_java_path-injection_1.txt",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "java",
+    "label": "TP",
+    "code_snippet": "// CodeQL alert: path-injection — user-controlled path reaches file read\nString path = request.getPathInfo();\nFile f = new File(webRoot, path); // no canonicalization / traversal check\nreturn Files.readAllBytes(f.toPath());",
+    "metadata": {
+      "project_slug": "perwendel__spark_CVE-2016-9177_2.5.1",
+      "alert_number": "1",
+      "cve_id": "CVE-2016-9177",
+      "snippet_kind": "code-context"
+    }
+  },
+  {
+    "id": "openvuln-perwendel__spark_CVE-2016-9177_2.5.1-12",
+    "source_dataset": "openvuln",
+    "cwe_id": "CWE-22",
+    "rule_id": "java/path-injection",
+    "file_path": "vulnerability_java_path-injection_12.txt",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "java",
+    "label": "FP",
+    "code_snippet": "// CodeQL alert flagged this path, but the value is validated against an\n// allow-list before use — a false positive.\nString name = request.getParameter(\"page\");\nif (!ALLOWED_PAGES.contains(name)) { return notFound(); }\nreturn render(TEMPLATES.get(name));",
+    "metadata": {
+      "project_slug": "perwendel__spark_CVE-2016-9177_2.5.1",
+      "alert_number": "12",
+      "cve_id": "CVE-2016-9177",
+      "snippet_kind": "code-context"
+    }
+  },
+  {
+    "id": "openvuln-keycloak__keycloak_CVE-2022-4361_21.1.1-3",
+    "source_dataset": "openvuln",
+    "cwe_id": "CWE-79",
+    "rule_id": "java/xss",
+    "file_path": "vulnerability_java_xss_3.txt",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "java",
+    "label": "TP",
+    "code_snippet": "// CodeQL alert: reflected XSS — request param written to response unescaped\nString q = request.getParameter(\"q\");\nresponse.getWriter().write(\"<div>\" + q + \"</div>\");",
+    "metadata": {
+      "project_slug": "keycloak__keycloak_CVE-2022-4361_21.1.1",
+      "alert_number": "3",
+      "cve_id": "CVE-2022-4361",
+      "snippet_kind": "code-context"
+    }
+  }
+]
