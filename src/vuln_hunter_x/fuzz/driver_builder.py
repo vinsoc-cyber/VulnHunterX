@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from vuln_hunter_x.core.constants import BUILD_LOG_MAX_ERROR_CHARS
+
 logger = logging.getLogger(__name__)
 
 # Max lines of stderr to keep for LLM fix (normalized)

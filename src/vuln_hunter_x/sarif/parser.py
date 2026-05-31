@@ -114,7 +114,10 @@ def _extract_related_locations(related_locs: list) -> list[str]:
             if uri:
                 parts.append(uri)
             if line:
-                parts[-1] = f"{parts[-1]}:{line}" if parts else str(line)
+                if parts:
+                    parts[-1] = f"{parts[-1]}:{line}"
+                else:
+                    parts.append(str(line))
             entry = parts[0] if parts else ""
             if msg:
                 entry = f"{entry}: {msg}" if entry else msg

@@ -769,6 +769,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         target_repo_dir = repos_dir / lang / name
         if not target_repo_dir.exists():
             target_repo_dir.parent.mkdir(parents=True, exist_ok=True)
+            if target_repo_dir.is_symlink():
+                target_repo_dir.unlink()
             target_repo_dir.symlink_to(local_path)
         # Set filters so only this repo is analyzed
         args.repo = name
@@ -928,6 +930,8 @@ def _run_context_extraction(
         target_repo_dir = repos_dir / lang_filter / name
         if not target_repo_dir.exists():
             target_repo_dir.parent.mkdir(parents=True, exist_ok=True)
+            if target_repo_dir.is_symlink():
+                target_repo_dir.unlink()
             target_repo_dir.symlink_to(local_path)
         repo_filter = name
 
@@ -1029,6 +1033,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
         target_repo_dir = repos_dir / args.lang / name
         if not target_repo_dir.exists():
             target_repo_dir.parent.mkdir(parents=True, exist_ok=True)
+            if target_repo_dir.is_symlink():
+                target_repo_dir.unlink()
             target_repo_dir.symlink_to(local_path)
         args.repo = name
 
