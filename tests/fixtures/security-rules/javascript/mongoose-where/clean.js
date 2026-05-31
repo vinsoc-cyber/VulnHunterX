@@ -1,0 +1,1 @@
+User.find({ name: userInput });
