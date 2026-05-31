@@ -289,7 +289,9 @@ def _key_findings(
     # Best F1 approach
     scored = [(s.get("f1") or 0, s) for s in llm_summaries if s.get("f1") is not None]
     if scored:
-        best_f1_val, best_f1_s = max(scored)
+        # Compare on the F1 value only — tuples would otherwise fall back to
+        # comparing the summary dicts (unorderable) whenever two F1 values tie.
+        best_f1_val, best_f1_s = max(scored, key=lambda t: t[0])
         bullets.append(
             f"**Best overall F1**: `{best_f1_s['approach']}` on `{best_f1_s['dataset']}` "
             f"with F1={_pct(best_f1_val)} (Precision={_pct(best_f1_s.get('precision'))}, "

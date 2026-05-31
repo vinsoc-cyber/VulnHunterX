@@ -12,7 +12,20 @@ import re
 import time
 from typing import Any
 
-import litellm
+
+# Newer litellm versions log two benign WARNINGs on import when the optional
+# AWS SDK (botocore) is absent — it is only needed for Bedrock/SageMaker
+# event-stream decoding, which this project does not use. The warnings fire
+# *during* `import litellm`, so drop them with a filter on litellm's logger
+# installed beforehand. litellm never resets this logger's level, so the
+# filter persists; unrelated litellm warnings/errors pass through unchanged.
+def _drop_litellm_aws_preload_warnings(record: logging.LogRecord) -> bool:
+    return "could not pre-load" not in str(record.msg)
+
+
+logging.getLogger("LiteLLM").addFilter(_drop_litellm_aws_preload_warnings)
+
+import litellm  # noqa: E402 — must follow the logger filter above
 
 litellm.suppress_debug_info = True
 
