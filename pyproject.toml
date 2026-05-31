@@ -25,6 +25,10 @@ classifiers = [
 ]
 dependencies = [
     "litellm>=1.50.0,<2.0.0",
+    # litellm imports tenacity lazily for its retry path but does not pin it,
+    # so declare it explicitly — otherwise LLM calls fail with
+    # "No module named 'tenacity'" (e.g. benchmark pre-flight).
+    "tenacity>=8.0,<10.0",
     "python-dotenv>=1.0.0,<2.0.0",
     "pyyaml>=6.0,<7.0.0",
     "tree-sitter>=0.23,<1.0.0",

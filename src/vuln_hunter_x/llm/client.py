@@ -28,6 +28,12 @@ logging.getLogger("LiteLLM").addFilter(_drop_litellm_aws_preload_warnings)
 import litellm  # noqa: E402 — must follow the logger filter above
 
 litellm.suppress_debug_info = True
+# Drop per-model-unsupported params instead of erroring. Reasoning models
+# (gpt-5 / gpt-5-codex / o-series) reject temperature != 1 with
+# UnsupportedParamsError; with this set, litellm silently drops temperature
+# for those models (they run at their forced default) while models that DO
+# support it keep the configured value. Essential for a multi-model harness.
+litellm.drop_params = True
 
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.core.constants import (
