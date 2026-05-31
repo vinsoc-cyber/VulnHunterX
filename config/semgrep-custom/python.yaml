@@ -383,3 +383,109 @@ rules:
                 - pattern: request.$X[...]
                 - pattern: request.$X.$M(...)
                 - pattern: request.$X.$Y.$M(...)
+
+  # ── CWE-209: Exception traceback returned in the HTTP response ──
+  - id: vulnhunterx.python.verbose-error
+    languages: [python]
+    severity: WARNING
+    message: |
+      An exception traceback is returned in the HTTP response body, leaking
+      stack frames, file paths, and internal state to the client (CWE-209).
+      Log the detail server-side (logging.exception) and return a generic
+      error message.
+    metadata:
+      cwe: ["CWE-209"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/209.html
+    patterns:
+      - pattern-either:
+          - pattern: return traceback.format_exc()
+          - pattern: return $RESP(traceback.format_exc())
+          - pattern: return $RESP(traceback.format_exc(), ...)
+          - pattern: HttpResponse(traceback.format_exc())
+          - pattern: HttpResponse(traceback.format_exc(), ...)
+          - pattern: make_response(traceback.format_exc(), ...)
+
+  # ── CWE-942: Flask-CORS wildcard origin with credentials ──
+  - id: vulnhunterx.python.cors-misconfiguration
+    languages: [python]
+    severity: ERROR
+    message: |
+      Flask-CORS configured with origins="*" AND supports_credentials=True
+      reflects any site's authenticated requests, exposing session-bound
+      data cross-origin (CWE-942). Use an explicit origin allowlist whenever
+      credentials are permitted.
+    metadata:
+      cwe: ["CWE-942"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/942.html
+    patterns:
+      - pattern-either:
+          - pattern: CORS($APP, ..., origins="*", ..., supports_credentials=True, ...)
+          - pattern: CORS($APP, ..., supports_credentials=True, ..., origins="*", ...)
+          - pattern: flask_cors.CORS($APP, ..., origins="*", ..., supports_credentials=True, ...)
+          - pattern: flask_cors.CORS($APP, ..., supports_credentials=True, ..., origins="*", ...)
+
+  # ── CWE-494: Remote script piped to a shell (curl | bash) ──
+  - id: vulnhunterx.python.download-without-integrity
+    languages: [python]
+    severity: ERROR
+    message: |
+      A remote script is downloaded and piped straight to a shell
+      (curl/wget ... | bash) with no integrity check. A compromised or
+      MITM'd endpoint yields immediate code execution (CWE-494, OWASP 2025
+      A03 Software Supply Chain Failures). Pin a checksum/signature and
+      verify it before executing.
+    metadata:
+      cwe: ["CWE-494"]
+      category: security
+      owasp: "A08:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/494.html
+    patterns:
+      - pattern-either:
+          - pattern: os.system($CMD)
+          - pattern: subprocess.run($CMD, ..., shell=True, ...)
+          - pattern: subprocess.call($CMD, ..., shell=True, ...)
+          - pattern: subprocess.Popen($CMD, ..., shell=True, ...)
+          - pattern: subprocess.check_call($CMD, ..., shell=True, ...)
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '.*(curl|wget).*\|\s*(ba)?sh.*'
+
+  # ── CWE-755: Fail-open — verify() failure swallowed and treated as success ──
+  - id: vulnhunterx.python.swallowed-exception
+    languages: [python]
+    severity: ERROR
+    message: |
+      A signature/credential verification is wrapped in try/except whose
+      handler returns True (or silently passes), so a verification *failure*
+      is treated as success — a fail-open authentication bypass (CWE-755).
+      Return False / re-raise on exception; only return True on the explicit
+      success path.
+    metadata:
+      cwe: ["CWE-755"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/755.html
+    patterns:
+      - pattern-either:
+          - pattern: |
+              try:
+                ...
+                $X.verify(...)
+                ...
+              except ...:
+                return True
+          - pattern: |
+              try:
+                ...
+                $X.verify(...)
+                ...
+              except ...:
+                pass

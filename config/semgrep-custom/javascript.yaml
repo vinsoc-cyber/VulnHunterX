@@ -264,3 +264,30 @@ rules:
           - pattern: '$M.findOne({ $where: $X })'
           - pattern: '$M.find({ ..., $where: $X, ... })'
           - pattern: '$M.findOne({ ..., $where: $X, ... })'
+
+  # ── CWE-494: Remote script piped to a shell (curl | bash) ──
+  - id: vulnhunterx.js.download-without-integrity
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      A remote script is downloaded and piped to a shell (curl/wget ... | bash)
+      via child_process with no integrity check. A compromised or MITM'd
+      endpoint yields immediate code execution (CWE-494, OWASP 2025 A03
+      Software Supply Chain Failures). Pin and verify a checksum/signature
+      before executing.
+    metadata:
+      cwe: ["CWE-494"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/494.html
+    patterns:
+      - pattern-either:
+          - pattern: child_process.exec($CMD, ...)
+          - pattern: child_process.exec($CMD)
+          - pattern: child_process.execSync($CMD)
+          - pattern: child_process.execSync($CMD, ...)
+          - pattern: exec($CMD)
+          - pattern: execSync($CMD)
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '.*(curl|wget).*\|\s*(ba)?sh.*'

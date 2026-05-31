@@ -273,3 +273,73 @@ rules:
           - pattern: $REQ.getReader().lines().collect(...)
           - pattern: IOUtils.toByteArray($REQ.getInputStream())
           - pattern: IOUtils.toString($REQ.getInputStream(), ...)
+
+  # ── CWE-693: Spring Security response-header protections disabled ──
+  - id: vulnhunterx.java.security-headers-disabled
+    languages: [java]
+    severity: WARNING
+    message: |
+      Spring Security secure-header defaults are explicitly disabled. Turning
+      off frame options (clickjacking), HSTS (transport downgrade), or
+      content-type options removes baseline browser hardening (CWE-693).
+      Keep the secure-header defaults and scope any exception narrowly.
+    metadata:
+      cwe: ["CWE-693"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/693.html
+        - https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html
+    patterns:
+      - pattern-either:
+          - pattern: $H.headers().disable()
+          - pattern: $H.headers().frameOptions().disable()
+          - pattern: $H.headers().httpStrictTransportSecurity().disable()
+          - pattern: $H.headers().contentTypeOptions().disable()
+          - pattern: $H.headers(h -> h.disable())
+          - pattern: $H.headers(h -> h.frameOptions(f -> f.disable()))
+
+  # ── CWE-209: Exception detail written to the HTTP response ──
+  - id: vulnhunterx.java.verbose-error
+    languages: [java]
+    severity: WARNING
+    message: |
+      An exception's stack trace or message is written into the HTTP response,
+      leaking class names, file paths, and internal state to the client
+      (CWE-209). Log the detail server-side and return a generic message.
+    metadata:
+      cwe: ["CWE-209"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/209.html
+    patterns:
+      - pattern-either:
+          - pattern: $E.printStackTrace($RESP.getWriter())
+          - pattern: $RESP.getWriter().write($E.getMessage())
+          - pattern: $RESP.getWriter().println($E.getMessage())
+          - pattern: $RESP.sendError($CODE, $E.getMessage())
+
+  # ── CWE-942: Spring @CrossOrigin wildcard origin with credentials ──
+  - id: vulnhunterx.java.cors-misconfiguration
+    languages: [java]
+    severity: ERROR
+    message: |
+      @CrossOrigin (or a CorsConfiguration) that allows origin "*" together
+      with credentials reflects any site's authenticated requests
+      (CWE-942). Replace the wildcard with an explicit allowlist when
+      credentials are permitted.
+    metadata:
+      cwe: ["CWE-942"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/942.html
+    patterns:
+      - pattern-either:
+          - pattern: '@CrossOrigin(origins = "*", allowCredentials = "true")'
+          - pattern: '@CrossOrigin(allowCredentials = "true", origins = "*")'
+          - pattern: |
+              $C.addAllowedOrigin("*");
+              ...
+              $C.setAllowCredentials(true);

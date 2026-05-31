@@ -311,3 +311,45 @@ rules:
       - pattern-not-inside: |
           $R.Body = http.MaxBytesReader(...)
           ...
+
+  # ── CWE-209: Internal error string written to the HTTP response ──
+  - id: vulnhunterx.go.verbose-error
+    languages: [go]
+    severity: WARNING
+    message: |
+      http.Error is called with err.Error(), writing the raw internal error
+      message to the client. This leaks file paths, driver/SQL details, and
+      internal state (CWE-209). Log err server-side and send a generic
+      message to the client.
+    metadata:
+      cwe: ["CWE-209"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/209.html
+    patterns:
+      - pattern: http.Error($W, $ERR.Error(), $CODE)
+
+  # ── CWE-494: Remote script piped to a shell (curl | bash) ──
+  - id: vulnhunterx.go.download-without-integrity
+    languages: [go]
+    severity: ERROR
+    message: |
+      A remote script is downloaded and piped to a shell (curl/wget ... | sh)
+      with no integrity check. A compromised or MITM'd endpoint yields
+      immediate code execution (CWE-494, OWASP 2025 A03 Software Supply Chain
+      Failures). Pin and verify a checksum/signature before executing.
+    metadata:
+      cwe: ["CWE-494"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/494.html
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command("sh", "-c", $CMD)
+          - pattern: exec.Command("bash", "-c", $CMD)
+          - pattern: exec.CommandContext($CTX, "sh", "-c", $CMD)
+          - pattern: exec.CommandContext($CTX, "bash", "-c", $CMD)
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '.*(curl|wget).*\|\s*(ba)?sh.*'
