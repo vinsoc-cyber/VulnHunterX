@@ -353,3 +353,34 @@ rules:
       - metavariable-regex:
           metavariable: $CMD
           regex: '.*(curl|wget).*\|\s*(ba)?sh.*'
+
+  # ── CWE-643: XPath injection — request data flows into an XPath expression ──
+  - id: vulnhunterx.go.xpath-injection
+    languages: [go]
+    severity: ERROR
+    mode: taint
+    message: |
+      Request data flows into an XPath expression compiled/evaluated by
+      antchfx (xpath / xmlquery / htmlquery). An attacker can inject XPath
+      metacharacters to read arbitrary nodes or bypass auth predicates
+      (CWE-643). Validate against an allowlist or use fixed expressions with
+      parameter binding.
+    metadata:
+      cwe: ["CWE-643"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/643.html
+    pattern-sources:
+      - pattern: $R.URL.Query().Get(...)
+      - pattern: $R.FormValue(...)
+      - pattern: $R.PostFormValue(...)
+      - pattern: $R.Form.Get(...)
+    pattern-sinks:
+      - pattern: xpath.Compile(...)
+      - pattern: xpath.MustCompile(...)
+      - pattern: xmlquery.Find(...)
+      - pattern: xmlquery.QueryAll(...)
+      - pattern: xmlquery.FindOne(...)
+      - pattern: htmlquery.Find(...)
+      - pattern: htmlquery.QueryAll(...)

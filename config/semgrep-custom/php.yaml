@@ -238,3 +238,67 @@ rules:
               $NAME = $_FILES[...]['name'];
               ...
               move_uploaded_file($TMP, $Y . $NAME);
+
+  # ── CWE-90: LDAP injection — request data flows into a search filter ──
+  - id: vulnhunterx.php.ldap-injection
+    languages: [php]
+    severity: ERROR
+    mode: taint
+    message: |
+      Request data ($_GET/$_POST/$_REQUEST) flows unescaped into an LDAP
+      search filter. An attacker can inject filter metacharacters (*, ()&|)
+      to bypass authentication or enumerate the directory (CWE-90). Escape
+      with ldap_escape($v, "", LDAP_ESCAPE_FILTER) before building the filter.
+    metadata:
+      cwe: ["CWE-90"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/90.html
+        - https://www.php.net/manual/en/function.ldap-escape.php
+    pattern-sources:
+      - pattern: $_GET
+      - pattern: $_POST
+      - pattern: $_REQUEST
+      - pattern: $_COOKIE
+    pattern-sanitizers:
+      - pattern: ldap_escape(...)
+    pattern-sinks:
+      - patterns:
+          - pattern: ldap_search($CONN, $BASE, $F)
+          - focus-metavariable: $F
+      - patterns:
+          - pattern: ldap_list($CONN, $BASE, $F)
+          - focus-metavariable: $F
+      - patterns:
+          - pattern: ldap_read($CONN, $BASE, $F)
+          - focus-metavariable: $F
+
+  # ── CWE-643: XPath injection — request data flows into an XPath expression ──
+  - id: vulnhunterx.php.xpath-injection
+    languages: [php]
+    severity: ERROR
+    mode: taint
+    message: |
+      Request data ($_GET/$_POST/$_REQUEST) flows into a DOMXPath
+      query/evaluate expression. An attacker can inject XPath metacharacters
+      to read arbitrary nodes or bypass auth predicates (CWE-643). Validate
+      against an allowlist or bind values rather than concatenating them.
+    metadata:
+      cwe: ["CWE-643"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/643.html
+    pattern-sources:
+      - pattern: $_GET
+      - pattern: $_POST
+      - pattern: $_REQUEST
+      - pattern: $_COOKIE
+    pattern-sinks:
+      - patterns:
+          - pattern: $XP->query($Q)
+          - focus-metavariable: $Q
+      - patterns:
+          - pattern: $XP->evaluate($Q)
+          - focus-metavariable: $Q

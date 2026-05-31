@@ -291,3 +291,35 @@ rules:
       - metavariable-regex:
           metavariable: $CMD
           regex: '.*(curl|wget).*\|\s*(ba)?sh.*'
+
+  # ── CWE-1336: Server-Side Template Injection — dynamic template compile ──
+  - id: vulnhunterx.js.template-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      A template engine compiles/renders a non-literal (attacker-influenced)
+      string. Server-side template injection in Handlebars / EJS / Pug /
+      Lodash escalates to data disclosure and often remote code execution
+      (CWE-1336). Compile fixed template files and pass user data as context
+      — never build the template body from input.
+    metadata:
+      cwe: ["CWE-1336", "CWE-917"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1336.html
+    patterns:
+      - pattern-either:
+          - pattern: handlebars.compile($T)
+          - pattern: Handlebars.compile($T)
+          - pattern: ejs.render($T, ...)
+          - pattern: ejs.compile($T)
+          - pattern: pug.compile($T)
+          - pattern: pug.render($T, ...)
+          - pattern: _.template($T)
+      - metavariable-pattern:
+          metavariable: $T
+          patterns:
+            - pattern-not: '"..."'
+            - pattern-not: "'...'"
+            - pattern-not: '`...`'

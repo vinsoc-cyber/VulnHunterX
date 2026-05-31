@@ -343,3 +343,27 @@ rules:
               $C.addAllowedOrigin("*");
               ...
               $C.setAllowCredentials(true);
+
+  # ── CWE-1336: Server-Side Template Injection — template built from a reader ──
+  - id: vulnhunterx.java.template-injection
+    languages: [java]
+    severity: ERROR
+    message: |
+      A FreeMarker/Velocity template is built or evaluated from a dynamic
+      string/reader rather than a fixed template file. If the body is
+      attacker-influenced, SSTI escalates to remote code execution
+      (CWE-1336). Load templates from a trusted loader and pass user data as
+      model variables only.
+    metadata:
+      cwe: ["CWE-1336", "CWE-917"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1336.html
+    patterns:
+      - pattern-either:
+          - pattern: new Template($N, new StringReader($T), $CFG)
+          - pattern: Velocity.evaluate($CTX, $W, $TAG, $T)
+          - pattern: $ENGINE.evaluate($CTX, $W, $TAG, $T)
+      - pattern-not: Velocity.evaluate($CTX, $W, $TAG, "...")
+      - pattern-not: $ENGINE.evaluate($CTX, $W, $TAG, "...")

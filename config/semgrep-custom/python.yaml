@@ -489,3 +489,66 @@ rules:
                 ...
               except ...:
                 pass
+
+  # ── CWE-90: LDAP injection — request data flows into a search filter ──
+  - id: vulnhunterx.python.ldap-injection
+    languages: [python]
+    severity: ERROR
+    mode: taint
+    message: |
+      Request data flows unescaped into an LDAP search filter. An attacker can
+      inject filter metacharacters (*, ()&|) to bypass authentication or
+      enumerate the directory (CWE-90). Escape with
+      ldap.filter.escape_filter_chars() before building the filter.
+    metadata:
+      cwe: ["CWE-90"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/90.html
+    pattern-sources:
+      - pattern: request.args.get(...)
+      - pattern: request.args[...]
+      - pattern: request.form.get(...)
+      - pattern: request.form[...]
+      - pattern: request.values.get(...)
+      - pattern: request.GET.get(...)
+      - pattern: request.POST.get(...)
+      - pattern: request.data
+    pattern-sanitizers:
+      - pattern: escape_filter_chars(...)
+      - pattern: ldap.filter.escape_filter_chars(...)
+    pattern-sinks:
+      - pattern: $CONN.search_s(...)
+      - pattern: $CONN.search(...)
+      - pattern: $CONN.search_ext_s(...)
+
+  # ── CWE-1336: Server-Side Template Injection — dynamic Jinja2 template ──
+  - id: vulnhunterx.python.template-injection
+    languages: [python]
+    severity: ERROR
+    message: |
+      A Jinja2 template is compiled from a non-literal (attacker-influenced)
+      string. Jinja2 templates execute Python expressions, so SSTI escalates
+      to remote code execution via {{ ''.__class__.__mro__ }} gadgets
+      (CWE-1336). Render a fixed template file and pass user data as context
+      variables — never build the template body from input.
+    metadata:
+      cwe: ["CWE-1336", "CWE-917"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1336.html
+        - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/18-Testing_for_Server-side_Template_Injection
+    patterns:
+      - pattern-either:
+          - pattern: render_template_string($T)
+          - pattern: render_template_string($T, ...)
+          - pattern: jinja2.Template($T).render(...)
+          - pattern: Template($T).render(...)
+          - pattern: $ENV.from_string($T).render(...)
+      - metavariable-pattern:
+          metavariable: $T
+          patterns:
+            - pattern-not: '"..."'
+            - pattern-not: "'...'"
