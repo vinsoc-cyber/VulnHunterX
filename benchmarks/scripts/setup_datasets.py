@@ -27,6 +27,13 @@ _BENCHMARKS_DIR = Path(__file__).resolve().parents[1]
 DATASETS_DIR = _BENCHMARKS_DIR / "datasets"
 _MANIFEST_PATH = _BENCHMARKS_DIR / "datasets.yaml"
 
+# NIST SARD (and many CDNs) reject the default "Python-urllib/x.y" User-Agent
+# with HTTP 403 Forbidden. Send a browser-like UA so zip downloads succeed.
+_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
 
 def _load_manifest() -> dict[str, dict]:
     """Load the install manifest from datasets.yaml and resolve target_dir.
@@ -86,11 +93,17 @@ def _download_and_extract(url: str, target: Path) -> None:
     target.mkdir(parents=True, exist_ok=True)
     zip_path = target / "_download.zip"
     logger.info("Downloading %s …", url)
-    urllib.request.urlretrieve(url, zip_path)  # noqa: S310
-    logger.info("Extracting to %s …", target)
     import os
     import shutil
     import zipfile
+
+    # Use an explicit Request with a browser User-Agent (urlretrieve sends the
+    # default Python-urllib UA, which NIST SARD rejects with HTTP 403). urlopen
+    # follows redirects; stream to disk so large suites don't buffer in memory.
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    with urllib.request.urlopen(req, timeout=120) as resp, zip_path.open("wb") as out:  # noqa: S310
+        shutil.copyfileobj(resp, out)
+    logger.info("Extracting to %s …", target)
     target_resolved = target.resolve()
     with zipfile.ZipFile(zip_path) as zf:
         for member in zf.infolist():
