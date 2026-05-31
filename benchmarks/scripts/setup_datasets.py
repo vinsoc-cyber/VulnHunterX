@@ -65,6 +65,59 @@ def _git_clone(url: str, target: Path) -> None:
         subprocess.run(["git", "clone", "--depth=1", url, str(target)], check=True)
 
 
+def _ensure_gdown():  # type: ignore[no-untyped-def]
+    """Import gdown, installing it into the current venv if missing.
+
+    Prefers ``uv pip install`` because this project uses uv, whose venvs ship
+    without pip — so ``python -m pip install`` raises "No module named pip".
+    Falls back to pip, then ensurepip+pip, then a clear actionable error.
+    """
+    try:
+        import gdown  # type: ignore[import]
+
+        return gdown
+    except ImportError:
+        pass
+
+    logger.info("gdown not found, installing…")
+    import shutil as _shutil
+
+    commands: list[list[str]] = []
+    uv = _shutil.which("uv")
+    if uv:
+        commands.append([uv, "pip", "install", "--python", sys.executable, "--quiet", "gdown"])
+    commands.append([sys.executable, "-m", "pip", "install", "--quiet", "gdown"])
+
+    last_err: Exception | None = None
+    for cmd in commands:
+        try:
+            subprocess.run(cmd, check=True)
+            import gdown  # type: ignore[import]
+
+            return gdown
+        except (subprocess.CalledProcessError, FileNotFoundError, ImportError) as exc:
+            last_err = exc
+
+    # Last resort: bootstrap pip into the venv via ensurepip, then install.
+    try:
+        subprocess.run([sys.executable, "-m", "ensurepip", "--upgrade"], check=True)
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "gdown"], check=True
+        )
+        import gdown  # type: ignore[import]
+
+        return gdown
+    except (subprocess.CalledProcessError, FileNotFoundError, ImportError) as exc:
+        last_err = exc
+
+    raise RuntimeError(
+        "Could not install 'gdown' automatically. Install it manually, then re-run:\n"
+        "  uv pip install gdown      (recommended — this project uses uv)\n"
+        "  pip install gdown\n"
+        f"(last error: {last_err})"
+    )
+
+
 def _download_gdrive(file_id: str, filename: str, target: Path) -> None:
     """Download a file from Google Drive using gdown."""
     out_path = target / filename
@@ -72,15 +125,7 @@ def _download_gdrive(file_id: str, filename: str, target: Path) -> None:
         logger.info("Already exists: %s", out_path)
         return
     target.mkdir(parents=True, exist_ok=True)
-    try:
-        import gdown  # type: ignore[import]
-    except ImportError:
-        logger.info("gdown not found, installing…")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "gdown"],
-            check=True,
-        )
-        import gdown  # type: ignore[import]
+    gdown = _ensure_gdown()
     logger.info("Downloading Google Drive file %s → %s", file_id, out_path)
     url = f"https://drive.google.com/uc?id={file_id}"
     gdown.download(url, str(out_path), quiet=False)
