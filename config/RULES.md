@@ -133,7 +133,7 @@ Layered onto Semgrep/OpenGrep via the `full` profile through `custom_semgrep_pat
 
 OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass of `SemgrepAnalyzer` ([../src/vuln_hunter_x/opengrep/analyzer.py](../src/vuln_hunter_x/opengrep/analyzer.py)) — both engines consume these YAMLs identically.
 <!-- sg_tables_begin -->
-### Python — [semgrep-custom/python.yaml](semgrep-custom/python.yaml) (12 rules)
+### Python — [semgrep-custom/python.yaml](semgrep-custom/python.yaml) (22 rules)
 
 | Rule id | CWE | Severity | Message |
 |---|---|---|---|
@@ -149,8 +149,18 @@ OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass 
 | `vulnhunterx.python.predictable-temp-file` | CWE-377 | WARNING | tempfile.mktemp() / NamedTemporaryFile(delete=False) race-condition primitive — filename is returned but file is not opened atomically. |
 | `vulnhunterx.python.shell-true` | CWE-78 | ERROR | subprocess.* with shell=True and a non-literal first argument lets attacker-controlled values reach /bin/sh as shell metacharacters. |
 | `vulnhunterx.python.cleartext-password-log` | CWE-532/CWE-200 | WARNING | A variable whose name suggests it is a password, secret, token, or API key is being written to a log or stdout. |
+| `vulnhunterx.python.file-upload` | CWE-434 | ERROR | A Werkzeug/Flask uploaded file is saved using its attacker-controlled .filename without secure_filename() or an extension allowlist. |
+| `vulnhunterx.python.improper-privilege-management` | CWE-269 | ERROR | A privilege flag (is_superuser / is_staff / is_admin) is assigned a value derived from request data. |
+| `vulnhunterx.python.verbose-error` | CWE-209 | WARNING | An exception traceback is returned in the HTTP response body, leaking stack frames, file paths, and internal state. |
+| `vulnhunterx.python.cors-misconfiguration` | CWE-942 | ERROR | Flask-CORS configured with origins="*" AND supports_credentials=True reflects any site's authenticated requests. |
+| `vulnhunterx.python.download-without-integrity` | CWE-494 | ERROR | A remote script is downloaded and piped straight to a shell (curl/wget ... \| bash) with no integrity check. |
+| `vulnhunterx.python.swallowed-exception` | CWE-755 | ERROR | A verify() call is wrapped in try/except whose handler returns True (or passes) — a fail-open authentication bypass. |
+| `vulnhunterx.python.ldap-injection` | CWE-90 | ERROR | Request data flows unescaped into an LDAP search filter (taint mode; escape_filter_chars sanitizes). |
+| `vulnhunterx.python.template-injection` | CWE-1336/CWE-917 | ERROR | A Jinja2 template is compiled from a non-literal string — SSTI escalates to RCE via gadget expressions. |
+| `vulnhunterx.python.nosql-injection` | CWE-943 | ERROR | A MongoDB query uses the $where operator with a non-literal value (server-side JS evaluation). |
+| `vulnhunterx.python.xxe` | CWE-611 | ERROR | An lxml XMLParser is created with resolve_entities=True / no_network=False, enabling XXE file disclosure and SSRF. |
 
-### JavaScript / TypeScript — [semgrep-custom/javascript.yaml](semgrep-custom/javascript.yaml) (9 rules)
+### JavaScript / TypeScript — [semgrep-custom/javascript.yaml](semgrep-custom/javascript.yaml) (13 rules)
 
 | Rule id | CWE | Severity | Message |
 |---|---|---|---|
@@ -163,8 +173,12 @@ OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass 
 | `vulnhunterx.js.cors-credentials-wildcard` | CWE-942 | ERROR | CORS configured with origin "*" AND credentials: true. Browsers refuse this combination, but the misconfiguration often reveals broken intent. |
 | `vulnhunterx.js.react-dangerously-set-html` | CWE-79 | WARNING | dangerouslySetInnerHTML bypasses React's auto-escaping. Matches the `{__html: $X}` object literal where `$X` is not a string literal. |
 | `vulnhunterx.js.mongoose-where` | CWE-943 | ERROR | MongoDB $where operator evaluates the value as JavaScript on the server. |
+| `vulnhunterx.js.download-without-integrity` | CWE-494 | ERROR | A remote script is downloaded and piped to a shell (curl/wget ... \| bash) via child_process with no integrity check. |
+| `vulnhunterx.js.template-injection` | CWE-1336/CWE-917 | ERROR | A template engine (Handlebars/EJS/Pug/Lodash) compiles a non-literal string — server-side template injection. |
+| `vulnhunterx.js.regex-injection` | CWE-1333 | WARNING | Request data is used to construct a RegExp (taint mode) — ReDoS / catastrophic backtracking hangs the event loop. |
+| `vulnhunterx.js.mass-assignment` | CWE-915 | ERROR | An ORM model is created/updated from the entire req.body — attacker can set non-writable fields (role, isAdmin). |
 
-### Java — [semgrep-custom/java.yaml](semgrep-custom/java.yaml) (7 rules)
+### Java — [semgrep-custom/java.yaml](semgrep-custom/java.yaml) (16 rules)
 
 | Rule id | CWE | Severity | Message |
 |---|---|---|---|
@@ -175,8 +189,17 @@ OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass 
 | `vulnhunterx.java.xml-no-secure-features` | CWE-611 | ERROR | DocumentBuilderFactory created without explicitly disabling external entity expansion (XXE-prone defaults). |
 | `vulnhunterx.java.hardcoded-jwt-secret` | CWE-798/CWE-259 | ERROR | JWT signing key is a string literal embedded in source. |
 | `vulnhunterx.java.open-redirect` | CWE-601 | WARNING | Redirect target read directly from a request parameter without an allowlist check enables open-redirect (phishing pivot, OAuth token theft). |
+| `vulnhunterx.java.file-upload` | CWE-434 | ERROR | A Spring MultipartFile is written to disk using its attacker-controlled getOriginalFilename() with no extension allowlist. |
+| `vulnhunterx.java.improper-privilege-management` | CWE-269 | WARNING | System.setSecurityManager(null) removes the JVM access-control layer — subsequent code runs with no permission checks. |
+| `vulnhunterx.java.resource-exhaustion` | CWE-400/CWE-770 | WARNING | The full request body is read into memory with no size cap (getInputStream().readAllBytes() / IOUtils). |
+| `vulnhunterx.java.security-headers-disabled` | CWE-693 | WARNING | Spring Security secure-header defaults are explicitly disabled (frame options / HSTS / content-type options). |
+| `vulnhunterx.java.verbose-error` | CWE-209 | WARNING | An exception's stack trace or message is written into the HTTP response, leaking internal state. |
+| `vulnhunterx.java.cors-misconfiguration` | CWE-942 | ERROR | @CrossOrigin / CorsConfiguration allows origin "*" together with credentials. |
+| `vulnhunterx.java.template-injection` | CWE-1336/CWE-917 | ERROR | A FreeMarker/Velocity template is built/evaluated from a dynamic string/reader — SSTI escalates to RCE. |
+| `vulnhunterx.java.nosql-injection` | CWE-943 | ERROR | A MongoDB query is built from a non-literal string via BasicQuery / Document.parse (operator injection). |
+| `vulnhunterx.java.regex-injection` | CWE-1333 | WARNING | Request data is compiled into a regular expression (taint mode; Pattern.quote sanitizes) — ReDoS. |
 
-### Go — [semgrep-custom/go.yaml](semgrep-custom/go.yaml) (8 rules)
+### Go — [semgrep-custom/go.yaml](semgrep-custom/go.yaml) (17 rules)
 
 | Rule id | CWE | Severity | Message |
 |---|---|---|---|
@@ -188,8 +211,17 @@ OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass 
 | `vulnhunterx.go.insecure-skip-verify` | CWE-295 | ERROR | tls.Config with InsecureSkipVerify: true disables TLS certificate validation — MITM attacks become trivial on the network path. |
 | `vulnhunterx.go.world-writable-file` | CWE-732/CWE-276 | WARNING | File created with world-writable mode (0o666 / 0o777 / 0o646). |
 | `vulnhunterx.go.hardcoded-jwt-secret` | CWE-798/CWE-259 | ERROR | JWT signing key is a string/byte-slice literal embedded in source. |
+| `vulnhunterx.go.file-upload` | CWE-434 | ERROR | An uploaded file's attacker-controlled FileHeader.Filename is used as the destination path for os.Create / os.OpenFile. |
+| `vulnhunterx.go.improper-privilege-management` | CWE-269 | WARNING | Escalation via syscall.Setuid/Setgid(0) or creation of a setuid/setgid-bit file (0o4xxx / 0o6xxx). |
+| `vulnhunterx.go.resource-exhaustion` | CWE-400/CWE-770 | WARNING | io.ReadAll / ioutil.ReadAll on r.Body with no http.MaxBytesReader cap — unbounded body read. |
+| `vulnhunterx.go.verbose-error` | CWE-209 | WARNING | http.Error is called with err.Error(), writing the raw internal error message to the client. |
+| `vulnhunterx.go.download-without-integrity` | CWE-494 | ERROR | A remote script is downloaded and piped to a shell (exec.Command sh -c "curl ... \| sh") with no integrity check. |
+| `vulnhunterx.go.xpath-injection` | CWE-643 | ERROR | Request data flows into an XPath expression compiled/evaluated by antchfx (taint mode). |
+| `vulnhunterx.go.nosql-injection` | CWE-943 | ERROR | A MongoDB query is built with the $where operator (server-side JavaScript evaluation). |
+| `vulnhunterx.go.regex-injection` | CWE-1333 | WARNING | Request data is compiled as a regex pattern (taint mode; regexp.QuoteMeta sanitizes) — ReDoS. |
+| `vulnhunterx.go.open-redirect` | CWE-601 | WARNING | The http.Redirect target is derived from request data with no allowlist check (taint mode). |
 
-### PHP — [semgrep-custom/php.yaml](semgrep-custom/php.yaml) (7 rules)
+### PHP — [semgrep-custom/php.yaml](semgrep-custom/php.yaml) (14 rules)
 
 | Rule id | CWE | Severity | Message |
 |---|---|---|---|
@@ -200,6 +232,13 @@ OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass 
 | `vulnhunterx.php.weak-hash` | CWE-327/CWE-328 | WARNING | MD5 / SHA-1 are collision-vulnerable. |
 | `vulnhunterx.php.insecure-rand` | CWE-330/CWE-338 | WARNING | rand() / mt_rand() are not cryptographically secure — flagged inside security-named functions. |
 | `vulnhunterx.php.predictable-tempnam` | CWE-377 | WARNING | tempnam() in /tmp returns a predictable filename that an attacker with local access can pre-create or rebind. |
+| `vulnhunterx.php.file-upload` | CWE-434 | ERROR | move_uploaded_file() writes the upload to a destination built from the attacker-controlled $_FILES[..]['name'] with no allowlist. |
+| `vulnhunterx.php.ldap-injection` | CWE-90 | ERROR | Request data ($_GET/$_POST) flows unescaped into an LDAP search filter (taint mode; ldap_escape sanitizes). |
+| `vulnhunterx.php.xpath-injection` | CWE-643 | ERROR | Request data flows into a DOMXPath query/evaluate expression (taint mode). |
+| `vulnhunterx.php.xxe` | CWE-611 | ERROR | XML is parsed with the LIBXML_NOENT flag, which substitutes external entities — XXE file disclosure and SSRF. |
+| `vulnhunterx.php.open-redirect` | CWE-601 | WARNING | A Location redirect header is built from $_GET/$_POST/$_REQUEST with no allowlist check. |
+| `vulnhunterx.php.mass-assignment` | CWE-915 | ERROR | A Laravel Eloquent model is created/filled/updated from the entire request input ($request->all()). |
+| `vulnhunterx.php.ssrf` | CWE-918 | ERROR | Request data flows into an outbound fetch URL (file_get_contents / fopen / curl) with no host/scheme allowlist (taint mode). |
 
 ### C / C++ — [semgrep-custom/cpp.yaml](semgrep-custom/cpp.yaml) (4 rules)
 
@@ -244,7 +283,7 @@ Findings can be filtered at verify time with `--category <name>` (repeatable). T
 | `file-security` | Path traversal, file upload, zip slip | 3 |
 | `dos` | Resource exhaustion, ReDoS, algorithmic complexity | 4 |
 
-The `cwe_question_map` section in the same file routes **123 CWE IDs** to guided-question suffixes (e.g. `CWE-89 → sql-injection`). Findings missing a CWE tag are always included (conservative).
+The `cwe_question_map` section in the same file routes **124 CWE IDs** to guided-question suffixes (e.g. `CWE-89 → sql-injection`). Findings missing a CWE tag are always included (conservative).
 
 ## 7. Guided-Question Routing
 
