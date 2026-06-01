@@ -139,7 +139,12 @@ class VulnHunterXApproach(RegisteredApproach):
             jobs=1,
         )
 
-        _, match_type = self._questions_loader.get_questions_with_match_info(finding.rule_id)
+        # Mirror the args the engine uses internally (engine.py) so the
+        # recorded match type can't diverge from the questions actually fed to
+        # the LLM — e.g. a CWE-tier match would otherwise be misreported.
+        _, match_type = self._questions_loader.get_questions_with_match_info(
+            finding.rule_id, cwe_ids=finding.cwe_ids, lang=finding.lang,
+        )
 
         result = engine.verify_findings([finding])
         elapsed = time.monotonic() - start

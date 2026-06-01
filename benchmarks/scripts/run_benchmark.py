@@ -78,7 +78,11 @@ _DEFAULT_MAX_ITERATIONS: int = (
 )
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry, load_entries  # noqa: E402
-from benchmarks.approaches.base import BenchmarkApproach, BenchmarkResult  # noqa: E402
+from benchmarks.approaches.base import (  # noqa: E402
+    PRED_ERROR,
+    BenchmarkApproach,
+    BenchmarkResult,
+)
 from benchmarks.metrics import deepseek_v4_cost  # noqa: E402
 from benchmarks.metrics.evaluator import ApproachMetrics, evaluate  # noqa: E402
 from benchmarks.scripts._progress import (  # noqa: E402
@@ -287,6 +291,7 @@ def _save_checkpoint(
     status: str = "completed",
     raw_sast_tp: int | None = None,
     raw_sast_fp: int | None = None,
+    total_expected: int | None = None,
 ) -> None:
     path = _checkpoint_path(run_dir, dataset, approach)
     processed_ids = [r.entry.id for r in results]
@@ -296,7 +301,14 @@ def _save_checkpoint(
         # ── Resume metadata (new) ──────────────────────────────────────────
         "status": status,
         "processed_entry_ids": processed_ids,
-        "total_entries_expected": len(results),
+        # The true number of entries this pair expects to process. For an
+        # in_progress save this MUST be the full target (done + remaining),
+        # not len(results) — otherwise generate_report's "stuck" detector
+        # (entries_done >= entries_expected) treats every partial run as
+        # finished. Completed saves fall back to len(results) == total.
+        "total_entries_expected": (
+            total_expected if total_expected is not None else len(results)
+        ),
         "updated_at": datetime.now(tz=UTC).isoformat(),
         # ── Existing fields (backward-compatible) ─────────────────────────
         "metrics": metrics.summary_dict(
@@ -526,7 +538,10 @@ def run_one(
                     len(orphaned),
                 )
             entries = remaining
-        else:
+        elif not only_entries:
+            # Plain overwrite (no --resume, no --only-entries): discard the
+            # whole prior checkpoint. With --only-entries set we instead keep
+            # the rows trimmed above so non-listed results survive the re-run.
             logger.info(
                 "Overwriting existing checkpoint for %s × %s (--resume not set)",
                 approach_name, dataset_name,
@@ -556,10 +571,15 @@ def run_one(
         approach_name, dataset_name, len(entries),
     )
 
+    # Full target for this pair (already-done rows + the rows we will run this
+    # session). Used both for the progress total and for the in_progress
+    # checkpoint's total_entries_expected.
+    pair_total = len(prior_results) + len(entries)
+
     progress = ProgressDisplay(
         dataset=dataset_name,
         approach=approach_name,
-        total=len(prior_results) + len(entries),
+        total=pair_total,
         verbose=verbose,
         quiet=quiet,
     )
@@ -585,10 +605,28 @@ def run_one(
         llm_gate = threading.BoundedSemaphore(effective)
 
     def _evaluate(entry: GroundTruthEntry) -> BenchmarkResult:
-        if llm_gate is None:
-            return approach.evaluate(entry)
-        with llm_gate:
-            return approach.evaluate(entry)
+        # A crash in approach.evaluate (a programming/interface error, not an
+        # LLM-API error — those are already converted to an Error verdict
+        # inside the engine) must not abort the entire pair and discard every
+        # result computed so far. Convert it to an ERROR row, log it loudly so
+        # it stays visible in benchmark.log, and let the run continue.
+        try:
+            if llm_gate is None:
+                return approach.evaluate(entry)
+            with llm_gate:
+                return approach.evaluate(entry)
+        except Exception as exc:  # noqa: BLE001 — isolate one bad entry
+            logger.exception(
+                "approach %s crashed on entry %s — recording ERROR",
+                approach_name, entry.id,
+            )
+            return BenchmarkResult(
+                entry=entry,
+                predicted_label=PRED_ERROR,
+                confidence="",
+                reasoning=f"approach.evaluate raised {type(exc).__name__}: {exc}",
+                elapsed_seconds=0.0,
+            )
 
     def _completed_results() -> list[BenchmarkResult]:
         return [r for r in slots if r is not None]
@@ -621,6 +659,7 @@ def run_one(
                     _save_checkpoint(
                         run_dir, dataset_name, approach_name,
                         all_so_far, partial_metrics, status="in_progress",
+                        total_expected=pair_total,
                     )
         except KeyboardInterrupt:
             completed = _completed_results()
@@ -633,6 +672,7 @@ def run_one(
                 _save_checkpoint(
                     run_dir, dataset_name, approach_name,
                     all_so_far, partial_metrics, status="in_progress",
+                    total_expected=pair_total,
                 )
                 logger.info(
                     "Interrupted. Progress saved (%d/%d entries).",
@@ -679,6 +719,7 @@ def run_one(
                         _save_checkpoint(
                             run_dir, dataset_name, approach_name,
                             all_so_far, partial_metrics, status="in_progress",
+                            total_expected=pair_total,
                         )
             except KeyboardInterrupt:
                 pool.shutdown(cancel_futures=True, wait=True)
@@ -693,6 +734,7 @@ def run_one(
                     _save_checkpoint(
                         run_dir, dataset_name, approach_name,
                         all_so_far, partial_metrics, status="in_progress",
+                        total_expected=pair_total,
                     )
                     logger.info(
                         "Interrupted. Progress saved (%d/%d entries).",
@@ -1254,6 +1296,20 @@ def main() -> int:
                     raw_sast_tp = m.true_labels_tp
                     raw_sast_fp = m.true_labels_fp
                     break
+            # On --resume, raw-sast may have been skipped this session because
+            # it was already completed, so it's absent from dataset_runs above.
+            # Recover the baseline counts from its on-disk checkpoint; otherwise
+            # the resumed LLM arms get re-saved without fp_reduction_rate /
+            # tp_preservation_rate (those require the baseline TP/FP).
+            if raw_sast_tp is None:
+                rs_ckpt = _load_checkpoint(run_dir, dataset_name, "raw-sast")
+                if rs_ckpt is not None:
+                    _, _, rs_results = rs_ckpt
+                    rs_metrics = evaluate(
+                        rs_results, "raw-sast", dataset_name, args.nmd_handling
+                    )
+                    raw_sast_tp = rs_metrics.true_labels_tp
+                    raw_sast_fp = rs_metrics.true_labels_fp
 
             # Save final completed checkpoints with baseline-relative metrics (Phase 6)
             for name, m, results in dataset_runs:

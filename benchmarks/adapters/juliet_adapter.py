@@ -252,13 +252,14 @@ class JulietAdapter(DatasetAdapter):
 
             # Apply per-CWE balanced sampling
             if per_cwe_limit and cwe_entries:
+                original_total = len(cwe_entries)
                 half = max(1, per_cwe_limit // 2)
                 tp_entries = [e for e in cwe_entries if e.label == LABEL_TP][:half]
                 fp_entries = [e for e in cwe_entries if e.label == LABEL_FP][:half]
                 cwe_entries = tp_entries + fp_entries
                 logger.debug(
                     "Juliet %s: sampled %d TP + %d FP (from %d total)",
-                    cwe_id, len(tp_entries), len(fp_entries), len(cwe_entries),
+                    cwe_id, len(tp_entries), len(fp_entries), original_total,
                 )
 
             entries.extend(cwe_entries)

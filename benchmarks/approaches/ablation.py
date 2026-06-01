@@ -66,7 +66,9 @@ class _ZeroShotLoader(QuestionsLoader):
     def __init__(self) -> None:
         super().__init__(prompts_dir=None)
 
-    def get_questions(self, rule_id: str) -> GuidedQuestions:
+    def get_questions(
+        self, rule_id: str, *, cwe_ids: list[str] | None = None, lang: str = "",
+    ) -> GuidedQuestions:
         return GuidedQuestions(
             rule_id=rule_id,
             short_description="",
@@ -75,7 +77,9 @@ class _ZeroShotLoader(QuestionsLoader):
             additional_context=[],
         )
 
-    def get_questions_with_match_info(self, rule_id: str) -> tuple[GuidedQuestions, str]:
+    def get_questions_with_match_info(
+        self, rule_id: str, *, cwe_ids: list[str] | None = None, lang: str = "",
+    ) -> tuple[GuidedQuestions, str]:
         return self.get_questions(rule_id), "generic"
 
 
@@ -177,7 +181,11 @@ class _AblationVariant(RegisteredApproach):
             jobs=1,
         )
 
-        _, match_type = self._loader.get_questions_with_match_info(finding.rule_id)
+        # Mirror the args the engine uses internally so the recorded match
+        # type can't diverge from the questions actually fed to the LLM.
+        _, match_type = self._loader.get_questions_with_match_info(
+            finding.rule_id, cwe_ids=finding.cwe_ids, lang=finding.lang,
+        )
         result = engine.verify_findings([finding])
         elapsed = time.monotonic() - start
 
