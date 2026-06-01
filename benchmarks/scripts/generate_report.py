@@ -225,21 +225,10 @@ def _run_metadata(run_dir: Path, summaries: list[dict]) -> str:
         mins, secs = divmod(int(wall_s), 60)
         wall_str = f"{mins}m {secs}s" if mins else f"{secs}s"
 
+    # Real provider-reported cost ($0 for local/Ollama and any model LiteLLM
+    # has no price for).
     total_cost = sum(s.get("total_cost_usd", 0.0) for s in summaries)
-    # Imputed cost (tokens × API list price) — populated even when LiteLLM has
-    # no price for the provider (e.g. Ollama Cloud, local Ollama, self-hosted
-    # OpenAI-compatible endpoints). Surface it alongside the real cost so
-    # cloud/free-tier runs aren't misread as zero-cost.
-    imputed_costs = [
-        s.get("imputed_api_cost_usd")
-        for s in summaries
-        if s.get("imputed_api_cost_usd") is not None
-    ]
-    total_imputed = sum(imputed_costs) if imputed_costs else None
-    if total_imputed is not None and (total_cost == 0.0 or total_imputed > total_cost):
-        cost_str = f"${total_cost:.4f} (imputed: ${total_imputed:.4f})"
-    else:
-        cost_str = f"${total_cost:.4f}"
+    cost_str = f"${total_cost:.4f}"
 
     lines = [
         "## Run Info",
@@ -951,11 +940,7 @@ def _cost_table(summaries: list[dict]) -> str:
             f"{_num(s.get('mean_iterations'), 1)} / {s.get('max_iterations', '—')}"
         )
         real_cost = s.get("total_cost_usd", 0.0) or 0.0
-        imputed = s.get("imputed_api_cost_usd")
-        if imputed is not None and (real_cost == 0.0 or imputed > real_cost):
-            cost_cell = f"${real_cost:.4f} (imputed ${imputed:.4f})"
-        else:
-            cost_cell = f"${real_cost:.4f}"
+        cost_cell = f"${real_cost:.4f}"
         rows.append([
             s.get("approach", "?"),
             s.get("dataset", "?"),

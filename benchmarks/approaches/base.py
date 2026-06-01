@@ -37,13 +37,12 @@ class BenchmarkResult:
     reasoning: str
     elapsed_seconds: float
     tokens_used: int = 0
-    input_tokens: int = 0       # prompt tokens (for imputed cost)
-    output_tokens: int = 0      # completion tokens (for imputed cost)
-    # Subset of input_tokens that hit the provider's prompt cache.
-    # Required for honest imputed cost on providers (e.g. DeepSeek) that
-    # bill cache-hit input at a discounted rate.
+    input_tokens: int = 0       # prompt tokens (provider usage telemetry)
+    output_tokens: int = 0      # completion tokens (provider usage telemetry)
+    # Subset of input_tokens that hit the provider's prompt cache, as
+    # reported by the provider (e.g. DeepSeek / OpenAI cached_tokens).
     cached_input_tokens: int = 0
-    cost_usd: float = 0.0       # local-marginal cost reported by the provider
+    cost_usd: float = 0.0       # real cost reported by the provider
     iterations: int = 0
     raw_response: str = ""
     question_match_type: str = ""  # "exact"|"normalized"|"prefix"|"lang_prefix"|"default"|"generic"

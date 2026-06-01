@@ -193,16 +193,11 @@ class ApproachMetrics:
     # report; this matrix surfaces it.
     iteration_calibration: dict[str, CalibrationBucket] = field(default_factory=dict)
 
-    # Cost & latency. Two cost columns:
-    #   total_cost_usd      -> local-marginal cost (from provider; ~0 for Ollama)
-    #   imputed_api_cost_usd -> tokens × API list pricing (computed in summary_dict)
+    # Cost & latency. total_cost_usd is the real provider-reported cost
+    # (~0 for Ollama / models LiteLLM has no price for).
     total_tokens: int = 0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
-    # Subset of total_input_tokens that hit the provider's prompt cache.
-    # Used for honest imputed cost on providers (e.g. DeepSeek) with a
-    # cache-hit pricing tier.
-    total_cached_input_tokens: int = 0
     total_cost_usd: float = 0.0
     elapsed_seconds: list[float] = field(default_factory=list)
     total_elapsed: float = 0.0
@@ -342,38 +337,13 @@ class ApproachMetrics:
         self,
         raw_sast_tp: int | None = None,
         raw_sast_fp: int | None = None,
-        pricing: Any = None,
-        model_name: str | None = None,
     ) -> dict[str, Any]:
         """Render this approach's metrics as a dict.
 
         Args:
           raw_sast_tp / raw_sast_fp: counts from the raw-SAST baseline so
               FP-reduction and TP-preservation can be computed.
-          pricing: a ``benchmarks.metrics.cost.Pricing`` or
-              ``dict[str, Pricing]`` to compute imputed API cost. If None,
-              imputed cost is omitted from the summary.
-          model_name: model identifier used to look up pricing when
-              ``pricing`` is a per-model dict.
         """
-        from benchmarks.metrics.cost import Pricing, imputed_cost
-
-        # Imputed API cost (computed from token counts × list pricing).
-        imputed_usd: float | None = None
-        if pricing is not None and (
-            self.total_input_tokens > 0 or self.total_output_tokens > 0
-        ):
-            try:
-                imputed_usd = imputed_cost(
-                    input_tokens=self.total_input_tokens,
-                    output_tokens=self.total_output_tokens,
-                    schedule=pricing if isinstance(pricing, (dict, Pricing)) else dict(pricing),
-                    model=model_name or self.approach_name,
-                    input_cached_tokens=self.total_cached_input_tokens,
-                )
-            except Exception:
-                imputed_usd = None
-
         d: dict[str, Any] = {
             "approach": self.approach_name,
             "dataset": self.dataset_name,
@@ -394,12 +364,6 @@ class ApproachMetrics:
             "total_tokens": self.total_tokens,
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
-            "total_cached_input_tokens": self.total_cached_input_tokens,
-            "local_marginal_cost_usd": round(self.total_cost_usd, 6),
-            "imputed_api_cost_usd": (
-                round(imputed_usd, 6) if imputed_usd is not None else None
-            ),
-            # Legacy field kept for back-compat with existing reports.
             "total_cost_usd": round(self.total_cost_usd, 4),
             "tokens_per_finding": _fmt(self.tokens_per_finding),
             "total_elapsed_s": round(self.total_elapsed, 2),
@@ -578,7 +542,6 @@ def evaluate(
                 metrics.total_tokens += r.tokens_used
                 metrics.total_input_tokens += r.input_tokens
                 metrics.total_output_tokens += r.output_tokens
-                metrics.total_cached_input_tokens += r.cached_input_tokens
                 metrics.total_cost_usd += r.cost_usd
                 if r.iterations:
                     metrics.iterations_list.append(r.iterations)
@@ -594,7 +557,6 @@ def evaluate(
             metrics.total_tokens += r.tokens_used
             metrics.total_input_tokens += r.input_tokens
             metrics.total_output_tokens += r.output_tokens
-            metrics.total_cached_input_tokens += r.cached_input_tokens
             metrics.total_cost_usd += r.cost_usd
             if r.iterations:
                 metrics.iterations_list.append(r.iterations)
@@ -609,7 +571,6 @@ def evaluate(
             metrics.total_tokens += r.tokens_used
             metrics.total_input_tokens += r.input_tokens
             metrics.total_output_tokens += r.output_tokens
-            metrics.total_cached_input_tokens += r.cached_input_tokens
             metrics.total_cost_usd += r.cost_usd
             if r.iterations:
                 metrics.iterations_list.append(r.iterations)
@@ -623,7 +584,6 @@ def evaluate(
         metrics.total_tokens += r.tokens_used
         metrics.total_input_tokens += r.input_tokens
         metrics.total_output_tokens += r.output_tokens
-        metrics.total_cached_input_tokens += r.cached_input_tokens
         metrics.total_cost_usd += r.cost_usd
         if r.iterations:
             metrics.iterations_list.append(r.iterations)

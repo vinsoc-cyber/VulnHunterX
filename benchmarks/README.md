@@ -206,10 +206,13 @@ the **same** dataset/approach, use the matrix runner — it launches one
 DeepSeek's `OPENAI_BASE_URL` doesn't bleed into a plain-OpenAI run) and writes a
 `matrix.json`. Then `compare_models.py` aggregates them into one `COMPARISON.md`.
 
-The matrix is defined in [config/models.yaml](config/models.yaml) — edit it to add
-models, pin a `pricing` file, or point at a per-model `.env`. Default tiers:
-`gpt-4.1` / `gpt-5` (GPT), `deepseek-chat` / `deepseek-reasoner` (DeepSeek),
-`ollama/qwen3-coder:480b-cloud` (bulk).
+The matrix is defined in `config/models.yaml`. Copy the tracked template
+[config/models.yaml.example](config/models.yaml.example) to `config/models.yaml`
+(gitignored) and edit it to add models or point at a per-model `.env`; the runner
+prefers `models.yaml` and falls back to the `.example`. For each model's `env:`,
+copy the matching `config/.env.<name>.example` to a repo-root `.env.<name>` and
+fill in real keys. Default tiers: `gpt-4.1` / `gpt-5` (GPT), `deepseek-v4-flash` /
+`deepseek-v4-pro` (DeepSeek), `ollama/qwen3-coder:480b-cloud` (bulk).
 
 ```bash
 # Dry-run the whole matrix (mock LLM, no API cost)
@@ -227,10 +230,9 @@ python benchmarks/scripts/compare_models.py \
     --run-dir benchmarks/results/matrix_2026q2 --charts
 ```
 
-Pricing auto-resolves per model from the built-in `DEFAULT_PRICING` (covers
-`gpt-*`, `gpt-5`, `deepseek-*`, `qwen*`, `claude*`); local/Ollama models impute to
-$0. Pass `--pricing <file>` or set `pricing:` in `models.yaml` to override.
-Forward dataset-specific flags after `--`, e.g. `… -- --juliet-per-cwe 20`.
+Cost is the real provider-reported API cost (`$0` for local/Ollama models and any
+model LiteLLM has no price for). Forward dataset-specific flags after `--`,
+e.g. `… -- --juliet-per-cwe 20`.
 
 > Run the matrix on **Track-1** datasets (OpenVuln, OWASP, RealVuln, SecLLMHolmes,
 > security-rules). Track-2 detection sets (DiverseVul) are excluded from the

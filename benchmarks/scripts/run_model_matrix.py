@@ -15,7 +15,7 @@ Why subprocesses (not in-process): each provider needs an isolated credential
 environment — DeepSeek sets ``OPENAI_BASE_URL`` + ``OPENAI_API_KEY``, plain
 OpenAI must NOT have a base URL, Ollama uses ``OLLAMA_API_*``. These collide in
 one process. A fresh subprocess with a per-model env gives clean isolation and
-reuses 100% of run_benchmark's pricing/preflight/checkpoint/resume logic.
+reuses 100% of run_benchmark's preflight/checkpoint/resume logic.
 
 Examples:
     # Dry-run across the default matrix (no API cost)
@@ -46,8 +46,15 @@ from dotenv import dotenv_values
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RUN_BENCHMARK = _REPO_ROOT / "benchmarks" / "scripts" / "run_benchmark.py"
-_MODELS_YAML = _REPO_ROOT / "benchmarks" / "config" / "models.yaml"
+_CONFIG_DIR = _REPO_ROOT / "benchmarks" / "config"
 _RESULTS_DIR = _REPO_ROOT / "benchmarks" / "results"
+
+
+def _default_models_yaml() -> Path:
+    """Prefer the user's ``models.yaml``; fall back to the tracked
+    ``models.yaml.example`` template if they haven't copied it yet."""
+    real = _CONFIG_DIR / "models.yaml"
+    return real if real.is_file() else _CONFIG_DIR / "models.yaml.example"
 
 # Credential / provider-selection keys that must be reset per model so a value
 # from the parent shell or repo .env doesn't leak across providers (e.g. a
@@ -107,7 +114,7 @@ def _build_env(model: dict) -> dict[str, str]:
 
 
 def _build_argv(model: dict, subdir: Path, common: list[str], extra: list[str]) -> list[str]:
-    argv = [
+    return [
         sys.executable,
         str(_RUN_BENCHMARK),
         "--model", str(model["model"]),
@@ -116,10 +123,6 @@ def _build_argv(model: dict, subdir: Path, common: list[str], extra: list[str]) 
         *common,
         *extra,
     ]
-    pricing = model.get("pricing")
-    if pricing:
-        argv += ["--pricing", str((_REPO_ROOT / pricing).resolve())]
-    return argv
 
 
 def main() -> int:
@@ -127,8 +130,9 @@ def main() -> int:
         description="Run a benchmark across a matrix of models.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--models-config", type=Path, default=_MODELS_YAML,
-                        help=f"Path to models.yaml (default: {_MODELS_YAML}).")
+    _models_yaml = _default_models_yaml()
+    parser.add_argument("--models-config", type=Path, default=_models_yaml,
+                        help=f"Path to models.yaml (default: {_models_yaml}).")
     parser.add_argument("--models", default=None,
                         help="Comma-separated model ids to run (default: all in the config).")
     parser.add_argument("--dataset", default="secllmholmes",
@@ -195,7 +199,6 @@ def main() -> int:
             "model": model["model"],
             "tier": model.get("tier"),
             "subdir": mid,
-            "pricing": model.get("pricing"),
             "returncode": proc.returncode,
         })
         if proc.returncode != 0 and not args.continue_on_error:

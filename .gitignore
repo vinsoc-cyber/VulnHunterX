@@ -24,11 +24,14 @@ test-apps
 # Benchmarks — large datasets and results are git-ignored
 benchmarks/datasets/
 benchmarks/results/
+# The real model matrix is local; only the .example template is tracked.
+benchmarks/config/models.yaml
+# Track the sanitized credential templates (past the .env* rule above).
+!benchmarks/config/.env.*.example
 
 # IDE and local tooling — not committed
 .claude/
 .cursor/
 CLAUDE.md
 .ruff_cache/
-pricing*
 docs/paper/
