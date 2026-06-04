@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import re
 import threading
@@ -142,6 +143,33 @@ def _is_test_path(file_path: str) -> bool:
         normalized = normalized[7:].lstrip("/")
     parts = [p for p in normalized.split("/") if p]
     return any(part in ("test", "tests") for part in parts)
+
+
+def _verdict_filename(finding: Finding) -> str:
+    """Unique, filesystem-safe filename for a per-finding verdict JSON.
+
+    Keyed on the finding's full identity (rule, path, span, message, dataflow) so
+    distinct findings never collide; genuinely identical findings collapse to one
+    file. The previous scheme keyed only on rule_id + start_line, which caused
+    same-rule/same-line findings in different files to overwrite each other.
+    """
+    safe_rule = finding.rule_id.replace("/", "_") or "unknown-rule"
+    safe_file = re.sub(r"[^A-Za-z0-9]+", "-", finding.file or "unknown").strip("-")
+    identity = "|".join(
+        [
+            finding.rule_id,
+            finding.file,
+            str(finding.start_line),
+            str(finding.end_line),
+            finding.message,
+            "\n".join(finding.dataflow_path),
+        ]
+    )
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:10]
+    readable = f"{safe_rule}_{safe_file}_{finding.start_line}"
+    # Bound the readable part well under the 255-char filename limit; the digest is
+    # appended after truncation so it is never cut and uniqueness is preserved.
+    return f"{readable[:150]}_{digest}.json"
 
 
 class VerificationEngine:
@@ -697,9 +725,7 @@ class VerificationEngine:
                 output_dir / finding.lang / finding.repo_name / "verification_results"
             )
             repo_results_dir.mkdir(parents=True, exist_ok=True)
-            result_file = (
-                repo_results_dir / f"{finding.rule_id.replace('/', '_')}_{finding.start_line}.json"
-            )
+            result_file = repo_results_dir / _verdict_filename(finding)
             result_file.write_text(json.dumps(verdict.to_dict(), indent=2))
 
         # Summary: write to first repo's verification_results dir
