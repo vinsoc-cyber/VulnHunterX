@@ -24,6 +24,17 @@ _SUPPORTED_LANGS = {"c", "cpp", "python", "javascript", "php", "java", "go"}
 _BUNDLED_CONFIG = Path(__file__).resolve().parents[3] / "config"
 
 
+def _int_env(name: str) -> int | None:
+    """Return the value of env var ``name`` as an int, or None if unset/invalid."""
+    raw = os.environ.get(name)
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
 def _find_db_name_by_source_root(
     local_path: Path, lang: str, output_dir: Path
 ) -> str | None:
@@ -131,11 +142,19 @@ def _derive_repo_name(url: str | None, local_path: Path | None) -> str | None:
 def cmd_prepare(args: argparse.Namespace) -> int:
     """Execute prepare (clone) command."""
     from vuln_hunter_x.codeql.repository import RepositoryManager
+    from vuln_hunter_x.core.constants import TIMEOUT_CODEQL_DB_CREATE
 
     base_path = Path.cwd()
     codeql_path = os.environ.get("CODEQL_PATH", "codeql")
     url = getattr(args, "url", None)
     local_path = getattr(args, "local_path", None)
+
+    # DB-creation timeout precedence: CLI flag > env var > constant default.
+    db_timeout = (
+        getattr(args, "db_timeout", None)
+        or _int_env("CODEQL_DB_CREATE_TIMEOUT")
+        or TIMEOUT_CODEQL_DB_CREATE
+    )
 
     # Validate mutually exclusive options
     if url and local_path:
@@ -182,6 +201,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
             skip_db=args.skip_db,
             dry_run=args.dry_run,
             ask_llm=args.ask_llm,
+            timeout=db_timeout,
         )
 
         status = "OK" if ok else "FAIL"
@@ -222,6 +242,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         skip_db=args.skip_db,
         dry_run=args.dry_run,
         ask_llm=args.ask_llm,
+        timeout=db_timeout,
     )
 
     ok_count = sum(1 for _, ok, _ in results if ok)

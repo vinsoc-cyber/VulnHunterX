@@ -28,11 +28,10 @@ Layered onto CodeQL via the `full` profile (`include_custom_codeql: true`). The 
 
 All five language packs ship working queries — totals are sourced directly from each query's `@id` / `@kind` / `@security-severity` / `external/cwe/cwe-*` header.
 <!-- ql_tables_begin -->
-### C/C++ — [codeql-custom/cpp/src/](codeql-custom/cpp/src/) (21 rules)
+### C/C++ — [codeql-custom/cpp/src/](codeql-custom/cpp/src/) (16 rules)
 
 | `@id` | CWE | Kind | Severity | Description |
 |---|---|---|---|---|
-| `cpp/alloca-in-loop` | CWE-674 | problem | 6.0 | Calling `alloca()` inside a loop body causes the stack to grow by one allocation per iteration — for large iteration counts this leads to uncontrolled stack consumption and crash. |
 | `cpp/command-injection` | CWE-78/CWE-77 | path-problem | 9.0 | User-controlled data reaching `system`, `popen`, `execl`, `execv`, `execlp`, or `execvp` without sanitisation lets an attacker inject shell metacharacters or override the executed program (CWE-78). |
 | `cpp/csv-formula-injection` | CWE-1236 | path-problem | 6.5 | Writing user input to a CSV/TSV file via `fputs` / `fprintf` / `fwrite` without escaping leading `=`, `+`, `-`, `@`, tab, or carriage-return characters enables formula injection: a victim opening the file in Excel / LibreOffice / Google Sheets will execute the formula. |
 | `cpp/dangling-pointer` | CWE-825 | problem | 7.5 | A pointer that captures the address of a local variable becomes dangling once that variable's scope ends. |
@@ -43,37 +42,29 @@ All five language packs ship working queries — totals are sourced directly fro
 | `cpp/missing-return-value-check` | CWE-252/CWE-253 | problem | 6.5 | Functions that signal failure via their return value (malloc / calloc / realloc / fopen / mmap / read / write / socket / recv / send) must have that value compared to an error sentinel before subsequent use. |
 | `cpp/null-pointer-deref` | CWE-476 | problem | 7.5 | A pointer returned from malloc / calloc / realloc that is dereferenced without first being compared against NULL is a guaranteed crash on allocation failure (CWE-476) and on attacker-influenced size-zero / out-of-memory paths can be promoted into a DoS or worse. |
 | `cpp/out-of-bounds-read` | CWE-125/CWE-129 | path-problem | 7.0 | An array or buffer read whose index / length parameter is tainted by an external source (argv, getenv, read, recv, scanf) and does not pass through a bounding check before reaching the array-access / memcpy sink is a CWE-125 candidate. |
-| `cpp/overflow-destination` | CWE-805/CWE-806 | problem | 7.0 | A common bug: `memcpy(dst, src, sizeof(src))` where `src` is a pointer parameter (not an array) copies the pointer width (4 or 8 bytes) rather than the data it points to. |
 | `cpp/signed-overflow` | CWE-190 | problem | 5.5 | Left-shifting a signed integer whose result does not fit in its destination type is undefined behaviour in C and C++11 (5.8p2). |
-| `cpp/stack-address-escape` | CWE-562 | problem | 8.0 | Returning a pointer to a stack-allocated local variable produces a dangling pointer the moment the function returns — the caller's dereference is undefined behaviour. |
 | `cpp/timing-unsafe-comparison` | CWE-208 | problem | 6.5 | `memcmp` / `strcmp` / `strncmp` / `==` short-circuit on the first differing byte, leaking secret content via response time. |
-| `cpp/uncontrolled-allocation-size` | CWE-789/CWE-190 | path-problem | 7.5 | An allocation whose size is derived (directly or via arithmetic) from an external source can cause heap exhaustion, integer-overflow-into-truncation bugs, or size-zero allocations leading to undefined behaviour. |
 | `cpp/uncontrolled-resource` | CWE-770/CWE-400 | path-problem | 7.5 | An allocation or loop bound driven by an external (taint) source without an intervening upper-bound comparison is a denial-of-service primitive (CWE-770 / CWE-400). |
 | `cpp/untrusted-search-path` | CWE-426/CWE-829 | problem | 7.0 | `system`, `execvp`, `execlp`, `execvpe`, or `posix_spawnp` executed with a relative-path or bare-name program is resolved against `$PATH`. |
-| `cpp/use-after-free` | CWE-416 | problem | 9.0 | A pointer that has been passed to `free()` (or destroyed by `delete` / `delete[]`) and is subsequently dereferenced or passed by value to another function without first being reassigned or NULLed is CWE-416 (use-after-free). |
 | `cpp/use-after-move` | CWE-672 | problem | 7.5 | An object used after being moved-from holds an unspecified state and reading its value, or calling non-trivial methods other than assignment / destruction, is undefined behaviour. |
 | `cpp/use-of-uninitialized-variable` | CWE-457/CWE-200 | problem | 7.0 | A struct allocated via `malloc` (not `calloc` / `new` / value initialisation) has indeterminate contents until each field is written. |
 
-### Java — [codeql-custom/java/src/](codeql-custom/java/src/) (14 rules)
+### Java — [codeql-custom/java/src/](codeql-custom/java/src/) (10 rules)
 
 | `@id` | CWE | Kind | Severity | Description |
 |---|---|---|---|---|
 | `java/certificate-validation-disabled` | CWE-295/CWE-297 | problem | 8.5 | A `X509TrustManager` whose `checkClientTrusted` or `checkServerTrusted` body is empty, OR a `HostnameVerifier` whose `verify` returns `true` unconditionally, disables TLS authentication and exposes the connection to MITM. |
 | `java/csv-formula-injection` | CWE-1236 | path-problem | 6.0 | User input written to a CSV/XLSX cell without escaping a leading `=`/`+`/`-`/`@` is interpreted as a formula when a victim opens the file in Excel, LibreOffice, or Google Sheets. |
 | `java/incorrect-authorization` | CWE-639/CWE-285 | problem | 7.5 | A Spring controller handler reads a path/query parameter and passes it directly to a Spring Data repository `findById` / `getOne` / `getReferenceById` without any filter on the authenticated user. |
-| `java/insecure-cookie` | CWE-1004/CWE-1275 | problem | 6.5 | A cookie that carries session state or authentication data must set `HttpOnly` (CWE-1004) so JavaScript cannot read it via `document.cookie`, and `SameSite=Lax`/`Strict` (CWE-1275) to limit CSRF exposure. |
-| `java/jndi-injection` | CWE-74/CWE-502 | path-problem | 9.0 | Tainted user input reaches `InitialContext.lookup` / `DirContext.lookup`. JNDI dereferences can fetch and deserialise remote objects (LDAP / RMI / CORBA) — the same primitive behind Log4Shell — enabling RCE. |
-| `java/log4j-injection` | CWE-117/CWE-20 | path-problem | 9.0 | Tainted user input reaches a Log4j 2.x logging call. On vulnerable Log4j versions (pre-2.17 or with `formatMsgNoLookups=false`), the logger expands `${jndi:...}` substitutions in the message string, enabling RCE (Log4Shell, CVE-2021-44228). |
+| `java/log4j-injection-ext` | CWE-117/CWE-20 | path-problem | 9.0 | Tainted user input reaches a Log4j 2.x logging call. On vulnerable Log4j versions (pre-2.17 or with `formatMsgNoLookups=false`), the logger expands `${jndi:...}` substitutions in the message string, enabling RCE (Log4Shell, CVE-2021-44228). |
 | `java/mass-assignment` | CWE-915 | problem | 7.0 | A Spring controller method that binds `@RequestBody` or `@ModelAttribute` directly to a JPA entity class containing `@Id`, `@Version`, or `@Column(updatable=false)` fields allows attackers to override those fields by including them in the request body. |
-| `java/missing-jwt-signature-check` | CWE-347 | problem | 8.5 | A JWT decoded via `JWT.decode(token)` / `Jwts.parser().parse(token)` (rather than `parseClaimsJws` / `verify`) returns claims even when the signature is invalid or absent (`alg: none`). |
 | `java/overflow-destination` | CWE-805/CWE-806 | path-problem | 6.5 | `System.arraycopy(src, srcPos, dst, dstPos, length)` throws ArrayIndexOutOfBoundsException if any computed index is out of bounds. |
 | `java/spring-actuator-exposed` | CWE-250/CWE-200 | problem | 8.0 | `management.endpoints.web.exposure.include=*` (or contains `env`/`heapdump`/`shutdown`/`loggers`) without matching `exclude` exposes sensitive runtime introspection to anyone who can reach the management port — including environment variables, heap dumps, and (when wired) shutdown. |
-| `java/ssrf` | CWE-918 | path-problem | 8.6 | A `RemoteFlowSource` (HTTP request parameter, header, body, etc.) reaches a `URL` / `URI` constructor or an outbound HTTP client call (`HttpURLConnection.openConnection`, `WebClient.uri`, Apache HttpClient `execute`) without validation against an allow-list of trusted destinations. |
+| `java/ssrf-ext` | CWE-918 | path-problem | 8.6 | A `RemoteFlowSource` (HTTP request parameter, header, body, etc.) reaches a `URL` / `URI` constructor or an outbound HTTP client call (`HttpURLConnection.openConnection`, `WebClient.uri`, Apache HttpClient `execute`) without validation against an allow-list of trusted destinations. |
 | `java/timing-unsafe-comparison` | CWE-208 | problem | 6.5 | `String.equals`, `Arrays.equals`, and `==` are not constant-time and short-circuit on the first differing byte. |
-| `java/unsafe-reflection` | CWE-470 | path-problem | 7.5 | `Class.forName(s)` / `ClassLoader.loadClass(s)` / `Method.invoke` / `Constructor.newInstance` invoked with an attacker-controlled name allows loading of arbitrary classes — potentially gadget classes whose static initialisers or constructors perform privileged actions. |
 | `java/zip-slip` | CWE-22 | path-problem | 8.5 | Extracting `ZipEntry.getName()` into a `File`, `Path`, or `FileOutputStream` without first verifying that the resolved path stays within a base directory allows the ZipSlip attack (CVE-2018-1002) — entries named `../../etc/passwd` overwrite arbitrary files. |
 
-### JavaScript / TypeScript — [codeql-custom/javascript/src/](codeql-custom/javascript/src/) (15 rules)
+### JavaScript / TypeScript — [codeql-custom/javascript/src/](codeql-custom/javascript/src/) (14 rules)
 
 | `@id` | CWE | Kind | Severity | Description |
 |---|---|---|---|---|
@@ -84,16 +75,15 @@ All five language packs ship working queries — totals are sourced directly fro
 | `js/insecure-cookie` | CWE-1004/CWE-1275 | problem | 6.5 | `res.cookie(name, value, opts)` or `cookie.serialize` called without `httpOnly: true` (CWE-1004) or without `sameSite: 'lax' \| 'strict'` (CWE-1275) on a cookie that looks session-bearing exposes the cookie to JS-based theft and CSRF. |
 | `js/insecure-websocket` | CWE-319 | problem | 7.0 | `new WebSocket('ws://...')` (or a tainted URL not validated to start with `wss://`) transmits frames in cleartext, allowing network attackers to read or modify messages. |
 | `js/missing-authentication` | CWE-306/CWE-862 | problem | 7.0 | An Express route handler (`app.METHOD(path, handler)`) whose middleware chain does NOT pass through any recognised authentication middleware (`passport.authenticate`, `requireAuth`, `ensureLoggedIn`, `verifyToken`, etc.) exposes the endpoint to unauthenticated callers. |
-| `js/missing-origin-check` | CWE-346 | problem | 7.0 | A handler registered via `window.addEventListener('message', fn)` or `window.onmessage = fn` that reads `event.data` without comparing `event.origin` against an allowlist accepts messages from any origin, allowing cross-frame attacks. |
 | `js/nosql-injection` | CWE-943 | path-problem | 8.8 | User-controlled data passed directly into a MongoDB / Mongoose query (find / findOne / update / deleteOne) allows operator injection. |
 | `js/path-traversal` | CWE-22 | path-problem | 7.5 | A user-controlled string flows into an `fs` path argument (readFile, writeFile, createReadStream, createWriteStream, unlink, …) without being resolved against — and confined within — a fixed base directory. |
-| `js/prototype-pollution` | CWE-1321 | path-problem | 8.2 | Writing `obj[key] = value` where `key` is user-controlled can set `__proto__` / `constructor` / `prototype` and poison `Object.prototype`. |
+| `js/prototype-pollution-ext` | CWE-1321 | path-problem | 8.2 | Writing `obj[key] = value` where `key` is user-controlled can set `__proto__` / `constructor` / `prototype` and poison `Object.prototype`. |
 | `js/ssrf` | CWE-918 | path-problem | 8.6 | An HTTP request constructed from a remote source (req.query, req.body, req.params, etc.) without strict allow-list validation lets an attacker pivot to internal services (cloud metadata, localhost, RFC1918), exfiltrate data, or scan the internal network. |
 | `js/timing-unsafe-comparison` | CWE-208 | problem | 6.0 | `==` / `===` / `!==` short-circuit on the first differing character. Use `crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b))` for any HMAC / signature / token / API key comparison. |
 | `js/unrestricted-file-upload` | CWE-434 | path-problem | 7.5 | An uploaded file's name or path (from multer/formidable/busboy: req.file.filename, req.file.path, req.files[i].originalname) is written to disk via fs.writeFile / fs.createWriteStream without validating the extension against an allow-list. |
 | `js/untrusted-module-loading` | CWE-829/CWE-470 | path-problem | 9.0 | `require(s)` or `import(s)` where `s` is attacker-influenced loads arbitrary code into the running Node process, equivalent to RCE. |
 
-### Python — [codeql-custom/python/src/](codeql-custom/python/src/) (12 rules)
+### Python — [codeql-custom/python/src/](codeql-custom/python/src/) (11 rules)
 
 | `@id` | CWE | Kind | Severity | Description |
 |---|---|---|---|---|
@@ -102,7 +92,6 @@ All five language packs ship working queries — totals are sourced directly fro
 | `py/csv-formula-injection` | CWE-1236 | path-problem | 6.0 | User input written to a CSV / XLSX cell via `csv.writer`, `pandas.to_csv`, `openpyxl`, or `xlsxwriter` without escaping leading `=`/`+`/`-`/`@` characters is interpreted as a formula in Excel / LibreOffice. |
 | `py/django-raw-sql` | CWE-89 | path-problem | 9.0 | Django ORM normally parameterises queries safely, but `Model.objects.raw(s)`, `cursor.execute(s)`, `RawSQL(s)`, and `QuerySet.extra(where=[s])` accept arbitrary SQL. |
 | `py/incorrect-authorization` | CWE-639/CWE-285 | problem | 7.5 | `Model.objects.get(pk=request.GET['id'])` (or via `request.POST` / `kwargs`) without filtering by the authenticated user lets anyone fetch any user's record (CWE-639). |
-| `py/insecure-cookie` | CWE-1004/CWE-1275 | problem | 6.5 | `response.set_cookie(...)` called without `httponly=True` (CWE-1004) or without `samesite='Lax'`/`'Strict'` (CWE-1275) on a session/auth cookie leaks the cookie to client JS and broadens CSRF exposure. |
 | `py/mass-assignment` | CWE-915 | problem | 7.5 | A `ModelForm.Meta.fields = '__all__'` or DRF `ModelSerializer.Meta.fields = '__all__'` allows any field on the model — including `is_staff`, `is_superuser`, `password`, `user`, `created_by`, `pk` — to be set from the request body. |
 | `py/missing-access-control` | CWE-862 | problem | 6.5 | A view function registered to a sensitive-looking path (e.g. `/admin`, `/users/...`) that has no `@login_required`, `@permission_required`, `@user_passes_test`, FastAPI `Depends(get_current_user)`, Flask-Security `@auth_required`, etc. |
 | `py/overflow-destination` | CWE-805/CWE-806 | path-problem | 7.0 | `struct.pack_into(fmt, buffer, offset, *values)` and `ctypes.memmove(dst, src, count)` accept raw byte counts that, when sourced from a tainted protocol field without a bound against destination size, overrun the destination buffer (raises an exception or — for memmove — corrupts memory). |
@@ -110,19 +99,16 @@ All five language packs ship working queries — totals are sourced directly fro
 | `py/unsafe-reflection` | CWE-470 | path-problem | 8.5 | Loading a module or attribute whose name is attacker-controlled lets the attacker pick any importable module — including ones whose side effects achieve RCE (os.system, subprocess.Popen, ctypes loaders). |
 | `py/unsafe-string-formatting` | CWE-94/CWE-134 | path-problem | 8.0 | Python's `str.format()` exposes attribute and item access (`{0.__class__.__init__.__globals__[os]}`) inside format specifiers. |
 
-### Go — [codeql-custom/go/src/](codeql-custom/go/src/) (11 rules)
+### Go — [codeql-custom/go/src/](codeql-custom/go/src/) (8 rules)
 
 | `@id` | CWE | Kind | Severity | Description |
 |---|---|---|---|---|
 | `go/cgo-vulnerability` | CWE-242 | problem | 7.0 | Passing untrusted (user-controlled) data directly to a C function via cgo bypasses Go's memory and string safety — the C side may dereference, format, or exec on raw bytes with no bounds or escaping. |
-| `go/cors-misconfiguration` | CWE-942/CWE-346 | problem | 8.0 | Setting `Access-Control-Allow-Origin: *` together with `Access-Control-Allow-Credentials: true` on the same response is forbidden by browsers but, more importantly, indicates a misconfiguration: either the wildcard or the credentials flag is wrong. |
 | `go/csv-formula-injection` | CWE-1236 | path-problem | 6.0 | `csv.Writer.Write(record)` or `excelize.SetCellValue(...)` with a value that starts with `=`/`+`/`-`/`@` interprets as a formula when the file is opened in Excel / LibreOffice / Google Sheets. |
 | `go/input-validation` | CWE-444 | problem | 7.0 | An `http.Request` handler that reads both `Content-Length` and `Transfer-Encoding: chunked` from the request without rejecting the duplicated framing is exposed to HTTP request smuggling — a layer-7 attack against intermediaries that interpret one and forward the other. |
 | `go/insecure-cookie` | CWE-1004/CWE-1275 | problem | 6.5 | An `http.Cookie` literal that carries session/auth state must set `HttpOnly: true` (CWE-1004), `SameSite:` to `http.SameSiteLaxMode` or `http.SameSiteStrictMode` (CWE-1275), and `Secure: true` (CWE-614) for HTTPS-only deployments. |
-| `go/integer-overflow` | CWE-190/CWE-681 | path-problem | 7.0 | `int(x)` / `int32(x)` where `x` is a wider or unsigned integer derived from an external source silently truncates and may wrap negative. |
 | `go/missing-return-value-check` | CWE-252 | problem | 6.0 | A function returning `error` whose result is assigned to `_` (or never bound at all) silently swallows failure. |
-| `go/sql-injection` | CWE-89 | path-problem | 8.5 | Custom rule supplementing built-in `go/sql-injection` — flags taint reaching `database/sql` Query / Exec via helper-wrapped concatenation builders (Squirrel, manual builders) that the built-in detector misses. |
-| `go/ssrf` | CWE-918 | path-problem | 8.6 | Tainted user input flows into the URL argument of an outgoing HTTP request (`http.Get`, `http.Post`, a `http.Client.Do`, or `http.NewRequest`) without an allow-list check on host / scheme. |
+| `go/sql-injection-ext` | CWE-89 | path-problem | 8.5 | Custom rule supplementing built-in `go/sql-injection` — flags taint reaching `database/sql` Query / Exec via helper-wrapped concatenation builders (Squirrel, manual builders) that the built-in detector misses. |
 | `go/template-injection` | CWE-94/CWE-1336 | path-problem | 8.5 | `text/template`'s `Execute` interprets `{{}}` actions and has no HTML escaping. When the TEMPLATE itself (not the data) is attacker-controlled, the attacker can call any method exposed on the data type. |
 | `go/timing-unsafe-comparison` | CWE-208 | problem | 6.0 | `bytes.Equal`, `==`, and `strings.EqualFold` short-circuit on first differing byte. |
 <!-- ql_tables_end -->

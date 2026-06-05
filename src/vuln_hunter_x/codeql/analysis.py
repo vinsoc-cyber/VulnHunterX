@@ -346,6 +346,7 @@ class CodeQLAnalyzer:
             "codeql/javascript-queries",
             "codeql/php-queries",
             "codeql/java-queries",
+            "codeql/go-queries",
         ]
 
         for pack in packs:

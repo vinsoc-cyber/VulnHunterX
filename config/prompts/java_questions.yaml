@@ -100,7 +100,7 @@ java/xxe:
   context_hint: "Include XML parser factory creation, feature/property configuration, and input source."
   additional_context: ["caller"]
 
-java/ssrf:
+java/ssrf: &java_ssrf
   short_description: "Server-side request forgery via user-controlled URL in Java"
   questions:
     - "Where does the URL come from — request parameter, database, configuration, or user input?"
@@ -111,6 +111,9 @@ java/ssrf:
     - "Is DNS resolution checked to prevent DNS rebinding attacks (resolving to internal IPs)?"
   context_hint: "Trace from user input through URL construction to HTTP request execution."
   additional_context: ["caller"]
+
+# Custom CodeQL query (renamed from java/ssrf to avoid built-in id collision)
+java/ssrf-ext: *java_ssrf
 
 java/ldap-injection:
   short_description: "LDAP query built from user-controlled input in Java"
@@ -625,7 +628,7 @@ java/insecure-tls-version:
 # Java - Logging and Injection (CWE-117)
 # ==============================================================================
 
-java/log4j-injection:
+java/log4j-injection: &java_log4j_injection
   short_description: "User-controlled data in Log4j message enabling JNDI lookup injection (CWE-117)"
   questions:
     - "Is user-controlled input included in a Log4j log message (logger.info(), logger.error(), etc.) as part of the message string?"
@@ -636,6 +639,9 @@ java/log4j-injection:
     - "Is Log4j used via SLF4J with parameterized logging (logger.info('User: {}', username)) — this is still vulnerable in affected versions?"
   context_hint: "Include the log statement, Log4j version/dependency, and the source of logged data."
   additional_context: ["caller"]
+
+# Custom CodeQL query (renamed from java/log4j-injection to avoid built-in id collision)
+java/log4j-injection-ext: *java_log4j_injection
 
 # ==============================================================================
 # Java - NoSQL Injection (CWE-943)

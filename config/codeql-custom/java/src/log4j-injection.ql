@@ -11,7 +11,7 @@
  * @problem.severity error
  * @security-severity 9.0
  * @precision medium
- * @id java/log4j-injection
+ * @id java/log4j-injection-ext
  * @tags external/cwe/cwe-117
  *       external/cwe/cwe-20
  *       security
