@@ -20,10 +20,14 @@ class ContextProvider:
     Context CSVs live under output/<lang>/<repo_name>/context/.
     Supports:
     - caller:function_name - Get the calling function's code
+    - function:name - Get the body of a named function/method (the sink/callee
+      implementation). Aliases: method:, func:
     - struct:type_name - Get struct/class definition
     - global:var_name - Get global variable definition
     - macro:MACRO_NAME - Get macro definition
     - callees:function_name - Get list of functions called by function_name
+    - callee_bodies:function_name - Get the BODIES of functions called by
+      function_name (the sink helpers), not just their names
     - all_callers:function_name - Get ALL callers of a function (up to 10)
     - typedef:type_name - Get typedef or type alias definition
     - enum:enum_name - Get enum definition with enumerator values
@@ -84,6 +88,10 @@ class ContextProvider:
 
             if ctx_type == "caller":
                 code = self._get_caller_context(repo_name, lang, name)
+            elif ctx_type in ("function", "method", "func"):
+                code = self._get_function_context(repo_name, lang, name)
+            elif ctx_type == "callee_bodies":
+                code = self._get_callee_bodies_context(repo_name, lang, name)
             elif ctx_type in ("struct", "class", "classes"):
                 code = self._get_struct_context(repo_name, lang, name)
             elif ctx_type == "global":
@@ -149,7 +157,6 @@ class ContextProvider:
         end: int,
     ) -> str:
         """Read specific lines from a source file."""
-        base_dir = (self.repos_dir / lang).resolve()
         full_path = self.repos_dir / lang / repo_name / file_path
         if not full_path.is_file():
             # Try without repo_name in path
@@ -161,11 +168,22 @@ class ContextProvider:
                         full_path = candidate
                         break
 
-        # Guard against path traversal
+        # Guard against path traversal. Resolve the repo root (and the lang dir)
+        # so legitimately symlinked repos — e.g. repos/<lang>/<repo> pointing at a
+        # benchmark checkout — are accepted, while `../` escapes out of the repo
+        # are still blocked.
+        allowed_bases: list[Path] = []
+        for candidate_base in (self.repos_dir / lang / repo_name, self.repos_dir / lang):
+            try:
+                allowed_bases.append(candidate_base.resolve())
+            except OSError:
+                continue
         try:
             resolved = full_path.resolve()
-            if not resolved.is_relative_to(base_dir):
-                logger.warning("Path traversal blocked: %s escapes %s", file_path, base_dir)
+            if not any(resolved.is_relative_to(b) for b in allowed_bases):
+                logger.warning(
+                    "Path traversal blocked: %s escapes %s", file_path, allowed_bases
+                )
                 return f"[Access denied: {file_path}]"
         except (ValueError, OSError):
             return f"[Invalid path: {file_path}]"
@@ -215,6 +233,101 @@ class ContextProvider:
             f"[No caller found for: {callee_name} — function not found in the "
             f"analysis scope. It may be defined in an external library or header.]"
         )
+
+    def _get_function_context(
+        self,
+        repo_name: str,
+        lang: str,
+        func_name: str,
+        max_matches: int = 3,
+    ) -> str:
+        """Get the body of a named function/method (the sink/callee implementation).
+
+        Looks up ``functions.csv`` by name and reads each match's line range. A
+        name may resolve to several definitions (overloads, same method name on
+        different classes); up to ``max_matches`` are returned, disambiguated by
+        file in the header comment.
+        """
+        rows = self._load_csv(repo_name, lang, "functions")
+        matches = [r for r in rows if r.get("name") == func_name]
+        if not matches:
+            return (
+                f"[Function not found: {func_name} — no definition in the analysis "
+                f"scope. It may be an external library, a built-in, or a dynamically "
+                f"assigned method.]"
+            )
+
+        parts: list[str] = []
+        for row in matches[:max_matches]:
+            file_path = row.get("file", "")
+            try:
+                start = int(row.get("start_line", 0))
+                end = int(row.get("end_line", 0))
+            except ValueError:
+                continue
+            if start > 0 and end >= start:
+                code = self._read_lines(repo_name, lang, file_path, start, end)
+                parts.append(f"// Function: {func_name}\n// File: {file_path}\n{code}")
+
+        if not parts:
+            return f"[Function metadata present for {func_name} but body could not be read.]"
+        if len(matches) > max_matches:
+            parts.append(
+                f"// ... and {len(matches) - max_matches} more definition(s) of "
+                f"{func_name} (truncated)"
+            )
+        return "\n\n".join(parts)
+
+    def _get_callee_bodies_context(
+        self,
+        repo_name: str,
+        lang: str,
+        func_name: str,
+        max_callees: int = 5,
+    ) -> str:
+        """Get the BODIES of functions called by func_name (the sink helpers).
+
+        Unlike ``callees:`` (names only), this resolves each distinct callee
+        through ``functions.csv`` and returns its source. Callees with no
+        definition in scope (framework/builtin calls like ``JSON.stringify`` or
+        ``this.client.set``) are skipped — only locally defined helpers are
+        returned, which is what matters for sink-implementation analysis.
+        """
+        rows = self._load_csv(repo_name, lang, "callers")
+        seen: set[str] = set()
+        callees: list[str] = []
+        for row in rows:
+            if row.get("caller_name") == func_name:
+                callee = row.get("callee_name", "")
+                if callee and callee not in seen:
+                    seen.add(callee)
+                    callees.append(callee)
+
+        if not callees:
+            return f"[No callees found for: {func_name}]"
+
+        func_rows = self._load_csv(repo_name, lang, "functions")
+        defined = {r.get("name") for r in func_rows}
+
+        parts: list[str] = []
+        skipped: list[str] = []
+        for callee in callees:
+            if callee not in defined:
+                skipped.append(callee)
+                continue
+            if len(parts) >= max_callees:
+                break
+            parts.append(self._get_function_context(repo_name, lang, callee))
+
+        if not parts:
+            joined = ", ".join(skipped)
+            return (
+                f"[No locally defined callees for {func_name}. Calls go to "
+                f"external/builtin functions: {joined}]"
+            )
+        if skipped:
+            parts.append(f"// (skipped external/builtin callees: {', '.join(skipped)})")
+        return "\n\n".join(parts)
 
     def _get_struct_context(
         self,

@@ -32,7 +32,7 @@ js/sql-injection:
     - "If using TypeORM, is getRepository().query() or createQueryBuilder().where() used with string interpolation instead of parameterized :param bindings?"
     - "Trace the INPUT through all assignments — is it passed through any sanitization, allowlist validation, or escaping before reaching the query?"
   context_hint: "Trace from request input through query construction to execution."
-  additional_context: ["caller"]
+  additional_context: ["caller", "callees"]
 
 js/xss:
   short_description: "User input rendered as HTML without escaping"
@@ -56,7 +56,10 @@ js/prototype-pollution: &js_prototype_pollution
     - "Does the merge function check hasOwnProperty before recursing?"
     - "Could Object.create(null) or Map be used instead of plain objects?"
   context_hint: "Include object merge/assignment logic with key sources."
-  additional_context: ["caller"]
+  # The verdict hinges on the SINK helper's body (e.g. this.set / a merge fn):
+  # whether it does a bracket-write on a plain object vs. a string-keyed store
+  # (Redis/Map). Prefetch callee bodies so that implementation is on turn 1.
+  additional_context: ["caller", "callees"]
 
 # Custom CodeQL query (renamed from js/prototype-pollution to avoid built-in id collision)
 js/prototype-pollution-ext: *js_prototype_pollution
@@ -71,7 +74,7 @@ js/command-injection:
     - "Are SHELL METACHARACTERS escaped or rejected?"
     - "Could an attacker inject ; | & $ ` to execute additional commands?"
   context_hint: "Trace from input source to child_process call."
-  additional_context: ["caller"]
+  additional_context: ["caller", "callees"]
 
 js/path-injection:
   short_description: "User input used in file path allowing directory traversal"
@@ -83,7 +86,7 @@ js/path-injection:
     - "Could '../' sequences escape the intended directory?"
     - "What FILE OPERATIONS are performed (fs.readFile, fs.writeFile)?"
   context_hint: "Trace from input through path construction to fs operation."
-  additional_context: ["caller"]
+  additional_context: ["caller", "callees"]
 
 js/unsafe-deserialization:
   short_description: "Deserializing untrusted data with eval or unserialize"
@@ -95,7 +98,7 @@ js/unsafe-deserialization:
     - "Is there any VALIDATION of the data structure before use?"
     - "What CODE could an attacker execute if deserialization is unsafe?"
   context_hint: "Trace from data source to deserialization call."
-  additional_context: ["caller"]
+  additional_context: ["caller", "callees"]
 
 js/regex-dos:
   short_description: "Regular expression vulnerable to ReDoS via catastrophic backtracking"

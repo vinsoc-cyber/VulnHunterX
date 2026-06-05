@@ -932,6 +932,7 @@ class LLMClient:
         verbose: bool = False,
         quiet: bool = True,
         log_file: Any | None = None,
+        prefetched_context: dict[str, str] | None = None,
     ) -> Verdict:
         """One-shot re-prompt for a previously committed verdict.
 
@@ -940,10 +941,24 @@ class LLMClient:
         Returns a fresh Verdict whose iteration/token counts are added to the
         previous verdict by the caller. The previous verdict's reasoning is
         included as assistant context so the model can audit its own logic.
+        ``prefetched_context`` MUST be passed through so the challenge turn sees
+        the same sink/callee bodies as the original analysis — otherwise it
+        re-decides on a thinner prompt and can overturn a correct verdict.
         """
         user_prompt = self.prompt_builder.build_user_prompt(
             finding, context, questions, func_name
         )
+        if prefetched_context:
+            prefetch_parts = [
+                f"### {req}\n```\n{code}\n```"
+                for req, code in prefetched_context.items()
+                if "[No " not in code and "[Unknown" not in code
+            ]
+            if prefetch_parts:
+                user_prompt += (
+                    "\n\n## Pre-fetched Additional Context\n\n"
+                    + "\n\n".join(prefetch_parts)
+                )
         sys_prompt = self.prompt_builder.get_system_prompt(
             tool_name=finding.tool or "static analysis",
             lang=finding.lang,

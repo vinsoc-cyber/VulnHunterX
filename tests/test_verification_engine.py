@@ -159,3 +159,67 @@ class TestSaveResultsNoOverwrite:
         per_finding = [p for p in ver_dir.glob("*.json") if not p.name.startswith("summary_")]
         # All three survive (old scheme would have collapsed them to one file).
         assert len(per_finding) == 3
+
+
+class TestBuildPrefetchRequests:
+    """_build_prefetch_requests maps additional_context hints to request strings."""
+
+    def test_caller_hint(self):
+        reqs = VerificationEngine._build_prefetch_requests(["caller"], "wrap")
+        assert reqs == ["caller:wrap"]
+
+    def test_callees_hint_maps_to_callee_bodies(self):
+        # The 'callees' hint must prefetch BODIES (not just names) so the sink
+        # helper implementation is present on turn 1.
+        reqs = VerificationEngine._build_prefetch_requests(["caller", "callees"], "wrap")
+        assert reqs == ["caller:wrap", "callee_bodies:wrap"]
+
+    def test_callee_bodies_hint(self):
+        reqs = VerificationEngine._build_prefetch_requests(["callee_bodies"], "wrap")
+        assert reqs == ["callee_bodies:wrap"]
+
+    def test_empty_func_name_yields_no_requests(self):
+        assert VerificationEngine._build_prefetch_requests(["caller", "callees"], "") == []
+
+    def test_class_hint_is_not_prefetched(self):
+        # 'class' needs a specific type name, so it stays reactive (not prefetched).
+        reqs = VerificationEngine._build_prefetch_requests(["caller", "class"], "fn")
+        assert reqs == ["caller:fn"]
+
+
+class _Ctx:
+    """Minimal CodeContext stand-in for _extract_sink_callees tests."""
+    def __init__(self, code, start_line, end_line):
+        self.code = code
+        self.start_line = start_line
+        self.end_line = end_line
+
+
+class TestExtractSinkCallees:
+    def test_extracts_method_call_on_sink_line(self):
+        code = (
+            "async wrap(key) {\n"            # line 86
+            "  const cached = await this.get(key);\n"  # 87
+            "  if (cached) return cached;\n"  # 88
+            "  const result = await fn();\n"  # 89
+            "  await this.set<T>(key, result, ttl, options);\n"  # 90
+            "}\n"
+        )
+        f = _make_finding(rule_id="js/prototype-pollution", file="cache.ts", start_line=90, end_line=90)
+        callees = VerificationEngine._extract_sink_callees(f, _Ctx(code, 86, 91))
+        assert callees == ["set"]
+
+    def test_skips_control_flow_keywords(self):
+        code = "fn() {\n  if (cond) doThing(x);\n}\n"
+        f = _make_finding(file="a.ts", start_line=2, end_line=2)
+        callees = VerificationEngine._extract_sink_callees(f, _Ctx(code, 1, 3))
+        assert "if" not in callees
+        assert "doThing" in callees
+
+    def test_returns_empty_when_sink_line_out_of_range(self):
+        f = _make_finding(file="a.ts", start_line=999, end_line=999)
+        assert VerificationEngine._extract_sink_callees(f, _Ctx("fn() {}\n", 1, 1)) == []
+
+    def test_returns_empty_without_context(self):
+        f = _make_finding(file="a.ts", start_line=5, end_line=5)
+        assert VerificationEngine._extract_sink_callees(f, _Ctx("", 0, 0)) == []

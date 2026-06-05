@@ -87,10 +87,14 @@ IMPORTANT CONSTRAINTS:
 
 If answering "Needs More Data", specify EXACTLY what you need:
 - "caller:function_name" — the calling function's code
+- "function:name" — the BODY of a named function/method (the sink/callee
+  implementation). Use when the data flow ends at a call like `this.set(key, ...)`
+  and the verdict depends on what that function does.
 - "struct:type_name" — a struct/class definition
 - "global:variable_name" — a global variable declaration
 - "macro:MACRO_NAME" — a macro definition
 - "callees:function_name" — list of functions called by function_name
+- "callee_bodies:function_name" — the BODIES of functions called by function_name
 - "all_callers:function_name" — ALL callers of a function (up to 10)
 - "typedef:type_name" — a typedef or type alias definition
 - "enum:enum_name" — an enum definition with enumerator values
@@ -100,6 +104,13 @@ If answering "Needs More Data", specify EXACTLY what you need:
   (C/C++ only; use for RAII / object-lifetime rules)
 - "field_writes:Type.field" — every write site for a struct/class field across
   the repo (C/C++ only; use for shared-state UAF / TOCTOU patterns)
+
+CRITICAL: If the data flow ends at a call to a function/method whose body is NOT
+shown (e.g. `this.set(key, ...)`, a `merge(...)` helper, a `query(...)` wrapper),
+request its implementation with "function:<name>" before deciding. Do NOT assume
+how it uses the value (e.g. that a cache `set` does a bracket-write on a plain
+object — it may use Redis, a Map, or parameterized queries). Guessing the sink
+implementation is the dominant cause of false verdicts.
 
 FEW-SHOT EXAMPLES:
 
@@ -124,6 +135,14 @@ Code: `process(ptr);` where ptr was allocated in a caller.
 Analysis: The pointer `ptr` is used on line 12, but its allocation and any free()
 calls are not visible in this function. The caller determines lifetime.
 Verdict: Needs More Data, context_needed: ["caller:handle_request"].
+
+Example 4 — False Positive (sink implementation is safe):
+Finding: Prototype pollution — user-controlled key reaches `this.set(key, value)`.
+Code: `await this.set(cacheKey, payload);` where `set`'s body is not shown.
+Analysis: Requested `function:set`, which revealed `set` calls
+`this.client.set(finalKey, JSON.stringify(value))` — a Redis string-keyed store,
+NOT a bracket-write on a plain object. No `obj[key] = …` and no recursive merge,
+so `__proto__` cannot pollute Object.prototype. Verdict: False Positive, High.
 
 Response format (strict JSON):
 {{

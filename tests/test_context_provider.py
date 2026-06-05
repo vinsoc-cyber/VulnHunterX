@@ -239,6 +239,109 @@ class TestContextProviderCalleesContext:
         assert "No callees found" in results["callees:unknown"]
 
 
+class TestContextProviderFunctionContext:
+    def test_returns_function_body_by_name(self, repo_tree):
+        output_dir, repos_dir, context_dir, source_dir = repo_tree
+        source_file = source_dir / "cache.ts"
+        source_file.write_text(
+            "// 1\n"
+            "// 2\n"
+            "async set(key, value) {\n"
+            "  const finalKey = this.formatKey(key);\n"
+            "  await this.client.set(finalKey, JSON.stringify(value));\n"
+            "}\n"
+        )
+        _write_csv(
+            context_dir / "functions.csv",
+            [{"name": "set", "file": "cache.ts", "start_line": "3", "end_line": "6", "param_count": "2"}],
+        )
+
+        provider = ContextProvider(output_dir, repos_dir)
+        for req_type in ("function", "method", "func"):
+            results = provider.get_additional_context("myrepo", "c", [f"{req_type}:set"])
+            text = results[f"{req_type}:set"]
+            assert "this.client.set" in text
+            assert "JSON.stringify" in text
+            assert "async set(key, value)" in text
+
+    def test_returns_not_found_for_unknown_function(self, repo_tree):
+        output_dir, repos_dir, context_dir, _ = repo_tree
+        _write_csv(
+            context_dir / "functions.csv",
+            [{"name": "other", "file": "f.ts", "start_line": "1", "end_line": "2", "param_count": "0"}],
+        )
+        provider = ContextProvider(output_dir, repos_dir)
+        results = provider.get_additional_context("myrepo", "c", ["function:ghost"])
+        assert "Function not found" in results["function:ghost"]
+
+    def test_caps_multiple_definitions(self, repo_tree):
+        output_dir, repos_dir, context_dir, source_dir = repo_tree
+        (source_dir / "m.ts").write_text("\n".join(f"line{i}" for i in range(1, 30)) + "\n")
+        rows = [
+            {"name": "dup", "file": "m.ts", "start_line": str(i), "end_line": str(i), "param_count": "0"}
+            for i in range(1, 6)
+        ]
+        _write_csv(context_dir / "functions.csv", rows)
+        provider = ContextProvider(output_dir, repos_dir)
+        results = provider.get_additional_context("myrepo", "c", ["function:dup"])
+        # 5 definitions, cap is 3 → truncation note present
+        assert "truncated" in results["function:dup"]
+
+
+class TestContextProviderCalleeBodiesContext:
+    def test_returns_locally_defined_callee_bodies(self, repo_tree):
+        output_dir, repos_dir, context_dir, source_dir = repo_tree
+        (source_dir / "svc.ts").write_text(
+            "async wrap(key) {\n"
+            "  await this.set(key, 1);\n"
+            "}\n"
+            "async set(key, value) {\n"
+            "  await this.client.set(key, value);\n"
+            "}\n"
+        )
+        _write_csv(
+            context_dir / "callers.csv",
+            [
+                {"callee_name": "set", "callee_file": "", "caller_name": "wrap", "caller_file": "svc.ts", "caller_start_line": "1", "caller_end_line": "3"},
+                {"callee_name": "JSON.stringify", "callee_file": "", "caller_name": "wrap", "caller_file": "svc.ts", "caller_start_line": "1", "caller_end_line": "3"},
+            ],
+        )
+        _write_csv(
+            context_dir / "functions.csv",
+            [{"name": "set", "file": "svc.ts", "start_line": "4", "end_line": "6", "param_count": "2"}],
+        )
+
+        provider = ContextProvider(output_dir, repos_dir)
+        results = provider.get_additional_context("myrepo", "c", ["callee_bodies:wrap"])
+        text = results["callee_bodies:wrap"]
+        # Body of the locally defined sink helper is included...
+        assert "this.client.set" in text
+        # ...and the external/builtin callee is noted as skipped, not inlined.
+        assert "JSON.stringify" in text  # appears in the "skipped" note
+        assert "skipped external/builtin" in text
+
+    def test_no_locally_defined_callees(self, repo_tree):
+        output_dir, repos_dir, context_dir, _ = repo_tree
+        _write_csv(
+            context_dir / "callers.csv",
+            [{"callee_name": "JSON.parse", "callee_file": "", "caller_name": "fn", "caller_file": "a.ts", "caller_start_line": "1", "caller_end_line": "3"}],
+        )
+        _write_csv(
+            context_dir / "functions.csv",
+            [{"name": "fn", "file": "a.ts", "start_line": "1", "end_line": "3", "param_count": "0"}],
+        )
+        provider = ContextProvider(output_dir, repos_dir)
+        results = provider.get_additional_context("myrepo", "c", ["callee_bodies:fn"])
+        assert "No locally defined callees" in results["callee_bodies:fn"]
+
+    def test_no_callees_at_all(self, repo_tree):
+        output_dir, repos_dir, context_dir, _ = repo_tree
+        _write_csv(context_dir / "callers.csv", [])
+        provider = ContextProvider(output_dir, repos_dir)
+        results = provider.get_additional_context("myrepo", "c", ["callee_bodies:ghost"])
+        assert "No callees found" in results["callee_bodies:ghost"]
+
+
 class TestContextProviderAllCallersContext:
     def test_all_callers_returns_multiple(self, repo_tree):
         output_dir, repos_dir, context_dir, source_dir = repo_tree

@@ -23,6 +23,19 @@ _CITATION_RE = re.compile(
     r"(?:line[:\s]+\d+|\bL\d+\b|[\w./-]+:\d+)",
     re.IGNORECASE,
 )
+# Recognises a called function/method name on a sink line — captures the
+# identifier immediately before a "(", tolerating a generic argument list
+# (e.g. `this.set<T>(...)`). Used to prefetch the sink callee's body, since the
+# verdict for sink-implementation-dependent CWEs hinges on what that callee does.
+_SINK_CALL_RE = re.compile(r"([A-Za-z_$][\w$]*)\s*(?:<[^<>()]*>)?\s*\(")
+# Control-flow / language keywords that are never sink helpers — skip so they
+# don't consume prefetch slots. Names absent from functions.csv resolve to a
+# harmless "not found" anyway, so this list stays minimal.
+_SINK_CALL_SKIP = frozenset(
+    {"if", "for", "while", "switch", "catch", "return", "typeof", "await",
+     "new", "function", "throw", "yield", "else", "do"}
+)
+
 # Pattern markers indicating purely pattern-language reasoning that lacks
 # specific evidence — observed dominantly in the CWE-416 false-alarm cohort.
 _GENERIC_PATTERN_MARKERS = (
@@ -563,6 +576,21 @@ class VerificationEngine:
                 questions.additional_context,
                 context_result.function_name,
             )
+            # For sink-implementation-dependent CWEs (the "callees" hint), also
+            # prefetch the body of the function/method called AT the sink line —
+            # resolved directly from functions.csv by name. This does not depend
+            # on the call-graph (callers.csv) recording a caller→callee edge,
+            # which is best-effort and was missing for the prototype-pollution
+            # case that motivated this (the verifier guessed `set` did a bracket
+            # write when it actually delegates to Redis).
+            if any(
+                c.lower().strip() in ("callees", "callee_bodies")
+                for c in questions.additional_context
+            ):
+                for callee in self._extract_sink_callees(finding, context_result):
+                    req = f"function:{callee}"
+                    if req not in prefetch_requests:
+                        prefetch_requests.append(req)
             if prefetch_requests:
                 prefetched_context = effective_provider.get_additional_context(
                     repo_name=finding.repo_name,
@@ -665,6 +693,7 @@ class VerificationEngine:
                     verbose=self.config.output.is_verbose,
                     quiet=self.config.output.is_quiet,
                     log_file=self._log_fh,
+                    prefetched_context=prefetched_context,
                 )
 
         # Confidence-discipline post-processor: a TP or FP verdict whose
@@ -677,6 +706,43 @@ class VerificationEngine:
         verdict = _downgrade_unsupported_confidence(verdict)
 
         return verdict
+
+    @staticmethod
+    def _extract_sink_callees(
+        finding: Finding,
+        context_result: Any,
+        max_callees: int = 3,
+    ) -> list[str]:
+        """Extract function/method names called on the finding's sink line(s).
+
+        Reads the sink line(s) out of the enclosing-function snippet
+        (``context_result.code`` starts at ``context_result.start_line``) and
+        returns the distinct callee identifiers, so their bodies can be
+        prefetched. Returns [] if the sink line cannot be located.
+        """
+        code = getattr(context_result, "code", "") or ""
+        ctx_start = getattr(context_result, "start_line", 0) or 0
+        if not code or ctx_start <= 0:
+            return []
+        lines = code.split("\n")
+        # Map the finding's 1-based source lines into the snippet's 0-based index.
+        first = max(0, finding.start_line - ctx_start)
+        last = max(first, finding.end_line - ctx_start)
+        if first >= len(lines):
+            return []
+        snippet = "\n".join(lines[first : min(len(lines), last + 1)])
+
+        seen: set[str] = set()
+        callees: list[str] = []
+        for match in _SINK_CALL_RE.finditer(snippet):
+            name = match.group(1)
+            if name in _SINK_CALL_SKIP or name in seen:
+                continue
+            seen.add(name)
+            callees.append(name)
+            if len(callees) >= max_callees:
+                break
+        return callees
 
     @staticmethod
     def _build_prefetch_requests(
@@ -696,8 +762,12 @@ class VerificationEngine:
             ctx_type = ctx_type.lower().strip()
             if ctx_type == "caller":
                 requests.append(f"caller:{func_name}")
-            elif ctx_type == "callees":
-                requests.append(f"callees:{func_name}")
+            elif ctx_type in ("callees", "callee_bodies"):
+                # Prefetch the SINK helper bodies, not just their names — the
+                # verdict for sink-implementation-dependent CWEs (prototype
+                # pollution, command/SQL injection via helpers) hinges on the
+                # callee's implementation.
+                requests.append(f"callee_bodies:{func_name}")
             elif ctx_type == "all_callers":
                 requests.append(f"all_callers:{func_name}")
         return requests

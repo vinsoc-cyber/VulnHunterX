@@ -156,7 +156,7 @@ cpp/sql-injection:
     - "Does the query structure change based on user input, or is it fixed with only data values varying?"
     - "What DATABASE API is used and does it support safe parameterization?"
   context_hint: "Trace from input source through all transformations to SQL execution."
-  additional_context: ["caller"]
+  additional_context: ["caller", "callees"]
 
 cpp/command-injection:
   short_description: "User input passed to shell command execution"
@@ -168,7 +168,7 @@ cpp/command-injection:
     - "Is the input VALIDATED against an allowlist of safe values?"
     - "Is the user input embedded in a single command string parsed by a shell interpreter?"
   context_hint: "Trace from input source to command execution function."
-  additional_context: ["caller"]
+  additional_context: ["caller", "callees"]
 
 cpp/path-injection:
   short_description: "User input used in file path allowing traversal"
@@ -180,7 +180,7 @@ cpp/path-injection:
     - "Could an attacker use '../' or symbolic links to access files outside the intended directory?"
     - "What FILE OPERATIONS are performed with this path (read, write, execute)?"
   context_hint: "Trace from input source through path construction to file operation."
-  additional_context: ["caller"]
+  additional_context: ["caller", "callees"]
 
 cpp/format-string-injection:
   short_description: "User input used directly as printf format string"

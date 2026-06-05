@@ -32,7 +32,7 @@ py/sql-injection:
     - "What specific defense, if any, sanitises the value before the sink? Name it concretely — e.g. parameterised `cursor.execute(sql, params)`, Django ORM `.filter(**kwargs)`, SQLAlchemy `text(sql).bindparams(...)`. Vague 'sanitisation' is not acceptable."
     - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
   context_hint: "Trace from request input through all transformations to query execution."
-  additional_context: ["caller"]
+  additional_context: ["caller", "callees"]
   min_iterations: 2
 
 py/command-injection: &py_command_injection
@@ -45,7 +45,7 @@ py/command-injection: &py_command_injection
     - "What specific defense, if any, sanitises the value? Name it concretely — e.g. `shlex.quote()` with `shell=True`, `subprocess.run([...], shell=False)` argv list, allow-list of binary names. Vague 'escaping' is not acceptable."
     - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
   context_hint: "Trace from input source to subprocess/os.system call, including intermediate transformations."
-  additional_context: ["caller", "class"]
+  additional_context: ["caller", "class", "callees"]
   min_iterations: 2
 
 # Alias: some tools emit `py/command-line-injection` for CWE-78. Same rule.
@@ -75,7 +75,7 @@ py/unsafe-deserialization:
     - "What specific defense, if any, prevents code execution? Name it concretely — e.g. `yaml.safe_load()` (not `yaml.load()`), `json.loads()` instead of `pickle.loads()`, `restrictedpickle` allow-list, HMAC signature verified BEFORE deserialisation, schema validation pre-parse. Vague 'validation' is not acceptable."
     - "If you cannot point to user-controlled data reaching the unsafe sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
   context_hint: "Trace from data source to deserialization call."
-  additional_context: ["caller"]
+  additional_context: ["caller", "callees"]
   min_iterations: 2
 
 py/path-injection:
@@ -88,7 +88,7 @@ py/path-injection:
     - "What specific defense, if any, contains the path? Name it concretely — e.g. `werkzeug.utils.secure_filename`, `Path(base).resolve() / user_input` then `.is_relative_to(base)`, `os.path.commonpath([base, full]) == base`, `Path.relative_to` raising on escape, allow-list of filenames. Vague 'sanitisation' is not acceptable."
     - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
   context_hint: "Trace from input through path construction to file operation."
-  additional_context: ["caller"]
+  additional_context: ["caller", "callees"]
   min_iterations: 2
 
 py/code-injection:
@@ -101,7 +101,7 @@ py/code-injection:
     - "What specific defense, if any, prevents arbitrary code? Name it concretely — e.g. `ast.literal_eval()` (data literals only), strict allow-list (e.g. `if expr in {'+', '-', '*'}: …`), restricted globals dict that excludes `__builtins__`. Vague 'validation' is not acceptable."
     - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
   context_hint: "Trace from input source to eval/exec call."
-  additional_context: ["caller"]
+  additional_context: ["caller", "callees"]
   min_iterations: 2
 
 py/ssrf:
