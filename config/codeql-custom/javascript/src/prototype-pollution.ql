@@ -10,7 +10,7 @@
  * @problem.severity error
  * @security-severity 8.2
  * @precision medium
- * @id js/prototype-pollution
+ * @id js/prototype-pollution-ext
  * @tags external/cwe/cwe-1321
  *       security
  */

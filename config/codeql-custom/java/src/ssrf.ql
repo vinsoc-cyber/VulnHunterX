@@ -12,7 +12,7 @@
  * @problem.severity error
  * @security-severity 8.6
  * @precision medium
- * @id java/ssrf
+ * @id java/ssrf-ext
  * @tags external/cwe/cwe-918
  *       security
  */

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import yaml
 
+from vuln_hunter_x.core.constants import TIMEOUT_CODEQL_DB_CREATE
 from vuln_hunter_x.core.validation import (
     normalize_ollama_model,
     openai_compat_kwargs,
@@ -289,6 +290,7 @@ class RepositoryManager:
         skip_db: bool = False,
         dry_run: bool = False,
         ask_llm: bool = False,
+        timeout: int = TIMEOUT_CODEQL_DB_CREATE,
     ) -> tuple[bool, str]:
         """
         Clone repository and create CodeQL database.
@@ -303,6 +305,7 @@ class RepositoryManager:
             skip_db: Skip database creation
             dry_run: Only print actions
             ask_llm: Ask LLM on failure
+            timeout: CodeQL database creation timeout in seconds
 
         Returns:
             Tuple of (success, message)
@@ -410,7 +413,7 @@ class RepositoryManager:
                 cwd=str(repo_dir),
                 capture_output=True,
                 text=True,
-                timeout=1800,
+                timeout=timeout,
             )
 
             if result.returncode == 0:
@@ -453,7 +456,13 @@ class RepositoryManager:
             return False, f"{prefix}Database creation failed: {err_msg}"
 
         except subprocess.TimeoutExpired:
-            return False, "Database creation timed out"
+            # Clean up any partial database directory so re-runs start fresh.
+            if db_dir.exists():
+                shutil.rmtree(db_dir, ignore_errors=True)
+            return False, (
+                f"Database creation timed out after {timeout}s. "
+                "Increase with --db-timeout or CODEQL_DB_CREATE_TIMEOUT."
+            )
         except Exception as e:
             return False, str(e)
 
@@ -466,6 +475,7 @@ class RepositoryManager:
         skip_db: bool = False,
         dry_run: bool = False,
         ask_llm: bool = False,
+        timeout: int = TIMEOUT_CODEQL_DB_CREATE,
     ) -> list[tuple[str, bool, str]]:
         """
         Process all repos from config file.
@@ -501,6 +511,7 @@ class RepositoryManager:
                 skip_db=skip_db,
                 dry_run=dry_run,
                 ask_llm=ask_llm,
+                timeout=timeout,
             )
             results.append((name, ok, msg))
 

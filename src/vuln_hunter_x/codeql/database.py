@@ -8,6 +8,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from vuln_hunter_x.core.constants import TIMEOUT_CODEQL_DB_CREATE
 from vuln_hunter_x.core.types import RepositoryInfo
 
 
@@ -43,6 +44,7 @@ class DatabaseManager:
         self,
         repo: RepositoryInfo,
         overwrite: bool = False,
+        timeout: int = TIMEOUT_CODEQL_DB_CREATE,
     ) -> tuple[bool, str]:
         """
         Create a CodeQL database for a repository.
@@ -50,6 +52,7 @@ class DatabaseManager:
         Args:
             repo: Repository information
             overwrite: Whether to overwrite existing database
+            timeout: CodeQL database creation timeout in seconds
 
         Returns:
             Tuple of (success, message)
@@ -93,7 +96,7 @@ class DatabaseManager:
                 cwd=str(source_root),
                 capture_output=True,
                 text=True,
-                timeout=1800,  # 30 min timeout
+                timeout=timeout,
             )
 
             if result.returncode == 0:
@@ -102,7 +105,7 @@ class DatabaseManager:
                 return False, result.stderr or result.stdout
 
         except subprocess.TimeoutExpired:
-            return False, "Database creation timed out"
+            return False, f"Database creation timed out after {timeout}s"
         except Exception as e:
             return False, str(e)
 

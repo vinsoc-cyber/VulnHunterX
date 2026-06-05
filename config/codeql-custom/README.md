@@ -8,14 +8,19 @@ This directory holds project-authored CodeQL security queries that supplement th
 
 | Pack | Path | Rule count |
 |---|---|---|
-| C/C++ | [cpp/](cpp/) | 21 |
-| Java | [java/](java/) | 14 |
-| JavaScript / TypeScript | [javascript/](javascript/) | 15 |
-| Python | [python/](python/) | 12 |
-| Go | [go/](go/) | 11 |
+| C/C++ | [cpp/](cpp/) | 16 |
+| Java | [java/](java/) | 10 |
+| JavaScript / TypeScript | [javascript/](javascript/) | 14 |
+| Python | [python/](python/) | 11 |
+| Go | [go/](go/) | 8 |
 
-**Total: 73 custom queries.** Per-rule inventory with `@id` / CWE / severity / description
+**Total: 59 custom queries.** Per-rule inventory with `@id` / CWE / severity / description
 lives in [../RULES.md §3](../RULES.md#3-custom-codeql-queries).
+
+> Queries whose detection is fully covered by a built-in `security-extended` /
+> `security-and-quality` query were removed to avoid duplicate `ruleId`s. The few
+> that add genuine coverage over the built-in (e.g. extra sinks / flow-steps) keep
+> a `-ext` suffix on their `@id` so they never collide with the built-in id.
 
 Rules target patterns that built-in `security-extended` / `security-and-quality`
 suites miss — typically inter-procedural taint with custom flow steps,

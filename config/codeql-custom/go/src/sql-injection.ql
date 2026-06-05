@@ -11,7 +11,7 @@
  * @problem.severity error
  * @security-severity 8.5
  * @precision medium
- * @id go/sql-injection
+ * @id go/sql-injection-ext
  * @tags external/cwe/cwe-89
  *       security
  */

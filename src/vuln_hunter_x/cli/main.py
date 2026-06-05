@@ -159,6 +159,13 @@ def _add_prepare_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--skip-db", action="store_true", help="Skip database creation")
     parser.add_argument("--ask-llm", action="store_true", help="Ask LLM on build failure")
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
+    parser.add_argument(
+        "--db-timeout",
+        type=int,
+        default=None,
+        help="CodeQL database creation timeout in seconds "
+        "(default 1800; also settable via CODEQL_DB_CREATE_TIMEOUT)",
+    )
 
     # Context extraction options (runs automatically after DB creation)
     parser.add_argument(

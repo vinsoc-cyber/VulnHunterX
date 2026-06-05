@@ -49,9 +49,12 @@ def test_ql_metadata_complete(ql_path: Path) -> None:
     m = re.search(r"@id\s+(\S+)", body)
     assert m, f"{ql_path}: missing @id"
     rule_id = m.group(1)
-    parent_lang = ql_path.parent.parent.name  # config/codeql-custom/<lang>/src/*.ql
-    assert rule_id.startswith(parent_lang + "/"), (
-        f"{ql_path}: @id {rule_id!r} must start with '{parent_lang}/' to match the "
+    parent_dir = ql_path.parent.parent.name  # config/codeql-custom/<lang>/src/*.ql
+    # Directory names use the full language name; @id prefixes use the short
+    # guided-question form (javascript -> js, python -> py).
+    expected_prefix = {"javascript": "js", "python": "py"}.get(parent_dir, parent_dir)
+    assert rule_id.startswith(expected_prefix + "/"), (
+        f"{ql_path}: @id {rule_id!r} must start with '{expected_prefix}/' to match the "
         f"guided-question rule_id convention"
     )
 

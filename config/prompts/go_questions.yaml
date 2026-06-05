@@ -22,7 +22,7 @@
 #     context_hint: What additional context helps (caller, struct, etc.)
 #     additional_context: List of context types that may be needed
 
-go/sql-injection:
+go/sql-injection: &go_sql_injection
   short_description: "User input concatenated into SQL query in Go"
   questions:
     - "Where does the INPUT originate — http.Request.FormValue(), URL query params, request body, or another user-controlled source?"
@@ -33,6 +33,9 @@ go/sql-injection:
     - "If using an ORM (GORM, ent), is raw SQL used with user input, or are the ORM's query builder methods used safely?"
   context_hint: "Trace from HTTP handler input through all assignments to database query execution."
   additional_context: ["caller"]
+
+# Custom CodeQL query (renamed from go/sql-injection to avoid built-in id collision)
+go/sql-injection-ext: *go_sql_injection
 
 go/path-injection:
   short_description: "User input used in file path allowing directory traversal in Go"

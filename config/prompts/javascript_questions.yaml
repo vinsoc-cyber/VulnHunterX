@@ -46,7 +46,7 @@ js/xss:
   context_hint: "Trace from input through DOM/response construction."
   additional_context: ["caller"]
 
-js/prototype-pollution:
+js/prototype-pollution: &js_prototype_pollution
   short_description: "User-controlled property path can modify Object.prototype"
   questions:
     - "Is user input used as a PROPERTY KEY in bracket notation (obj[key])?"
@@ -57,6 +57,9 @@ js/prototype-pollution:
     - "Could Object.create(null) or Map be used instead of plain objects?"
   context_hint: "Include object merge/assignment logic with key sources."
   additional_context: ["caller"]
+
+# Custom CodeQL query (renamed from js/prototype-pollution to avoid built-in id collision)
+js/prototype-pollution-ext: *js_prototype_pollution
 
 js/command-injection:
   short_description: "User input passed to shell command execution"
