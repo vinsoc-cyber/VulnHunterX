@@ -115,6 +115,23 @@ system_prompt: |
   so `__proto__` cannot pollute Object.prototype.
   Verdict: False Positive, Confidence: High.
 
+  Example 5 — False Positive (framework strips dangerous keys upstream):
+  Finding: Prototype pollution — `dto` reaches `Object.assign(new RescueRequest(), {{ ...dto }})`.
+  Analysis: The framework-sanitizer context shows `app.useGlobalPipes(new ValidationPipe({{
+  whitelist: true, forbidNonWhitelisted: true }}))`. `CreateRescueDto` declares no
+  `__proto__`/`constructor` field, so such a key is stripped (whitelist) or the request is
+  rejected with 400 (forbidNonWhitelisted) BEFORE the service runs. The tainted key cannot reach
+  the sink.
+  Verdict: False Positive, Confidence: High.
+
+  Example 6 — local instance prototype change is NOT CWE-1321:
+  Finding: `Object.assign(new RescueRequest(), {{ ...dto }})` flagged as prototype pollution.
+  Analysis: `Object.assign`/spread is a SHALLOW copy onto a fresh instance. Even if `dto` carried
+  an own `__proto__`, this would change only that one instance's [[Prototype]] (local), not the
+  shared `Object.prototype` (global). CWE-1321 severity 8.2 describes global pollution affecting
+  ALL objects, which does not occur here.
+  Verdict: False Positive (or at most Low confidence, local-only), NOT True Positive/High.
+
   Response format (strict JSON):
   {{
     "answers": ["answer to Q1 with line references", "answer to Q2", ...],

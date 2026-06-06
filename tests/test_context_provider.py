@@ -441,3 +441,65 @@ class TestContextProviderEdgeCases:
         provider.clear_cache()
         results = provider.get_additional_context("myrepo", "c", ["macro:X"])
         assert "99" in results["macro:X"]
+
+
+class TestFrameworkContext:
+    """framework_sanitizers / framework_guards grep the repo source tree."""
+
+    def _js_tree(self, tmp_path):
+        output_dir = tmp_path / "output"
+        repos_dir = tmp_path / "repos"
+        # context dir must exist so has_context_for_repo is True
+        (output_dir / "javascript" / "app" / "context").mkdir(parents=True)
+        src = repos_dir / "javascript" / "app" / "src"
+        src.mkdir(parents=True)
+        return output_dir, repos_dir, src
+
+    def test_finds_validation_pipe(self, tmp_path):
+        output_dir, repos_dir, src = self._js_tree(tmp_path)
+        (src / "main.ts").write_text(
+            "async function bootstrap() {\n"
+            "  app.useGlobalPipes(new ValidationPipe({ whitelist: true, "
+            "forbidNonWhitelisted: true }));\n"
+            "}\n"
+        )
+        provider = ContextProvider(output_dir, repos_dir)
+        res = provider.get_additional_context(
+            "app", "javascript", ["framework_sanitizers:repo"]
+        )
+        out = res["framework_sanitizers:repo"]
+        assert "ValidationPipe" in out
+        assert "main.ts" in out
+
+    def test_no_validation_pipe_reports_absence(self, tmp_path):
+        output_dir, repos_dir, src = self._js_tree(tmp_path)
+        (src / "main.ts").write_text("async function bootstrap() {}\n")
+        provider = ContextProvider(output_dir, repos_dir)
+        res = provider.get_additional_context(
+            "app", "javascript", ["framework_sanitizers:repo"]
+        )
+        assert "No global input-validation pipe" in res["framework_sanitizers:repo"]
+
+    def test_finds_global_guard(self, tmp_path):
+        output_dir, repos_dir, src = self._js_tree(tmp_path)
+        (src / "app.module.ts").write_text(
+            "@Module({ providers: [{ provide: APP_GUARD, useClass: JwtGuard }] })\n"
+            "export class AppModule {}\n"
+        )
+        provider = ContextProvider(output_dir, repos_dir)
+        res = provider.get_additional_context(
+            "app", "javascript", ["framework_guards:repo"]
+        )
+        assert "APP_GUARD" in res["framework_guards:repo"]
+
+    def test_skips_node_modules(self, tmp_path):
+        output_dir, repos_dir, src = self._js_tree(tmp_path)
+        nm = src.parent / "node_modules" / "pkg"
+        nm.mkdir(parents=True)
+        (nm / "index.ts").write_text("new ValidationPipe({ whitelist: true });\n")
+        # No app-level pipe — only the node_modules one, which must be pruned.
+        provider = ContextProvider(output_dir, repos_dir)
+        res = provider.get_additional_context(
+            "app", "javascript", ["framework_sanitizers:repo"]
+        )
+        assert "No global input-validation pipe" in res["framework_sanitizers:repo"]

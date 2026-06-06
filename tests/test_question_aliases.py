@@ -53,6 +53,25 @@ def test_rule_id_resolves_to_exact_match(loader: QuestionsLoader, rule_id: str):
     assert match_type == "exact", f"{rule_id} fell to {match_type!r}"
 
 
+def test_dom_xss_semgrep_rules_resolve_exact(loader: QuestionsLoader):
+    """The DOM-XSS semgrep rule ids must hit DOM-aware questions by exact match,
+    not fall back to the request-source-oriented js/xss / default set."""
+    for rid in ("vulnhunterx.js.dom-xss-sink", "vulnhunterx.js.react-dangerously-set-html"):
+        q, match_type = loader.get_questions_with_match_info(rid)
+        assert match_type == "exact", f"{rid} fell to {match_type!r}"
+        # DOM-aware: must ask about sanitization (DOMPurify), not assume req.*
+        joined = " ".join(q.questions).lower()
+        assert "sanitiz" in joined or "dompurify" in joined
+
+
+def test_missing_auth_asks_client_call_distinction(loader: QuestionsLoader):
+    """missing-authentication must first ask whether the call is a CLIENT HTTP
+    request vs a server route — the dominant SPA false-positive."""
+    q, _ = loader.get_questions_with_match_info("js/missing-authentication")
+    assert any("client" in question.lower() and "axios" in question.lower()
+               for question in q.questions)
+
+
 def test_alias_shares_canonical_question_body(loader: QuestionsLoader):
     """YAML anchors mean the alias key returns the SAME GuidedQuestions object
     as the canonical key — no silent fork between the two."""

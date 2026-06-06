@@ -7,10 +7,17 @@ from __future__ import annotations
 
 import csv
 import logging
+import os
 import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Directories never worth walking when grepping a repo for framework config —
+# pruned in os.walk so a node_modules tree doesn't dominate the scan.
+_SKIP_DIRS = frozenset(
+    {"node_modules", "dist", "build", "coverage", ".git", ".next", "out", "vendor"}
+)
 
 
 class ContextProvider:
@@ -37,6 +44,13 @@ class ContextProvider:
       or struct (C/C++ only) — useful for RAII / lifetime rules
     - field_writes:Type.field - Get every write site for a struct/class field
       (C/C++ only) — catches shared-state UAF / TOCTOU patterns
+    - framework_sanitizers:* - Grep the repo for a global input-validation
+      boundary (e.g. NestJS useGlobalPipes(new ValidationPipe({whitelist,
+      forbidNonWhitelisted}))). The decisive context for DTO/request-sourced
+      taint — whether dangerous keys are stripped/rejected before the sink.
+    - framework_guards:* - Grep the repo for global/route auth guards
+      (NestJS APP_GUARD, useGlobalGuards, @UseGuards, @Public). The decisive
+      context for "missing authentication" findings on guard-protected routes.
     """
 
     def __init__(self, output_dir: Path, repos_dir: Path):
@@ -112,6 +126,10 @@ class ContextProvider:
                 code = self._get_destructor_context(repo_name, lang, name)
             elif ctx_type in ("field_writes", "field_write"):
                 code = self._get_field_writes_context(repo_name, lang, name)
+            elif ctx_type in ("framework_sanitizers", "framework_validation"):
+                code = self._get_framework_sanitizers(repo_name, lang)
+            elif ctx_type in ("framework_guards", "framework_auth"):
+                code = self._get_framework_guards(repo_name, lang)
             else:
                 code = f"[Unknown context type: {ctx_type}]"
 
@@ -628,3 +646,116 @@ class ContextProvider:
             parts.append(f"  ... and {len(exact) - max_sites} more (truncated)")
 
         return "\n".join(parts)
+
+    def _repo_root(self, lang: str, repo_name: str) -> Path | None:
+        """Resolve the on-disk source root for a repo (symlink-tolerant)."""
+        base = self.repos_dir / lang / repo_name
+        if base.is_dir():
+            return base
+        lang_dir = self.repos_dir / lang
+        if lang_dir.is_dir():
+            for child in lang_dir.iterdir():
+                if child.is_dir() and (child / "src").exists():
+                    return child
+        return base if base.exists() else None
+
+    def _grep_repo(
+        self,
+        root: Path,
+        markers: tuple[str, ...],
+        exts: tuple[str, ...],
+        max_hits: int = 3,
+        window: int = 8,
+        max_files: int = 6000,
+    ) -> list[str]:
+        """Return windowed snippets around the first marker hit per matching file.
+
+        Walks ``root`` with os.walk so heavy directories (node_modules, dist)
+        are pruned rather than iterated. Bounded by ``max_files`` scanned and
+        ``max_hits`` returned so a large repo can't stall verification.
+        """
+        results: list[str] = []
+        scanned = 0
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+            for fname in filenames:
+                if len(results) >= max_hits or scanned >= max_files:
+                    return results
+                if not fname.endswith(exts):
+                    continue
+                fpath = Path(dirpath) / fname
+                scanned += 1
+                try:
+                    text = fpath.read_text(errors="replace")
+                except OSError:
+                    continue
+                if not any(m in text for m in markers):
+                    continue
+                lines = text.splitlines()
+                for i, line in enumerate(lines):
+                    if any(m in line for m in markers):
+                        s = max(0, i - window)
+                        e = min(len(lines), i + window + 1)
+                        try:
+                            rel = fpath.relative_to(root)
+                        except ValueError:
+                            rel = fpath.name
+                        snippet = "\n".join(lines[s:e])
+                        results.append(f"// File: {rel}:{i + 1}\n{snippet}")
+                        break  # one window per file is enough
+        return results
+
+    def _get_framework_sanitizers(self, repo_name: str, lang: str) -> str:
+        """Grep the repo for a global input-validation boundary.
+
+        For DTO/request-sourced taint (prototype pollution, mass-assignment),
+        the verdict hinges on whether a framework pipe strips or rejects
+        dangerous keys before the value reaches the sink. The dominant case is
+        NestJS ``app.useGlobalPipes(new ValidationPipe({ whitelist: true,
+        forbidNonWhitelisted: true }))`` in the bootstrap, which is upstream of
+        every service and therefore never visible in the sink's function body.
+        """
+        root = self._repo_root(lang, repo_name)
+        if root is None:
+            return "[Repo source not available for framework-sanitizer lookup]"
+        markers = ("useGlobalPipes", "ValidationPipe", "forbidNonWhitelisted")
+        hits = self._grep_repo(root, markers, exts=(".ts", ".js", ".mjs"))
+        if not hits:
+            return (
+                "[No global input-validation pipe found (e.g. NestJS "
+                "useGlobalPipes(new ValidationPipe(...))). Request input may be "
+                "unsanitized at the framework boundary — judge the sink on its "
+                "own merits.]"
+            )
+        return (
+            "// Framework input-validation boundary (upstream sanitizer).\n"
+            "// If whitelist/forbidNonWhitelisted is enabled, undeclared keys "
+            "like __proto__/constructor are stripped or rejected before the "
+            "sink runs.\n\n" + "\n\n".join(hits)
+        )
+
+    def _get_framework_guards(self, repo_name: str, lang: str) -> str:
+        """Grep the repo for global/route authentication guards.
+
+        For "missing authentication" findings the decisive context is whether
+        the route is covered by a guard — a global ``APP_GUARD`` provider,
+        ``app.useGlobalGuards(...)``, a class/method ``@UseGuards(...)``, or an
+        explicit ``@Public()`` opt-out. None of these live in the flagged
+        handler body, so the verifier otherwise assumes the route is open.
+        """
+        root = self._repo_root(lang, repo_name)
+        if root is None:
+            return "[Repo source not available for framework-guard lookup]"
+        markers = ("APP_GUARD", "useGlobalGuards", "@UseGuards", "@Public")
+        hits = self._grep_repo(root, markers, exts=(".ts", ".js", ".mjs"), max_hits=6)
+        if not hits:
+            return (
+                "[No global or route auth guards found (e.g. NestJS APP_GUARD, "
+                "useGlobalGuards, @UseGuards, @Public). The route may genuinely "
+                "be unauthenticated.]"
+            )
+        return (
+            "// Framework authentication guards. A global APP_GUARD/useGlobalGuards "
+            "protects ALL routes unless they carry @Public(); @UseGuards protects "
+            "the decorated controller/handler.\n\n" + "\n\n".join(hits)
+        )

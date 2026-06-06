@@ -21,6 +21,44 @@ _TOOL_NAME_MAP: dict[str, str] = {
     "opengrep": "OpenGrep",
 }
 
+# Code-quality / maintainability rules that the CodeQL security suites pull in
+# but which are NOT vulnerabilities. Verifying them as "findings" is pure noise
+# (on dealer-portal-api: js/unused-local-variable = 63 findings / 0 True
+# Positives, js/trivial-conditional similar) and burns LLM tokens before the
+# verifier can dismiss them. Dropped at parse time so they never reach
+# verification. Matched case-insensitively against the rule's short id (the
+# segment after the last '/'), so language prefixes (js/, py/, cpp/) are covered.
+_NON_SECURITY_RULE_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "unused-local-variable",
+        "trivial-conditional",
+        "unused-variable",
+        "unreachable-statement",
+        "dead-store",
+        "useless-assignment",
+        "useless-assignment-to-local",
+        "useless-assignment-to-property",
+        "duplicate-condition",
+        "comparison-of-identical-expressions",
+        # Code-quality lint observed flooding SPA scans (eoffice-superweb):
+        # maintainability smells, not vulnerabilities.
+        "redundant-operation",
+        "unneeded-defensive-code",
+        "useless-expression",
+        "useless-comparison-test",
+        "inconsistent-use-of-new",
+        "duplicate-property",
+    }
+)
+
+
+def _is_non_security_rule(rule_id: str) -> bool:
+    """True if *rule_id* is a code-quality lint, not a security finding."""
+    if not rule_id:
+        return False
+    short = rule_id.rsplit("/", 1)[-1].lower()
+    return short in _NON_SECURITY_RULE_SUFFIXES
+
 
 def _normalize_tool_name(raw: str) -> str:
     """Return the canonical tool label for *raw*, or *raw* unchanged if unknown."""
@@ -215,6 +253,10 @@ class SarifParser:
 
             for result in run.get("results", []):
                 rule_id = result.get("ruleId") or ""
+                # Drop code-quality lint that the security suite drags in — it
+                # is never a vulnerability and only adds verification noise/cost.
+                if _is_non_security_rule(rule_id):
+                    continue
                 message = (result.get("message") or {}).get("text") or ""
                 dataflow_path = _extract_dataflow_path(result.get("codeFlows", []))
                 related_locations = _extract_related_locations(result.get("relatedLocations") or [])

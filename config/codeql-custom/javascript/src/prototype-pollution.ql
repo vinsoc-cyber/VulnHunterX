@@ -32,9 +32,14 @@ class BracketKeySink extends DataFlow::Node {
 class MergeSink extends DataFlow::Node {
   MergeSink() {
     exists(DataFlow::InvokeNode i, string n |
+      // `assign` deliberately excluded: native `Object.assign(target, src)` is a
+      // SHALLOW copy and cannot pollute the shared `Object.prototype`. At worst
+      // `Object.assign(new X(), { ...dto })` changes that one instance's
+      // [[Prototype]] (local, low impact) — not CWE-1321. Including it produced
+      // the dominant false-positive cohort on NestJS DTO services.
       n in [
         "merge", "mergeWith", "defaultsDeep", "set", "setWith",
-        "extend", "assign", "_merge", "deepMerge", "deepExtend"
+        "extend", "_merge", "deepMerge", "deepExtend"
       ] and
       i.getCalleeName() = n and
       // any argument may carry tainted nested keys

@@ -46,20 +46,43 @@ js/xss:
   context_hint: "Trace from input through DOM/response construction."
   additional_context: ["caller"]
 
+# Client-side DOM XSS sinks (innerHTML/outerHTML/insertAdjacentHTML and React
+# dangerouslySetInnerHTML). Unlike server XSS the source is usually a local /
+# Redux / props variable, NOT req.*, so the questions must not assume a request
+# source. Keyed to the semgrep rule ids that detect these sinks.
+vulnhunterx.js.dom-xss-sink: &dom_xss
+  short_description: "Value reaches a DOM HTML sink (innerHTML / dangerouslySetInnerHTML) without sanitization"
+  questions:
+    - "Quote the EXACT sink with line number (e.g. `el.innerHTML = X`, `dangerouslySetInnerHTML={{__html: X}}`)."
+    - "Where does the assigned value originate — a constant string literal (safe), component props/state, Redux store, API response, URL, or user form input? Trace it back with file:line."
+    - "Is the value passed through an HTML sanitizer before the sink — `DOMPurify.sanitize(...)`, `sanitizeHtml(...)`, or a framework escaper? Quote the sanitization call, or state 'none'."
+    - "Could the value contain attacker-influenced data (user-entered rich text, server data derived from another user, query string)? If it can ONLY ever be a hard-coded/developer-controlled constant, it is a False Positive."
+    - "Is this rich-text/HTML content that legitimately must render as HTML? If so, sanitization (not textContent) is the required control — is it present?"
+    - "If the value can be attacker-influenced AND no sanitizer is applied before the sink, the rule is likely correct (True Positive)."
+  context_hint: "Trace the assigned value from its origin to the DOM sink; look for DOMPurify/sanitize on the path."
+  additional_context: ["caller", "callees"]
+
+vulnhunterx.js.react-dangerously-set-html: *dom_xss
+
 js/prototype-pollution: &js_prototype_pollution
   short_description: "User-controlled property path can modify Object.prototype"
   questions:
     - "Is user input used as a PROPERTY KEY in bracket notation (obj[key])?"
     - "Could the key be '__proto__', 'constructor', or 'prototype'?"
     - "Is there a CHECK to filter these dangerous keys before assignment?"
+    - "Is the tainted value a framework DTO validated by a GLOBAL ValidationPipe with whitelist/forbidNonWhitelisted (see the prefetched framework-sanitizer context)? If so, undeclared keys like __proto__/constructor are stripped or the request is rejected with 400 BEFORE this code runs → strong False Positive signal. Quote the pipe config or mark 'not present'."
     - "Is a recursive MERGE function used (_.merge, $.extend with deep=true)?"
     - "Does the merge function check hasOwnProperty before recursing?"
     - "Could Object.create(null) or Map be used instead of plain objects?"
-  context_hint: "Include object merge/assignment logic with key sources."
-  # The verdict hinges on the SINK helper's body (e.g. this.set / a merge fn):
-  # whether it does a bracket-write on a plain object vs. a string-keyed store
-  # (Redis/Map). Prefetch callee bodies so that implementation is on turn 1.
-  additional_context: ["caller", "callees"]
+    - "Is this GLOBAL Object.prototype pollution (a bracket-write or recursive merge onto a shared plain object, affecting ALL objects), or only a LOCAL instance prototype change (e.g. `Object.assign(new X(), { ...dto })`, which at most sets that one instance's [[Prototype]])? Object.assign / spread into a fresh instance is shallow and does NOT pollute Object.prototype — that is local-only, low impact, usually a False Positive at this severity."
+  context_hint: "Include object merge/assignment logic with key sources, the source DTO's declared fields, and the global input-validation pipe."
+  # The verdict hinges on (1) the SINK helper's body — whether it bracket-writes
+  # a plain object vs. a string-keyed store (Redis/Map); (2) the SOURCE DTO type,
+  # whose decorated fields show which keys are allowed; and (3) the framework
+  # input-validation boundary (NestJS ValidationPipe whitelist), upstream of the
+  # sink, which strips/rejects __proto__ before it ever arrives. Prefetch all
+  # three so the decisive context is on turn 1.
+  additional_context: ["caller", "callees", "source_type", "framework_sanitizers"]
 
 # Custom CodeQL query (renamed from js/prototype-pollution to avoid built-in id collision)
 js/prototype-pollution-ext: *js_prototype_pollution
@@ -609,14 +632,17 @@ js/electron-node-integration:
 js/missing-authentication:
   short_description: "Express/API route accessible without authentication performing privileged actions (CWE-306)"
   questions:
+    - "FIRST: is the flagged call a SERVER route definition (`app.get/post(path, handler)` where a later argument is a request handler function `(req,res)=>...`), or a CLIENT-side HTTP request (`axiosInstance.post('/api/x', body)`, `fetch(...)`, `http.get(...)`, `this.http.post(...)` — receiver is an HTTP client and the 2nd argument is a payload, not a handler)? A client call defines NO endpoint and enforces NO auth — if it is a client call (common in React/SPA service files), this is a clear False Positive. State which it is and why."
     - "Quote the EXACT route definition the rule flagged with line number, and the privileged action in its handler."
     - "What SPECIFIC authentication middleware would satisfy the rule? Name it concretely — e.g. 'passport.authenticate(\"jwt\", { session: false })', 'express-jwt({ secret, algorithms: [\"HS256\"] })'. 'Some auth middleware' is not acceptable."
     - "Enumerate EVERY path that reaches this handler (direct URL, sub-router, app.use chain, websocket upgrade). For each, list which SPECIFIC middleware is enforced with file:line, or mark 'absent / not visible'."
     - "Is this endpoint EXPLICITLY excluded from auth (login, health check, public webhook)? Quote the exclusion logic if so."
     - "Is there a global app.use(authMiddleware) that should cover this path? Quote it or mark 'Not visible'."
-    - "If the specific required middleware is not present on every reachable path, the rule is likely correct."
-  context_hint: "Include the route handler, middleware chain, and router configuration."
-  additional_context: ["caller", "all_callers"]
+    - "Is there a GLOBAL guard (NestJS APP_GUARD provider or app.useGlobalGuards(...)) that protects ALL routes by default — see the prefetched framework-guard context? If so, this route is authenticated UNLESS it carries an explicit @Public()/opt-out. Quote the global guard or the @Public() decorator if present."
+    - "Does the controller/class or handler carry @UseGuards(...) (visible in the framework-guard context)? A class-level guard covers every handler in it."
+    - "If the specific required middleware/guard is not present on every reachable path AND no global guard covers it, the rule is likely correct."
+  context_hint: "Include the route handler, middleware chain, router configuration, and global/route auth guards."
+  additional_context: ["caller", "all_callers", "framework_guards"]
   min_iterations: 2
 
 js/improper-privilege-management:

@@ -539,3 +539,68 @@ class TestToolNameNormalization:
         _write_sarif(sarif_file, _sarif_with_driver_name("MyCustomTool"))
         findings = parse_sarif_file(sarif_file, "c", "myrepo")
         assert findings[0].tool == "MyCustomTool"
+
+
+class TestNonSecurityRuleFiltering:
+    """Code-quality lint rules are dropped at parse time (not vulnerabilities)."""
+
+    def _sarif_with_rules(self, rule_ids):
+        return {
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "results": [
+                        {
+                            "ruleId": rid,
+                            "message": {"text": "msg"},
+                            "locations": [
+                                {
+                                    "physicalLocation": {
+                                        "artifactLocation": {"uri": "a.ts"},
+                                        "region": {"startLine": 1, "endLine": 1},
+                                    }
+                                }
+                            ],
+                        }
+                        for rid in rule_ids
+                    ]
+                }
+            ],
+        }
+
+    def test_unused_local_variable_dropped(self, tmp_path):
+        p = tmp_path / "q.sarif"
+        _write_sarif(p, self._sarif_with_rules(
+            ["js/unused-local-variable", "js/sql-injection", "js/trivial-conditional"]
+        ))
+        findings = SarifParser(p).parse_findings("javascript", "repo")
+        ids = {f.rule_id for f in findings}
+        assert ids == {"js/sql-injection"}
+
+    def test_security_rules_preserved(self, tmp_path):
+        p = tmp_path / "q.sarif"
+        _write_sarif(p, self._sarif_with_rules(
+            ["js/prototype-pollution-ext", "js/missing-authentication"]
+        ))
+        findings = SarifParser(p).parse_findings("javascript", "repo")
+        assert len(findings) == 2
+
+    def test_expanded_quality_lint_dropped(self, tmp_path):
+        # Quality smells that flooded the eoffice-superweb SPA scan.
+        p = tmp_path / "q.sarif"
+        _write_sarif(p, self._sarif_with_rules([
+            "js/redundant-operation",
+            "js/unneeded-defensive-code",
+            "js/useless-assignment-to-local",
+            "js/unreachable-statement",
+            "js/nosql-injection",  # security — must survive
+        ]))
+        findings = SarifParser(p).parse_findings("javascript", "repo")
+        assert {f.rule_id for f in findings} == {"js/nosql-injection"}
+
+    def test_comparison_incompatible_types_preserved(self, tmp_path):
+        # NOT denylisted — can hide real type-confusion bugs.
+        p = tmp_path / "q.sarif"
+        _write_sarif(p, self._sarif_with_rules(["js/comparison-between-incompatible-types"]))
+        findings = SarifParser(p).parse_findings("javascript", "repo")
+        assert len(findings) == 1

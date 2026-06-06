@@ -112,6 +112,51 @@ rules:
       - pattern: $EL.insertAdjacentHTML($POS, req.query.$X)
       - pattern: $EL.insertAdjacentHTML($POS, location.hash)
 
+  # ── CWE-79: client-side DOM XSS sinks (any non-sanitized value) ──
+  # The html-injection rule above only fires when the source is a known
+  # server/request taint (req.*, location.*). On SPA/React codebases the
+  # tainted value is usually a local/Redux variable, so the innerHTML family of
+  # sinks was invisible (eoffice-superweb: innerHTML XSS missed entirely —
+  # false negatives). This broader rule surfaces the SINK regardless of source
+  # so the LLM verifier can adjudicate; it is therefore WARNING/lower-precision
+  # by design. dangerouslySetInnerHTML is intentionally NOT covered here — the
+  # react-dangerously-set-html rule below owns it. Sanitizer-wrapped values and
+  # trivial clears are excluded to cut obvious noise.
+  - id: vulnhunterx.js.dom-xss-sink
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: |
+      Value assigned to innerHTML / outerHTML / insertAdjacentHTML without
+      sanitization can lead to DOM XSS when the value carries attacker-
+      influenced data. Prefer textContent, or sanitize with DOMPurify.sanitize()
+      before assigning (CWE-79).
+    metadata:
+      cwe: ["CWE-79"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/79.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html
+    patterns:
+      - pattern-either:
+          - pattern: "$EL.innerHTML = $X"
+          - pattern: "$EL.outerHTML = $X"
+          - pattern: "$EL.insertAdjacentHTML($POS, $X)"
+      # Trivial clears / empty assignments are safe.
+      - pattern-not: '$EL.innerHTML = ""'
+      - pattern-not: "$EL.innerHTML = ''"
+      - pattern-not: '$EL.outerHTML = ""'
+      # Explicitly sanitized values are safe.
+      - pattern-not: "$EL.innerHTML = DOMPurify.sanitize(...)"
+      - pattern-not: "$EL.outerHTML = DOMPurify.sanitize(...)"
+      - pattern-not: "$EL.innerHTML = sanitize(...)"
+      - pattern-not: "$EL.innerHTML = sanitizeHtml(...)"
+      - pattern-not: "$EL.insertAdjacentHTML($POS, DOMPurify.sanitize(...))"
+      # Skip values whose name already implies sanitization/escaping.
+      - metavariable-regex:
+          metavariable: $X
+          regex: '^(?!.*(?i:saniti|purif|escape|cleanHtml|safeHtml)).*$'
+
   # ── CWE-327/328: Node crypto with MD5 / SHA-1 ──
   - id: vulnhunterx.js.weak-hash
     languages: [javascript, typescript]
@@ -241,6 +286,13 @@ rules:
       - pattern-not: "{__html: '...'}"
       - pattern-not: '{__html: DOMPurify.sanitize(...)}'
       - pattern-not: '{__html: DOMPurify.sanitize(..., ...)}'
+      - pattern-not: '{__html: sanitize(...)}'
+      - pattern-not: '{__html: sanitizeHtml(...)}'
+      # Skip values already sanitized upstream (name implies it), e.g.
+      # `dangerouslySetInnerHTML={{ __html: sanitizedHtmlBody }}`.
+      - metavariable-regex:
+          metavariable: $X
+          regex: '^(?!.*(?i:saniti|purif|escape|cleanHtml|safeHtml)).*$'
 
   # ── CWE-943: Mongoose / Mongo $where with non-literal ──
   - id: vulnhunterx.js.mongoose-where

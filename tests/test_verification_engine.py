@@ -10,6 +10,7 @@ import re
 from vuln_hunter_x.core.types import Finding, Verdict, VerificationResult
 from vuln_hunter_x.verification.engine import (
     VerificationEngine,
+    _downgrade_local_prototype_pollution,
     _is_test_path,
     _verdict_filename,
 )
@@ -22,6 +23,7 @@ def _make_finding(
     end_line: int = 66,
     message: str = "Timing attack against signature comparison.",
     dataflow_path: list[str] | None = None,
+    cwe_ids: list[str] | None = None,
 ) -> Finding:
     return Finding(
         rule_id=rule_id,
@@ -32,6 +34,7 @@ def _make_finding(
         repo_name="demo-repo",
         lang="go",
         dataflow_path=dataflow_path or [],
+        cwe_ids=cwe_ids or [],
     )
 
 
@@ -223,3 +226,112 @@ class TestExtractSinkCallees:
     def test_returns_empty_without_context(self):
         f = _make_finding(file="a.ts", start_line=5, end_line=5)
         assert VerificationEngine._extract_sink_callees(f, _Ctx("", 0, 0)) == []
+
+
+class TestBuildPrefetchRequestsFramework:
+    """Framework context hints map to repo-grep request strings."""
+
+    def test_framework_sanitizers_hint(self):
+        reqs = VerificationEngine._build_prefetch_requests(
+            ["caller", "framework_sanitizers"], "createFromSfsc"
+        )
+        assert "framework_sanitizers:repo" in reqs
+
+    def test_framework_guards_hint(self):
+        reqs = VerificationEngine._build_prefetch_requests(
+            ["framework_guards"], "handler"
+        )
+        assert reqs == ["framework_guards:repo"]
+
+
+class TestExtractSourceTypes:
+    """_extract_source_types resolves the DTO type of the taint source."""
+
+    def test_resolves_dto_type_from_signature(self):
+        code = (
+            "async createFromSfsc(dto: CreateRescueDto) {\n"
+            "  const req = Object.assign(new RescueRequest(), { ...dto });\n"
+            "}\n"
+        )
+        f = _make_finding(
+            rule_id="js/prototype-pollution-ext",
+            file="rescue.service.ts",
+            start_line=2,
+            end_line=2,
+            dataflow_path=["line 1: dto", "line 2: dto"],
+        )
+        types = VerificationEngine._extract_source_types(f, _Ctx(code, 1, 3))
+        assert types == ["CreateRescueDto"]
+
+    def test_skips_builtin_types(self):
+        code = "function f(name: string, count: number) {\n  return name[count];\n}\n"
+        f = _make_finding(
+            file="a.ts", start_line=2, end_line=2,
+            dataflow_path=["line 1: name", "line 1: count"],
+        )
+        assert VerificationEngine._extract_source_types(f, _Ctx(code, 1, 3)) == []
+
+    def test_empty_without_dataflow(self):
+        code = "function f(dto: SomeDto) {}\n"
+        f = _make_finding(file="a.ts", start_line=1, end_line=1, dataflow_path=[])
+        assert VerificationEngine._extract_source_types(f, _Ctx(code, 1, 2)) == []
+
+
+def _make_verdict(finding, verdict, confidence, reasoning, score=0.9):
+    return Verdict(
+        finding=finding,
+        verdict=verdict,
+        confidence=confidence,
+        reasoning=reasoning,
+        answers=[],
+        raw_response="",
+        model="test",
+        confidence_score=score,
+    )
+
+
+class TestDowngradeLocalPrototypePollution:
+    """TP prototype-pollution verdicts that are only LOCAL must not ride High."""
+
+    def _pp_finding(self):
+        return _make_finding(
+            rule_id="js/prototype-pollution-ext",
+            file="rescue.service.ts",
+            start_line=287,
+            end_line=287,
+            cwe_ids=["CWE-1321"],
+        )
+
+    def test_local_only_is_downgraded(self):
+        v = _make_verdict(
+            self._pp_finding(), "True Positive", "High",
+            "An attacker can set __proto__ on the instance (local prototype "
+            "pollution), changing its prototype chain.",
+        )
+        out = _downgrade_local_prototype_pollution(v)
+        assert out.confidence == "Low"
+        assert out.confidence_score <= 0.3
+        assert "LOCAL instance prototype" in out.reasoning
+
+    def test_global_pollution_is_preserved(self):
+        v = _make_verdict(
+            self._pp_finding(), "True Positive", "High",
+            "User key reaches obj[key]=val and pollutes Object.prototype "
+            "globally, affecting all objects.",
+        )
+        out = _downgrade_local_prototype_pollution(v)
+        assert out.confidence == "High"
+
+    def test_non_prototype_rule_untouched(self):
+        f = _make_finding(rule_id="js/sql-injection", cwe_ids=["CWE-89"])
+        v = _make_verdict(f, "True Positive", "High", "local instance prototype only")
+        out = _downgrade_local_prototype_pollution(v)
+        assert out.confidence == "High"
+
+    def test_false_positive_untouched(self):
+        v = _make_verdict(
+            self._pp_finding(), "False Positive", "High",
+            "local prototype pollution only",
+        )
+        out = _downgrade_local_prototype_pollution(v)
+        assert out.confidence == "High"

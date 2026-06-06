@@ -118,6 +118,62 @@ def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
     return verdict
 
 
+# Phrases signalling the verdict concerns only a single object instance's
+# prototype, vs. the global Object.prototype that CWE-1321 (severity 8.2) is
+# about. `Object.assign(new X(), {...dto})` and similar can at most change the
+# new instance's [[Prototype]] — low impact — yet the model often ships it as
+# TP/High. See output/.../js_prototype-pollution-ext_...287_*.json.
+_LOCAL_POLLUTION_MARKERS = (
+    "local prototype pollution",
+    "instance prototype",
+    "instance's prototype",
+    "prototype of the instance",
+    "local instance",
+    "only this instance",
+    "not global",
+)
+_GLOBAL_POLLUTION_MARKERS = (
+    "object.prototype",
+    "global prototype",
+    "all objects",
+    "globally pollut",
+    "affects every",
+)
+
+
+def _downgrade_local_prototype_pollution(verdict: Verdict) -> Verdict:
+    """Cap confidence on TP prototype-pollution verdicts that are only LOCAL.
+
+    A genuine CWE-1321 finding pollutes the shared ``Object.prototype`` and
+    affects all objects. A verdict whose own reasoning says the impact is
+    confined to a single instance's prototype (the ``Object.assign(new X(),
+    {...spread})`` shape) is low-impact and frequently a false alarm — it
+    should not ride at TP/High. Only fires on prototype-pollution findings to
+    avoid touching unrelated rules.
+    """
+    if verdict.verdict not in ("True Positive", "TP"):
+        return verdict
+    if verdict.confidence not in ("High", "Medium"):
+        return verdict
+    finding = getattr(verdict, "finding", None)
+    rule_id = (getattr(finding, "rule_id", "") or "").lower()
+    cwes = " ".join(getattr(finding, "cwe_ids", None) or []).lower()
+    if "prototype" not in rule_id and "1321" not in cwes and "1321" not in rule_id:
+        return verdict
+    text = (verdict.reasoning or "").lower()
+    is_local = any(m in text for m in _LOCAL_POLLUTION_MARKERS)
+    is_global = any(m in text for m in _GLOBAL_POLLUTION_MARKERS)
+    if is_local and not is_global:
+        verdict.confidence = "Low"
+        verdict.confidence_score = min(verdict.confidence_score, 0.3)
+        verdict.reasoning = (
+            (verdict.reasoning or "")
+            + " [confidence downgraded: reasoning describes LOCAL instance "
+            "prototype change, not global Object.prototype pollution (CWE-1321)]"
+        )
+    return verdict
+
+
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
@@ -591,6 +647,19 @@ class VerificationEngine:
                     req = f"function:{callee}"
                     if req not in prefetch_requests:
                         prefetch_requests.append(req)
+            # For DTO/request-sourced taint (prototype pollution,
+            # mass-assignment) the decisive context is UPSTREAM: the declared
+            # type of the source variable (e.g. `dto: CreateRescueDto`), whose
+            # decorated fields reveal which keys are even allowed. Resolve the
+            # type name from the function signature and prefetch its class def.
+            if any(
+                c.lower().strip() == "source_type"
+                for c in questions.additional_context
+            ):
+                for type_name in self._extract_source_types(finding, context_result):
+                    req = f"struct:{type_name}"
+                    if req not in prefetch_requests:
+                        prefetch_requests.append(req)
             if prefetch_requests:
                 prefetched_context = effective_provider.get_additional_context(
                     repo_name=finding.repo_name,
@@ -704,6 +773,10 @@ class VerificationEngine:
         # so the verdict surfaces to a human reviewer rather than being
         # trusted at face value.
         verdict = _downgrade_unsupported_confidence(verdict)
+        # Local-vs-global prototype-pollution calibration: a TP verdict whose
+        # reasoning confines impact to a single instance's prototype is not a
+        # CWE-1321 (Object.prototype) finding and must not ride at TP/High.
+        verdict = _downgrade_local_prototype_pollution(verdict)
 
         return verdict
 
@@ -744,6 +817,67 @@ class VerificationEngine:
                 break
         return callees
 
+    # Type names that are language builtins / framework primitives, not
+    # user-defined DTOs worth fetching a class definition for.
+    _SOURCE_TYPE_SKIP = frozenset(
+        {
+            "string", "number", "boolean", "any", "object", "void", "unknown",
+            "never", "null", "undefined", "Array", "Promise", "Date", "Object",
+            "Record", "Map", "Set", "Buffer", "Request", "Response", "Express",
+        }
+    )
+    _PARAM_TYPE_RE_TMPL = r"\b{var}\s*:\s*([A-Za-z_$][\w$]*)"
+
+    @classmethod
+    def _extract_source_types(
+        cls,
+        finding: Finding,
+        context_result: Any,
+        max_types: int = 2,
+    ) -> list[str]:
+        """Resolve the declared type(s) of the taint source variable.
+
+        The dataflow path records the source expression (e.g. ``"line 75:
+        dto"``); the enclosing-function signature declares its type (``dto:
+        CreateRescueDto``). Returning that type name lets the engine prefetch
+        the DTO's class definition so the model can see which keys are
+        whitelisted — the upstream context that decides DTO-sourced taint.
+        Builtins/framework primitives are skipped. Returns [] if nothing
+        user-defined resolves.
+        """
+        code = getattr(context_result, "code", "") or ""
+        if not code:
+            return []
+        # Candidate source variable names, in dataflow order.
+        src_vars: list[str] = []
+        seen_vars: set[str] = set()
+        for step in getattr(finding, "dataflow_path", None) or []:
+            expr = step.split(":", 1)[1].strip() if ":" in step else step.strip()
+            m = re.match(r"([A-Za-z_$][\w$]*)", expr)
+            if m and m.group(1) not in seen_vars:
+                seen_vars.add(m.group(1))
+                src_vars.append(m.group(1))
+
+        types: list[str] = []
+        tseen: set[str] = set()
+        for var in src_vars:
+            pat = cls._PARAM_TYPE_RE_TMPL.format(var=re.escape(var))
+            m = re.search(pat, code)
+            if not m:
+                continue
+            type_name = m.group(1)
+            if (
+                type_name
+                and type_name not in cls._SOURCE_TYPE_SKIP
+                and type_name[:1].isupper()
+                and type_name not in tseen
+            ):
+                tseen.add(type_name)
+                types.append(type_name)
+            if len(types) >= max_types:
+                break
+        return types
+
     @staticmethod
     def _build_prefetch_requests(
         context_types: list[str],
@@ -770,6 +904,13 @@ class VerificationEngine:
                 requests.append(f"callee_bodies:{func_name}")
             elif ctx_type == "all_callers":
                 requests.append(f"all_callers:{func_name}")
+            elif ctx_type in ("framework_sanitizers", "framework_validation"):
+                # Repo-wide grep for the global input-validation boundary
+                # (NestJS ValidationPipe whitelist/forbidNonWhitelisted). The
+                # name part is ignored by the provider — it scans the repo.
+                requests.append("framework_sanitizers:repo")
+            elif ctx_type in ("framework_guards", "framework_auth"):
+                requests.append("framework_guards:repo")
         return requests
 
     def save_results(
