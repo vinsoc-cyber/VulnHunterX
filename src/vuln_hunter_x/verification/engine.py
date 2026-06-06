@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import re
 import threading
 import time
@@ -16,6 +17,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Pattern that recognises a concrete code citation in reasoning text:
 # "line 42", "line: 42", "at line 42", "(line 42)", or "file.c:42".
@@ -403,7 +406,15 @@ class VerificationEngine:
         """
         findings = parse_sarif_file(Path(sarif_path), lang, repo_name)
         if exclude_test_paths:
+            before = len(findings)
             findings = [f for f in findings if not _is_test_path(f.file)]
+            dropped = before - len(findings)
+            if dropped:
+                logger.info(
+                    "Excluded %d/%d findings under test paths from %s "
+                    "(exclude_test_paths=True); %d remain for verification.",
+                    dropped, before, Path(sarif_path).name, len(findings),
+                )
         return self.verify_findings(findings, limit, category_filter=category_filter)
 
     def verify_all_sarif(

@@ -236,6 +236,63 @@ rules:
           - pattern: jwt.Parse($T, func(...) (interface{}, error) { return []byte("..."), nil })
           - pattern: jwt.ParseWithClaims($T, ..., func(...) (interface{}, error) { return []byte("..."), nil })
 
+  # ── CWE-798/321: Hardcoded symmetric / HMAC / cipher key (literal) ──
+  - id: vulnhunterx.go.hardcoded-symmetric-key
+    languages: [go]
+    severity: ERROR
+    message: |
+      A symmetric / HMAC / cipher key is a string- or byte-literal embedded in
+      source. Anyone with read access to the binary or repository can forge
+      signatures or decrypt data (CWE-798/321). This includes placeholder keys
+      like "mock-secret-key" left in production paths. Load the key from env, a
+      secret manager, or a KMS — never a literal.
+    metadata:
+      cwe: ["CWE-798", "CWE-321"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/321.html
+        - https://cwe.mitre.org/data/definitions/798.html
+    patterns:
+      - pattern-either:
+          - pattern: hmac.New($H, []byte("..."))
+          - pattern: aes.NewCipher([]byte("..."))
+          - pattern: des.NewCipher([]byte("..."))
+          - pattern: des.NewTripleDESCipher([]byte("..."))
+          - pattern: |
+              $K := []byte("...")
+              ...
+              hmac.New($H, $K)
+          - pattern: |
+              $K := "..."
+              ...
+              hmac.New($H, []byte($K))
+          - pattern: |
+              $K := []byte("...")
+              ...
+              aes.NewCipher($K)
+
+  # ── CWE-942/346: Permissive CORS — Access-Control-Allow-Origin: * ──
+  - id: vulnhunterx.go.permissive-cors
+    languages: [go]
+    severity: WARNING
+    message: |
+      Access-Control-Allow-Origin is set to the wildcard "*", allowing any
+      origin to read cross-origin responses. On authenticated/credentialed
+      endpoints this enables CSRF-style data exfiltration (CWE-942/346).
+      Reflect a validated origin from an allowlist instead of "*".
+    metadata:
+      cwe: ["CWE-942", "CWE-346"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/942.html
+        - https://developer.mozilla.org/docs/Web/HTTP/CORS
+    patterns:
+      - pattern-either:
+          - pattern: $W.Header().Set("Access-Control-Allow-Origin", "*")
+          - pattern: $W.Header().Add("Access-Control-Allow-Origin", "*")
+
   # ── CWE-434: Unrestricted file upload — destination from upload filename ──
   - id: vulnhunterx.go.file-upload
     languages: [go]

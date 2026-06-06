@@ -808,8 +808,10 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     if not getattr(args, "opengrep_configs", None) and default_opengrep_configs:
         args.opengrep_configs = default_opengrep_configs
 
-    # Rule profile: override suite/configs when --profile is given
-    profile_name = getattr(args, "profile", None)
+    # Rule profile: override suite/configs from the profile. Defaults to
+    # "standard" so per-language packs and local custom rules always apply —
+    # a bare "auto" silently skips whole languages (e.g. Go produced 0 results).
+    profile_name = getattr(args, "profile", None) or "standard"
     if profile_name:
         try:
             from vuln_hunter_x.core.rule_profiles import RuleProfileManager

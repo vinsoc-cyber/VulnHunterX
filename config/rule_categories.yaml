@@ -31,12 +31,32 @@
 
 profiles:
   standard:
-    description: "Default — CodeQL security-extended + Semgrep auto"
+    description: "Default — CodeQL security-extended + Semgrep auto + per-language packs"
     codeql_suite_suffix: "security-extended"
     semgrep_configs:
       - "auto"
     opengrep_configs:
       - "auto"
+    # Per-language packs ensure a bare `auto` does not silently skip a language
+    # (the root cause of the Go scan returning 0 Semgrep/OpenGrep results).
+    # These are registry packs and need semgrep.dev access; the analyzer now
+    # warns loudly when rules load but 0 results are produced. For local custom
+    # rules and custom CodeQL queries, use --profile full.
+    language_specific_configs:
+      python:
+        - "p/python"
+      javascript:
+        - "p/javascript"
+        - "p/nodejs"
+      typescript:
+        - "p/typescript"
+        - "p/nodejs"
+      java:
+        - "p/java"
+      php:
+        - "p/php"
+      go:
+        - "p/gosec"
 
   extended:
     description: "Broader — adds security-audit and secrets detection"

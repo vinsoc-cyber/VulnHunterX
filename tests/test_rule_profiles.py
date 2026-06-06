@@ -291,9 +291,14 @@ class TestFullProfileWithLanguageSpecific:
 class TestSemgrepConfigExpansion:
     """``get_semgrep_configs`` expands ``${LANG}`` and appends custom path."""
 
-    def test_no_template_in_standard(self, mgr: RuleProfileManager) -> None:
+    def test_standard_includes_per_language_packs(self, mgr: RuleProfileManager) -> None:
+        # standard now ships per-language registry packs by default so a bare
+        # `auto` does not silently skip a language (was the Go 0-results bug).
         configs = mgr.get_semgrep_configs("standard", lang="python")
-        assert configs == ["auto"]
+        assert configs == ["auto", "p/python"]
+        assert mgr.get_semgrep_configs("standard", lang="go") == ["auto", "p/gosec"]
+        # No unexpanded templates leak through.
+        assert all("${LANG}" not in c for c in configs)
 
     def test_template_expansion_with_existing_file(
         self, mgr: RuleProfileManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,

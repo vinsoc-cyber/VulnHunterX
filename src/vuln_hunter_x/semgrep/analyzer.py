@@ -122,8 +122,12 @@ class SemgrepAnalyzer:
             argv.append(c)
         argv.append(str(repo_path.resolve()))
 
+        # Always record the resolved command so scans are reproducible and a
+        # silent "0 results" outcome can be debugged from logs alone.
+        cmd_str = " ".join(argv)
+        logger.info("%s argv: %s", self.TOOL_LABEL, cmd_str)
         if self.verbose:
-            self._log("  Command: " + " ".join(argv))
+            self._log("  Command: " + cmd_str)
 
         start = time.perf_counter()
         try:
@@ -150,14 +154,67 @@ class SemgrepAnalyzer:
                 if rules_count > 0:
                     msg += f", {rules_count} rules"
                 msg += ")"
+                # Fail loud on the silent-failure pattern: the tool loaded rules
+                # and exited cleanly but produced zero results. On real source
+                # this almost always means the rules did not target the language
+                # (e.g. bare `auto` on Go), or registry packs failed to fetch.
+                if findings_count == 0 and rules_count > 0:
+                    warn = (
+                        f"{self.TOOL_LABEL} loaded {rules_count} rules but produced "
+                        f"0 results on {repo_path} — likely the configs do not target "
+                        f"'{lang}' or registry packs failed to load. Configs: "
+                        f"{validated_configs}"
+                    )
+                    logger.warning(warn)
+                    self._log(f"  WARNING: {warn}")
+                    self._log_registry_errors(result.stderr or result.stdout or "")
+                    msg += " [WARNING: 0 results with rules loaded]"
                 return True, sarif_path, msg
             error_msg = result.stderr or result.stdout or "Unknown error"
+            logger.error("%s failed (rc=%s): %s", self.TOOL_LABEL, result.returncode, error_msg[:500])
             self._log(f"  Error: {error_msg[:500]}")
             return False, None, error_msg
         except subprocess.TimeoutExpired:
             return False, None, f"{self.TOOL_LABEL} timed out (1 hour limit)"
         except Exception as e:
             return False, None, str(e)
+
+    # Substrings in tool output that point to a config/registry/network failure
+    # rather than a genuinely clean codebase.
+    _REGISTRY_ERROR_HINTS = (
+        "not found",
+        "could not parse",
+        "failed to download",
+        "failed to load",
+        "no rules",
+        "registry",
+        "network",
+        "timed out",
+        "unable to resolve",
+        "401",
+        "403",
+        "login",
+    )
+
+    def _log_registry_errors(self, output: str) -> None:
+        """Surface lines that hint at registry/network/config failures.
+
+        Called when the tool exits 0 but produces no results, to distinguish a
+        clean scan from a silent misconfiguration.
+        """
+        if not output:
+            return
+        hits = [
+            line.strip()
+            for line in output.splitlines()
+            if any(h in line.lower() for h in self._REGISTRY_ERROR_HINTS)
+        ]
+        if not hits:
+            return
+        logger.warning("%s possible config/registry issues:", self.TOOL_LABEL)
+        for line in hits[:20]:
+            logger.warning("  %s", line)
+            self._log(f"    {line}")
 
     def _count_sarif_results(self, sarif_path: Path) -> int:
         """Count the number of results in a SARIF file."""

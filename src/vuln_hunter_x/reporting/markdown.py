@@ -351,6 +351,7 @@ class MarkdownReportGenerator:
         sections = [
             self._header(result, repo_name or "unknown", lang or "unknown", report_lang),
             self._executive_summary(result, report_lang),
+            self._detection_coverage(result, report_lang),
             self._findings_overview(result, report_lang),
             self._severity_breakdown(result, report_lang),
             self._cwe_distribution(result, report_lang),
@@ -457,6 +458,64 @@ class MarkdownReportGenerator:
             f"**{_t('Total Cost', rl)}**: ${total_cost:.4f}  ",
             "",
         ])
+        return "\n".join(lines)
+
+    # SAST tools we expect the pipeline to be able to run. Used to surface a
+    # tool that contributed ZERO findings (a recall blind spot) rather than
+    # silently omitting it from the report.
+    _EXPECTED_TOOLS = ("CodeQL", "Semgrep", "OpenGrep")
+
+    def _detection_coverage(self, result: VerificationResult, rl: str) -> str:
+        """Per-tool contribution table — makes recall blind spots visible.
+
+        A SAST engine that ran but produced nothing (e.g. Semgrep returning 0
+        results because its rules did not target the language) is the dominant
+        false-negative risk. This table shows each tool's finding count and its
+        TP/FP split so a "0 from Semgrep" jumps out instead of being hidden.
+        """
+        if not result.verdicts:
+            return ""
+
+        by_tool: dict[str, dict[str, int]] = {}
+        for v in result.verdicts:
+            tool = (v.finding.tool or "unknown").strip() or "unknown"
+            bucket = by_tool.setdefault(tool, {"total": 0, "tp": 0, "fp": 0})
+            bucket["total"] += 1
+            if v.verdict == VerdictType.TRUE_POSITIVE.value:
+                bucket["tp"] += 1
+            elif v.verdict == VerdictType.FALSE_POSITIVE.value:
+                bucket["fp"] += 1
+
+        # Include expected tools that produced nothing so the gap is explicit.
+        seen = {t.lower() for t in by_tool}
+        zero_tools = [t for t in self._EXPECTED_TOOLS if t.lower() not in seen]
+
+        lines = [
+            "---\n",
+            f"## {_t('Detection Coverage by Tool', rl)}\n",
+            f"| {_t('Tool', rl)} | {_t('Findings', rl)} | "
+            f"{_t('True Positive', rl)} | {_t('False Positive', rl)} |",
+            "|------|------:|------:|------:|",
+        ]
+        for tool in sorted(by_tool, key=lambda t: -by_tool[t]["total"]):
+            b = by_tool[tool]
+            lines.append(f"| {tool} | {b['total']} | {b['tp']} | {b['fp']} |")
+        for tool in zero_tools:
+            lines.append(f"| {tool} | 0 | 0 | 0 |")
+
+        if zero_tools:
+            lines.extend([
+                "",
+                f"> ⚠️ {_t('Warning', rl)}: "
+                + _t(
+                    "the following tools produced 0 findings — likely a "
+                    "configuration/coverage gap (recall blind spot), not a clean "
+                    "result: ", rl,
+                )
+                + ", ".join(zero_tools)
+                + ".",
+            ])
+        lines.append("")
         return "\n".join(lines)
 
     def _findings_overview(self, result: VerificationResult, rl: str) -> str:

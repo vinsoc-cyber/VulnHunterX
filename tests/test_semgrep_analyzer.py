@@ -184,6 +184,77 @@ class TestSemgrepAnalyzerRunAnalysis:
             assert "p/security-audit" in config_values
 
 
+class TestSemgrepAnalyzerEmptyResultsWarning:
+    """The silent-failure guard: rules loaded but 0 results on a real path."""
+
+    def test_zero_results_with_rules_warns_but_succeeds(self, tmp_path, caplog):
+        import logging
+
+        repos_dir = tmp_path / "repos" / "go" / "myrepo"
+        repos_dir.mkdir(parents=True)
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        analyzer = SemgrepAnalyzer(semgrep_path="semgrep", output_dir=output_dir)
+
+        with (
+            patch("vuln_hunter_x.semgrep.analyzer.shutil.which", return_value="/usr/bin/semgrep"),
+            patch("vuln_hunter_x.semgrep.analyzer.subprocess.run") as mock_run,
+            caplog.at_level(logging.WARNING, logger="vuln_hunter_x.semgrep.analyzer"),
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="Rule pack p/gosec not found in registry; network unreachable",
+            )
+            sarif_path = output_dir / "go" / "myrepo" / "myrepo_semgrep.sarif"
+            sarif_path.parent.mkdir(parents=True, exist_ok=True)
+            _write_sarif(sarif_path, results_count=0, rules_count=5)
+
+            ok, result_path, msg = analyzer.run_analysis(
+                repo_path=repos_dir,
+                lang="go",
+                repo_name="myrepo",
+                output_dir=output_dir,
+                configs=["auto"],
+            )
+
+        assert ok is True  # tool itself succeeded
+        assert "WARNING" in msg and "0 results" in msg
+        # The warning and the registry/network hint are both logged.
+        assert any("0 results" in r.message for r in caplog.records)
+        assert any("registry" in r.message.lower() for r in caplog.records)
+
+    def test_zero_results_no_rules_does_not_warn(self, tmp_path, caplog):
+        import logging
+
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        analyzer = SemgrepAnalyzer(semgrep_path="semgrep", output_dir=output_dir)
+
+        with (
+            patch("vuln_hunter_x.semgrep.analyzer.shutil.which", return_value="/usr/bin/semgrep"),
+            patch("vuln_hunter_x.semgrep.analyzer.subprocess.run") as mock_run,
+            caplog.at_level(logging.WARNING, logger="vuln_hunter_x.semgrep.analyzer"),
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            sarif_path = output_dir / "go" / "myrepo" / "myrepo_semgrep.sarif"
+            sarif_path.parent.mkdir(parents=True, exist_ok=True)
+            _write_sarif(sarif_path, results_count=0, rules_count=0)
+
+            ok, _, msg = analyzer.run_analysis(
+                repo_path=tmp_path,
+                lang="go",
+                repo_name="myrepo",
+                output_dir=output_dir,
+                configs=["auto"],
+            )
+
+        assert ok is True
+        assert "WARNING" not in msg
+        assert not any("0 results" in r.message for r in caplog.records)
+
+
 class TestSemgrepAnalyzerCountMethods:
     def test_count_results_in_sarif(self, tmp_path):
         sarif_path = tmp_path / "test.sarif"
