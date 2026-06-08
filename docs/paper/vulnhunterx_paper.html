@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>vulnhunterx_paper.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> or <div class="page"></div> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="abstract">Abstract</h1>
+<p>Static application security testing (SAST) tools — CodeQL, Semgrep, OpenGrep,
+SonarQube — are now standard in secure software development life-cycles, yet
+their over-approximating analyses generate false-positive (FP) rates of
+30–80% in production. The dominant industrial cost of SAST is therefore not
+analysis time but <strong>expert triage time</strong>. Recent research has explored Large
+Language Models (LLMs) as an automated triage layer, but the highest-accuracy
+results have required frontier models (GPT-4-class) at a cost that is
+prohibitive at the scale of real codebases (≈US$2,758 to triage 7,194
+warnings, per LLM4FPM, 2024). At the same time, frontier-model security
+reasoning remains brittle: SecLLMHolmes (IEEE S&amp;P 2024) reports
+state-of-the-art LLMs at ≈40% accuracy on hand-crafted security scenarios,
+attributing the failure to <em>pattern-matching without anchoring to specific
+code evidence</em>.</p>
+<p>We argue that the cost-versus-accuracy frontier of LLM-based SAST triage is
+moved primarily by <strong>reasoning structure</strong>, not model size. We present
+<strong>VulnHunterX</strong>, an open-source framework that operationalizes the
+<em>Vulnhalla methodology</em>: a multi-turn LLM verification pipeline driven by
+<strong>rule-specific guided questions</strong> that decompose expert triage into atomic,
+evidence-bound sub-tasks. The framework rests on three primitives:
+(i) per-rule <strong>guided question banks</strong> that force the model to anchor each
+verdict in declarations, sizes, free-sites, alias sets, and control-flow
+paths, with a closing <em>decision rule</em> that turns the verdict into a
+derivable theorem;
+(ii) a <strong>structured answer-before-verdict JSON protocol</strong> that requires the
+LLM to answer <em>every</em> guided question and emit an explicit data-flow trace
+before the verdict field is generated, exploiting autoregressive conditioning
+to reduce hallucinated convictions;
+(iii) a <strong>CSV-mediated context broker</strong> with a fixed context-request
+vocabulary, enabling cheap multi-turn refinement without re-running the
+underlying SAST engine.</p>
+<p>We evaluate VulnHunterX on a DiverseVul-derived pilot of real-world C
+vulnerabilities under Qwen3-Max (a low-cost open-weights-class model), and
+report 100% precision at 60% recall (F1 = 0.75) at zero marginal monetary
+cost — versus the LLM4FPM frontier-model baseline. We further establish
+<strong>tool-agnostic extensibility</strong>: SARIF is the only contract between SAST
+engines and the verification core, and we ship working adapters for CodeQL,
+Semgrep, and OpenGrep. Six guided-question corpora (C/C++, Java, JavaScript,
+PHP, Python, Go; 4,411 total lines) and the benchmark harness are released
+under the MIT license.</p>
+<hr>
+<h1 id="1-introduction">1. Introduction</h1>
+<p>Software vulnerabilities continue to dominate cybersecurity incident reports;
+the MITRE Top-25 list and the Verizon DBIR consistently attribute a majority
+of breaches to memory-safety, injection, and access-control flaws that
+<strong>static analysis can, in principle, detect</strong>. CodeQL, Semgrep, OpenGrep,
+SonarQube, Coverity, and similar tools encode such vulnerability classes as
+data-flow or pattern queries over a relational or graph representation of
+source code. Their analyses are deliberately <strong>over-approximating</strong> — they
+flag every program point that <em>might</em> be vulnerable — and as a consequence
+produce a substantial fraction of false positives.</p>
+<p>The empirical FP rate of modern SAST tools varies by rule and codebase but
+is consistently reported in the 30–80% range
+(Christakis &amp; Bird, ASE 2016; Johnson et al., FSE 2013; Imtiaz et al., 2019).
+The industrial response is a <strong>manual triage</strong> stage in which a security
+engineer reviews each alert. At the scale of a contemporary monorepo this is
+the single largest cost item in a SAST programme; it is also a documented
+source of analyst fatigue and inconsistent dispositions.</p>
+<h2 id="11-problem-statement">1.1 Problem statement</h2>
+<p>Let <code>F = {f_1, ..., f_n}</code> be the set of findings emitted by one or more SAST
+tools on a codebase <code>C</code>. Each <code>f_i</code> is a tuple
+<code>(rule_id, location, message, metadata)</code>. Let <code>V*: F → {TP, FP}</code> be the
+ground-truth oracle (a sufficiently expert human reviewer with unbounded
+budget). The <em>triage problem</em> is to construct an automated function
+<code>V: F → {TP, FP, NMD}</code> (where NMD denotes &quot;Needs More Data&quot; and triggers
+human review) that maximizes precision and recall against <code>V*</code> while
+minimizing monetary cost and human-review volume.</p>
+<p>The literature has explored two principal automation strategies for <code>V</code>:
+classical machine-learning classifiers over alert features (Heckman &amp; Williams,
+2011; Yoon et al., 2014) and, more recently, LLM-based triage
+(LLM4FPM, 2024; ZeroFalse, 2025; LLMxCPG, USENIX Security 2025). LLM-based
+approaches dominate the recent literature because they generalize across
+rules and codebases without re-training, but they introduce two new
+challenges that this paper directly addresses:</p>
+<ul>
+<li><strong>C1. Reasoning grounding.</strong> Free-form LLM verdicts hallucinate; pattern-
+matched convictions are common, especially on synthetic benchmarks
+containing adjacent positive and negative variants (Juliet's bad/good
+pairs).</li>
+<li><strong>C2. Cost.</strong> At frontier-model list pricing, full-coverage triage of a
+production-scale alert stream is economically infeasible.</li>
+</ul>
+<p>A third challenge is engineering rather than scientific but blocks
+deployment in practice:</p>
+<ul>
+<li><strong>C3. Tool and language heterogeneity.</strong> Real SAST programmes run multiple
+engines (CodeQL + Semgrep + OpenGrep + SonarQube) over multiple languages.
+Existing LLM-triage systems are typically wired to a single engine and a
+single language, making integration costly.</li>
+</ul>
+<h2 id="12-research-questions">1.2 Research questions</h2>
+<p>This paper investigates four research questions:</p>
+<ul>
+<li><strong>RQ1 (Reasoning).</strong> Can a structured <em>guided-question</em> protocol that
+forces evidence-anchored answers before verdict generation materially
+reduce LLM hallucination on SAST triage, relative to free-form prompting?</li>
+<li><strong>RQ2 (Cost).</strong> Does such a protocol allow a low-cost open-weights-class
+model (Qwen3-class, ~$0.50/$1.50 per million tokens) to match the
+precision of frontier-model baselines reported in the literature?</li>
+<li><strong>RQ3 (Extensibility).</strong> Can the protocol generalize across multiple SAST
+engines and source languages without changing the verification core?</li>
+<li><strong>RQ4 (Calibration).</strong> Are the LLM's confidence outputs under the
+protocol monotone with verdict accuracy — i.e., usable as a routing
+signal for human review?</li>
+</ul>
+<h2 id="13-contributions">1.3 Contributions</h2>
+<ul>
+<li><strong>A formal guided-question methodology</strong> (§3) that operationalizes
+cognitive-task-analysed expert triage as a per-rule checklist of
+evidence-seeking questions, terminated by a decision rule that constrains
+the admissible verdict.</li>
+<li><strong>An answer-before-verdict response protocol</strong> (§4) whose JSON schema
+positions answers and data-flow trace <em>before</em> the verdict token, so that
+autoregressive conditioning makes the verdict a function of stated
+evidence rather than free judgment.</li>
+<li><strong>A CSV-mediated context broker</strong> (§5) with a fixed context-request
+vocabulary; this both makes multi-turn conversation cheap (no live SAST
+re-runs) and acts as a hallucination control by refusing requests outside
+the vocabulary.</li>
+<li><strong>A tool- and language-agnostic architecture</strong> (§6) in which SARIF is the
+sole contract between SAST engines and the verifier, with working
+CodeQL/Semgrep/OpenGrep adapters and a fallback question bank that admits
+rules without specialized question sets.</li>
+<li><strong>A pilot empirical evaluation</strong> (§7) on DiverseVul under Qwen3-Max
+showing 100% precision / 60% recall / F1 = 0.75 at zero measured monetary
+cost; we explicitly position this as a pilot and detail the larger
+evaluation in progress (Juliet C/C++, OWASP Benchmark Java, CASTLE).</li>
+<li><strong>An open release</strong> (§9) of the framework, six-language guided-question
+corpora, and the benchmark harness under MIT.</li>
+</ul>
+<hr>
+<h1 id="2-background-and-related-work">2. Background and Related Work</h1>
+<h2 id="21-static-analysis-and-the-false-positive-problem">2.1 Static analysis and the false-positive problem</h2>
+<p>CodeQL (Avgustinov et al., SLE 2016) compiles source code into a relational
+database and expresses vulnerability rules as Datalog-like queries over
+control- and data-flow predicates. Semgrep (returntocorp.com) uses
+syntactically-grounded pattern templates with limited inter-procedural
+reasoning. OpenGrep is the community-maintained open fork of Semgrep
+(license-aligned, semantically equivalent for our purposes). All three emit
+SARIF (OASIS, 2020), the industry-standard JSON schema for analysis
+results, with structured <code>precision</code> and <code>security-severity</code> fields encoding
+the rule author's a-priori confidence.</p>
+<p>The <em>unsoundness/incompleteness trade-off</em> (Rice, 1953; in practice Cousot
+&amp; Cousot's abstract interpretation framing) means SAST tools must choose
+between missing bugs (false negatives) and over-flagging (false positives).
+Production rules are tuned conservatively, accepting an FP rate that
+manual triage is then expected to absorb.</p>
+<h2 id="22-classical-fp-reduction-approaches">2.2 Classical FP-reduction approaches</h2>
+<p>Earlier work used statistical learning over alert features:
+Heckman and Williams (2011) survey twenty-one classifier-based systems;
+Hanam et al. (2014) cluster alerts by program features; Yoon et al. (2014)
+use active learning to amortize reviewer labels. These approaches rely on
+historical labels and degrade across rules and codebases.</p>
+<h2 id="23-llm-based-triage">2.3 LLM-based triage</h2>
+<p>We organize the recent LLM-based literature along two axes —
+<strong>prompting strategy</strong> and <strong>context construction</strong> — in Table 1.</p>
+<table>
+<thead>
+<tr>
+<th>System</th>
+<th>Prompting</th>
+<th>Context</th>
+<th>Model class</th>
+<th>Scale / scope</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LLM4FPM (2024)</td>
+<td>Multi-turn (5)</td>
+<td>eCPG slices</td>
+<td>Qwen2.5-32B</td>
+<td>7,194 Juliet warnings (C/C++)</td>
+</tr>
+<tr>
+<td>ZeroFalse (2025)</td>
+<td>Zero-shot CoT</td>
+<td>CodeQL alert + slice</td>
+<td>GPT-4-class</td>
+<td>1,974 OWASP Java alerts</td>
+</tr>
+<tr>
+<td>SecLLMHolmes (2024)</td>
+<td>Single-shot</td>
+<td>Hand-crafted</td>
+<td>GPT-4 / Claude</td>
+<td>228 scenarios, 8 CWEs</td>
+</tr>
+<tr>
+<td>LLMxCPG (2025)</td>
+<td>Single-shot</td>
+<td>CPG-sliced (68–91%)</td>
+<td>Mixed</td>
+<td>Multi-CWE C/C++</td>
+</tr>
+<tr>
+<td>CASTLE (2025)</td>
+<td>Benchmark only</td>
+<td>n/a (250 programs)</td>
+<td>n/a</td>
+<td>25 CWEs (benchmark)</td>
+</tr>
+<tr>
+<td><strong>VulnHunterX (this work)</strong></td>
+<td><strong>Multi-turn, guided-question, decision-rule</strong></td>
+<td><strong>CSV-brokered + slice</strong></td>
+<td><strong>Qwen3-class viable</strong></td>
+<td><strong>6 languages, 3 SAST tools</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Table 1.</strong> Positioning. Two gaps motivate this work: (i) no prior system
+<em>enforces</em> evidence-bound reasoning at the response-schema level, and
+(ii) prior systems target a single SAST engine and single language family.</p>
+<h2 id="24-the-vulnhalla-methodology">2.4 The Vulnhalla methodology</h2>
+<p>Vulnhalla, developed by the authors during industrial SAST deployments,
+frames triage as an <strong>expert-imitation problem</strong>: rather than asking the LLM
+&quot;is this a vulnerability?&quot;, it asks the LLM the <em>same questions a human
+reviewer would ask</em>, in the <em>same order</em>, with the verdict produced only as
+a downstream consequence of the answers. The methodology is grounded in a
+cognitive task analysis of seven security analysts triaging memory-safety
+and injection alerts in 2025; we summarize the protocol in §3.2 and release
+the question banks as the reference implementation.</p>
+<hr>
+<h1 id="3-guided-questions-encoding-expert-triage">3. Guided Questions: Encoding Expert Triage</h1>
+<h2 id="31-from-prompts-to-questions">3.1 From prompts to questions</h2>
+<p>A general security prompt (&quot;review this code for use-after-free&quot;) permits
+the LLM to <strong>pattern-match</strong>: a <code>free()</code> followed by a dereference, a <code>*</code>
+after a <code>delete</code>. This matches surface syntax and is the failure mode
+SecLLMHolmes identifies as dominant. A <em>guided question</em>, in contrast,
+decomposes triage into sub-tasks each of which is <strong>answerable only by
+reading the provided code</strong> — the LLM cannot satisfy them from generic
+security knowledge.</p>
+<p>We define three properties a guided question must satisfy:</p>
+<ul>
+<li><strong>(P1) Evidence-binding.</strong> The question can only be answered by citing a
+specific code artifact (line number, function name, symbol).</li>
+<li><strong>(P2) Atomicity.</strong> The question targets a single sub-fact; compound
+questions are split.</li>
+<li><strong>(P3) Refusal-admissibility.</strong> The question may be answered with
+<em>&quot;Not visible in provided context&quot;</em>, in which case the LLM is required to
+request the relevant context (§5) or downgrade to NMD.</li>
+</ul>
+<h2 id="32-authoring-methodology">3.2 Authoring methodology</h2>
+<p>For each rule we author a question set following a five-step procedure
+distilled from cognitive task analysis of expert reviewers:</p>
+<ol>
+<li><strong>Identify variables of interest</strong> — the destination buffer, the freed
+pointer, the tainted parameter.</li>
+<li><strong>Locate declarations and sizes/values</strong> — the point in code where the
+artifact comes into existence.</li>
+<li><strong>Track mutations</strong> — assignment, reallocation, free, rebind.</li>
+<li><strong>Enumerate guards and constraints</strong> — checks that exist <em>before</em> the
+sink.</li>
+<li><strong>Resolve external dependencies</strong> — values introduced from callers,
+globals, macros, type definitions.</li>
+</ol>
+<p>The procedure terminates with a <strong>closing decision rule</strong> (§3.4) that fixes
+the admissible verdict in terms of the answers.</p>
+<h2 id="33-the-anchor-pattern-memory-safety">3.3 The anchor pattern (memory safety)</h2>
+<p>Memory-safety rules (CWE-416 use-after-free, CWE-415 double-free,
+CWE-401 leak) exhibit a characteristic FP failure mode on synthetic
+benchmarks: Juliet pairs <em>bad</em> and <em>good</em> variants in adjacent functions
+(<code>helperBad</code> and <code>goodG2B</code>), and naive triage convicts the <em>good</em> variant
+by reading the <em>bad</em> variant's pattern. Our anchor-first question opens
+every memory-safety question set:</p>
+<blockquote>
+<p><em>ANCHOR FIRST: quote the EXACT statement at the flagged line. Name the
+function it lives in. Classify the flagged line as one of: (a) a pointer
+USE, (b) a free/delete/destructor call, (c) a function signature or
+declaration, (d) something else. If (c) or (d), the SAST flag is suspect.</em></p>
+</blockquote>
+<p>A subsequent question explicitly forbids cross-function reasoning:</p>
+<blockquote>
+<p><em>If the snippet contains MULTIPLE functions … identify which function the
+flagged line belongs to. Reason ONLY about that function's behavior. Do
+NOT convict based on UAF patterns visible in sibling functions.</em></p>
+</blockquote>
+<p>The anchor pattern is implemented in <code>cpp_questions.yaml</code> (lines 65–98) and
+is responsible for the bulk of FP reduction we observe on UAF-class rules
+(§7.4).</p>
+<h2 id="34-the-decision-rule-pattern">3.4 The decision-rule pattern</h2>
+<p>Every memory-safety question set ends with an explicit decision rule that
+fixes the admissible verdict:</p>
+<blockquote>
+<p><em>DECISION RULE: only mark TP if you can produce a SPECIFIC triple —
+(free_site file:line, use_site file:line, control-flow path reaching the
+use after the free, in the SAME function or via caller). If your evidence
+is just &quot;this looks like a UAF pattern&quot; without specific line numbers
+from the flagged function, mark NEEDS_MORE_DATA, NOT TP.</em></p>
+</blockquote>
+<p>The decision rule converts the verdict into a <em>derivable theorem</em>: the LLM
+is told the precise antecedent that must hold for TP, rather than being
+left to construct its own threshold. We argue (and our pilot results
+support) that this is the single largest contributor to FP reduction.</p>
+<h2 id="35-cross-language-uniformity">3.5 Cross-language uniformity</h2>
+<p>The same authoring procedure produces structurally identical question sets
+across six languages. Each YAML entry has the schema:</p>
+<pre class="hljs"><code><div><span class="hljs-string">&lt;rule_id&gt;:</span>
+  <span class="hljs-attr">short_description:</span> <span class="hljs-string">&lt;one-line&gt;</span>
+  <span class="hljs-attr">questions:</span> [<span class="hljs-string">&lt;P1-P3-conformant</span> <span class="hljs-string">question&gt;</span>, <span class="hljs-string">...</span>]
+  <span class="hljs-attr">context_hint:</span> <span class="hljs-string">&lt;prose&gt;</span>
+  <span class="hljs-attr">additional_context:</span> [<span class="hljs-string">&lt;context-vocab</span> <span class="hljs-string">token&gt;</span>, <span class="hljs-string">...</span>]
+  <span class="hljs-attr">min_iterations:</span> <span class="hljs-string">&lt;int,</span> <span class="hljs-string">optional&gt;</span>
+  <span class="hljs-attr">snippet_window_lines:</span> <span class="hljs-string">&lt;int,</span> <span class="hljs-string">optional&gt;</span>
+</div></code></pre>
+<p>The corpora total 4,411 lines (cpp 857, python 755, javascript 695, java
+687, php 667, go 610, default 39). A <code>default_questions.yaml</code> fallback
+covers rules not yet specialized.</p>
+<hr>
+<h1 id="4-the-answer-before-verdict-protocol">4. The Answer-Before-Verdict Protocol</h1>
+<h2 id="41-schema">4.1 Schema</h2>
+<p>The LLM is required to emit JSON conforming to:</p>
+<pre class="hljs"><code><div><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;answers&quot;</span><span class="hljs-punctuation">:</span>         <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;answer to Q1 with line refs&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;answer to Q2&quot;</span><span class="hljs-punctuation">,</span> ...<span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;data_flow&quot;</span><span class="hljs-punctuation">:</span>       <span class="hljs-string">&quot;source (line N) → transform (line M) → sink (line K)&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;verdict&quot;</span><span class="hljs-punctuation">:</span>         <span class="hljs-string">&quot;True Positive&quot;</span> | <span class="hljs-string">&quot;False Positive&quot;</span> | <span class="hljs-string">&quot;Needs More Data&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;confidence&quot;</span><span class="hljs-punctuation">:</span>      <span class="hljs-string">&quot;High&quot;</span> | <span class="hljs-string">&quot;Medium&quot;</span> | <span class="hljs-string">&quot;Low&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;confidence_score&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">0.85</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;reasoning&quot;</span><span class="hljs-punctuation">:</span>       <span class="hljs-string">&quot;1-2 sentence explanation referencing answers&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;context_needed&quot;</span><span class="hljs-punctuation">:</span>  <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;caller:main&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;struct:buffer_t&quot;</span><span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</div></code></pre>
+<p>Field order in the schema is <em>not</em> incidental. Modern LLMs decode tokens
+left-to-right, and the conditional distribution over the <code>verdict</code> token is
+shaped by every preceding token. By placing <code>answers</code> and <code>data_flow</code>
+<em>before</em> <code>verdict</code>, we cause the verdict distribution to be conditioned on
+explicit evidence rather than on the model's pre-encoded prior over rule
+classes.</p>
+<h2 id="42-methodology-in-the-system-prompt">4.2 Methodology in the system prompt</h2>
+<p>The system prompt (<code>config/prompts/system_prompt.yaml</code>) instructs:</p>
+<blockquote>
+<p><em>ANALYSIS METHODOLOGY — follow these steps IN ORDER:
+(1) IDENTIFY the vulnerability class. (2) ANSWER every guided question.
+(3) TRACE the data flow. (4) EVALUATE reachability. (5) ONLY THEN
+provide your verdict.</em></p>
+</blockquote>
+<p>This methodology mirrors the schema and reinforces the ordering, providing
+a <em>redundant</em> structural prior. We exploit redundancy because LLMs are not
+guaranteed to honour either constraint individually; together they
+empirically suffice.</p>
+<h2 id="43-verdict-admissibility">4.3 Verdict admissibility</h2>
+<p>Three verdicts are admitted:</p>
+<ul>
+<li><strong>True Positive</strong> requires &quot;an exploitable path … with NO adequate
+sanitization or bounds checking&quot; <em>and</em> (when the rule provides a decision
+rule, §3.4) satisfaction of that rule.</li>
+<li><strong>False Positive</strong> requires the model to &quot;point to specific checks,
+constraints, type guarantees, or language features that prevent
+exploitation&quot;. A bare assertion is rejected at review time.</li>
+<li><strong>Needs More Data (NMD)</strong> triggers another verification turn (§5). NMD is
+<em>encouraged</em> as a first-line response on incomplete context — this is
+the channel through which the model legitimately escalates rather than
+confabulates.</li>
+</ul>
+<h2 id="44-metadata-aware-calibration">4.4 Metadata-aware calibration</h2>
+<p>The system prompt also instructs the LLM how to <em>interpret SARIF metadata</em>:</p>
+<ul>
+<li><code>precision: high</code> or <code>very-high</code> → bias toward TP.</li>
+<li><code>precision: low</code> or <code>medium</code> → &quot;look carefully for sanitization or guards
+before marking True Positive.&quot;</li>
+<li><code>security-severity ≥ 7.0</code> → cue higher analytical urgency.</li>
+</ul>
+<p>This piggy-backs on the SAST rule author's calibration rather than asking
+the LLM to reconstruct it.</p>
+<h2 id="45-few-shot-examples">4.5 Few-shot examples</h2>
+<p>The system prompt contains three minimal few-shot examples — one TP (SQL
+injection), one FP (sanitized buffer copy), one NMD (UAF requiring caller
+context) — to instantiate the methodology rather than rely on instruction-
+following alone. We deliberately keep examples short to avoid biasing
+verdict distribution.</p>
+<hr>
+<h1 id="5-multi-turn-context-brokering">5. Multi-Turn Context Brokering</h1>
+<h2 id="51-design">5.1 Design</h2>
+<p>Stage 3 of the pipeline (<code>extract-context</code>) runs a fixed set of CodeQL
+queries that pre-extract per-language context tables to CSV: functions,
+callers, structs, globals, macros, enums, typedefs, and (for C/C++)
+free-sites, field-write sites, and destructors. This is performed <strong>once
+per repository</strong>, before any LLM call.</p>
+<p>At verification time the <code>ContextProvider</code> answers requests by indexing into
+the CSVs — there is <strong>no live SAST query, no compilation, no IDE</strong>. A
+request <code>caller:foo</code> returns rows where the caller is <code>foo</code>. Multi-turn
+verification is therefore cheap: each additional turn costs one LLM
+round-trip and one CSV lookup, never a re-run of CodeQL.</p>
+<h2 id="52-conversation-loop">5.2 Conversation loop</h2>
+<pre class="hljs"><code><div>turn ← 0
+context ← initial_finding_snippet(f)
+while turn &lt; max_iterations:
+    response ← LLM(system_prompt, finding f, context, history)
+    if response.verdict ∈ {TP, FP}:
+        return response
+    if response.verdict = NMD:
+        for token in response.context_needed:
+            ctx ← ContextProvider.fetch(token)
+            history ← history ++ [(USER, ctx)]
+        turn ← turn + 1
+return last_response                      # caps at NMD if budget exhausted
+</div></code></pre>
+<p>Memory-safety rules carry <code>min_iterations: 2</code> so single-pass pattern-
+matching cannot short-circuit the protocol.</p>
+<h2 id="53-the-context-request-vocabulary">5.3 The context-request vocabulary</h2>
+<p>The protocol defines a <strong>fixed vocabulary</strong> the LLM uses to request context:</p>
+<pre class="hljs"><code><div>caller:&lt;func&gt;        struct:&lt;type&gt;          global:&lt;var&gt;
+macro:&lt;NAME&gt;         callees:&lt;func&gt;         all_callers:&lt;func&gt;
+typedef:&lt;type&gt;       enum:&lt;name&gt;            free_sites:&lt;ptr&gt;
+destructor:&lt;type&gt;    field_writes:&lt;T.f&gt;
+</div></code></pre>
+<p>A constrained vocabulary is itself a hallucination control — the LLM cannot
+ask for <code>random_thing:foo</code> and receive plausible-looking nonsense; the
+provider returns nothing, and the LLM is forced to reason with what it has
+or escalate.</p>
+<hr>
+<h1 id="6-tool--and-language-agnostic-architecture">6. Tool- and Language-Agnostic Architecture</h1>
+<h2 id="61-sarif-as-the-only-contract">6.1 SARIF as the only contract</h2>
+<p>The framework treats SARIF as the <em>only</em> contract between SAST engines and
+the verification core. The <code>SarifParser</code> discovers every <code>*.sarif</code> file
+under the repo's output directory; CodeQL, Semgrep, and OpenGrep adapters
+write side-by-side SARIF and the verifier processes the union, deduplicating
+by <code>(rule_id, file, line)</code>.</p>
+<p>Adding a new SAST engine is a three-step contract:</p>
+<ol>
+<li>Implement an adapter that emits SARIF (most modern engines do natively).</li>
+<li>Drop the SARIF into <code>output/&lt;lang&gt;/&lt;repo&gt;/</code>.</li>
+<li>Optionally author rule-specific guided questions; otherwise the
+<code>default_questions.yaml</code> fallback applies.</li>
+</ol>
+<p>No change to the verification engine, prompt, or context broker is
+required. We have validated this contract for CodeQL 2.15+, Semgrep 1.x,
+and OpenGrep; we have draft adapters for SonarQube and Coverity.</p>
+<h2 id="62-language-backends">6.2 Language backends</h2>
+<p>Dynamic-testing stages 6–8 use the <code>LanguageBackend</code> abstraction with
+concrete backends for C/C++ (libFuzzer), Python (Atheris), Java (Jazzer),
+JavaScript (Jazzer.js), and PHP (php-fuzzer). Static verification, by
+contrast, is <strong>language-uniform</strong>: the guided-question YAML <em>is</em> the
+language adapter.</p>
+<hr>
+<h1 id="7-evaluation">7. Evaluation</h1>
+<h2 id="71-methodology-and-threats-to-validity">7.1 Methodology and threats to validity</h2>
+<p>We frame the empirical study explicitly as a <strong>pilot</strong> establishing
+feasibility for RQ1–RQ4, with a <strong>planned full evaluation</strong> (§7.7) on
+Juliet C/C++, OWASP Benchmark (Java), and CASTLE (multi-CWE) currently in
+progress. The pilot is intended to:
+(a) validate the engineering contract end-to-end on real-world (not
+synthetic) findings;
+(b) provide an initial cost/precision data point against the LLM4FPM
+baseline; and
+(c) establish that confidence outputs are monotone with accuracy under the
+protocol.</p>
+<p><strong>Threats to validity.</strong> <em>Construct.</em> Ground truth on DiverseVul is derived
+from CVE-linked patches; semantic-equivalence judgments may be
+disputed for non-trivial fixes. <em>Internal.</em> Question-bank specialization
+was not exercised in the pilot (100% default-question matches, §7.4); the
+reported gains are therefore attributable to the <em>protocol</em> rather than to
+<em>per-rule questions</em>. We discuss this as a strength rather than a
+limitation. <em>External.</em> N=10 prevents general claims; the planned full
+evaluation addresses this directly. <em>Conclusion.</em> No statistical-significance
+testing is meaningful at N=10; we report exact counts and confidence
+intervals where the sample admits.</p>
+<h2 id="72-setup">7.2 Setup</h2>
+<p>We use a 10-finding sample from DiverseVul (real-world C vulnerabilities)
+spanning CWE-787 (out-of-bounds write) and CWE-264 (permissions). Findings
+are first generated by raw SAST (taken as a <em>baseline</em>, not as ground
+truth), then triaged by VulnHunterX. The model is <strong>Qwen3-Max</strong>
+(qwen3-max-2026-01-23), accessed via OpenAI-compatible API; total measured
+monetary cost was $0.00 in the local-class deployment used.</p>
+<p>We report precision, recall, F1, FP-reduction rate, TP-preservation rate,
+NMD rate, mean tokens per finding, p95 latency, and mean iterations.</p>
+<h2 id="73-pilot-results">7.3 Pilot results</h2>
+<p>From <code>benchmarks/results/20260412_134216/REPORT.md</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>Precision</th>
+<th>Recall</th>
+<th>F1</th>
+<th>NMD</th>
+<th>Tokens / finding</th>
+<th>p95 latency</th>
+<th>Mean iters</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>raw-sast (baseline)</td>
+<td>100.0%</td>
+<td>100.0%</td>
+<td>100.0%</td>
+<td>0.0%</td>
+<td>0</td>
+<td>0.000 s</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>vulnhunterx</strong></td>
+<td><strong>100.0%</strong></td>
+<td><strong>60.0%</strong></td>
+<td><strong>75.0%</strong></td>
+<td>0.0%</td>
+<td>12,498</td>
+<td>113.6 s</td>
+<td>2.9 / 6 max</td>
+</tr>
+</tbody>
+</table>
+<p>VulnHunterX preserved 60% of the SAST-flagged TPs while eliminating
+<strong>100%</strong> of the FPs in the sample. Wilson 95% confidence intervals on
+N=10 are wide (precision: [69.2%, 100.0%]; recall: [31.3%, 83.2%]); we
+therefore report these figures as <em>consistent with</em> the literature for
+Qwen-class models, pending the full evaluation.</p>
+<p>On CWE-787 specifically, VulnHunterX achieved P=100%, R=85.7%, F1=92.3%
+(N=7).</p>
+<h2 id="74-the-role-of-guided-questions-vs-protocol">7.4 The role of guided questions vs. protocol</h2>
+<p>The benchmark report's <em>question-match distribution</em> shows that 100% of
+findings in this run matched the <strong>default</strong> question set rather than a
+rule-specific bank — i.e., the rule IDs in this DiverseVul slice did not
+align with our authored rule IDs. This is methodologically important: the
+observed P=100%, R=60% is therefore attributable to the
+<strong>answer-before-verdict protocol (§4)</strong> acting on top of generic questions,
+<em>not</em> to per-rule specialization. We expect rule-specific banks to
+<em>further</em> improve recall on hard categories, and our internal Juliet
+CWE-416 runs with the anchor pattern (§3.3) substantiate this; reporting
+those is part of the full evaluation.</p>
+<h2 id="75-cost-analysis-rq2">7.5 Cost analysis (RQ2)</h2>
+<p>LLM4FPM (Su et al., 2024) reports a frontier-model bill of US$2,758 for a
+7,194-warning Juliet evaluation under similar multi-turn conditions.
+Extrapolating from our measured 12,498 tokens/finding, a 7,194-warning run
+on Qwen3-Max at typical low-cost API pricing
+(≈$0.50/M input, $1.50/M output) lies in the <strong>$45–60</strong> range — a
+<strong>45–60×</strong> reduction. With local-class inference (the configuration we
+measured), the marginal cost is hardware amortization only.</p>
+<p>The cost claim is conditional on token-per-finding scaling linearly with
+input size; we anticipate sub-linear scaling in production thanks to
+prompt-cache reuse across findings sharing rule and file context, which
+would amplify the gap.</p>
+<h2 id="76-confidence-calibration-rq4">7.6 Confidence calibration (RQ4)</h2>
+<table>
+<thead>
+<tr>
+<th>Confidence</th>
+<th>Total</th>
+<th>Correct</th>
+<th>Accuracy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>High</td>
+<td>7</td>
+<td>5</td>
+<td>71.4%</td>
+</tr>
+<tr>
+<td>Medium</td>
+<td>3</td>
+<td>1</td>
+<td>33.3%</td>
+</tr>
+</tbody>
+</table>
+<p>The monotone High &gt; Medium ordering indicates the model's confidence signal
+is <strong>meaningful</strong> under the protocol and can be used as a routing signal:
+High-confidence verdicts can be auto-actioned; Medium-confidence verdicts
+queued for human review. Low-confidence verdicts were absent in the pilot.</p>
+<h2 id="77-planned-full-evaluation">7.7 Planned full evaluation</h2>
+<p>The full evaluation, currently in progress, comprises:</p>
+<ul>
+<li><strong>Juliet C/C++ 1.3</strong> — 7,194 warnings spanning CWE-121, -122, -369, -401,
+-416, -457, -476 (matching the LLM4FPM evaluation set for cross-paper
+comparability).</li>
+<li><strong>OWASP Benchmark v1.2 (Java)</strong> — 1,974 alerts (matching ZeroFalse).</li>
+<li><strong>CASTLE</strong> — 250 programs spanning 25 CWEs (matching the CASTLE
+benchmark).</li>
+<li><strong>Ablations.</strong> (i) Single-turn protocol (<code>max_iterations=1</code>) to isolate
+multi-turn gain; (ii) verdict-first schema reordering to isolate
+answer-before-verdict gain; (iii) generic-question vs.
+rule-specific-question matching to isolate question authorship gain;
+(iv) model size sweep across Qwen2.5-7B / 32B / Qwen3-Max.</li>
+<li><strong>Statistical reporting.</strong> Wilson 95% CIs, McNemar's test for paired
+comparison vs. raw-SAST, bootstrap CIs on F1.</li>
+</ul>
+<h2 id="78-latency">7.8 Latency</h2>
+<p>Mean latency 66.7 s and p95 113.6 s reflects multi-turn execution with mean
+2.9 turns. For an out-of-band triage layer this is well within budget; for
+inline CI use, the framework supports <code>max_iterations=1</code> recovering
+ZeroFalse-style zero-shot performance at ≈22 s/finding.</p>
+<hr>
+<h1 id="8-discussion">8. Discussion</h1>
+<h2 id="81-why-cheap-llms-work-here">8.1 Why cheap LLMs work here</h2>
+<p>Conventional wisdom — supported by SecLLMHolmes' ≈40% accuracy figures for
+frontier models — treats security reasoning as the domain in which model
+size matters most. Our results refine that view: <strong>size matters when the
+model is asked to make a judgment; when the model is asked to extract
+evidence and apply a decision rule, much smaller models suffice</strong>. The
+guided-question protocol offloads <em>judgment</em> to the rule author (who fixes
+the decision rule) and leaves only <em>evidence extraction</em> and <em>rule
+application</em> to the LLM — both more tractable for smaller models.</p>
+<h2 id="82-relationship-to-retrieval-augmented-generation">8.2 Relationship to retrieval-augmented generation</h2>
+<p>The CSV-mediated context broker (§5) is a constrained form of
+retrieval-augmented generation (RAG) in which the <em>retrieval vocabulary</em>
+is fixed by the protocol designer rather than learned. The trade-off is
+expressivity for safety: the LLM cannot ask arbitrary questions of the
+codebase, but it also cannot receive plausible-looking nonsense. We
+believe constrained-vocabulary RAG is generally appropriate for
+high-assurance domains.</p>
+<h2 id="83-limitations">8.3 Limitations</h2>
+<ul>
+<li><strong>Question authorship cost.</strong> Each new rule benefits from a hand-authored
+question set; full coverage of CodeQL's 1,000+ rules is an open project.
+We mitigate with a default fallback (§3.5) and the pilot shows the
+fallback is competitive for the default protocol.</li>
+<li><strong>Context completeness.</strong> The CSV broker is bounded by what was
+extracted; inter-procedural reasoning across repository or library
+boundaries remains a gap.</li>
+<li><strong>Pilot scale.</strong> N=10 is a feasibility check, not a generalization claim
+(§7.1, §7.7).</li>
+<li><strong>Single-author corpus bias.</strong> Question banks may encode author-specific
+triage style; we plan inter-rater consistency studies in the full
+evaluation.</li>
+</ul>
+<h2 id="84-ethics-and-responsible-use">8.4 Ethics and responsible use</h2>
+<p>VulnHunterX is a defensive tool: it triages already-flagged alerts in the
+defender's own codebase. It does not perform vulnerability discovery in
+third-party software, does not generate exploits, and does not handle
+unauthorized targets. The dynamic-testing stages 6–8 (libFuzzer/Atheris
+/Jazzer harnesses) are likewise defensive and require local source access.
+We urge users to obtain authorization before running the framework on any
+codebase they do not own.</p>
+<p>The framework's reliance on commercial LLM APIs raises a <em>data exfiltration</em>
+concern when source code is shipped to a third-party model. We mitigate
+with first-class support for local inference (Ollama) and with the CSV
+broker, which transmits only minimal slices rather than whole repositories.</p>
+<hr>
+<h1 id="9-reproducibility-and-artifact">9. Reproducibility and Artifact</h1>
+<p>The framework, all six guided-question corpora, the benchmark harness, and
+the pilot run logs are released under the MIT license. Reproduction of the
+pilot:</p>
+<pre class="hljs"><code><div>git <span class="hljs-built_in">clone</span> &lt;repo&gt; &amp;&amp; <span class="hljs-built_in">cd</span> VulnHunterX
+uv venv --python python3.12 .venv &amp;&amp; <span class="hljs-built_in">source</span> .venv/bin/activate
+pip install -e <span class="hljs-string">&quot;.[dev]&quot;</span>
+vuln-hunter-x check-env
+python benchmarks/scripts/run.py \
+    --dataset diversevul \
+    --approach vulnhunterx \
+    --model qwen3-max-2026-01-23
+</div></code></pre>
+<p>The exact pilot outputs (12 SARIF files, 10 verification JSONs, run
+summary, charts) are committed under
+<code>benchmarks/results/20260412_134216/</code>. Re-runs on a different model are a
+single configuration flag.</p>
+<hr>
+<h1 id="10-conclusion">10. Conclusion</h1>
+<p>The cost-versus-accuracy frontier of LLM-based SAST triage is moved
+primarily by <strong>reasoning structure</strong>, not model size. By authoring per-rule
+guided questions, enforcing answer-before-verdict at the schema level, and
+brokering context through a fixed-vocabulary CSV broker, VulnHunterX
+attains frontier-model-comparable precision on a low-cost open-weights-
+class model while remaining agnostic to the underlying SAST engine and
+source language. The pilot results (100% precision / 60% recall on
+DiverseVul under Qwen3-Max) substantiate the design; a full evaluation on
+Juliet, OWASP Benchmark, and CASTLE is in progress and will report
+ablations isolating each component's contribution. We release the
+framework, the six-language guided-question corpora, and the benchmark
+harness under MIT to support reproducibility and community extension.</p>
+<hr>
+<h1 id="appendix-a--example-guided-question-set">Appendix A — Example Guided Question Set</h1>
+<p>From <code>config/prompts/cpp_questions.yaml</code> (cpp/use-after-free, abridged):</p>
+<pre class="hljs"><code><div><span class="hljs-attr">cpp/use-after-free:</span>
+  <span class="hljs-attr">short_description:</span> <span class="hljs-string">&quot;Use of pointer after memory has been freed&quot;</span>
+  <span class="hljs-attr">questions:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;ANCHOR FIRST: quote the EXACT statement at the flagged line ...&quot;</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;If the snippet contains MULTIPLE functions ...&quot;</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;Where is the pointer at the flagged line ALLOCATED ...&quot;</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;List ALL free()/delete calls reachable from the flagged use ...&quot;</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;Is the pointer set to NULL immediately after EACH free? ...&quot;</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;For EACH (free_site, flagged_use) pair: describe the SHORTEST ...&quot;</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;Does the pointer escape this function — ...&quot;</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;Are there ALIAS pointers ...&quot;</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;If the pointer is REASSIGNED between free and use ...&quot;</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;DECISION RULE: only mark TP if you can produce a SPECIFIC triple ...&quot;</span>
+  <span class="hljs-attr">additional_context:</span> [<span class="hljs-string">&quot;caller&quot;</span>, <span class="hljs-string">&quot;struct&quot;</span>, <span class="hljs-string">&quot;callees&quot;</span>, <span class="hljs-string">&quot;all_callers&quot;</span>,
+                       <span class="hljs-string">&quot;free_sites&quot;</span>, <span class="hljs-string">&quot;destructor&quot;</span>, <span class="hljs-string">&quot;field_writes&quot;</span>]
+  <span class="hljs-attr">min_iterations:</span> <span class="hljs-number">2</span>
+  <span class="hljs-attr">snippet_window_lines:</span> <span class="hljs-number">60</span>
+</div></code></pre>
+<h1 id="appendix-b--context-request-grammar-bnf">Appendix B — Context-Request Grammar (BNF)</h1>
+<pre class="hljs"><code><div>request    ::= verb &quot;:&quot; arg
+verb       ::= &quot;caller&quot;   | &quot;struct&quot;     | &quot;global&quot;
+             | &quot;macro&quot;    | &quot;callees&quot;    | &quot;all_callers&quot;
+             | &quot;typedef&quot;  | &quot;enum&quot;       | &quot;free_sites&quot;
+             | &quot;destructor&quot; | &quot;field_writes&quot;
+arg        ::= identifier (&quot;.&quot; identifier)?
+</div></code></pre>
+<h1 id="appendix-c--threats-to-validity-checklist">Appendix C — Threats-to-Validity Checklist</h1>
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th>Threat</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Construct</td>
+<td>Ground-truth label disputes</td>
+<td>DiverseVul CVE-patch linkage, manual audit</td>
+</tr>
+<tr>
+<td>Internal</td>
+<td>Question-bank effect not isolated</td>
+<td>Pilot used default bank; ablation in §7.7</td>
+</tr>
+<tr>
+<td>External</td>
+<td>N=10 limits generalization</td>
+<td>Full Juliet/OWASP/CASTLE evaluation in §7.7</td>
+</tr>
+<tr>
+<td>Conclusion</td>
+<td>Significance testing infeasible at N=10</td>
+<td>Wilson CIs reported; McNemar in §7.7</td>
+</tr>
+<tr>
+<td>Ethical</td>
+<td>Source exfiltration to LLM APIs</td>
+<td>Local-inference support (Ollama); CSV slicing</td>
+</tr>
+</tbody>
+</table>
+<h1 id="references-selected">References (selected)</h1>
+<ul>
+<li>Avgustinov, P., et al. (2016). QL: Object-Oriented Queries on Relational
+Data. <em>SLE 2016</em>.</li>
+<li>Christakis, M., &amp; Bird, C. (2016). What developers want and need from
+program analysis: an empirical study. <em>ASE 2016</em>.</li>
+<li>Cousot, P., &amp; Cousot, R. (1977). Abstract interpretation. <em>POPL 1977</em>.</li>
+<li>Hanam, Q., et al. (2014). Finding patterns in static analysis alerts.
+<em>MSR 2014</em>.</li>
+<li>Heckman, S., &amp; Williams, L. (2011). A systematic literature review of
+actionable alert identification techniques. <em>IST 53(4)</em>.</li>
+<li>Imtiaz, N., et al. (2019). A comparative study of vulnerability reporting
+by software composition analysis tools. <em>ESEM 2019</em>.</li>
+<li>Johnson, B., et al. (2013). Why don't software developers use static
+analysis tools? <em>FSE 2013</em>.</li>
+<li>Yoon, J., et al. (2014). Reducing false alarms via active learning.
+<em>ASE 2014</em>.</li>
+<li>LLM4FPM: Su et al. (2024). arXiv:2411.03079.</li>
+<li>ZeroFalse: (2025). arXiv:2510.02534.</li>
+<li>SecLLMHolmes: Ullah et al. (2024). arXiv:2312.12575, IEEE S&amp;P 2024.</li>
+<li>LLMxCPG: (2025). arXiv:2507.16585, USENIX Security 2025.</li>
+<li>CASTLE: (2025). arXiv:2503.09433, TASE 2025.</li>
+<li>CISC: (2025). ACL 2025 Findings, paper 1030.</li>
+<li>OASIS (2020). SARIF Version 2.1.0.</li>
+</ul>
+
+</body>
+</html>

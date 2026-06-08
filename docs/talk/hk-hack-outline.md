@@ -1,10 +1,11 @@
-# DefCon Talk — 40-Minute Run-of-Show
+# HK Hack 2026 Talk — 40-Minute Run-of-Show
 
-**Venue/format:** main track / Demo Labs, 40-minute slot, technical security audience.
+**Venue/format:** Hong Kong HACK 2026 (https://www.hk-hack.com/) main track / Demo Labs,
+40-minute slot, technical security audience.
 **Deliverable:** slide-by-slide outline with speaker notes, timing budget, and a demo engineering
 checklist.
 
-> **Built deck:** [`defcon-vulnhunterx.pptx`](defcon-vulnhunterx.pptx) (22 slides, presenter-style,
+> **Built deck:** [`hk-hack-vulnhunterx.pptx`](hk-hack-vulnhunterx.pptx) (33 slides, presenter-style,
 > full speaker notes in each slide's notes pane — includes the paper's stages 1–4 pipeline diagram,
 > a second worked example (C/C++ use-after-free, CWE-416), and a `context_extractor.py` graph). It
 > is generated from this outline by
@@ -56,18 +57,24 @@ scanner flagged, most of which are safe. "What if a model that costs zero dollar
 first pass — and do it well?" Name-check the lineage: this builds on CyberArk's *Vulnhalla*
 methodology. Establish credibility up front.
 
-### 2 — Why this is a DefCon problem · 1.5 min
+### 2 — Why this is an HK Hack problem · 1.5 min
 **On screen:** the triage funnel — thousands of findings → analyst hours → a few real bugs; the
 rest ignored.
 **Say:** FP fatigue is a security failure mode: when 70% of alerts are noise, analysts start
 ignoring the queue, and the real bug rides in with the noise. Dual-use framing: this is defender
 tooling *and* an offense recon accelerator (triage attacker-relevant findings fast).
 
-### 3 — Anatomy of a false positive · 2 min
-**On screen:** one real OWASP-Python finding (e.g. a path-traversal flag) where a validator/
-sanitizer upstream makes it safe. Highlight the sink, then reveal the guard.
-**Say:** Walk it. Ask the room to vote TP or FP. This is the exact judgment we're going to
-automate — and the case the live demo will resolve later. Plant the hook.
+### 3 — When the scanner is wrong: two real false positives · 2 min
+**On screen:** two FPs taken verbatim from committed verdict JSONs (model `qwen3-coder-480b`, $0):
+- **vorbis** `cpp/alloca-in-loop` @ `lib/vorbisfile.c:2396` (CWE-770) — *FP, High (0.90), 2 iters.*
+  `alloca()` in a loop, but the iteration count (`ch1`, channels) and size (`n1`, block size) are
+  bounded by the Vorbis format spec → no stack exhaustion.
+- **libjpeg-turbo** `cpp/world-writable-file-creation` @ `tjexample.c:320` (CWE-732) — *FP, Medium
+  (0.75), 4 iters.* The flagged line is a `tjTransform()` call on memory buffers — there is no
+  `0666` file creation here; the rule **mis-attributed** the location.
+**Say:** Two distinct ways SAST is "wrong": a *true* rule defeated by a domain constraint, and a
+rule firing on the *wrong line*. Both killed with a cited reason, on a $0 model — the exact judgment
+we're automating. (Sources in "Source files" below.)
 
 ### 4 — Why "just ask GPT if it's a bug" fails · 2 min
 **On screen:** naive prompt → confident wrong answer; the SecLLMHolmes ~40% ceiling.
@@ -82,11 +89,21 @@ talk is about; stages 5–8 optionally *prove* a bug with a crash. Everything ro
 SARIF contract — remember that for the extensibility slide.
 
 ### 6 — Guided questions = encoded analyst expertise · 2 min
-**On screen:** a real `py/sql-injection` question bank (3–4 questions visible).
-**Say:** Instead of "is this a bug?", we ask the model the *same ordered questions a senior
-reviewer asks*. Three rules: **P1 evidence-binding** (must cite line numbers), **P2 atomicity**
-(one fact per question), **P3 refusal-admissibility** ("not visible here" is allowed — that's the
-trigger for fetching more context). 348 of these banks across 6 languages.
+**On screen:** two real banks, quoted verbatim from `config/prompts/`:
+- `py/sql-injection` (taint) — 6 questions incl. *"Quote the EXACT sink statement…"*, *"List EVERY
+  assignment… and the LAST one"*, *"What specific defense sanitises the value? … Vague
+  'sanitisation' is not acceptable"*, and the explicit *"if you cannot point to the tainted value
+  reaching the sink AND the absence of every defense → verdict False Positive."* `min_iterations: 2`.
+- `cpp/use-after-free` (lifetime) — 10 questions incl. *ANCHOR/CLASSIFY the flagged line*, *enumerate
+  every free site (request `free_sites:<ptr>`)*, *shortest free→use path*, and the **DECISION RULE**:
+  *"mark FP ONLY with POSITIVE evidence of a defense; pattern-only reasoning is NOT enough → prefer
+  Needs-More-Data."* `min_iterations: 3`.
+**Say:** Instead of "is this a bug?", we ask the *same ordered questions a senior reviewer asks*.
+Three rules behind how each is written: **evidence-binding** (cite line numbers), **atomicity** (one
+fact per question), **refusal-admissibility** ("not visible here" → fetch more context). The *why*,
+from the file's own header: the model must answer **ALL** questions **before** the verdict — forcing
+step-by-step reasoning instead of pattern-matching. `min_iterations` is calibrated per CWE class
+(taint CWEs on framework langs: OWASP-Python 1-iter 57.1% → 2-iter 95.8%).
 
 ### 7 — Answer-before-verdict · 2 min
 **On screen:** the JSON schema — `answers[]` and `data_flow` come *before* `verdict`.
@@ -140,12 +157,13 @@ your method *doesn't* dominate is what earns the room's trust.
 ### 12 — Live demo setup · 1 min
 **On screen:** two terminals — a benign real-world lib and a deliberately vulnerable app (mirrors
 `examples/pipeline_python.py`).
-**Say:** State the success criteria out loud: the vulnerable app's real bug survives as a TP; the
-benign lib's scary-looking finding (slide 3) gets killed as an FP — both with cited reasoning.
+**Say:** State the success criteria out loud: the vulnerable app's real bug survives as a TP; a
+benign lib's scary-looking finding (like the real FPs on slide 3) gets killed as an FP — both with
+cited reasoning.
 
 ### 13 — Live demo run · 6 min
 **Do:** run `verify` on a handful of pre-staged findings. Show, in order:
-1. the slide-3 false positive being **killed** with a cited guard;
+1. a benign finding being **killed** as an FP with a cited reason (like the slide-3 cases);
 2. a real bug **surviving** as a TP with a data-flow trace;
 3. a live **multi-turn context request** (`caller:`/`struct:`) and the revised verdict;
 4. the **confidence downgrade** catching a thin, pattern-matched verdict.
@@ -186,8 +204,18 @@ teams actually feel. (3) It's open source (MIT) with a full benchmark harness �
 number on this slide. Invite contributions; restate the thesis.
 
 ### 19 — Backup / appendix (Q&A only)
-Per-CWE breakdown tables · token/cost math · architecture deep-dive (context-extraction flow) ·
-exact `run_model_matrix.py` reproduction commands · confidence-calibration plots.
+- **Inside the conversation — two real multi-turn traces** (a *matched pair*, both `deepseek-v4-flash`, $0):
+  - **Trace #1 → False Positive:** `go/log-injection` @ `merchant_be.go:92`. T1: answer 6 Qs →
+    *Needs More Data* (Low 0.30), request `callees:MaskMerchantKey/MaskSensitive/extractContextFields`
+    → engine returns `"[No callees found]"` → T2: **False Positive (High 0.95)** — input is logged
+    only as structured `zap.String` fields, which the encoder escapes, so injection can't forge entries.
+  - **Trace #2 → True Positive:** `go/clear-text-logging` @ `logger.go:46`. SAME mechanism — request
+    `callees:extractContextFields` → identical `"[No callees found]"` — but T2: **True Positive
+    (Medium 0.65)**: header data reaches the logger unsanitized and no defense can be confirmed.
+  - **Punchline:** identical context outcome, opposite verdicts — the decision tracks the reasoning
+    about a *visible defense*, not a pattern.
+- Per-CWE breakdown tables · token/cost math · architecture deep-dive (context-extraction flow) ·
+  exact `run_model_matrix.py` reproduction commands · confidence-calibration plots.
 
 ---
 
@@ -213,3 +241,8 @@ exact `run_model_matrix.py` reproduction commands · confidence-calibration plot
 | OWASP-Java 97.7%/96.6%/80% | [`20260519_022324/REPORT.md`](../../benchmarks/results/20260519_022324/REPORT.md) |
 | Mean 2.74 turns, 0.8% forced | `20260519_141614/summary.json` |
 | Rule/question/CWE counts | [`config/RULES.md`](../../config/RULES.md) + live config files |
+| Guided-question banks (slides 6, 7, 8) | [`config/prompts/python_questions.yaml`](../../config/prompts/python_questions.yaml) (`py/sql-injection`) · [`config/prompts/cpp_questions.yaml`](../../config/prompts/cpp_questions.yaml) (`cpp/use-after-free`) |
+| FP case — vorbis (slide 3) | `output/c/vorbis/verification_results/cpp_alloca-in-loop_2396.json` |
+| FP case — libjpeg-turbo (slide 3) | `output/c/libjpeg-turbo/verification_results/cpp_world-writable-file-creation_320.json` |
+| Trace #1 — log-injection FP (slide 32) | `output/go/1216-services/verification_results/go_log-injection_92.json` |
+| Trace #2 — clear-text-logging TP (slide 33) | `output/go/1216-services/verification_results/go_clear-text-logging_46.json` |

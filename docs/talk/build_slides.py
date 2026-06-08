@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the combined DefCon talk deck (presenter-style).
+"""Generate the combined HK Hack 2026 talk deck (presenter-style).
+
+Themed for Hong Kong HACK 2026 (https://www.hk-hack.com/) — electric-violet-
+on-black cyberpunk palette sampled from the conference logo.
 
 This single script builds ONE deck that fuses:
-  * the full DefCon talk (problem → method → benchmark evidence → live demo →
-    limits → wrap-up), source of truth: docs/talk/defcon-outline.md
+  * the full conference talk (problem → method → benchmark evidence → live demo →
+    limits → wrap-up), source of truth: docs/talk/hk-hack-outline.md
   * the "VulnHunterX in the wild" real-bug results segment (5 manually-confirmed,
     vendor-engaged vulnerabilities), data source:
     https://github.com/tuonglnc/VHX-real-bug-confirmed
@@ -11,7 +14,7 @@ This single script builds ONE deck that fuses:
 The real-world-results segment is woven in right after the live demo, before the
 limits/red-team wrap-up.
 
-Output: docs/talk/defcon-vulnhunterx.pptx
+Output: docs/talk/hk-hack-vulnhunterx.pptx
 
 Usage:
     python docs/talk/build_slides.py
@@ -26,13 +29,17 @@ from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches, Pt
 
-# --- palette (dark "terminal" security-conf look) -------------------------
-BG = RGBColor(0x0B, 0x0F, 0x14)      # near-black
-PANEL = RGBColor(0x16, 0x1B, 0x22)   # slightly lighter panel
-FG = RGBColor(0xE6, 0xED, 0xF3)      # off-white text
-MUTED = RGBColor(0x8B, 0x94, 0x9E)   # gray
-ACCENT = RGBColor(0xFF, 0x6B, 0x35)  # orange (SAST)
-ACCENT2 = RGBColor(0x2D, 0xD4, 0xBF)  # teal (LLM)
+# --- palette (HK Hack 2026 — electric-violet-on-black cyberpunk look) ------
+# Brand colour sampled from the HK Hack 2026 logo: electric violet on black,
+# white terminal text (see https://www.hk-hack.com/). Monochrome-violet: the
+# secondary is a lighter lavender of the same hue, matching the logo's
+# single-hue style.
+BG = RGBColor(0x07, 0x06, 0x0B)      # violet-tinted near-black
+PANEL = RGBColor(0x16, 0x12, 0x20)   # slightly lighter violet panel
+FG = RGBColor(0xEC, 0xE8, 0xF5)      # off-white text
+MUTED = RGBColor(0x8E, 0x86, 0x9E)   # muted lavender-gray
+ACCENT = RGBColor(0x7A, 0x00, 0xFF)  # HK Hack electric violet (primary)
+ACCENT2 = RGBColor(0xB9, 0x8A, 0xFF)  # lighter lavender (secondary, same hue)
 GOOD = RGBColor(0x3F, 0xB9, 0x50)    # green
 BAD = RGBColor(0xF8, 0x51, 0x49)     # red
 
@@ -150,7 +157,7 @@ def _bullets(slide, items, *, top=2.25, size=20, gap=14, left=0.85, width=11.6):
 
 def _code(slide, lines, *, top=2.3, left=0.85, width=11.6, height=3.6, size=15):
     panel = _box(slide, Inches(left), Inches(top), Inches(width), Inches(height), PANEL)
-    panel.line.color.rgb = RGBColor(0x30, 0x36, 0x3D)
+    panel.line.color.rgb = RGBColor(0x39, 0x2C, 0x52)
     panel.line.width = Pt(0.75)
     paras = []
     for ln, color in lines:
@@ -191,10 +198,10 @@ def _table(slide, headers, rows, *, top=2.3, left=0.7, width=11.9,
         p.alignment = PP_ALIGN.CENTER if c else PP_ALIGN.LEFT
         r = p.add_run(); r.text = htext
         r.font.size = Pt(fs); r.font.bold = True
-        r.font.color.rgb = RGBColor(0x10, 0x12, 0x16); r.font.name = BODY_FONT
+        r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF); r.font.name = BODY_FONT
     # body
     for ridx, row in enumerate(rows, start=1):
-        base = PANEL if ridx % 2 else RGBColor(0x0F, 0x14, 0x1A)
+        base = PANEL if ridx % 2 else RGBColor(0x0E, 0x0B, 0x16)
         if row_colors and row_colors[ridx - 1]:
             base = row_colors[ridx - 1]
         for c, val in enumerate(row):
@@ -227,6 +234,13 @@ def _verdict_chip(slide, text, *, top=6.45):
 
 
 IMG_DIR = Path(__file__).resolve().parent / "img"
+HK_LOGO = IMG_DIR / "hk-hack-logo.png"  # HK Hack 2026 brand mark (transparent PNG)
+
+
+def _logo(slide, *, right=Inches(12.55), top=Inches(0.42), size=Inches(0.78)):
+    """Drop the HK Hack logo (square, transparent) anchored at its right edge."""
+    if HK_LOGO.exists():
+        slide.shapes.add_picture(str(HK_LOGO), right - size, top, width=size, height=size)
 
 
 def _rasterize_pdf(pdf_rel, png_name, dpi=200):
@@ -269,7 +283,7 @@ prs = Presentation()
 prs.slide_width = EMU_W
 prs.slide_height = EMU_H
 BLANK = prs.slide_layouts[6]
-TOTAL = 31
+TOTAL = 33
 
 
 def new():
@@ -281,9 +295,10 @@ def new():
 # --- 1 · Title / hook ------------------------------------------------------
 s = new()
 _box(s, 0, 0, Inches(0.16), EMU_H, ACCENT)
-_text(s, Inches(0.9), Inches(1.5), Inches(11.5), Inches(0.5),
-      [[("DEF CON  ·  ", {"color": ACCENT, "bold": True, "size": 16}),
-        ("Main Track / Demo Labs", {"color": MUTED, "size": 16})]])
+_logo(s, right=Inches(12.75), top=Inches(0.42), size=Inches(1.5))
+_text(s, Inches(0.9), Inches(1.5), Inches(9.5), Inches(0.5),
+      [[("HONG KONG HACK 2026  ·  ", {"color": ACCENT, "bold": True, "size": 16}),
+        ("Redefining Security", {"color": ACCENT2, "size": 16})]])
 _text(s, Inches(0.9), Inches(2.05), Inches(11.6), Inches(2.0),
       [[("Picking True Bugs from the ", {"bold": True, "size": 44}),
         ("CodeQL Haystack", {"bold": True, "size": 44, "color": ACCENT})]],
@@ -297,7 +312,9 @@ _text(s, Inches(1.15), Inches(4.72), Inches(7.0), Inches(1.0),
        [("What if a $0 model could do the first pass — well?", {"color": MUTED, "size": 15})]],
       line_spacing=1.05, space_after=4)
 _text(s, Inches(0.9), Inches(6.5), Inches(11.5), Inches(0.5),
-      [[("VinSOC Cyber", {"size": 15}), ("     " + TALK_REPO, {"color": MUTED, "size": 15})]])
+      [[("VinSOC Cyber", {"size": 15}),
+        ("     ·  10 Jun 2026  ·  HKSTP InnoCentre, Hong Kong", {"color": ACCENT2, "size": 15}),
+        ("     " + TALK_REPO, {"color": MUTED, "size": 15})]])
 _notes(s, """
 Open on the cost of triage, not detection. Security teams don't drown in MISSED bugs — they
 drown in triaging the ones the scanner flagged, most of which are safe. FP rates run 30–80%.
@@ -306,7 +323,7 @@ and do it well? This builds on CyberArk's Vulnhalla methodology — name it up f
 State the thesis now and again at the end: reasoning STRUCTURE beats model SIZE.
 """)
 
-# --- 2 · Why this is a DefCon problem -------------------------------------
+# --- 2 · Why this is an HK Hack problem -----------------------------------
 s = new(); _chrome(s, "The problem", mins="1.5 min")
 _title(s, "FP fatigue is a security failure mode")
 _bullets(s, [
@@ -318,31 +335,56 @@ _bullets(s, [
 _notes(s, """
 Draw the funnel. The failure isn't a missed detection — it's that humans can't keep up with the
 volume, so they tune out, and a genuine vulnerability gets ignored alongside the noise. Frame the
-dual-use angle for a DefCon room: the same triage speed-up helps defenders clear a backlog and
+dual-use angle for an HK Hack room: the same triage speed-up helps defenders clear a backlog and
 helps offense prioritize attacker-relevant findings fast.
 """)
 
-# --- 3 · Anatomy of a false positive --------------------------------------
+# --- 3 · When the scanner is wrong (two REAL false positives) -------------
 s = new(); _chrome(s, "The problem", mins="2 min")
-_title(s, "Anatomy of a false positive")
-_code(s, [
-    ("# SAST flags this as path-traversal (CWE-22)", MUTED),
-    ("def download(req):", FG),
-    ("    name = req.args['file']", FG),
-    ("    safe = secure_filename(name)        # <-- guard upstream", GOOD),
-    ("    path = os.path.join(BASE, safe)", FG),
-    ("    return open(path).read()            # <-- flagged sink", ACCENT),
-], top=2.3, height=2.7)
-_text(s, Inches(0.85), Inches(5.3), Inches(11.6), Inches(1.0),
-      [[("Vote: ", {"bold": True, "size": 22}),
-        ("True Positive", {"color": BAD, "bold": True, "size": 22}),
-        ("  or  ", {"size": 22}),
-        ("False Positive", {"color": GOOD, "bold": True, "size": 22}),
-        (" ?", {"size": 22})]])
+_title(s, "When the scanner is wrong — two real false positives")
+_text(s, Inches(0.85), Inches(1.85), Inches(11.7), Inches(0.5),
+      "CodeQL flagged both. The LLM killed both — each with a cited reason. (Verbatim from the "
+      "committed verdict JSONs.)", size=15, color=MUTED)
+
+
+def _fp_case(top, head, reason, verdict):
+    bx = _box(s, Inches(0.85), Inches(top), Inches(11.7), Inches(1.95), PANEL)
+    bx.line.color.rgb = GOOD; bx.line.width = Pt(1.0)
+    _text(s, Inches(1.1), Inches(top + 0.12), Inches(11.2), Inches(0.5),
+          head, size=16, bold=True, color=ACCENT2)
+    _text(s, Inches(1.1), Inches(top + 0.6), Inches(11.2), Inches(0.85),
+          [[("“", {"color": MUTED}), (reason, {"size": 14}), ("”", {"color": MUTED})]],
+          size=14, color=FG, line_spacing=1.05)
+    _text(s, Inches(1.1), Inches(top + 1.5), Inches(11.2), Inches(0.4),
+          [[("✗ False Positive   ", {"color": GOOD, "bold": True, "size": 14}),
+            (verdict, {"color": MUTED, "size": 13})]])
+
+
+_fp_case(2.45,
+         "vorbis · cpp/alloca-in-loop · lib/vorbisfile.c:2396 · CWE-770",
+         "Although alloca() is used in a loop, both the iteration count (ch1, audio channels) and "
+         "allocation size (n1, block size) are constrained by the Vorbis format specification. "
+         "Realistic values will not cause stack exhaustion.",
+         "confidence High (0.90) · 2 iterations")
+_fp_case(4.55,
+         "libjpeg-turbo · cpp/world-writable-file-creation · tjexample.c:320 · CWE-732",
+         "The flagged line (320) is a call to tjTransform with memory buffers, not file operations. "
+         "The world-writable (mode 0666) finding appears to be misattributed to this code location.",
+         "confidence Medium (0.75) · 4 iterations")
+_text(s, Inches(0.85), Inches(6.6), Inches(11.7), Inches(0.4),
+      "Two failure modes: a real risk neutralised by a domain constraint, and a rule firing on the "
+      "wrong line.   model qwen3-coder-480b · $0.00", size=13, color=MUTED)
 _notes(s, """
-Walk the snippet. The sink genuinely looks dangerous, but secure_filename() upstream neutralizes
-the traversal — so it's a false positive. Get a show of hands. This is exactly the judgment we're
-automating, and this is the case the LIVE DEMO will resolve later. Plant the hook now.
+Two REAL false positives, straight from the committed verdict JSONs — no hand-crafted examples.
+Case 1 (vorbis): CodeQL's cpp/alloca-in-loop is a legitimate stack-exhaustion rule, but here the
+loop bound (channel count) and the per-iteration size (block size) are both capped by the Ogg
+Vorbis format spec, so the stack can't actually be exhausted — High-confidence FP. Case 2
+(libjpeg-turbo): the world-writable-file-creation rule fired on line 320, but that line is a
+tjTransform() call on in-memory buffers — there's no 0666 file creation there at all; the rule
+mis-attributed the location — Medium-confidence FP. Two distinct ways SAST is "wrong": a true rule
+defeated by a domain constraint, and a rule firing on the wrong line. Both killed with a cited
+reason, on a $0 model. This is the judgment we're automating — and the live demo resolves more of
+these later.
 """)
 
 # --- 4 · Why naive LLM fails ----------------------------------------------
@@ -410,57 +452,77 @@ draws on in Stage 3 WITHOUT re-running analysis — that's why multi-turn is che
 s = new(); _chrome(s, "The method", mins="2 min")
 _title(s, "Guided questions = encoded analyst expertise")
 _code(s, [
-    ("py/sql-injection:", ACCENT2),
+    ("py/sql-injection:                    # real bank — 6 questions", ACCENT2),
     ("  questions:", FG),
-    ('    - "Quote the EXACT sink statement and name the', FG),
-    ('       variable passed to it."', FG),
-    ('    - "List EVERY assignment to that variable on each', FG),
-    ('       path to the sink, with line numbers."', FG),
-    ('    - "Does each value derive from user input or a', FG),
-    ('       constant/safe source? Cite the chain."', FG),
-], top=2.2, height=3.0, size=14)
-_text(s, Inches(0.85), Inches(5.4), Inches(11.8), Inches(1.2),
-      [[("P1", {"bold": True, "color": ACCENT}), (" evidence-bound (cite lines)   ", {}),
-        ("P2", {"bold": True, "color": ACCENT}), (" atomic (one fact)   ", {}),
-        ("P3", {"bold": True, "color": ACCENT}), (" refusal allowed → fetch more", {})]],
-      size=17)
+    ('    - "Quote the EXACT sink statement (cursor.execute /', FG),
+    ('       session.execute) and name the variable. Do not paraphrase."', FG),
+    ('    - "List EVERY assignment to that variable on each path that', FG),
+    ('       reaches the sink, with line numbers — and the LAST one."', FG),
+    ('    - "What specific defense sanitises the value before the sink?', FG),
+    ("       Name it concretely. Vague 'sanitisation' is not acceptable.\"", FG),
+    ('    - "If you cannot point to the tainted value reaching the sink', FG),
+    ("       AND the absence of every defense → verdict False Positive.\"", ACCENT),
+    ("  additional_context: [caller, callees]    min_iterations: 2", ACCENT2),
+], top=2.0, height=3.5, size=12.5)
+_text(s, Inches(0.85), Inches(5.55), Inches(11.8), Inches(0.5),
+      [[("evidence-bound", {"bold": True, "color": ACCENT}), (" cite lines   ·   ", {"color": MUTED}),
+        ("atomic", {"bold": True, "color": ACCENT}), (" one fact / question   ·   ", {"color": MUTED}),
+        ("refusal allowed", {"bold": True, "color": ACCENT}), (' "not visible" → fetch more', {"color": MUTED})]],
+      size=15)
+_text(s, Inches(0.85), Inches(6.15), Inches(11.8), Inches(0.6),
+      [[("Why: ", {"bold": True, "color": ACCENT2, "size": 15}),
+        ("answer ALL questions BEFORE the verdict — this forces step-by-step reasoning instead of "
+         "pattern-matching.", {"size": 15})]])
 _notes(s, """
-Instead of "is this a bug?", ask the model the same ordered questions a senior reviewer asks.
-Three design rules: P1 every question must be answerable only by citing concrete line numbers;
-P2 one fact per question, compound questions get split; P3 "not visible in the provided context"
-is a legal answer — that's what triggers fetching more context. The repo ships 348 of these banks
-across six languages, routed by rule ID and CWE.
+Instead of "is this a bug?", ask the model the same ordered questions a senior reviewer asks —
+these are quoted VERBATIM from config/prompts/python_questions.yaml. Three design rules baked into
+how every question is written: evidence-bound — each answer must cite concrete line numbers;
+atomic — one fact per question, compound questions get split; refusal allowed — "not visible in the
+provided context" is a legal answer, and it's what triggers fetching more context. The WHY, from
+the file's own header comment: the LLM must answer ALL questions BEFORE giving a verdict, which
+forces step-by-step reasoning instead of pattern matching. Note the last question is the explicit
+default-to-FP rule, and min_iterations:2 forces a second pass on taint CWEs in framework languages
+(OWASP-Python: 1-iter 57.1% → 2-iter 95.8%). The repo ships these banks across six languages,
+routed by rule ID and CWE.
 """)
 
 # --- 8 · Second CWE example: C/C++ use-after-free -------------------------
 s = new(); _chrome(s, "The method", mins="2 min")
 _title(s, "Second example — C/C++ use-after-free (CWE-416)")
 _code(s, [
-    ("cpp/use-after-free:        # lifetime, not taint", ACCENT2),
+    ("cpp/use-after-free:          # lifetime, not taint — 10 questions", ACCENT2),
     ("  questions:", FG),
-    ('    - "ANCHOR: quote the flagged line; classify it —', FG),
-    ('       pointer USE  /  free·delete  /  declaration?"', FG),
-    ('    - "List EVERY free()/delete reaching the use, with', FG),
-    ('       line numbers   → request  free_sites:<ptr>"', FG),
-    ('    - "Shortest control-flow path free → use: reachable?', FG),
-    ('       NULL-set or re-allocated in between?"', FG),
-    ("  additional_context: [ free_sites, destructor, field_writes ]", ACCENT2),
-    ("  min_iterations: 3", MUTED),
-], top=2.05, height=3.55, size=13.5)
-_text(s, Inches(0.85), Inches(5.85), Inches(11.9), Inches(0.9),
-      [[("Injection asks  ", {"size": 17}),
-        ('"where is the taint?"', {"color": ACCENT, "size": 17, "bold": True}),
-        ("      use-after-free asks  ", {"size": 17}),
-        ('"who owns the lifetime?"', {"color": ACCENT, "size": 17, "bold": True})]])
+    ('    - "ANCHOR FIRST: quote the flagged line; classify it as', FG),
+    ('       pointer USE / free·delete / signature·declaration."', FG),
+    ('    - "List ALL free()/delete reaching the use, with file+line.', FG),
+    ('       If you can\'t enumerate them, request free_sites:<ptr>."', FG),
+    ('    - "Shortest control-flow path free → use: reachable? NULL-set', FG),
+    ('       or re-allocated in between?"', FG),
+    ('    - "DECISION RULE: mark FP ONLY with POSITIVE evidence of a', FG),
+    ('       defense. Pattern-only reasoning is NOT enough → prefer NMD."', ACCENT),
+    ("  additional_context: [free_sites, caller, all_callers, struct,", ACCENT2),
+    ("       callees, destructor, field_writes]      min_iterations: 3", ACCENT2),
+], top=1.95, height=3.7, size=12.5)
+_text(s, Inches(0.85), Inches(5.8), Inches(11.9), Inches(0.5),
+      [[("Injection asks  ", {"size": 16}),
+        ('"where is the taint?"', {"color": ACCENT, "size": 16, "bold": True}),
+        ("      use-after-free asks  ", {"size": 16}),
+        ('"who owns the lifetime?"', {"color": ACCENT, "size": 16, "bold": True})]])
+_text(s, Inches(0.85), Inches(6.35), Inches(11.9), Inches(0.6),
+      [[("Why: ", {"bold": True, "color": ACCENT2, "size": 15}),
+        ("a lifetime question needs free-site evidence, not a sink match — so the default for an "
+         "undefended free→use is TP, and FP demands a cited defense.", {"size": 15})]])
 _notes(s, """
-A deliberately different CWE class to show the method generalizes. SQL injection is a taint /
-data-flow question — does attacker input reach a sink unsanitized? Use-after-free is a lifetime /
-ownership question — these are the real questions from the cpp/use-after-free bank. Note the moves:
-anchor and CLASSIFY the flagged line first (many UAF false positives are just declarations); then
-enumerate every free site (it requests free_sites: context); then trace the shortest free→use path
-and check for a NULL-set or reallocation defense. min_iterations is 3 — memory-safety needs the
-turns. The free_sites / destructor / field_writes context it asks for is exactly what the next
-slide shows being extracted.
+A deliberately different CWE class to show the method generalizes — these questions are quoted
+VERBATIM from config/prompts/cpp_questions.yaml (the bank has 10; four shown). SQL injection is a
+taint / data-flow question — does attacker input reach a sink unsanitized? Use-after-free is a
+lifetime / ownership question — who owns the memory? Note the moves: ANCHOR and CLASSIFY the flagged
+line first (many UAF false positives are just signatures/declarations); enumerate every free site
+(it requests free_sites: context); trace the shortest free→use path and check for a NULL-set or
+reallocation defense. The DECISION RULE is the key anti-pattern-matching guard: mark FP ONLY with
+POSITIVE evidence of a defense — pattern-only reasoning on function names is not enough, prefer
+Needs-More-Data. min_iterations is 3 — memory-safety needs the turns. The free_sites / destructor /
+field_writes context it asks for is exactly what the next slide shows being extracted.
 """)
 
 # --- 9 · Answer-before-verdict --------------------------------------------
@@ -612,7 +674,7 @@ _bullets(s, [
 _notes(s, """
 Don't oversell. The largest single jump is from raw-SAST to any multi-turn LLM — about 20 F1
 points. Zero-shot is strong; the guided questions mainly add the hard-case tail, a few points of
-recall, and on synthetic Juliet generic questions even nudge ahead. Telling a DefCon audience the
+recall, and on synthetic Juliet generic questions even nudge ahead. Telling an HK Hack audience the
 limits of your own method buys credibility for the numbers that ARE strong.
 """)
 
@@ -625,20 +687,21 @@ _bullets(s, [
     ("a deliberately vulnerable app", 1),
     "Success criteria, stated out loud:",
     ("the real bug SURVIVES as a TP", 1),
-    ("the scary-looking benign finding (slide 3) gets KILLED as an FP", 1),
+    ("a scary-looking benign finding (like the FPs on slide 3) gets KILLED", 1),
     ("both with cited reasoning", 1),
 ], top=2.2, gap=10)
 _notes(s, """
 Set expectations before touching the keyboard. Two terminals: a benign upstream library and a
 deliberately vulnerable app. Say the success criteria aloud so the audience knows what "working"
-looks like — the real bug survives, the false positive from slide 3 dies, both with citations.
+looks like — the real bug survives, a benign finding (like the real false positives on slide 3)
+dies, both with citations.
 """)
 
 # --- 16 · Demo run ---------------------------------------------------------
 s = new(); _chrome(s, "Live demo", mins="6 min")
 _title(s, "Live demo — run  ·  vuln-hunter-x verify")
 _bullets(s, [
-    "1.  Slide-3 false positive — KILLED, with the cited guard",
+    "1.  A benign finding — KILLED as FP, with the cited reason",
     "2.  A real bug — SURVIVES as TP, with a data-flow trace",
     "3.  A live multi-turn context request (caller: / struct:) → revised verdict",
     "4.  Confidence downgrade catching a thin, pattern-matched verdict",
@@ -966,6 +1029,7 @@ _text(s, Inches(1.1), Inches(5.85), Inches(9.2), Inches(1.1),
       [[("talk   ", {"color": MUTED, "size": 14}), (TALK_REPO, {"color": ACCENT2, "bold": True, "size": 18})],
        [("bugs  ", {"color": MUTED, "size": 14}), (BUGS_REPO, {"color": ACCENT2, "bold": True, "size": 18})]],
       anchor=MSO_ANCHOR.MIDDLE, space_after=4, line_spacing=1.05)
+_logo(s, right=Inches(12.7), top=Inches(5.75), size=Inches(1.3))
 _notes(s, """
 Land the takeaways and restate the thesis: structure beats size; FP-reduction is the metric teams
 feel; it's open source with a full benchmark harness so every number on the evidence slides is
@@ -978,13 +1042,14 @@ then take questions — people screenshot.
 s = new(); _chrome(s, "Backup", mins="Q&A only")
 _title(s, "Appendix / backup")
 _bullets(s, [
+    "Inside the conversation — two real multi-turn traces (next 2 slides)",
     "Per-CWE breakdown tables",
     "Token & cost math (~10K tokens/finding)",
     "Architecture deep-dive — context-extraction flow",
     "Exact run_model_matrix.py reproduction commands",
     "Confidence-calibration plots",
     "Real-bug confirmations + PoCs — github.com/tuonglnc/VHX-real-bug-confirmed",
-], top=2.3, gap=14)
+], top=2.3, gap=12)
 _notes(s, """
 Backup slides for Q&A only — don't present linearly. Pull these up on demand: per-CWE tables, the
 token/cost math, the context-extraction architecture, the exact reproduction commands, the
@@ -992,7 +1057,76 @@ confidence-calibration data, and the public repo with the full real-bug confirma
 PoCs.
 """)
 
+# --- 32 · Trace A · log-injection → False Positive ------------------------
+s = new(); _chrome(s, "Backup · inside the conversation", tag="FP · conf 0.95 · 2 turns")
+_title(s, "Real trace #1 — log-injection → False Positive", size=30)
+_code(s, [
+    ('go/log-injection · merchant_be.go:92 · "depends on a user-provided value"', MUTED),
+    ("", FG),
+    ("T1  answer the 6 guided Qs  →  verdict: Needs More Data  (Low, 0.30)", ACCENT2),
+    ("      context_needed: [ callees:MaskMerchantKey,", FG),
+    ("                        callees:MaskSensitive,", FG),
+    ("                        callees:extractContextFields ]", FG),
+    ("", FG),
+    ("   ⟶ engine resolves each from pre-extracted CSVs:", MUTED),
+    ('        callees:MaskSensitive  →  "[No callees found]"   (×3)', MUTED),
+    ("", FG),
+    ("T2  re-examine with new context  →  verdict: False Positive  (High, 0.95)", GOOD),
+], top=2.15, height=3.5, size=13.5)
+_text(s, Inches(0.85), Inches(5.85), Inches(11.7), Inches(1.0),
+      [[("Reasoning  ", {"color": GOOD, "bold": True, "size": 14}),
+        ("user input is logged exclusively as structured zap fields (zap.String) — never "
+         "interpolated into the message. zap's encoder escapes control characters, so newline "
+         "injection can't forge log entries.", {"size": 14, "color": MUTED})]],
+      line_spacing=1.08)
+_notes(s, """
+A real two-turn trace, verbatim from output/go/1216-services/.../go_log-injection_92.json (model
+deepseek-v4-flash, $0). Turn 1: the model answers the six log-injection questions, can't see whether
+the Mask* helpers sanitise control characters, so it REFUSES — verdict Needs More Data — and asks
+for callees:MaskMerchantKey / MaskSensitive / extractContextFields. The engine resolves each from the
+pre-extracted CSVs and returns "[No callees found]". Turn 2: with that, the model reasons that the
+user input is only ever passed as a STRUCTURED zap field (zap.String), never interpolated into the
+message string, and zap's encoder escapes control characters — so log-injection isn't possible.
+Verdict flips to False Positive, High confidence. Pair this with the next slide.
+""")
+
+# --- 33 · Trace B · clear-text-logging → True Positive --------------------
+s = new(); _chrome(s, "Backup · inside the conversation", tag="TP · conf 0.65 · 2 turns")
+_title(s, "Real trace #2 — clear-text-logging → True Positive", size=30)
+_code(s, [
+    ("go/clear-text-logging · logger.go:46 · HTTP headers → cl.logger.Info(…)", MUTED),
+    ("", FG),
+    ("T1  answer the 10 guided Qs  →  verdict: Needs More Data  (Medium, 0.60)", ACCENT2),
+    ("      context_needed: [ callees:extractContextFields,", FG),
+    ("                        code lines 30-31, 41-44 ]", FG),
+    ("", FG),
+    ("   ⟶ engine resolves from pre-extracted CSVs:", MUTED),
+    ('        callees:extractContextFields  →  "[No callees found]"', MUTED),
+    ("", FG),
+    ("T2  re-examine with new context  →  verdict: True Positive  (Medium, 0.65)", BAD),
+], top=2.15, height=3.5, size=13.5)
+_text(s, Inches(0.85), Inches(5.7), Inches(11.7), Inches(0.85),
+      [[("Reasoning  ", {"color": BAD, "bold": True, "size": 14}),
+        ("HTTP-header data reaches cl.logger.Info with no visible sanitization; the only transform, "
+         "extractContextFields, has no known callees — so no defense can be confirmed. Evidence "
+         "supports information disclosure.", {"size": 14, "color": MUTED})]],
+      line_spacing=1.08)
+_text(s, Inches(0.85), Inches(6.55), Inches(11.7), Inches(0.5),
+      [[("Same mechanism, same “[No callees found]” — opposite verdicts. ", {"color": ACCENT2, "bold": True, "size": 14}),
+        ("The verdict follows the reasoning about the visible defense, not a pattern.", {"size": 14, "color": MUTED})]])
+_notes(s, """
+The matched pair. Verbatim from output/go/1216-services/.../go_clear-text-logging_46.json (model
+deepseek-v4-flash, $0). SAME mechanism as the previous slide — the model answers the guided
+questions, refuses (Needs More Data), and asks for callees:extractContextFields; the engine returns
+the identical "[No callees found]". But here the reasoning runs the OTHER way: HTTP-header data
+reaches the logger with no visible sanitiser, and since extractContextFields has no known callees we
+CAN'T confirm any protection — so the evidence supports a real information-disclosure bug. Verdict:
+True Positive. Punchline: identical context outcome, opposite verdicts — the decision tracks the
+reasoning about a visible defense, not pattern-matching. (Confidence stays Medium because the helper
+body is still unavailable — calibrated honesty.)
+""")
+
 # ---------------------------------------------------------------------------
-out = Path(__file__).resolve().parent / "defcon-vulnhunterx.pptx"
+out = Path(__file__).resolve().parent / "hk-hack-vulnhunterx.pptx"
 prs.save(str(out))
 print(f"Wrote {out}  ({len(prs.slides._sldIdLst)} slides)")
