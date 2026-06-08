@@ -35,3 +35,4 @@ benchmarks/config/models.yaml
 CLAUDE.md
 .ruff_cache/
 docs/paper/
+docs/adr/0001-detection-then-llm-verification.md

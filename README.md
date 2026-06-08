@@ -18,6 +18,7 @@ A Python framework that pairs static analysis with multi-turn LLM verification t
 - [CLI Reference](#cli-reference)
 - [Python API](#python-api)
 - [Rules & Coverage](#rules--coverage)
+- [Results](#results)
 - [Configuration](#configuration)
 - [Project Structure](#project-structure)
 - [Development](#development)
@@ -49,13 +50,32 @@ The **Vulnhalla** methodology forces the LLM to:
 | **Languages** | C, C++, Python, JavaScript, PHP, Java, Go |
 | **SAST engines** | CodeQL, Semgrep, OpenGrep (`--tool codeql\|semgrep\|opengrep\|both\|all`) |
 | **Security rule profiles** | `standard` → `extended` → `maximum` → `extended-registry` → `full` (see [config/RULES.md](config/RULES.md)) |
-| **Guided questions** | 316 rule-specific templates across 6 per-language banks plus a fallback |
+| **Guided questions** | 348 rule-specific templates across 6 per-language banks plus a fallback |
 | **LLM providers** | OpenAI, Anthropic, Ollama (local or [Ollama Cloud](https://ollama.com)) — via [LiteLLM](https://github.com/BerriAI/litellm) |
 | **Multi-turn verification** | Dynamic context expansion (callers, structs, globals, macros, free-sites) |
 | **Inputs** | Git URL, local directory, or batch list (`repos.yaml`) |
 | **Reports** | Markdown, EN/VI, executive summary + per-finding detail |
 | **Fuzz confirmation** | libFuzzer / Atheris / Jazzer / Jazzer.js / php-fuzzer harness generation + crash triage |
 | **Benchmarking** | Precision/recall across 6 ground-truth datasets (see [benchmarks/README.md](benchmarks/README.md)) |
+
+### Documentation
+
+Task-oriented guides live in [docs/](docs/) — see the [documentation index](docs/README.md):
+
+| If you want to… | Read |
+|---|---|
+| Install and verify the toolchain | [docs/INSTALLATION.md](docs/INSTALLATION.md) |
+| Understand *why* guided questions work | [docs/METHODOLOGY.md](docs/METHODOLOGY.md) |
+| Read verdicts, confidence, and reports | [docs/INTERPRETING_RESULTS.md](docs/INTERPRETING_RESULTS.md) |
+| Configure OpenAI / Anthropic / Ollama (and costs) | [docs/LLM_PROVIDERS.md](docs/LLM_PROVIDERS.md) |
+| Pick a rule profile (coverage vs. cost) | [docs/RULE_PROFILES.md](docs/RULE_PROFILES.md) |
+| Gate a CI/CD pipeline on findings | [docs/CI_CD.md](docs/CI_CD.md) |
+| Run fuzz confirmation (stages 5–8) | [docs/FUZZING.md](docs/FUZZING.md) |
+| Debug a failing run | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) · [docs/FAQ.md](docs/FAQ.md) |
+
+The full rule inventory is in [config/RULES.md](config/RULES.md); benchmark mechanics in
+[benchmarks/README.md](benchmarks/README.md); the research write-up in
+[docs/paper/vulnhunterx_paper.md](docs/paper/vulnhunterx_paper.md).
 
 ---
 
@@ -332,13 +352,13 @@ MarkdownReportGenerator().generate(
 |---|---|
 | Rule profiles | 5 (`standard` → `full`) |
 | Security categories | 12 |
-| CWE entries in routing map | 123 |
-| Custom CodeQL queries | 73 (C/C++ 21, Java 14, JavaScript 15, Python 12, Go 11) |
-| Custom Semgrep rules | 47 (Python 12, JavaScript 9, Java 7, Go 8, PHP 7, C/C++ 4) |
+| CWE entries in routing map | 124 |
+| Custom CodeQL queries | 59 (C/C++ 16, JavaScript 14, Python 11, Java 10, Go 8) |
+| Custom Semgrep rules | 89 (Python 22, Go 19, Java 16, JavaScript 14, PHP 14, C/C++ 4) |
 | Built-in CodeQL suites | `security-extended` (~200), `security-and-quality` (~400) |
 | Built-in Semgrep universal packs | 8 |
 | Built-in Semgrep per-language packs | 10 (django, flask, nodejs, gosec, …) |
-| Guided-question templates | 342 across 6 per-language banks + 1 fallback |
+| Guided-question templates | 348 across 6 per-language banks + 1 fallback |
 
 Coverage growth from `--profile standard` to `--profile full` is roughly **5×–10×** more rules per scan. Per-language registry packs (`p/django`, `p/gosec`, …) are only applied to matching repos so cross-language scans aren't polluted.
 
@@ -348,6 +368,56 @@ To add a custom rule:
 - **Semgrep** — append a rule to `config/semgrep-custom/<lang>.yaml` with `metadata.cwe: ["CWE-NNN"]` so CWE-based routing works.
 
 Both are activated by `--profile full`. Run `python scripts/audit_rule_coverage.py --fail-on-gaps` to verify the wiring.
+
+---
+
+## Results
+
+On public ground-truth benchmarks, the LLM verification stage roughly **doubles precision and
+halves the false-positive load** of raw SAST while preserving almost all real bugs. Headline
+numbers below are quoted verbatim from the run files under [benchmarks/results/](benchmarks/results/)
+(the `vulnhunterx` approach — full guided-question pipeline):
+
+| Dataset | Approach | Precision | Recall | F1 | FP-reduction | Best model | Cost |
+|---|---|---|---|---|---|---|---|
+| OWASP-Python (300) | raw-sast | 37.7% | 100% | 54.7% | — | — | $0 |
+| OWASP-Python (300) | **vulnhunterx** | **87.3%** | 98.2% | **92.4%** | **91.4%** | DeepSeek-v4-flash | $0.40 / 300 |
+| OWASP-Java (full) | raw-sast | 90.0% | 100% | 94.7% | — | — | $0 |
+| OWASP-Java (full) | **vulnhunterx** | **97.7%** | 95.6% | **96.6%** | **80.0%** | Qwen3-Coder (local) | $0 |
+| Juliet C/C++ (full) | raw-sast | 50.0% | 100% | 66.7% | — | — | $0 |
+| Juliet C/C++ (full) | **vulnhunterx** | **83.8%** | 93.8% | **88.5%** | **82.2%** | DeepSeek-v4-flash | $0.43 |
+| SecLLMHolmes (228) | raw-sast | 52.3% | 100% | 68.7% | — | — | $0 |
+| SecLLMHolmes (228) | **vulnhunterx** | **82.1%** | 87.5% | **84.7%** | **79.4%** | DeepSeek-v4-flash | $0 |
+
+Sources: OWASP-Python [`matrix_20260604_151302`](benchmarks/results/matrix_20260604_151302/COMPARISON.md),
+Juliet [`matrix_20260605_114348`](benchmarks/results/matrix_20260605_114348/COMPARISON.md),
+SecLLMHolmes [`matrix_20260531_180948`](benchmarks/results/matrix_20260531_180948/COMPARISON.md),
+OWASP-Java [`20260519_022324`](benchmarks/results/20260519_022324/REPORT.md).
+
+Three findings worth highlighting:
+
+- **Reasoning structure beats model size.** A $0, locally-runnable / pass-through model
+  (DeepSeek-v4-flash, Qwen3-Coder) matches or beats GPT-4.1-mini (~$1 / 300 findings) and GPT-5
+  (~$17 / 228 findings) on F1 across every dataset.
+- **Multi-turn carries the hard cases.** On the 400-case OWASP-Python run, the mean conversation
+  is **2.74 turns** (max 11) and only **3 findings (0.8%)** ever hit a forced decision — most
+  settle in 2–3 rounds.
+- **Confidence is calibrated.** High-confidence verdicts are measurably more accurate than
+  low-confidence ones, so the score is usable as a triage filter.
+
+See [docs/INTERPRETING_RESULTS.md](docs/INTERPRETING_RESULTS.md) for what precision vs.
+FP-reduction vs. effective-recall mean, and [benchmarks/README.md](benchmarks/README.md) for the
+full per-CWE tables, ablation baselines, and reproduction commands. Reproduce a matrix with:
+
+```bash
+python benchmarks/scripts/run_model_matrix.py \
+    --models deepseek-v4-flash,gpt-4.1-mini,ollama-qwen3-coder \
+    --dataset owasp-python --approach all --limit 300
+```
+
+> Numbers reflect the dataset/model/limit shown and will vary with model, profile, and sample.
+> The `vulnhunterx` rows use the full guided-question pipeline; on synthetic Juliet the
+> `ablation-generic` arm edges slightly higher (DeepSeek 88.1% P / 93.2% F1) — see the comparison file.
 
 ---
 
@@ -403,12 +473,12 @@ Rule-specific question banks that force the LLM to reason step-by-step.
 
 | File | Language | Rule sets |
 |---|---|---|
-| `cpp_questions.yaml` | C/C++ | 59 |
-| `python_questions.yaml` | Python | 56 |
-| `javascript_questions.yaml` | JavaScript / TypeScript | 51 |
-| `go_questions.yaml` | Go | 50 |
-| `java_questions.yaml` | Java | 50 |
-| `php_questions.yaml` | PHP | 50 |
+| `cpp_questions.yaml` | C/C++ | 61 |
+| `python_questions.yaml` | Python | 65 |
+| `java_questions.yaml` | Java | 59 |
+| `javascript_questions.yaml` | JavaScript / TypeScript | 57 |
+| `go_questions.yaml` | Go | 54 |
+| `php_questions.yaml` | PHP | 52 |
 | `default_questions.yaml` | Fallback | 1 |
 
 The verifier matches each SARIF `ruleId` in three tiers — exact match → prefix/normalized → CWE map — falling back to `default_questions.yaml` only when none hits. See [config/RULES.md § 7](config/RULES.md#7-guided-question-routing).
@@ -424,8 +494,8 @@ VulnHunterX/
 │   ├── codeql/        # Database creation, analysis, context extraction
 │   ├── context/       # Heuristic + tree-sitter context extraction
 │   ├── core/          # Types, config, constants
-│   ├── dyntest/       # Language backends for fuzz stages 5–8
-│   ├── fuzz/          # C/C++ fuzz shims
+│   ├── fuzz/          # Multi-language dynamic testing (stages 5–8): sanitizer
+│   │                  #   build, harness generation/repair, runner, crash triage
 │   ├── llm/           # LLM client (LiteLLM) and prompt construction
 │   ├── opengrep/      # OpenGrep integration
 │   ├── questions/     # Guided-question loader
