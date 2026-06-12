@@ -198,6 +198,37 @@ class TestSaveResultsNoOverwrite:
         assert len(per_finding) == 3
 
 
+class TestCategoryFilterLoads:
+    """Regression: the engine must load rule_categories.yaml so --category
+    filtering works. It previously referenced a non-existent
+    PathsConfig.base_dir, the bare except swallowed the AttributeError, and
+    --category became a silent no-op (every finding processed unfiltered)."""
+
+    def _engine(self):
+        from vuln_hunter_x.core.config import load_config
+        return VerificationEngine(load_config())
+
+    def test_profile_manager_loads(self):
+        engine = self._engine()
+        assert engine._profile_manager is not None
+
+    def test_file_security_category_resolves_to_cwes(self):
+        engine = self._engine()
+        cwes = engine._profile_manager.get_cwes_for_categories(["file-security"])
+        # canonical zero-stripped ids (see _normalize_cwe) — CWE-22, not CWE-022
+        assert "CWE-22" in cwes
+
+    def test_filter_keeps_only_matching_cwes(self):
+        engine = self._engine()
+        target = engine._profile_manager.get_cwes_for_categories(["file-security"])
+        findings = [
+            _make_finding(file="src/cjpeg.c", start_line=741, cwe_ids=["CWE-22", "CWE-73"]),
+            _make_finding(file="src/jidctint.c", start_line=234, cwe_ids=["CWE-190"]),
+        ]
+        kept = [f for f in findings if not f.cwe_ids or target.intersection(f.cwe_ids)]
+        assert [f.file for f in kept] == ["src/cjpeg.c"]
+
+
 class TestBuildPrefetchRequests:
     """_build_prefetch_requests maps additional_context hints to request strings."""
 

@@ -483,19 +483,33 @@ class VerificationEngine:
             ollama_key_state_path=config.paths.output_dir / ".ollama_key_state.json",
         )
 
-        # Wire CWE → question mapping if rule_categories.yaml is available
+        # Wire CWE → question mapping if rule_categories.yaml is available.
+        # rule_categories.yaml lives in the config dir (alongside prompts/), i.e.
+        # ``<config>/rule_categories.yaml`` where ``<config>`` is the parent of
+        # ``prompts_dir``. (PathsConfig has no ``base_dir`` — referencing it here
+        # raised AttributeError that the bare except swallowed, silently leaving
+        # ``_profile_manager`` None and turning ``--category`` into a no-op.)
         self._profile_manager = None
         try:
             from vuln_hunter_x.core.rule_profiles import RuleProfileManager
 
-            categories_path = config.paths.base_dir / "config" / "rule_categories.yaml"
-            if categories_path.is_file():
+            candidates = [
+                config.paths.prompts_dir.parent / "rule_categories.yaml",
+                # Fallback: the bundled config dir, independent of config resolution.
+                Path(__file__).resolve().parents[3] / "config" / "rule_categories.yaml",
+            ]
+            categories_path = next((p for p in candidates if p.is_file()), None)
+            if categories_path is not None:
                 self._profile_manager = RuleProfileManager(categories_path)
                 self.questions_loader.set_cwe_question_map(
                     self._profile_manager.cwe_question_map,
                 )
         except Exception:
-            pass  # Graceful degradation — CWE matching disabled
+            logger.warning(
+                "Could not load rule_categories.yaml; --category filtering and "
+                "CWE→question mapping are disabled",
+                exc_info=True,
+            )
 
         # Callbacks for progress reporting
         self._on_finding_start: Callable[[int, int, Finding], None] | None = None
@@ -653,9 +667,22 @@ class VerificationEngine:
             VerificationResult with all verdicts
         """
         # Apply category filter (findings without CWE tags are always included)
-        if category_filter and self._profile_manager:
-            target_cwes = self._profile_manager.get_cwes_for_categories(category_filter)
-            findings = [f for f in findings if not f.cwe_ids or target_cwes.intersection(f.cwe_ids)]
+        if category_filter:
+            if self._profile_manager:
+                target_cwes = self._profile_manager.get_cwes_for_categories(category_filter)
+                findings = [
+                    f for f in findings
+                    if not f.cwe_ids or target_cwes.intersection(f.cwe_ids)
+                ]
+            else:
+                # Never silently ignore a requested filter — that previously let
+                # a --category run process every finding (rule_categories.yaml
+                # failed to load). Surface it instead of misleading the user.
+                logger.warning(
+                    "--category %s was requested but rule_categories.yaml is not "
+                    "loaded; verifying ALL findings unfiltered.",
+                    ", ".join(category_filter),
+                )
 
         if limit > 0:
             findings = findings[:limit]
