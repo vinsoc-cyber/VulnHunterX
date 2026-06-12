@@ -25,7 +25,11 @@ from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
 from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
 from vuln_hunter_x.llm.client import LLMClient
 from vuln_hunter_x.questions.loader import QuestionsLoader
-from vuln_hunter_x.verification.engine import _downgrade_unsupported_confidence
+from vuln_hunter_x.verification.engine import (
+    _check_rule_construct_presence,
+    _downgrade_cli_path_injection,
+    _downgrade_unsupported_confidence,
+)
 
 
 def _make_litellm_response(content: str):
@@ -482,6 +486,191 @@ class TestForcedDecisionAccessControlSignals:
         )
         assert parsed["verdict"] == "True Positive"
         assert "evidence leans toward TP" in parsed.get("reasoning", "")
+
+    @patch("vuln_hunter_x.llm.client.litellm.completion")
+    def test_parse_failure_not_keyword_forced_to_tp(self, mock_completion):
+        # A truncated / unparseable forced-decision response must NOT be
+        # keyword-counted into a verdict. Its "reasoning" is just raw JSON
+        # saturated with overflow words ("unsafe", "no validation") that would
+        # otherwise be miscounted as TP signals. Regression: libjpeg-turbo
+        # jidctint.c entries became TP at confidence_score 0.0 this way.
+        truncated = (
+            '{"verdict": "True Positive", "reasoning": "the multiplication is '
+            'unsafe, there is no validation and no bounds check, exploitable'
+        )
+        mock_completion.return_value = _make_litellm_response(truncated)
+        parsed, *_ = self.client._force_decision_turn(
+            messages=[{"role": "user", "content": "x"}],
+            all_raw_responses=[],
+            total_tokens_used=0,
+            total_cost_usd=0.0,
+        )
+        assert parsed["verdict"] == "Needs More Data"
+        assert parsed.get("parse_failed") is True
+        assert "[Forced decision:" not in parsed.get("reasoning", "")
+
+
+class TestCppCorrectnessTpChallengeArm:
+    """arm_d: a 1-iter/High TP on a C/C++ correctness-class CWE must be
+    re-challenged (mirror of the FP-side arms), while non-matching findings
+    are left alone."""
+
+    @staticmethod
+    def _arm_d(verdict, finding, min_iterations: int) -> bool:
+        # Mirror of the boolean in engine._verify_single_finding (arm_d).
+        from vuln_hunter_x.verification.engine import _CPP_PATTERN_CLASS_CWES
+        return (
+            verdict.verdict in ("True Positive", "TP")
+            and verdict.confidence == "High"
+            and verdict.iterations <= max(1, min_iterations)
+            and finding.lang in ("c", "cpp")
+            and bool(set(finding.cwe_ids or []) & _CPP_PATTERN_CLASS_CWES)
+        )
+
+    def test_predicate_fires_at_min_iterations_two(self):
+        # Regression: the rule sets min_iterations=2, so a TP committed at the
+        # minimum depth has iterations==2. A `== 1` gate would make arm_d dead
+        # code for exactly the rule it targets.
+        finding = Finding(
+            rule_id="cpp/integer-multiplication-cast-to-long",
+            message="overflow", file="src/jdlhuff.c", start_line=234, end_line=234,
+            repo_name="r", lang="c", cwe_ids=["CWE-190", "CWE-192"],
+        )
+        verdict = _verdict("True Positive", "High", "pattern present, line 234")
+        verdict.iterations = 2
+        assert self._arm_d(verdict, finding, min_iterations=2) is True
+
+    def test_predicate_silent_when_already_expanded_context(self):
+        # A verdict that voluntarily dug past its minimum depth (iterations >
+        # min_iterations) already examined more context; don't re-challenge.
+        finding = Finding(
+            rule_id="cpp/integer-multiplication-cast-to-long",
+            message="overflow", file="src/jdlhuff.c", start_line=234, end_line=234,
+            repo_name="r", lang="c", cwe_ids=["CWE-190"],
+        )
+        verdict = _verdict("True Positive", "High", "traced operands across 4 turns")
+        verdict.iterations = 4
+        assert self._arm_d(verdict, finding, min_iterations=2) is False
+
+    def test_predicate_silent_on_fp(self):
+        finding = Finding(
+            rule_id="cpp/integer-multiplication-cast-to-long",
+            message="overflow", file="src/jdlhuff.c", start_line=234, end_line=234,
+            repo_name="r", lang="c", cwe_ids=["CWE-190"],
+        )
+        verdict = _verdict("False Positive", "High", "operands bounded")
+        verdict.iterations = 2
+        assert self._arm_d(verdict, finding, min_iterations=2) is False
+
+    def test_predicate_silent_on_python(self):
+        # Non-C languages are handled by the taint arm (arm_c), not arm_d.
+        finding = Finding(
+            rule_id="py/int-overflow", message="x", file="x.py",
+            start_line=1, end_line=1, repo_name="r", lang="python",
+            cwe_ids=["CWE-190"],
+        )
+        verdict = _verdict("True Positive", "High", "x")
+        verdict.iterations = 1
+        assert self._arm_d(verdict, finding, min_iterations=2) is False
+
+    def test_tp_challenge_prompt_steers_toward_fp(self):
+        # The dedicated prompt must instruct flipping to FP/NMD when overflow
+        # is not shown reachable — the opposite of the FP-challenge prompt.
+        prompt = LLMClient._TP_CHALLENGE_PROMPT
+        assert "False Positive" in prompt
+        assert prompt is not LLMClient._SECOND_OPINION_PROMPT
+
+
+def _verdict_with(rule_id, cwe_ids, verdict, confidence, reasoning,
+                  data_flow="", file="src/cjpeg.c", lang="c"):
+    v = _verdict(verdict, confidence, reasoning)
+    v.finding = Finding(
+        rule_id=rule_id, message="m", file=file, start_line=1, end_line=1,
+        repo_name="r", lang=lang, cwe_ids=cwe_ids,
+    )
+    v.data_flow = data_flow
+    return v
+
+
+class TestCliPathInjectionCalibration:
+    """_downgrade_cli_path_injection: argv-sourced path-injection in a CLI tool
+    has no trust boundary and must not ride at TP/High."""
+
+    def test_argv_source_no_boundary_downgraded(self):
+        v = _verdict_with(
+            "cpp/path-injection", ["CWE-22"], "True Positive", "High",
+            "The filename comes from argv and is passed to fopen with no validation.",
+            data_flow="source: argv[i] (line 269) -> fopen (line 269)",
+        )
+        out = _downgrade_cli_path_injection(v)
+        assert out.confidence == "Low"
+        assert "no trust boundary" in out.reasoning
+
+    def test_server_boundary_untouched(self):
+        v = _verdict_with(
+            "cpp/path-injection", ["CWE-22"], "True Positive", "High",
+            "The path arrives in an HTTP request handler on the server and reaches open().",
+            data_flow="source: request param -> open()",
+        )
+        out = _downgrade_cli_path_injection(v)
+        assert out.confidence == "High"  # real boundary present → not downgraded
+
+    def test_fp_untouched(self):
+        v = _verdict_with(
+            "cpp/path-injection", ["CWE-22"], "False Positive", "High",
+            "argv path but validated.", data_flow="argv",
+        )
+        out = _downgrade_cli_path_injection(v)
+        assert out.verdict == "False Positive" and out.confidence == "High"
+
+    def test_non_path_rule_untouched(self):
+        v = _verdict_with(
+            "cpp/integer-multiplication-cast-to-long", ["CWE-190"], "True Positive",
+            "High", "argv reaches a multiply", data_flow="argv",
+        )
+        out = _downgrade_cli_path_injection(v)
+        assert out.confidence == "High"
+
+
+class TestRuleScopeConstructPresence:
+    """_check_rule_construct_presence: a TP whose reasoning argues an off-scope
+    CWE class than the reported rule must be downgraded."""
+
+    def test_offscope_reasoning_downgraded(self):
+        v = _verdict_with(
+            "cpp/integer-multiplication-cast-to-long", ["CWE-190"], "True Positive",
+            "High",
+            "This is a classic path traversal: argv flows to fopen and an attacker "
+            "could use ../ to escape the directory.",
+        )
+        out = _check_rule_construct_presence(v)
+        assert out.confidence == "Low"
+        assert "rule-scope" in out.reasoning
+
+    def test_onscope_reasoning_untouched(self):
+        v = _verdict_with(
+            "cpp/integer-multiplication-cast-to-long", ["CWE-190"], "True Positive",
+            "High",
+            "The int multiplication overflows before the cast; product exceeds INT_MAX.",
+        )
+        out = _check_rule_construct_presence(v)
+        assert out.confidence == "High"
+
+    def test_reported_cwe_not_in_map_untouched(self):
+        v = _verdict_with(
+            "cpp/world-writable-file-creation", ["CWE-732"], "True Positive", "High",
+            "This is path traversal via ../ in the filename.",
+        )
+        out = _check_rule_construct_presence(v)
+        assert out.confidence == "High"  # CWE-732 not in marker map → don't guess
+
+    def test_fp_untouched(self):
+        v = _verdict_with(
+            "cpp/integer-multiplication-cast-to-long", ["CWE-190"], "False Positive",
+            "High", "path traversal noticed but operands bounded",
+        )
+        out = _check_rule_construct_presence(v)
+        assert out.verdict == "False Positive" and out.confidence == "High"
 
 
 class TestParseFallbackTruncation:

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,29 @@ _TOOL_NAME_MAP: dict[str, str] = {
     "semgrep": "Semgrep",
     "opengrep": "OpenGrep",
 }
+
+# Matches both the Semgrep-style ``CWE-190`` tag and CodeQL's namespaced
+# ``external/cwe/cwe-190`` form, capturing the numeric id. CodeQL never emits
+# the bare ``CWE-`` prefix, so without this every CodeQL finding parsed with an
+# EMPTY cwe_ids list — silently disabling every CWE-gated safeguard downstream
+# (the framework-taint second-opinion arm, the per-CWE min-iterations override,
+# and the category filter).
+_CWE_TAG_RE = re.compile(r"cwe[-/]?(\d+)", re.IGNORECASE)
+
+
+def _normalize_cwe(tag: str) -> str | None:
+    """Return the canonical ``CWE-<n>`` id for a SARIF tag, or None.
+
+    Accepts ``CWE-190``, ``cwe-190``, ``external/cwe/cwe-190`` and the
+    zero-padded CodeQL form ``external/cwe/cwe-022``, normalising them all to
+    the canonical zero-stripped id (``CWE-190``, ``CWE-22``). Leading zeros are
+    stripped so the result matches the form every consumer uses
+    (``rule_categories.yaml``, ``engine._TAINT_CWES``,
+    ``engine._CPP_PATTERN_CLASS_CWES``); ``CWE-022`` would silently match none
+    of those.
+    """
+    match = _CWE_TAG_RE.search(tag or "")
+    return f"CWE-{int(match.group(1))}" if match else None
 
 # Code-quality / maintainability rules that the CodeQL security suites pull in
 # but which are NOT vulnerabilities. Verifying them as "findings" is pure noise
@@ -265,8 +289,8 @@ class SarifParser:
                 rule_meta = rule_lookup.get(rule_id) or {}
                 precision = rule_meta.get("precision") or ""
                 all_tags = rule_meta.get("tags") or []
-                cwe_ids = [t for t in all_tags if t.startswith("CWE-")]
-                non_cwe_tags = [t for t in all_tags if not t.startswith("CWE-")]
+                cwe_ids = sorted({c for t in all_tags if (c := _normalize_cwe(t))})
+                non_cwe_tags = [t for t in all_tags if _normalize_cwe(t) is None]
                 security_severity = rule_meta.get("security_severity") or ""
 
                 # Severity: prefer security-severity score, fallback to result level

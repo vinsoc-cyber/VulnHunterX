@@ -86,6 +86,23 @@ _TAINT_CWES: frozenset[str] = frozenset({
     "CWE-1333", # ReDoS
 })
 
+# C/C++ correctness / type-hygiene CWEs whose CodeQL rules fire on a code
+# PATTERN (a narrow-typed arithmetic op later widened) rather than a proven,
+# reachable bug. On these, a 1-iter/High True Positive is frequently the model
+# rubber-stamping the pattern + rule severity without proving the operands can
+# overflow — the libjpeg-turbo run marked 17/20 such findings TP, most on
+# bounded loop counters or test fixtures. A TP-challenge second-opinion pass
+# (see LLMClient._TP_CHALLENGE_PROMPT) re-examines reachability. This is the
+# TP-side mirror of the FP-side arms A/B and is gated to C/C++ so framework
+# taint verdicts (arm_c) are untouched.
+_CPP_PATTERN_CLASS_CWES: frozenset[str] = frozenset({
+    "CWE-190",  # Integer overflow / wraparound
+    "CWE-191",  # Integer underflow
+    "CWE-192",  # Integer coercion error
+    "CWE-197",  # Numeric truncation error
+    "CWE-681",  # Incorrect conversion between numeric types
+})
+
 
 def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
     """Demote High/Medium → Low when a TP or FP verdict lacks specific citations.
@@ -177,6 +194,118 @@ def _downgrade_local_prototype_pollution(verdict: Verdict) -> Verdict:
     return verdict
 
 
+# A path that the invoking user already controls (argv in a CLI binary they run
+# themselves) crosses no privilege boundary, so path-injection there is not
+# CWE-22. These markers detect a command-line source in the verdict's data flow.
+_CLI_PATH_SOURCE_MARKERS = (
+    "argv", "command-line", "command line", "commandline", "main(",
+    "cli argument", "command-line argument", "command line argument",
+)
+# Presence of any of these means a real trust/privilege boundary may exist, so
+# we must NOT auto-downgrade — leave the model's verdict alone.
+_TRUST_BOUNDARY_MARKERS = (
+    "setuid", "setgid", "suid", "server", "daemon", "service", "request",
+    "upload", "socket", "network", "http", "rpc", "ipc", "sandbox", "chroot",
+    "jail", "privile", "untrusted file content", "file contents", "web ",
+    "remote", "cgi", "fastcgi",
+)
+
+
+def _downgrade_cli_path_injection(verdict: Verdict) -> Verdict:
+    """Downgrade TP path-injection verdicts whose path source is a CLI argument.
+
+    ``cpp/path-injection`` (CWE-22) fires whenever user input reaches a file
+    path. In a standalone command-line tool the path comes from ``argv`` — the
+    operator who runs the binary chose it, so opening it grants no access the
+    operator lacks. That is a False Positive, not a traversal vulnerability. A
+    genuine TP needs a less-privileged party controlling the path AND a more-
+    privileged process (server / setuid / sandbox escape). Only fires when the
+    reasoning/data-flow shows a command-line source AND no privilege-boundary
+    term — conservative, so server/upload findings are untouched. Mirrors
+    :func:`_downgrade_local_prototype_pollution` (downgrade, not hard-flip).
+    """
+    if verdict.verdict not in ("True Positive", "TP"):
+        return verdict
+    if verdict.confidence not in ("High", "Medium"):
+        return verdict
+    finding = getattr(verdict, "finding", None)
+    rule_id = (getattr(finding, "rule_id", "") or "").lower()
+    cwes = set(getattr(finding, "cwe_ids", None) or [])
+    if "path-injection" not in rule_id and "CWE-22" not in cwes:
+        return verdict
+    text = ((verdict.reasoning or "") + " " + (verdict.data_flow or "")).lower()
+    cli_source = any(m in text for m in _CLI_PATH_SOURCE_MARKERS)
+    has_boundary = any(m in text for m in _TRUST_BOUNDARY_MARKERS)
+    if cli_source and not has_boundary:
+        verdict.confidence = "Low"
+        verdict.confidence_score = min(verdict.confidence_score, 0.3)
+        verdict.reasoning = (
+            (verdict.reasoning or "")
+            + " [calibration: CLI argv path source with no trust boundary — "
+            "operator-controlled path in a standalone tool, likely False Positive]"
+        )
+    return verdict
+
+
+# Signature terms per CWE class, used to detect when a TP verdict's reasoning
+# argues a DIFFERENT vulnerability class than the rule actually reported. Keep
+# terms specific enough to avoid incidental matches.
+_CWE_CLASS_MARKERS: dict[str, tuple[str, ...]] = {
+    "CWE-22": ("path traversal", "directory traversal", "../", "path injection"),
+    "CWE-79": ("xss", "cross-site script", "html injection"),
+    "CWE-89": ("sql injection", "sql inject"),
+    "CWE-78": ("command injection", "os command", "shell injection"),
+    "CWE-190": ("integer overflow", "wraparound", "wrap around", "exceeds int_max",
+                "exceeds int max", "overflow before"),
+    "CWE-416": ("use-after-free", "use after free", "double-free", "double free"),
+    "CWE-476": ("null pointer", "null dereference", "null deref", "nullptr deref"),
+    "CWE-611": ("xxe", "xml external entity", "external entity expansion"),
+    "CWE-918": ("ssrf", "server-side request forgery", "server side request forgery"),
+}
+
+
+def _cwe_classes_in_text(text: str) -> set[str]:
+    return {cwe for cwe, kws in _CWE_CLASS_MARKERS.items() if any(k in text for k in kws)}
+
+
+def _check_rule_construct_presence(verdict: Verdict) -> Verdict:
+    """Downgrade a TP whose reasoning argues a DIFFERENT CWE class than reported.
+
+    Rule-scope discipline: a verdict must address the vulnerability the reported
+    rule describes. If the model's reasoning argues an off-scope CWE class
+    (e.g. path traversal under an integer-overflow rule) and does NOT argue the
+    reported class, the True Positive is for a self-identified finding the rule
+    never made — downgrade it. Conservative: requires positive off-scope
+    evidence AND absence of on-scope evidence, so correctly-scoped verdicts and
+    findings whose reported CWE isn't in the marker map are untouched. Mirrors
+    the other calibrators (downgrade + marker, never a hard flip).
+    """
+    if verdict.verdict not in ("True Positive", "TP"):
+        return verdict
+    if verdict.confidence not in ("High", "Medium"):
+        return verdict
+    finding = getattr(verdict, "finding", None)
+    reported = set(getattr(finding, "cwe_ids", None) or []) & set(_CWE_CLASS_MARKERS)
+    if not reported:
+        return verdict  # reported CWE class not in our map — don't guess
+    text = (verdict.reasoning or "").lower()
+    argued = _cwe_classes_in_text(text)
+    if not argued:
+        return verdict
+    off_scope = argued - reported
+    on_scope = argued & reported
+    if off_scope and not on_scope:
+        verdict.confidence = "Low"
+        verdict.confidence_score = min(verdict.confidence_score, 0.3)
+        verdict.reasoning = (
+            (verdict.reasoning or "")
+            + f" [rule-scope: reasoning argues {', '.join(sorted(off_scope))} but the"
+            f" reported rule is {', '.join(sorted(reported))} — verdict must address the"
+            " reported rule, not a self-identified finding]"
+        )
+    return verdict
+
+
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
@@ -215,6 +344,52 @@ def _is_test_path(file_path: str) -> bool:
         normalized = normalized[7:].lstrip("/")
     parts = [p for p in normalized.split("/") if p]
     return any(part in ("test", "tests") for part in parts)
+
+
+# Anchored stem tokens for test/benchmark/fuzz harness FILENAMES. Used to
+# RECOGNISE non-production code, not to drop it. Deliberately anchored to word
+# boundaries so we do NOT match production files like ``contest.c`` or
+# ``unittest_utils.py`` (which the _is_test_path contract requires to be False).
+_NONPROD_STEM_RE = re.compile(
+    r"(?:^|[_-])(?:test|tests|bench|benchmark|fuzz|fuzzer|example|demo)(?:$|[_-])",
+    re.IGNORECASE,
+)
+# Explicit harness filenames and vendored/third-party directory segments that
+# the anchored stem rule would otherwise miss (e.g. libjpeg-turbo's
+# ``tjunittest.c``/``tjbench.c`` and bundled ``src/spng/zlib/``).
+_NONPROD_FILENAMES = ("tjunittest", "tjbench", "tjdecomp", "tjcomp")
+_VENDORED_SEGMENTS = frozenset({
+    "zlib", "spng", "vendor", "vendored", "third_party", "thirdparty",
+    "external", "extern", "deps", "3rdparty",
+})
+
+
+def _is_nonproduction_path(file_path: str) -> bool:
+    """Return True if file_path looks like a test/benchmark/fuzz harness or
+    vendored third-party code.
+
+    Broader than :func:`_is_test_path` (it inspects the FILENAME stem and
+    vendored directory segments, not just ``test/`` path segments), but used
+    only to FLAG findings with a reachability caveat in the prompt — never to
+    silently drop them. Kept separate from ``_is_test_path`` so the latter's
+    drop-behaviour contract (``unittest_utils.py`` / ``contest.c`` -> False)
+    is untouched.
+    """
+    if not file_path:
+        return False
+    normalized = file_path.replace("\\", "/").strip()
+    if normalized.lower().startswith("file://"):
+        normalized = normalized[7:].lstrip("/")
+    parts = [p for p in normalized.split("/") if p]
+    if not parts:
+        return False
+    if any(p.lower() in _VENDORED_SEGMENTS for p in parts[:-1]):
+        return True
+    stem = parts[-1].rsplit(".", 1)[0]
+    stem_lower = stem.lower()
+    if any(name in stem_lower for name in _NONPROD_FILENAMES):
+        return True
+    return bool(_NONPROD_STEM_RE.search(stem))
 
 
 def _verdict_filename(finding: Finding) -> str:
@@ -308,19 +483,33 @@ class VerificationEngine:
             ollama_key_state_path=config.paths.output_dir / ".ollama_key_state.json",
         )
 
-        # Wire CWE → question mapping if rule_categories.yaml is available
+        # Wire CWE → question mapping if rule_categories.yaml is available.
+        # rule_categories.yaml lives in the config dir (alongside prompts/), i.e.
+        # ``<config>/rule_categories.yaml`` where ``<config>`` is the parent of
+        # ``prompts_dir``. (PathsConfig has no ``base_dir`` — referencing it here
+        # raised AttributeError that the bare except swallowed, silently leaving
+        # ``_profile_manager`` None and turning ``--category`` into a no-op.)
         self._profile_manager = None
         try:
             from vuln_hunter_x.core.rule_profiles import RuleProfileManager
 
-            categories_path = config.paths.base_dir / "config" / "rule_categories.yaml"
-            if categories_path.is_file():
+            candidates = [
+                config.paths.prompts_dir.parent / "rule_categories.yaml",
+                # Fallback: the bundled config dir, independent of config resolution.
+                Path(__file__).resolve().parents[3] / "config" / "rule_categories.yaml",
+            ]
+            categories_path = next((p for p in candidates if p.is_file()), None)
+            if categories_path is not None:
                 self._profile_manager = RuleProfileManager(categories_path)
                 self.questions_loader.set_cwe_question_map(
                     self._profile_manager.cwe_question_map,
                 )
         except Exception:
-            pass  # Graceful degradation — CWE matching disabled
+            logger.warning(
+                "Could not load rule_categories.yaml; --category filtering and "
+                "CWE→question mapping are disabled",
+                exc_info=True,
+            )
 
         # Callbacks for progress reporting
         self._on_finding_start: Callable[[int, int, Finding], None] | None = None
@@ -478,9 +667,22 @@ class VerificationEngine:
             VerificationResult with all verdicts
         """
         # Apply category filter (findings without CWE tags are always included)
-        if category_filter and self._profile_manager:
-            target_cwes = self._profile_manager.get_cwes_for_categories(category_filter)
-            findings = [f for f in findings if not f.cwe_ids or target_cwes.intersection(f.cwe_ids)]
+        if category_filter:
+            if self._profile_manager:
+                target_cwes = self._profile_manager.get_cwes_for_categories(category_filter)
+                findings = [
+                    f for f in findings
+                    if not f.cwe_ids or target_cwes.intersection(f.cwe_ids)
+                ]
+            else:
+                # Never silently ignore a requested filter — that previously let
+                # a --category run process every finding (rule_categories.yaml
+                # failed to load). Surface it instead of misleading the user.
+                logger.warning(
+                    "--category %s was requested but rule_categories.yaml is not "
+                    "loaded; verifying ALL findings unfiltered.",
+                    ", ".join(category_filter),
+                )
 
         if limit > 0:
             findings = findings[:limit]
@@ -678,6 +880,23 @@ class VerificationEngine:
                     context_requests=prefetch_requests,
                 )
 
+        # Non-production flag: when the finding lives in a test/benchmark/fuzz
+        # harness or vendored third-party copy, the operands are usually fixed
+        # fixtures (bounded loop counters, small constants) rather than
+        # attacker-controlled input. Surface that to the verifier as context so
+        # it weights reachability correctly instead of confirming the pattern.
+        # We FLAG rather than drop — the finding stays auditable.
+        if _is_nonproduction_path(finding.file):
+            prefetched_context["NOTE: non-production code"] = (
+                "This finding is in a TEST, BENCHMARK, FUZZ harness, or VENDORED "
+                "third-party file. Operands here are typically fixed test fixtures "
+                "(bounded loop counters, small constants), NOT attacker-controlled "
+                "input. Unless you can trace a real external-input path to this code, "
+                "weight reachability accordingly and prefer False Positive / Needs "
+                "More Data over confirming a pattern that cannot reach a dangerous "
+                "value in this context."
+            )
+
         # Call LLM. When ``self_consistency_samples > 1`` we route through
         # the voting wrapper; otherwise we keep the single-pass fast path.
         sc_samples = getattr(self.config.verification, "self_consistency_samples", 1)
@@ -760,9 +979,30 @@ class VerificationEngine:
             and finding.lang in _FRAMEWORK_LANGS
             and bool(set(finding.cwe_ids or []) & _TAINT_CWES)
         )
-        if sc_samples <= 1 and (arm_a or arm_b or arm_c):
+        #   D. "1-iter / High-confidence TP on a C/C++ correctness rule" — the
+        #      mirror of arms A/B for the over-confirmation failure mode. Uses
+        #      a distinct TP-challenge prompt that steers an unjustified TP back
+        #      toward FP/NMD. Mutually exclusive with arm_c (which requires a
+        #      framework language). Depends on the SARIF parser populating
+        #      cwe_ids from CodeQL's external/cwe/* tags.
+        #      NOTE: the iteration gate is `<= questions.min_iterations` (not
+        #      `== 1` like arms A/B/C): the correctness-rule question sets raise
+        #      min_iterations to 2, so a verdict that committed at its minimum
+        #      allowed depth has iterations == 2, not 1. A `== 1` gate would
+        #      make this arm dead code for exactly the rules it targets.
+        arm_d = (
+            is_tp
+            and verdict.confidence == "High"
+            and verdict.iterations <= max(1, questions.min_iterations)
+            and finding.lang in ("c", "cpp")
+            and bool(set(finding.cwe_ids or []) & _CPP_PATTERN_CLASS_CWES)
+        )
+        if sc_samples <= 1 and (arm_a or arm_b or arm_c or arm_d):
             # Post-processing must never crash a verdict; the original
             # verdict is preserved if the second-opinion call fails.
+            challenge_prompt = (
+                self.llm_client._TP_CHALLENGE_PROMPT if arm_d else None
+            )
             with contextlib.suppress(Exception):
                 verdict = self.llm_client.request_second_opinion(
                     finding=finding,
@@ -774,6 +1014,7 @@ class VerificationEngine:
                     quiet=self.config.output.is_quiet,
                     log_file=self._log_fh,
                     prefetched_context=prefetched_context,
+                    challenge_prompt=challenge_prompt,
                 )
 
         # Confidence-discipline post-processor: a TP or FP verdict whose
@@ -788,6 +1029,12 @@ class VerificationEngine:
         # reasoning confines impact to a single instance's prototype is not a
         # CWE-1321 (Object.prototype) finding and must not ride at TP/High.
         verdict = _downgrade_local_prototype_pollution(verdict)
+        # Path-injection trust-boundary calibration: a TP whose path source is a
+        # CLI argv (operator-controlled, no privilege boundary) is not CWE-22.
+        verdict = _downgrade_cli_path_injection(verdict)
+        # Rule-scope discipline: a TP whose reasoning argues a CWE class other
+        # than the one the rule reported is out of scope — downgrade it.
+        verdict = _check_rule_construct_presence(verdict)
 
         return verdict
 

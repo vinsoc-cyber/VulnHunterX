@@ -11,6 +11,7 @@ from vuln_hunter_x.core.types import Finding, Verdict, VerificationResult
 from vuln_hunter_x.verification.engine import (
     VerificationEngine,
     _downgrade_local_prototype_pollution,
+    _is_nonproduction_path,
     _is_test_path,
     _verdict_filename,
 )
@@ -68,6 +69,39 @@ class TestIsTestPath:
     def test_spec_directory_not_matched(self):
         # spec/ is not in the default exclusion list
         assert _is_test_path("src/spec/foo.js") is False
+
+
+class TestIsNonProductionPath:
+    """Tests for _is_nonproduction_path (flag, not drop)."""
+
+    def test_test_bench_fuzz_stems(self):
+        assert _is_nonproduction_path("test_foo.c") is True
+        assert _is_nonproduction_path("src/foo_test.c") is True
+        assert _is_nonproduction_path("src/decode_fuzzer.c") is True
+        assert _is_nonproduction_path("benches/bench_main.c") is True
+
+    def test_explicit_harness_filenames(self):
+        # libjpeg-turbo harnesses live directly in src/ with no test/ segment
+        assert _is_nonproduction_path("src/tjunittest.c") is True
+        assert _is_nonproduction_path("src/tjbench.c") is True
+        assert _is_nonproduction_path("src/tjdecomp.c") is True
+
+    def test_vendored_segments(self):
+        assert _is_nonproduction_path("src/spng/zlib/zutil.c") is True
+        assert _is_nonproduction_path("third_party/foo/bar.c") is True
+        assert _is_nonproduction_path("deps/zlib/inflate.c") is True
+
+    def test_production_code_not_matched(self):
+        assert _is_nonproduction_path("src/jdlhuff.c") is False
+        assert _is_nonproduction_path("src/jidctint.c") is False
+        assert _is_nonproduction_path("parser.c") is False
+        assert _is_nonproduction_path("") is False
+
+    def test_does_not_overmatch_production_lookalikes(self):
+        # Must not match production files that merely contain the substring.
+        assert _is_nonproduction_path("src/contest.c") is False
+        assert _is_nonproduction_path("unittest_utils.py") is False
+        assert _is_nonproduction_path("src/attestation.c") is False
 
     def test_test_word_in_filename_not_matched(self):
         # "testing_helper.py" or "contest.c" should NOT be excluded
@@ -162,6 +196,37 @@ class TestSaveResultsNoOverwrite:
         per_finding = [p for p in ver_dir.glob("*.json") if not p.name.startswith("summary_")]
         # All three survive (old scheme would have collapsed them to one file).
         assert len(per_finding) == 3
+
+
+class TestCategoryFilterLoads:
+    """Regression: the engine must load rule_categories.yaml so --category
+    filtering works. It previously referenced a non-existent
+    PathsConfig.base_dir, the bare except swallowed the AttributeError, and
+    --category became a silent no-op (every finding processed unfiltered)."""
+
+    def _engine(self):
+        from vuln_hunter_x.core.config import load_config
+        return VerificationEngine(load_config())
+
+    def test_profile_manager_loads(self):
+        engine = self._engine()
+        assert engine._profile_manager is not None
+
+    def test_file_security_category_resolves_to_cwes(self):
+        engine = self._engine()
+        cwes = engine._profile_manager.get_cwes_for_categories(["file-security"])
+        # canonical zero-stripped ids (see _normalize_cwe) — CWE-22, not CWE-022
+        assert "CWE-22" in cwes
+
+    def test_filter_keeps_only_matching_cwes(self):
+        engine = self._engine()
+        target = engine._profile_manager.get_cwes_for_categories(["file-security"])
+        findings = [
+            _make_finding(file="src/cjpeg.c", start_line=741, cwe_ids=["CWE-22", "CWE-73"]),
+            _make_finding(file="src/jidctint.c", start_line=234, cwe_ids=["CWE-190"]),
+        ]
+        kept = [f for f in findings if not f.cwe_ids or target.intersection(f.cwe_ids)]
+        assert [f.file for f in kept] == ["src/cjpeg.c"]
 
 
 class TestBuildPrefetchRequests:

@@ -921,6 +921,39 @@ class LLMClient:
         "format."
     )
 
+    # Counterpart to _SECOND_OPINION_PROMPT, but steering an over-eager TRUE
+    # POSITIVE on a correctness / type-hygiene rule (integer-overflow,
+    # multiplication-cast-to-wider, sign-conversion, truncation) back toward FP/
+    # NMD when the overflow is not actually reachable. These rules fire on a
+    # PATTERN, not a proven bug, and the model tends to confirm them by citing
+    # the flagged line and the rule's severity rather than proving the operands
+    # can overflow. See output/c/libjpeg-turbo/.../summary_*_20260611_215144.json
+    # (17/20 TP, mostly bounded loop counters and test fixtures).
+    _TP_CHALLENGE_PROMPT = (
+        "Your previous verdict was 'True Positive' with high confidence, reached "
+        "in a single turn. The flagged rule is a CORRECTNESS / TYPE-HYGIENE rule: "
+        "it matches a code PATTERN (an arithmetic operation in a narrow type later "
+        "widened) wherever that pattern appears — it does NOT prove the operation "
+        "actually overflows or is reachable with attacker input.\n\n"
+        "Re-verify by answering, with line references:\n"
+        "  (a) The exact TYPE of each operand and the intermediate result type. "
+        "What is the maximum value that intermediate type holds?\n"
+        "  (b) Where do the operand VALUES come from — compile-time constants, "
+        "fixed-bound loop counters, sizeof, or attacker-controlled input "
+        "(file header, network, argv)? Quote the bound.\n"
+        "  (c) Given those bounds, CAN the product actually exceed the intermediate "
+        "type's max? Show the arithmetic (max_a * max_b vs TYPE_MAX).\n"
+        "  (d) Is the widened result used dangerously (allocation / index / length / "
+        "memcpy size), or merely stored / used in bounded arithmetic?\n"
+        "  (e) Is this file a test, benchmark, fuzz harness, or vendored third-party "
+        "copy where the operands are fixed fixtures rather than attacker input?\n\n"
+        "If you CANNOT show, with concrete numbers, that the operands can reach "
+        "values which overflow the intermediate type AND flow to a dangerous sink, "
+        "change your verdict to 'False Positive' (the pattern is present but the "
+        "overflow is not reachable) or 'Needs More Data'. Respond in the same strict "
+        "JSON format."
+    )
+
     def request_second_opinion(
         self,
         finding: Finding,
@@ -933,11 +966,15 @@ class LLMClient:
         quiet: bool = True,
         log_file: Any | None = None,
         prefetched_context: dict[str, str] | None = None,
+        challenge_prompt: str | None = None,
     ) -> Verdict:
         """One-shot re-prompt for a previously committed verdict.
 
         Used by VerificationEngine to challenge single-turn high-confidence
         FP verdicts (the 2026-05-15 benchmark's dominant failure mode).
+        ``challenge_prompt`` overrides the default FP-oriented re-prompt; pass
+        ``_TP_CHALLENGE_PROMPT`` to challenge an over-eager TP on a correctness
+        rule instead. When omitted, behaviour is byte-for-byte unchanged.
         Returns a fresh Verdict whose iteration/token counts are added to the
         previous verdict by the caller. The previous verdict's reasoning is
         included as assistant context so the model can audit its own logic.
@@ -977,7 +1014,7 @@ class LLMClient:
                     })
                 ),
             },
-            {"role": "user", "content": self._SECOND_OPINION_PROMPT},
+            {"role": "user", "content": challenge_prompt or self._SECOND_OPINION_PROMPT},
         ]
         start_time = time.time()
         try:
@@ -1025,14 +1062,16 @@ class LLMClient:
             log_file.write("### Second Opinion\n\n")
             log_file.write(f"```json\n{raw}\n```\n\n")
 
+        marker = (
+            " [second-opinion pass: TP challenge on correctness rule]"
+            if challenge_prompt is not None
+            else " [second-opinion pass after 1-iter high-conf FP]"
+        )
         return Verdict(
             finding=finding,
             verdict=parsed.get("verdict", previous_verdict.verdict),
             confidence=parsed.get("confidence", "Low"),
-            reasoning=(
-                parsed.get("reasoning", "")
-                + " [second-opinion pass after 1-iter high-conf FP]"
-            ),
+            reasoning=parsed.get("reasoning", "") + marker,
             answers=parsed.get("answers", previous_verdict.answers),
             raw_response=(
                 previous_verdict.raw_response
@@ -1059,6 +1098,13 @@ class LLMClient:
         "GUIDELINE: If the code handles untrusted input and you see NO clear sanitization, "
         "bounds checking, or framework protection, lean toward True Positive (conservative for "
         "security). Only choose False Positive if you can point to a specific defense.\n\n"
+        "EXCEPTION for correctness / type-hygiene rules (integer-overflow, "
+        "multiplication-cast-to-wider, sign-conversion, truncation): the rule fires on a "
+        "code PATTERN, not a proven bug. Here, choose True Positive ONLY if the operands can "
+        "realistically reach values that overflow the intermediate type AND the result is used "
+        "dangerously (allocation/index/length). If the operands are constants, fixed-bound loop "
+        "counters, or otherwise provably below the overflow threshold — or the code is a "
+        "test/benchmark fixture not driven by attacker input — choose False Positive.\n\n"
         "Provide your verdict in the same JSON format with reasoning."
     )
 
@@ -1098,6 +1144,22 @@ class LLMClient:
         parsed = self._parse_response(raw)
         # If still NMD, try to infer direction from reasoning before defaulting
         if parsed.get("verdict") == "Needs More Data":
+            # Never keyword-force a verdict out of unparseable text. A parse
+            # failure carries no real opinion — the "reasoning" is just the
+            # truncated raw JSON, which is saturated with overflow/taint words
+            # ("unsafe", "no validation") that the heuristic below would miscount
+            # as a TP. Leave it as NMD/parse_failed (confidence_score 0.0) so the
+            # downstream evaluator counts it as its own mode instead of a TP.
+            if parsed.get("parse_failed"):
+                return (
+                    parsed,
+                    raw,
+                    total_tokens_used,
+                    total_cost_usd,
+                    total_input_tokens,
+                    total_output_tokens,
+                    total_cached_input_tokens,
+                )
             reasoning = (parsed.get("reasoning") or "").lower()
             raw_lower = raw.lower()
             # Check for signals leaning toward vulnerable. The access-control

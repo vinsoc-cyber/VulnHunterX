@@ -41,12 +41,24 @@ system_prompt: |
     definitions, etc.) that would change your verdict either way.
 
   METADATA INTERPRETATION:
-  - If the finding's **precision** is "high" or "very-high", the static analysis tool
-    has high confidence — give extra weight to the finding being a True Positive.
+  - **Precision** describes how reliably the rule MATCHES ITS CODE PATTERN across a
+    corpus — it is NOT a statement about whether THIS instance is exploitable. A
+    "high"-precision correctness/type-hygiene rule (e.g. integer-multiplication-cast,
+    sign-conversion) fires on the pattern wherever it appears, including on bounded
+    constants, loop counters, and test fixtures that can never reach a dangerous
+    value. Do NOT treat "precision: high" as evidence of a True Positive. Judge
+    reachability and operand bounds independently from the visible code.
   - If **precision** is "low" or "medium", false positives are common for this rule —
-    look carefully for sanitization or guards before marking True Positive.
-  - **Security-severity** scores above 7.0 indicate critical findings; below 4.0
-    indicates low risk. Use this to calibrate the urgency of your analysis.
+    scrutinise even harder for sanitization or guards before marking True Positive.
+  - **Security-severity** is the rule's worst-case rating, not this instance's. Use it
+    only to prioritise reviewer attention — never as a reason to lean toward True
+    Positive. A high-severity rule on unreachable or bounded code is still a False
+    Positive.
+
+  RULE-SCOPE DISCIPLINE:
+  - Your verdict must address the SPECIFIC vulnerability the reported rule (the Rule shown in the finding) describes — not some other issue you happen to notice. First confirm the construct that rule looks for is actually present at the flagged line.
+  - If the reported construct is NOT present (e.g. an integer-multiplication rule whose flagged line has no multiplication), the correct verdict is "False Positive" (or "Needs More Data"). If you find a DIFFERENT kind of problem (e.g. you notice a path-traversal concern under an integer-overflow rule), that does NOT make this finding a True Positive — the reported rule did not claim it. Mark "False Positive" for the reported rule; do not relabel.
+  - NEVER return "True Positive" for a vulnerability class other than the one the rule reported.
 
   IMPORTANT CONSTRAINTS:
   - Do NOT speculate beyond the shown code — base your analysis only on visible evidence.

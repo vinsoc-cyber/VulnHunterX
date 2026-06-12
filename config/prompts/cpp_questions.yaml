@@ -130,6 +130,31 @@ cpp/integer-overflow:
   context_hint: "TRACE: operand_sources -> arithmetic_op -> result_use | NEED: caller(operand_origins), macro(MAX_CONSTANTS), typedef(operand_types)"
   additional_context: ["caller", "macro", "typedef"]
 
+# This is a CORRECTNESS / TYPE-HYGIENE rule (CodeQL tags it reliability/
+# correctness/types). It fires on a PATTERN — a narrow-typed multiplication
+# whose result is later widened (int*int -> long/size_t) — wherever that pattern
+# appears, regardless of whether the operands can actually overflow or the code
+# is reachable with attacker input. "precision: high" means the rule reliably
+# detects the PATTERN, not that this instance is exploitable. A dedicated entry
+# (exact rule_id match) is required because the generic cpp/integer-overflow
+# fallback over-confirmed 17/20 such findings on libjpeg-turbo — most on bounded
+# loop counters and test fixtures. min_iterations: 2 forces a context-fetch
+# (operand origins/types) before any verdict; safe because a truncated/parse-
+# failed turn now degrades to Needs More Data, not a forced True Positive.
+cpp/integer-multiplication-cast-to-long:
+  short_description: "Multiplication in a narrow type widened afterward (possible overflow before cast)"
+  questions:
+    - "PATTERN vs BUG: this rule matches `a * b` computed in a narrow type (int/unsigned) then converted to a wider one (long/size_t). The match alone is NOT a vulnerability. To be a True Positive you must show a REACHABLE overflow that flows to a dangerous use. Default to False Positive if you cannot."
+    - "What is the exact TYPE of each operand and the INTERMEDIATE result type (before the widening cast)? What is that intermediate type's maximum value (e.g. INT_MAX = 2147483647)?"
+    - "Where do the operand VALUES come from — compile-time constants, sizeof, a fixed-bound loop counter, or attacker-controlled input (image/file header field, network, argv)? Quote the exact bound or source line for EACH operand."
+    - "Do the arithmetic with the ACTUAL bounds: max_a * max_b = ?. Does that exceed the intermediate type's max? If the operands are provably small (bounded loop counters like w<48,h<2048, small constants), overflow CANNOT occur — that is a False Positive even though the pattern matches."
+    - "Is there an explicit overflow guard or an early `(size_t)`/`(uint64_t)` cast of an operand BEFORE the multiplication (so the multiply happens in the wide type)? An operand already widened before the `*` means no narrow-type overflow — False Positive."
+    - "How is the widened result USED — as a malloc/calloc/realloc size, array index, memcpy/memset length, or merely stored / used in bounded arithmetic? Only allocation/index/length sinks make an overflow dangerous."
+    - "Is this file a TEST, BENCHMARK, FUZZ harness, or VENDORED third-party copy (e.g. tjunittest.c, tjbench.c, */zlib/*, */spng/*)? If so, the operands are typically fixed test fixtures, not attacker input — weight reachability accordingly and lean False Positive / Needs More Data unless a real external-input path exists."
+  context_hint: "TRACE: operand_sources -> narrow_multiply -> widening_cast -> result_use | NEED: caller(operand_origins/bounds), macro(MAX/FIX_CONSTANTS), typedef(operand_types)"
+  additional_context: ["caller", "macro", "typedef"]
+  min_iterations: 2
+
 cpp/weak-cryptographic-algorithm:
   short_description: "Use of weak or broken cryptographic algorithm"
   questions:
@@ -173,14 +198,19 @@ cpp/command-injection:
 cpp/path-injection:
   short_description: "User input used in file path allowing traversal"
   questions:
-    - "Where does the PATH input originate - what is the ultimate SOURCE?"
-    - "Is the path VALIDATED to reject directory traversal sequences (../)?"
-    - "Is the path CANONICALIZED (realpath) before use?"
-    - "After canonicalization, is the result CHECKED to be within allowed directories?"
-    - "Could an attacker use '../' or symbolic links to access files outside the intended directory?"
+    - "Where does the PATH input originate - what is the ultimate SOURCE? Quote the line."
+    - "EXECUTION CONTEXT: is this a standalone command-line tool where the path comes from `argv`/`main()` (chosen by the operator who runs the binary), or a server / web-handler / IPC / setuid / sandboxed context with a real privilege boundary?"
+    - "TRUST BOUNDARY: does the path actually cross a privilege or trust boundary — supplied over the network, a web upload, parsed from untrusted FILE CONTENTS, or used by a process running with MORE privilege than the path's source (setuid/root/service)? Opening a file whose path the invoking user already chose, in a CLI binary that user runs themselves, is the tool's intended function and grants no access the user lacks — that is a FALSE POSITIVE, not CWE-22."
+    - "Is the path VALIDATED to reject directory traversal sequences (../) or CANONICALIZED (realpath) and then CHECKED to be within an allowed directory?"
+    - "Could a LESS-privileged party use '../' or symbolic links to make a MORE-privileged process access files outside the intended directory? (If the same user controls both the path and the privilege level, there is no escalation.)"
     - "What FILE OPERATIONS are performed with this path (read, write, execute)?"
-  context_hint: "Trace from input source through path construction to file operation."
+  context_hint: "Trace from input source through path construction to file operation. Establish whether a privilege/trust boundary exists; argv in a CLI main() usually means none."
   additional_context: ["caller", "callees"]
+  # True Positive ONLY when a less-privileged party controls the path AND the
+  # process acts with more privilege (or escapes an intended sandbox/chroot).
+  # A standalone CLI tool opening an argv-supplied path = False Positive (no
+  # trust boundary). This entry over-confirmed 46/46 on libjpeg-turbo's CLI
+  # binaries (cjpeg/djpeg/jpegtran/tj*) before the trust-boundary questions.
 
 cpp/format-string-injection:
   short_description: "User input used directly as printf format string"

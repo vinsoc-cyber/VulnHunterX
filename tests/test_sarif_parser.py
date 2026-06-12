@@ -252,6 +252,97 @@ class TestSarifEnrichment:
         assert "security" in f.tags
         assert "CWE-416" not in f.tags
 
+    def test_codeql_external_cwe_tags_extracted(self, tmp_path):
+        # CodeQL emits CWEs as `external/cwe/cwe-NNN`, not `CWE-NNN`. These must
+        # normalise into cwe_ids (regression: previously left cwe_ids empty,
+        # silently disabling every CWE-gated safeguard for CodeQL findings).
+        data = self._make_sarif_with_rules(
+            rules=[
+                {
+                    "id": "cpp/integer-multiplication-cast-to-long",
+                    "properties": {
+                        "precision": "high",
+                        "security-severity": "8.1",
+                        "tags": [
+                            "reliability",
+                            "security",
+                            "correctness",
+                            "external/cwe/cwe-190",
+                            "external/cwe/cwe-192",
+                        ],
+                    },
+                }
+            ],
+            results=[
+                {
+                    "ruleId": "cpp/integer-multiplication-cast-to-long",
+                    "message": {"text": "Multiplication may overflow"},
+                    "locations": [
+                        {
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": "src/jdlhuff.c"},
+                                "region": {"startLine": 234},
+                            }
+                        }
+                    ],
+                }
+            ],
+        )
+        sarif_file = tmp_path / "codeql.sarif"
+        _write_sarif(sarif_file, data)
+
+        findings = parse_sarif_file(sarif_file, "c", "repo")
+
+        assert len(findings) == 1
+        f = findings[0]
+        assert f.cwe_ids == ["CWE-190", "CWE-192"]
+        # the external/cwe tags must NOT leak into the non-CWE tag list
+        assert "external/cwe/cwe-190" not in f.tags
+        assert "security" in f.tags
+        assert "correctness" in f.tags
+
+    def test_codeql_zero_padded_cwe_normalized(self, tmp_path):
+        # CodeQL zero-pads low CWE numbers (external/cwe/cwe-022). These MUST
+        # normalise to the canonical zero-stripped id (CWE-22) so they match the
+        # CWE-gated logic in the engine / rule_categories (which use "CWE-22").
+        data = self._make_sarif_with_rules(
+            rules=[
+                {
+                    "id": "cpp/path-injection",
+                    "properties": {
+                        "precision": "high",
+                        "security-severity": "9.3",
+                        "tags": [
+                            "security",
+                            "external/cwe/cwe-022",
+                            "external/cwe/cwe-073",
+                        ],
+                    },
+                }
+            ],
+            results=[
+                {
+                    "ruleId": "cpp/path-injection",
+                    "message": {"text": "User input in file path"},
+                    "locations": [
+                        {
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": "src/cjpeg.c"},
+                                "region": {"startLine": 741},
+                            }
+                        }
+                    ],
+                }
+            ],
+        )
+        sarif_file = tmp_path / "codeql_pathinj.sarif"
+        _write_sarif(sarif_file, data)
+
+        findings = parse_sarif_file(sarif_file, "c", "repo")
+
+        assert len(findings) == 1
+        assert findings[0].cwe_ids == ["CWE-22", "CWE-73"]
+
     def test_related_locations_extracted(self, tmp_path):
         data = self._make_sarif_with_rules(
             rules=[],
