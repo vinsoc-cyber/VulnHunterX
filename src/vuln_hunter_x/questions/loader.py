@@ -20,6 +20,7 @@ _LANG_TO_QUESTION_PREFIX: dict[str, str] = {
     "java": "java",
     "php": "php",
     "go": "go",
+    "csharp": "cs",
 }
 
 # CWE classes that benefit from a forced second iteration before
@@ -40,7 +41,7 @@ _LANG_TO_QUESTION_PREFIX: dict[str, str] = {
 #     diversevul CWE-264 results pass — so the taint block is gated to
 #     framework languages to avoid adding cost on C without benefit.
 _FRAMEWORK_LANGS: frozenset[str] = frozenset({
-    "python", "javascript", "java", "php", "go",
+    "python", "javascript", "java", "php", "go", "csharp",
 })
 
 _CWE_MIN_ITERATIONS_OVERRIDE: dict[str, tuple[int, frozenset[str]]] = {

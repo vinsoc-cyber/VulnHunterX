@@ -111,6 +111,18 @@ All five language packs ship working queries — totals are sourced directly fro
 | `go/sql-injection-ext` | CWE-89 | path-problem | 8.5 | Custom rule supplementing built-in `go/sql-injection` — flags taint reaching `database/sql` Query / Exec via helper-wrapped concatenation builders (Squirrel, manual builders) that the built-in detector misses. |
 | `go/template-injection` | CWE-94/CWE-1336 | path-problem | 8.5 | `text/template`'s `Execute` interprets `{{}}` actions and has no HTML escaping. When the TEMPLATE itself (not the data) is attacker-controlled, the attacker can call any method exposed on the data type. |
 | `go/timing-unsafe-comparison` | CWE-208 | problem | 6.0 | `bytes.Equal`, `==`, and `strings.EqualFold` short-circuit on first differing byte. |
+
+### C# — [codeql-custom/csharp/src/](codeql-custom/csharp/src/) (5 rules)
+
+These fill gaps the comprehensive built-in `csharp-security-extended` suite leaves open (it already ships `cs/sql-injection`, `cs/command-line-injection`, `cs/path-injection`, `cs/zipslip`, `cs/unsafe-deserialization`, `cs/ldap-injection`, `cs/web/xss`, and more — those are not duplicated here).
+
+| `@id` | CWE | Kind | Severity | Description |
+|---|---|---|---|---|
+| `cs/ssrf` | CWE-918 | path-problem | 8.6 | A `RemoteFlowSource` reaches an outbound HTTP call (`WebRequest.Create`, `HttpClient.GetAsync`/`SendAsync`/..., `new HttpRequestMessage`) without an allow-list of trusted destinations. The built-in suite has no SSRF query. |
+| `cs/certificate-validation-disabled` | CWE-295 | problem | 7.4 | A `ServerCertificateValidationCallback` / `ServerCertificateCustomValidationCallback` / `RemoteCertificateValidationCallback` that unconditionally returns `true` disables TLS authentication (MITM). |
+| `cs/csv-formula-injection` | CWE-1236 | path-problem | 6.5 | A `RemoteFlowSource` written into CSV/spreadsheet output via `StreamWriter`/`TextWriter`/`File.WriteAllText` without neutralising a leading `=`/`+`/`-`/`@` executes as a formula in Excel/LibreOffice. |
+| `cs/weak-hash` | CWE-327/CWE-328 | problem | 7.5 | Constructing an MD5 or SHA-1 hash object (`MD5.Create()`, `new SHA1Managed()`, `new HMACMD5()`) for security purposes — both are collision-vulnerable. |
+| `cs/timing-unsafe-comparison` | CWE-208 | problem | 5.9 | A secret (token / HMAC / signature / password / API key) compared with `==`, `Equals`, or `SequenceEqual` short-circuits on the first differing byte; use `CryptographicOperations.FixedTimeEquals`. |
 <!-- ql_tables_end -->
 
 ## 4. Custom Semgrep / OpenGrep Rules
@@ -234,6 +246,27 @@ OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass 
 | `vulnhunterx.cpp.insecure-rng` | CWE-330/CWE-338 | WARNING | rand() / random() / lrand48() / drand48() are not cryptographically secure — flagged inside security-named functions. |
 | `vulnhunterx.cpp.unsafe-functions` | CWE-676 | WARNING | Use of an unsafe C string function (strcpy / strcat / gets / sprintf with no length bound). |
 | `vulnhunterx.cpp.hardcoded-password` | CWE-259/CWE-798 | ERROR | A string literal assigned to a variable named like a credential (password / passwd / pwd / secret / api_key / token) is a hardcoded secret. |
+
+### C# — [semgrep-custom/csharp.yaml](semgrep-custom/csharp.yaml) (14 rules)
+
+Structural / config / ASP.NET-idiom patterns. Taint-driven CWEs are handled by the built-in `csharp-security-extended` suite and `codeql-custom/csharp/` and are not duplicated here.
+
+| Rule id | CWE | Severity | Message |
+|---|---|---|---|
+| `vulnhunterx.csharp.weak-cipher` | CWE-327/CWE-328 | ERROR | Broken symmetric cipher (DES / TripleDES / RC2) or ECB mode. |
+| `vulnhunterx.csharp.insecure-rng` | CWE-330/CWE-338 | WARNING | `System.Random` used in a security-named method — predictable PRNG. |
+| `vulnhunterx.csharp.cert-validation-disabled` | CWE-295 | ERROR | Certificate validation callback accepts all certs / `DangerousAcceptAnyServerCertificateValidator`. |
+| `vulnhunterx.csharp.ef-raw-sql` | CWE-89 | ERROR | EF Core `FromSqlRaw`/`ExecuteSqlRaw` built by interpolation/concatenation. |
+| `vulnhunterx.csharp.dangerous-deserializer` | CWE-502 | ERROR | `BinaryFormatter`/`SoapFormatter`/`NetDataContractSerializer`/`LosFormatter` — RCE-prone. |
+| `vulnhunterx.csharp.insecure-cookie` | CWE-1004/CWE-614 | WARNING | Cookie created with `HttpOnly = false` or `Secure = false`. |
+| `vulnhunterx.csharp.xxe-prone-xml` | CWE-611 | ERROR | XML parser set to `DtdProcessing.Parse` or given an `XmlUrlResolver` — XXE. |
+| `vulnhunterx.csharp.hardcoded-connection-secret` | CWE-798/CWE-259 | ERROR | DB connection string with an embedded password literal. |
+| `vulnhunterx.csharp.cors-permissive` | CWE-942 | ERROR | CORS policy allowing any origin together with credentials. |
+| `vulnhunterx.csharp.developer-exception-page` | CWE-209 | WARNING | `UseDeveloperExceptionPage()` not gated behind `env.IsDevelopment()`. |
+| `vulnhunterx.csharp.antiforgery-disabled` | CWE-352 | WARNING | `[IgnoreAntiforgeryToken]` / antiforgery validation disabled. |
+| `vulnhunterx.csharp.open-redirect` | CWE-601 | WARNING | Redirect target taken from request input without an allow-list / `IsLocalUrl` check. |
+| `vulnhunterx.csharp.ldap-injection` | CWE-90 | WARNING | `DirectorySearcher.Filter` / `DirectoryEntry` path built by interpolation. |
+| `vulnhunterx.csharp.weak-password-hash` | CWE-916 | WARNING | Fast hash (SHA-256/512/MD5/SHA-1) over a password-named value instead of a KDF. |
 <!-- sg_tables_end -->
 
 ## 5. Built-in Coverage
@@ -291,6 +324,7 @@ If all three fail, the generic [`default_questions.yaml`](prompts/default_questi
 | Go | [go_questions.yaml](prompts/go_questions.yaml) | 53 |
 | Java | [java_questions.yaml](prompts/java_questions.yaml) | 57 |
 | PHP | [php_questions.yaml](prompts/php_questions.yaml) | 52 |
+| C# | [cs_questions.yaml](prompts/cs_questions.yaml) | 45 |
 | Fallback | [default_questions.yaml](prompts/default_questions.yaml) | 1 |
 
 ## 8. Adding New Rules

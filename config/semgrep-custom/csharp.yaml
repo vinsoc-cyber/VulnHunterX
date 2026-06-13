@@ -1,0 +1,342 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 VinSOC Cyber
+#
+# Custom Semgrep rules for C# / .NET vulnerabilities not covered (or only
+# partially covered) by registry packs (p/csharp, p/security-audit,
+# p/owasp-top-ten) and the built-in CodeQL csharp-security-extended suite.
+#
+# Target: structural / config / dangerous-default / ASP.NET-idiom patterns.
+# Taint-driven CWEs (SQLi, XSS, command injection, path traversal, LDAP,
+# unsafe deserialization, SSRF, CSV formula injection) are handled by the
+# built-in CodeQL suite and the custom CodeQL queries in
+# config/codeql-custom/csharp/src/ and are intentionally NOT duplicated here.
+#
+# Validate: opengrep --validate --config config/semgrep-custom/csharp.yaml
+
+rules:
+
+  # ── CWE-327/328: Weak symmetric cipher (DES family) or ECB mode ──
+  - id: vulnhunterx.csharp.weak-cipher
+    languages: [csharp]
+    severity: ERROR
+    message: |
+      A broken symmetric cipher (DES / TripleDES / RC2) or ECB mode is in use.
+      DES/RC2 are trivially breakable; ECB leaks plaintext block structure
+      (identical blocks encrypt identically). Use AES in GCM or CBC mode with a
+      random IV (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+    patterns:
+      - pattern-either:
+          - pattern: new DESCryptoServiceProvider(...)
+          - pattern: new TripleDESCryptoServiceProvider(...)
+          - pattern: new RC2CryptoServiceProvider(...)
+          - pattern: DES.Create(...)
+          - pattern: TripleDES.Create(...)
+          - pattern: RC2.Create(...)
+          - pattern: $C.Mode = CipherMode.ECB
+
+  # ── CWE-330/338: System.Random used in a security-sensitive method ──
+  - id: vulnhunterx.csharp.insecure-rng
+    languages: [csharp]
+    severity: WARNING
+    message: |
+      System.Random is a predictable PRNG — its output can be reconstructed
+      from a few samples. For tokens, secrets, passwords, keys, nonces, CSRF
+      values, OTPs, or session identifiers use
+      System.Security.Cryptography.RandomNumberGenerator (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+    patterns:
+      - pattern: new Random(...)
+      - pattern-inside: |
+          $RT $M(...) {
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $M
+          regex: '.*(Token|Secret|Password|Passwd|Pwd|Key|Nonce|Csrf|Otp|Session|Salt|Generate).*'
+
+  # ── CWE-295: TLS certificate validation bypassed (object-initializer / += form) ──
+  - id: vulnhunterx.csharp.cert-validation-disabled
+    languages: [csharp]
+    severity: ERROR
+    message: |
+      The server certificate validation callback unconditionally accepts every
+      certificate, or DangerousAcceptAnyServerCertificateValidator is used.
+      This disables TLS authentication and enables man-in-the-middle attacks
+      (CWE-295). Validate the certificate chain, or pin the expected cert.
+    metadata:
+      cwe: ["CWE-295"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/295.html
+    patterns:
+      - pattern-either:
+          - pattern: $H.ServerCertificateCustomValidationCallback = (...) => true;
+          - pattern: $H.ServerCertificateValidationCallback = (...) => true;
+          - pattern: ServicePointManager.ServerCertificateValidationCallback = (...) => true;
+          - pattern: ServicePointManager.ServerCertificateValidationCallback += (...) => true;
+          - pattern: $H.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+          - pattern: new $T { ..., ServerCertificateCustomValidationCallback = (...) => true, ... }
+
+  # ── CWE-89: Entity Framework raw SQL built by interpolation/concatenation ──
+  - id: vulnhunterx.csharp.ef-raw-sql
+    languages: [csharp]
+    severity: ERROR
+    message: |
+      FromSqlRaw / ExecuteSqlRaw (and the Database.* variants) execute a SQL
+      string verbatim. Building that string by interpolation or concatenation
+      allows SQL injection (CWE-89). Use FromSqlInterpolated /
+      ExecuteSqlInterpolated, or pass parameters via SqlParameter — these
+      parameterise the values rather than splicing them into the SQL text.
+    metadata:
+      cwe: ["CWE-89"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/89.html
+    patterns:
+      - pattern-either:
+          - pattern: $CTX.Database.ExecuteSqlRaw($"...", ...)
+          - pattern: $S.FromSqlRaw($"...", ...)
+          - pattern: $CTX.Database.ExecuteSqlRaw("..." + $X, ...)
+          - pattern: $S.FromSqlRaw("..." + $X, ...)
+
+  # ── CWE-502: BinaryFormatter / obsolete dangerous deserializers ──
+  - id: vulnhunterx.csharp.dangerous-deserializer
+    languages: [csharp]
+    severity: ERROR
+    message: |
+      BinaryFormatter / SoapFormatter / NetDataContractSerializer / LosFormatter
+      deserialize arbitrary types and are exploitable for remote code execution
+      with crafted payloads (CWE-502). They are obsolete and removed in modern
+      .NET. Use System.Text.Json or a contract-based serializer with a strict
+      allow-list of types.
+    metadata:
+      cwe: ["CWE-502"]
+      category: security
+      owasp: "A08:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/502.html
+        - https://learn.microsoft.com/dotnet/standard/serialization/binaryformatter-security-guide
+    patterns:
+      - pattern-either:
+          - pattern: new BinaryFormatter(...)
+          - pattern: new SoapFormatter(...)
+          - pattern: new NetDataContractSerializer(...)
+          - pattern: new LosFormatter(...)
+          - pattern: $F.Deserialize($STREAM)
+
+  # ── CWE-1004/614: Cookie without HttpOnly or Secure ──
+  - id: vulnhunterx.csharp.insecure-cookie
+    languages: [csharp]
+    severity: WARNING
+    message: |
+      A cookie is created with HttpOnly = false or Secure = false. HttpOnly
+      keeps the cookie out of reach of script (XSS theft); Secure keeps it off
+      plaintext HTTP. Session/auth cookies should set both to true
+      (CWE-1004/614).
+    metadata:
+      cwe: ["CWE-1004", "CWE-614"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1004.html
+    patterns:
+      - pattern-either:
+          - pattern: new CookieOptions { ..., HttpOnly = false, ... }
+          - pattern: new CookieOptions { ..., Secure = false, ... }
+          - pattern: new HttpCookie(...) { ..., HttpOnly = false, ... }
+          - pattern: $COOKIE.HttpOnly = false;
+          - pattern: $COOKIE.Secure = false;
+
+  # ── CWE-611: XML reader/document configured to resolve external entities ──
+  - id: vulnhunterx.csharp.xxe-prone-xml
+    languages: [csharp]
+    severity: ERROR
+    message: |
+      An XML parser is configured to process a DTD / resolve external entities
+      (DtdProcessing.Parse, a non-null XmlResolver / XmlUrlResolver). Parsing
+      untrusted XML this way enables XXE — file disclosure and SSRF (CWE-611).
+      Set DtdProcessing.Prohibit and XmlResolver = null.
+    metadata:
+      cwe: ["CWE-611"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/611.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html
+    patterns:
+      - pattern-either:
+          - pattern: $S.DtdProcessing = DtdProcessing.Parse;
+          - pattern: new XmlReaderSettings { ..., DtdProcessing = DtdProcessing.Parse, ... }
+          - pattern: $DOC.XmlResolver = new XmlUrlResolver(...);
+          - pattern: new XmlDocument { ..., XmlResolver = new XmlUrlResolver(...), ... }
+
+  # ── CWE-798/259: Hardcoded credential in a DB connection string ──
+  - id: vulnhunterx.csharp.hardcoded-connection-secret
+    languages: [csharp]
+    severity: ERROR
+    message: |
+      A database connection string with an embedded password is a string
+      literal in source. Anyone with repo / assembly access obtains the
+      credential (CWE-798/259). Load it from configuration, environment, user
+      secrets, or a secret manager / Key Vault.
+    metadata:
+      cwe: ["CWE-798", "CWE-259"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/798.html
+    patterns:
+      - pattern-either:
+          - pattern: new SqlConnection($S)
+          - pattern: new MySqlConnection($S)
+          - pattern: new NpgsqlConnection($S)
+          - pattern: new SqliteConnection($S)
+      - metavariable-regex:
+          metavariable: $S
+          regex: '.*([Pp]assword|[Pp]wd)\s*=[^;"]+.*'
+
+  # ── CWE-942: ASP.NET Core CORS — any origin together with credentials ──
+  - id: vulnhunterx.csharp.cors-permissive
+    languages: [csharp]
+    severity: ERROR
+    message: |
+      A CORS policy that allows any origin together with credentials reflects
+      any site's authenticated requests, defeating the same-origin policy
+      (CWE-942). When credentials are permitted, enumerate allowed origins with
+      WithOrigins(...) instead of AllowAnyOrigin / SetIsOriginAllowed(_ => true).
+    metadata:
+      cwe: ["CWE-942"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/942.html
+    patterns:
+      - pattern-either:
+          - pattern: $B.AllowAnyOrigin().AllowCredentials()
+          - pattern: $B.AllowCredentials().AllowAnyOrigin()
+          - pattern: $B.SetIsOriginAllowed(_ => true).AllowCredentials()
+
+  # ── CWE-209: Developer exception page exposing internals ──
+  - id: vulnhunterx.csharp.developer-exception-page
+    languages: [csharp]
+    severity: WARNING
+    message: |
+      UseDeveloperExceptionPage() renders stack traces, source, and routing
+      details into the HTTP response. If reachable in production it leaks
+      internal implementation to clients (CWE-209). Gate it behind
+      env.IsDevelopment() and use UseExceptionHandler for production.
+    metadata:
+      cwe: ["CWE-209"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/209.html
+    patterns:
+      - pattern: $APP.UseDeveloperExceptionPage()
+      - pattern-not-inside: |
+          if (<... $ENV.IsDevelopment() ...>) { ... }
+      - pattern-not-inside: |
+          if (<... env.IsDevelopment() ...>) { ... }
+
+  # ── CWE-352: Anti-forgery (CSRF) token validation disabled ──
+  - id: vulnhunterx.csharp.antiforgery-disabled
+    languages: [csharp]
+    severity: WARNING
+    message: |
+      [IgnoreAntiforgeryToken] or globally disabling antiforgery removes CSRF
+      protection from state-changing endpoints authenticated by a session
+      cookie (CWE-352). Keep [ValidateAntiForgeryToken] (or the auto-validation
+      filter) on POST/PUT/DELETE actions.
+    metadata:
+      cwe: ["CWE-352"]
+      category: security
+      owasp: "A01:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/352.html
+    patterns:
+      - pattern-either:
+          - pattern: |
+              [IgnoreAntiforgeryToken]
+              $RT $M(...) { ... }
+          - pattern: |
+              [IgnoreAntiforgeryToken]
+              public class $C { ... }
+          - pattern: $O.SuppressXFrameOptionsHeader = true;
+
+  # ── CWE-601: Open redirect from request input ──
+  - id: vulnhunterx.csharp.open-redirect
+    languages: [csharp]
+    severity: WARNING
+    message: |
+      A redirect target is taken directly from request input (query string,
+      form, route) without an allow-list check, enabling open redirect — a
+      phishing / OAuth-token-theft pivot (CWE-601). Validate against permitted
+      destinations or use Url.IsLocalUrl() before redirecting.
+    metadata:
+      cwe: ["CWE-601"]
+      category: security
+      owasp: "A01:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/601.html
+    patterns:
+      - pattern-either:
+          - pattern: return Redirect(Request.Query[$K]);
+          - pattern: return Redirect($REQ.QueryString[$K]);
+          - pattern: return this.Redirect(Request.Query[$K]);
+
+  # ── CWE-90: LDAP path/filter built from interpolation ──
+  - id: vulnhunterx.csharp.ldap-injection
+    languages: [csharp]
+    severity: WARNING
+    message: |
+      A DirectoryEntry path or DirectorySearcher.Filter is built by string
+      interpolation/concatenation. Unescaped input lets an attacker alter the
+      LDAP query (auth bypass, data disclosure) (CWE-90). Escape input with the
+      LDAP filter-encoding rules, or use parameterised search.
+    metadata:
+      cwe: ["CWE-90"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/90.html
+    patterns:
+      - pattern-either:
+          - pattern: $S.Filter = $"...";
+          - pattern: new DirectorySearcher($"...")
+          - pattern: new DirectoryEntry($"...")
+
+  # ── CWE-916: Fast/unsalted hashing used for passwords ──
+  - id: vulnhunterx.csharp.weak-password-hash
+    languages: [csharp]
+    severity: WARNING
+    message: |
+      A general-purpose hash (SHA-256/SHA-512/MD5/SHA-1) computed over a value
+      in a password-named context is not a password hash — fast hashing is
+      brute-forceable even when salted. Use a memory-hard KDF: PBKDF2
+      (Rfc2898DeriveBytes), BCrypt, or Argon2 (CWE-916).
+    metadata:
+      cwe: ["CWE-916"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/916.html
+    patterns:
+      - pattern-either:
+          - pattern: $H.ComputeHash($PWD)
+          - pattern: SHA256.HashData($PWD)
+          - pattern: SHA512.HashData($PWD)
+      - metavariable-regex:
+          metavariable: $PWD
+          regex: '.*([Pp]assword|[Pp]asswd|[Pp]wd).*'

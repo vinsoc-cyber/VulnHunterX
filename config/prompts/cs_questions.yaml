@@ -1,0 +1,451 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 VinSOC Cyber
+
+# Guided Questions Templates for CodeQL/Semgrep Rules (LLM verification style)
+#
+# Questions MUST force the LLM to trace:
+#   1. WHERE the data originates (source)
+#   2. How it FLOWS through assignments and transformations
+#   3. What VALIDATION / ENCODING / SANITIZATION is applied
+#   4. Whether the FRAMEWORK provides an automatic defense at the sink
+#   5. The PRIVILEGE level required and the concrete IMPACT
+#
+# The LLM must answer ALL questions BEFORE giving a verdict.
+#
+# Language: C# / .NET (rule-id prefix "cs/")
+#
+# Keys align with both the built-in CodeQL csharp-security-extended ids and the
+# cwe_question_map suffixes in config/rule_categories.yaml, so Semgrep findings
+# (vulnhunterx.csharp.*) route here via their CWE tags.
+
+# ── Injection ─────────────────────────────────────────────────────────
+
+cs/sql-injection:
+  short_description: "User input concatenated into a SQL query in C#"
+  questions:
+    - "Where does the INPUT originate — Request.Query/Form/RouteValues, a [FromBody]/[FromQuery] action parameter, or another user-controlled source?"
+    - "How is the query built — string concatenation/interpolation into SqlCommand.CommandText or EF Core FromSqlRaw/ExecuteSqlRaw (vulnerable), versus parameterized SqlParameter / FromSqlInterpolated / ExecuteSqlInterpolated (safe)?"
+    - "If a SqlParameter is added, is the tainted value actually bound to the parameter, or is it still spliced into the command text?"
+    - "Is an ORM (Entity Framework, Dapper) used? Dapper parameterizes anonymous-object args, but Dapper string concatenation is still injectable — which form is this?"
+    - "Trace the INPUT — does it pass through any validation, allow-list, or integer parse before reaching the query?"
+    - "Could SQL metacharacters (quote, semicolon, comment, UNION) in the input alter the query structure?"
+  context_hint: "Trace from the request value through all assignments to command execution."
+  additional_context: ["caller"]
+
+cs/command-injection: &cs_command_injection
+  short_description: "User input passed to Process.Start / shell execution in C#"
+  questions:
+    - "Where does the INPUT originate — HTTP request, uploaded content, configuration, or database?"
+    - "Is it passed to Process.Start, a ProcessStartInfo.Arguments string, or a shell (cmd.exe /c, /bin/sh -c)?"
+    - "Is UseShellExecute true (shell metacharacters interpreted) or false with ArgumentList tokens (safer)?"
+    - "Is the command/argument validated against an allow-list of known-safe values?"
+    - "Are arguments passed as a single concatenated string (injectable) or as discrete ArgumentList entries?"
+    - "Could an attacker inject shell metacharacters (; | & $ ` newline) or extra arguments to change execution?"
+  context_hint: "Trace from input through command construction to Process.Start."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+# CodeQL emits cs/command-line-injection for CWE-78; share the bank.
+cs/command-line-injection: *cs_command_injection
+
+cs/ldap-injection:
+  short_description: "User input placed in an LDAP filter or DirectoryEntry path in C#"
+  questions:
+    - "Where does the INPUT originate, and is it concatenated/interpolated into DirectorySearcher.Filter or a new DirectoryEntry path?"
+    - "Is the input escaped per RFC 4515 (filter encoding) / RFC 4514 (DN encoding) before use?"
+    - "Could LDAP metacharacters ( ) * \\ NUL alter the filter logic (e.g. turn it into an always-true filter)?"
+    - "Is the search scope or base DN also attacker-influenced?"
+    - "What is the impact — authentication bypass, enumeration of directory objects, or attribute disclosure?"
+  context_hint: "Trace from input to the LDAP filter/path string."
+  additional_context: ["caller"]
+
+cs/code-injection:
+  short_description: "User input evaluated as code/expression in C#"
+  questions:
+    - "Where does the INPUT originate, and does it reach CSharpScript.EvaluateAsync, a CodeDomProvider compile, a DataTable.Compute expression, or a Razor/template runtime compile?"
+    - "Is the evaluated text a fixed program with user data passed as bound variables, or is the user data part of the code body itself?"
+    - "Is there any sandbox, allow-list, or grammar restriction on what can be evaluated?"
+    - "What is the impact if arbitrary code/expression executes — RCE, data exfiltration, or logic bypass?"
+  context_hint: "Trace from input to the dynamic-evaluation sink."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+cs/header-injection:
+  short_description: "User input written into an HTTP response header in C#"
+  questions:
+    - "Where does the INPUT originate, and is it written to Response.Headers, Response.Redirect, or a Set-Cookie value?"
+    - "Are CR/LF (\\r\\n) characters stripped or rejected? Modern ASP.NET Core rejects them, but custom header writers may not."
+    - "Could an attacker split the response or inject additional headers (response splitting, cache poisoning)?"
+  context_hint: "Trace from input to the header write."
+  additional_context: ["caller"]
+
+cs/tainted-format-string: &cs_format_string
+  short_description: "User input used as a format string in C#"
+  questions:
+    - "Where does the INPUT originate, and is it the FORMAT argument of string.Format / Console.Write / a logging call rather than a data argument?"
+    - "Could attacker-controlled format items ({0}, alignment, format specifiers) cause exceptions or unexpected output?"
+    - "Is the format string a constant with user data passed as arguments (safe), or is the user data itself the format string (vulnerable)?"
+  context_hint: "Identify which argument is the format vs the data."
+  additional_context: ["caller"]
+
+# Built-in id for CWE-134.
+cs/uncontrolled-format-string: *cs_format_string
+
+cs/xpath-injection:
+  short_description: "User input concatenated into an XPath expression in C#"
+  questions:
+    - "Where does the INPUT originate, and is it concatenated/interpolated into an XPath passed to SelectNodes/SelectSingleNode/XPathEvaluate?"
+    - "Is the input parameterized via XsltArgumentList / a variable resolver, or escaped, before use?"
+    - "Could XPath metacharacters (quotes, or, and, brackets) alter the query (e.g. authentication bypass)?"
+  context_hint: "Trace from input to the XPath evaluation."
+  additional_context: ["caller"]
+
+cs/template-injection:
+  short_description: "User input compiled into a server-side template (SSTI) in C#"
+  questions:
+    - "Where does the INPUT originate, and does it become part of a template body compiled by Razor (RazorLight), DotLiquid, Scriban, or Handlebars.Net?"
+    - "Is the user data passed as a MODEL value (safe) or interpolated into the template SOURCE (vulnerable)?"
+    - "Does the template engine allow method/property access that could escalate SSTI to RCE?"
+  context_hint: "Distinguish template source from template model data."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+# ── XSS ───────────────────────────────────────────────────────────────
+
+cs/xss: &cs_xss
+  short_description: "User input written to an HTTP response without encoding in C#"
+  questions:
+    - "Where does the INPUT originate — query string, form, route, or stored data rendered back?"
+    - "Is the output produced via Razor @Html.Raw / MvcHtmlString / Response.Write (NOT auto-encoded), or via Razor @model output / Tag Helpers (auto-encoded)?"
+    - "Razor @-expressions HTML-encode by default — is the finding bypassing that with Html.Raw, or in a non-Razor sink (Web API returning HTML, custom IActionResult)?"
+    - "Is the output context HTML body, an HTML attribute, JavaScript, or a URL — does the applied encoding match that context?"
+    - "Could an attacker inject <script> or event-handler attributes that execute in the victim's browser?"
+  context_hint: "Trace from input to the response/HTML sink; note whether Razor auto-encoding applies."
+  additional_context: ["caller"]
+
+# Built-in id is cs/web/xss.
+cs/web/xss: *cs_xss
+
+# ── Trust boundary ────────────────────────────────────────────────────
+
+cs/trust-boundary-violation:
+  short_description: "Untrusted data stored in a trusted store (e.g. Session) in C#"
+  questions:
+    - "Where does the INPUT originate, and is it written into HttpContext.Session or another trusted store without validation?"
+    - "Is the data later read back and TRUSTED for an authorization or control-flow decision?"
+    - "What is the impact if an attacker seeds the trusted store with chosen values?"
+  context_hint: "Trace input into the trusted store and back out to a trust decision."
+  additional_context: ["caller"]
+
+# ── Authentication & Authorization ────────────────────────────────────
+
+cs/broken-authentication:
+  short_description: "Weak or missing authentication logic in C#"
+  questions:
+    - "What authenticates the request — [Authorize], a custom AuthenticationHandler, manual token/cookie check?"
+    - "Can the check be bypassed (null/empty credential treated as valid, == comparison of a secret, missing await on an async verify)?"
+    - "Is the credential compared in constant time and validated against the correct store?"
+    - "What is reachable WITHOUT authentication on this path?"
+  context_hint: "Trace the auth decision and the consequences of failing it."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+cs/missing-authentication:
+  short_description: "Sensitive endpoint reachable without authentication in C#"
+  questions:
+    - "Is this action/controller protected by [Authorize] (or a global auth filter), or is it [AllowAnonymous] / unprotected?"
+    - "Does the operation perform a state change or expose sensitive data that should require authentication?"
+    - "Is there any other gate (API key, network restriction) that effectively authenticates the caller?"
+  context_hint: "Determine whether an unauthenticated attacker can reach the sink."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+cs/csrf:
+  short_description: "Cross-site request forgery protection missing/disabled in C#"
+  questions:
+    - "Is this a state-changing endpoint authenticated by a SESSION COOKIE (CSRF-relevant) or by a bearer token in a header (not CSRF-relevant)?"
+    - "Is antiforgery validation present ([ValidateAntiForgeryToken], AutoValidateAntiforgeryToken filter), or disabled ([IgnoreAntiforgeryToken])?"
+    - "For APIs: is the auth purely token-based such that the browser won't auto-attach credentials cross-site?"
+    - "What state change could an attacker trigger via a forged cross-site request?"
+  context_hint: "Establish the auth mechanism before judging CSRF exposure."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+cs/session-fixation:
+  short_description: "Session identifier not rotated on privilege change in C#"
+  questions:
+    - "On login / privilege elevation, is the session regenerated (the old session id invalidated), or is the pre-auth session reused?"
+    - "Can an attacker set or predict the session id before the victim authenticates?"
+    - "What is the impact of riding a fixed session after the victim logs in?"
+  context_hint: "Check for session regeneration at the auth boundary."
+  additional_context: ["caller"]
+
+cs/missing-authorization:
+  short_description: "Action performed without an authorization check in C#"
+  questions:
+    - "Before the sensitive operation, is the caller's role/permission/ownership checked ([Authorize(Roles=...)], policy, manual owner check)?"
+    - "Is the resource id taken from the request and used WITHOUT verifying the caller may access THAT object (IDOR)?"
+    - "What can a low-privilege authenticated user reach that they should not?"
+  context_hint: "Trace from the request object id to the access decision."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+cs/incorrect-authorization:
+  short_description: "Authorization check present but flawed in C#"
+  questions:
+    - "What exactly does the check assert, and does it cover ALL the privileged paths (including the one in this finding)?"
+    - "Is the check applied before the side effect, and does a failure actually stop execution (vs only logging)?"
+    - "Are role/policy names compared correctly (case, exact string), and is the result honored?"
+  context_hint: "Verify the check is both correct and enforced."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+# ── Cryptography ──────────────────────────────────────────────────────
+
+cs/certificate-validation-disabled:
+  short_description: "TLS certificate validation bypassed in C#"
+  questions:
+    - "Is a ServerCertificateValidationCallback / ServerCertificateCustomValidationCallback / RemoteCertificateValidationCallback assigned that unconditionally returns true, or DangerousAcceptAnyServerCertificateValidator used?"
+    - "Is the callback scoped to a test/dev build only (e.g. guarded by an env check), or does it run in production paths?"
+    - "Does the connection carry sensitive data or credentials that a MITM could intercept?"
+    - "Is there any compensating control (certificate pinning, mutual TLS over a private network)?"
+  context_hint: "Confirm the callback always accepts and whether it reaches production."
+  additional_context: ["caller"]
+
+cs/insecure-tls-version:
+  short_description: "Obsolete TLS/SSL protocol version selected in C#"
+  questions:
+    - "Is SslProtocols / ServicePointManager.SecurityProtocol pinned to Ssl3/Tls/Tls11 (insecure) rather than Tls12/Tls13 or SystemDefault?"
+    - "Is the setting global (ServicePointManager) or per-connection, and does it affect security-relevant traffic?"
+    - "Is there a downgrade risk that an active attacker could exploit?"
+  context_hint: "Identify the negotiated protocol floor."
+  additional_context: ["caller"]
+
+cs/weak-cryptographic-algorithm: &cs_weak_crypto
+  short_description: "Weak cipher or hash algorithm used in C#"
+  questions:
+    - "Which algorithm is constructed — DES/3DES/RC2 or MD5/SHA-1 (weak), or AES / SHA-256+ (acceptable)?"
+    - "For ciphers, is ECB mode used (leaks block structure) and is the IV random and unique per message?"
+    - "Is the algorithm used for a SECURITY purpose (confidentiality, integrity, signature, password) or a non-security checksum (where MD5 may be acceptable)?"
+    - "For password storage, is a memory-hard KDF (PBKDF2/Rfc2898DeriveBytes, BCrypt, Argon2) used instead of a fast hash?"
+  context_hint: "Establish algorithm, mode, and the security purpose."
+  additional_context: ["caller"]
+
+# Custom CodeQL id cs/weak-hash shares the crypto bank.
+cs/weak-hash: *cs_weak_crypto
+
+cs/cleartext-storage:
+  short_description: "Sensitive data stored without encryption in C#"
+  questions:
+    - "What sensitive value (password, token, PII, key) is written to disk / config / database / log in cleartext?"
+    - "Is it encrypted or hashed (for passwords, a KDF) before storage?"
+    - "Who can read the storage location, and what is the disclosure impact?"
+  context_hint: "Trace the secret to the storage sink."
+  additional_context: ["caller"]
+
+cs/cleartext-transmission:
+  short_description: "Sensitive data transmitted over an unencrypted channel in C#"
+  questions:
+    - "Is the endpoint http:// (cleartext) rather than https://, or is RequireHttpsAttribute / HSTS absent?"
+    - "Does the transmitted payload contain credentials, tokens, or PII?"
+    - "Could a network attacker observe or modify the data in transit?"
+  context_hint: "Identify the channel and the sensitivity of the payload."
+  additional_context: ["caller"]
+
+# ── Secrets ───────────────────────────────────────────────────────────
+
+cs/hardcoded-credentials:
+  short_description: "Hardcoded credential or key in C# source"
+  questions:
+    - "Is the value a real secret (DB password, API key, JWT signing key, connection-string password) embedded as a string literal?"
+    - "Is it a placeholder/sample/test value, or a production credential?"
+    - "Could anyone with repository or compiled-assembly access extract and reuse it?"
+    - "Should it be loaded from configuration, environment, user-secrets, or a secret manager / Key Vault instead?"
+  context_hint: "Judge whether the literal is a genuine production secret."
+  additional_context: ["caller"]
+
+# ── Data exposure ─────────────────────────────────────────────────────
+
+cs/log-injection:
+  short_description: "Unsanitized user input written to a log in C#"
+  questions:
+    - "Where does the INPUT originate, and is it written to a log without neutralizing CR/LF (forged log lines) — note structured logging templates are generally safe?"
+    - "Could an attacker inject newlines to forge log entries or break log parsing?"
+    - "Does the logged value also contain sensitive data that should not be logged (CWE-532)?"
+  context_hint: "Trace input to the log call; check newline handling."
+  additional_context: ["caller"]
+
+cs/information-exposure: &cs_info_exposure
+  short_description: "Internal/sensitive detail exposed to the client in C#"
+  questions:
+    - "What is exposed — an exception stack trace/message, internal path, or PII — and where does it go (HTTP response, error page)?"
+    - "Is UseDeveloperExceptionPage reachable in production, or is detail gated behind env.IsDevelopment()?"
+    - "Does the response leak implementation details useful to an attacker (types, paths, SQL)?"
+    - "Is sensitive data returned that the caller is not authorized to see?"
+  context_hint: "Trace the sensitive value to the client-facing sink."
+  additional_context: ["caller"]
+
+# ── Deserialization ───────────────────────────────────────────────────
+
+cs/unsafe-deserialization:
+  short_description: "Untrusted data deserialized with a dangerous serializer in C#"
+  questions:
+    - "Which serializer is used — BinaryFormatter / SoapFormatter / NetDataContractSerializer / LosFormatter / JavaScriptSerializer-with-TypeResolver / Json.NET with TypeNameHandling != None (dangerous) — or System.Text.Json / a contract serializer (safe)?"
+    - "Where does the serialized blob originate (request body, cookie, upload, cache, queue) and is it attacker-controlled?"
+    - "Is the set of deserializable types restricted by a SerializationBinder / type allow-list?"
+    - "What gadget chains are available on the classpath that could turn deserialization into RCE?"
+  context_hint: "Trace the untrusted blob to the Deserialize call; identify the serializer."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+# ── XXE ───────────────────────────────────────────────────────────────
+
+cs/xxe: &cs_xxe
+  short_description: "XML parsed with external-entity/DTD processing enabled in C#"
+  questions:
+    - "Which parser is used — XmlDocument, XmlReader (via XmlReaderSettings), XDocument, XmlTextReader — and where does the XML originate?"
+    - "Is DTD processing prohibited (DtdProcessing.Prohibit) and is XmlResolver set to null? .NET 4.5.2+ defaults are safe, but explicit DtdProcessing.Parse or an XmlUrlResolver re-enables XXE."
+    - "Could an external entity read local files (file://) or trigger SSRF (http://) — including billion-laughs entity expansion (XML bomb)?"
+    - "Is the XML from an untrusted source?"
+  context_hint: "Inspect the parser configuration and the XML source."
+  additional_context: ["caller"]
+
+# Built-in ids for XXE/DTD.
+cs/insecure-xml-read: *cs_xxe
+cs/xml/insecure-dtd-handling: *cs_xxe
+
+# ── SSRF ──────────────────────────────────────────────────────────────
+
+cs/ssrf:
+  short_description: "Server-side request forgery — outbound request to a user-controlled URL in C#"
+  questions:
+    - "Where does the URL/host originate — request parameter, header, body, or stored data?"
+    - "Is it passed to HttpClient (GetAsync/SendAsync/...), WebRequest.Create, or a new HttpRequestMessage without an allow-list of permitted destinations?"
+    - "Is there validation of scheme/host against a fixed allow-list, and does it resist bypasses (DNS rebinding, redirects, IPv6, decimal/octal IPs, @-userinfo)?"
+    - "What internal resources could the server reach (cloud metadata 169.254.169.254, intranet services, localhost admin ports)?"
+    - "Are redirects followed automatically, and could a redirect pivot to an internal host?"
+  context_hint: "Trace the URL/host from source to the outbound HTTP call."
+  additional_context: ["caller"]
+  min_iterations: 2
+
+# ── File security ─────────────────────────────────────────────────────
+
+cs/path-injection: &cs_path
+  short_description: "User input used in a filesystem path (directory traversal) in C#"
+  questions:
+    - "Where does the PATH input originate — request parameter, uploaded filename, route value?"
+    - "Is it passed to Path.Combine / File.* / new FileStream / new StreamReader with attacker-controlled components? Note Path.Combine does NOT prevent traversal and discards the base if the second arg is rooted."
+    - "Is the resolved path canonicalized (Path.GetFullPath) and verified to remain under the intended base directory?"
+    - "Could '../', absolute paths, or alternate data streams escape the intended directory?"
+    - "Is there an allow-list of permitted filenames or extensions?"
+  context_hint: "Trace input through path construction to the file operation."
+  additional_context: ["caller"]
+
+cs/zipslip: *cs_path
+
+cs/file-upload:
+  short_description: "Unrestricted file upload in C#"
+  questions:
+    - "Is an IFormFile written to disk using its attacker-controlled FileName as the path, with no server-generated name?"
+    - "Is the extension/content-type validated against an allow-list (not just a deny-list)?"
+    - "Could the upload land in a web-servable or executable location (web-shell), or traverse via '../' in FileName?"
+    - "Is there a size limit and a content sniff to confirm the declared type?"
+  context_hint: "Trace the uploaded file's name and bytes to the write sink."
+  additional_context: ["caller"]
+
+# ── DoS / Resource exhaustion ─────────────────────────────────────────
+
+cs/resource-exhaustion:
+  short_description: "Unbounded resource consumption from request input in C#"
+  questions:
+    - "Is the full request body / a user-specified count read into memory with no size cap (ReadToEndAsync, ReadAllBytes, an unbounded loop)?"
+    - "Can the client control the size or iteration count to exhaust memory/CPU/threads?"
+    - "Are framework limits (MaxRequestBodySize, multipart limits) in effect, or explicitly removed?"
+  context_hint: "Identify the unbounded allocation/loop and the attacker's control over its size."
+  additional_context: ["caller"]
+
+cs/regex-dos:
+  short_description: "Catastrophic-backtracking regex on user input (ReDoS) in C#"
+  questions:
+    - "Is the regex pattern attacker-controlled, or is attacker-controlled INPUT matched against a fixed pattern with risky nesting (nested quantifiers, overlapping alternation)?"
+    - "Is a matchTimeout passed to the Regex constructor / static method to bound execution?"
+    - "Could a crafted input cause exponential backtracking and stall the request thread?"
+  context_hint: "Examine the pattern structure and whether a timeout is set."
+  additional_context: ["caller"]
+
+# ── Redirect ──────────────────────────────────────────────────────────
+
+cs/open-redirect:
+  short_description: "Redirect destination taken from user input in C#"
+  questions:
+    - "Where does the redirect target originate — query string, form, or stored value?"
+    - "Is it passed to Redirect/RedirectPermanent/LocalRedirect without validation? Note LocalRedirect / Url.IsLocalUrl reject absolute external URLs (safe); Redirect does not."
+    - "Could an attacker supply an absolute external URL (or //evil.com, or a backslash trick) to redirect the victim off-site?"
+    - "What is the impact — phishing, or OAuth/token theft via the redirect?"
+  context_hint: "Trace the target from source to the redirect call; check for IsLocalUrl."
+  additional_context: ["caller"]
+
+# ── Randomness ────────────────────────────────────────────────────────
+
+cs/insecure-randomness:
+  short_description: "Predictable PRNG used for a security value in C#"
+  questions:
+    - "Is System.Random (or Guid.NewGuid used as a secret) producing a value used as a token, password, key, nonce, CSRF value, OTP, or session id?"
+    - "Should it instead use RandomNumberGenerator / RandomNumberGenerator.GetBytes (cryptographically secure)?"
+    - "Can an attacker predict or reproduce the value from observed outputs or a guessable seed?"
+    - "What is the impact of predicting this value (account takeover, token forgery)?"
+  context_hint: "Confirm the value's security role and the generator used."
+  additional_context: ["caller"]
+
+# ── ASP.NET-specific structural rules ─────────────────────────────────
+
+cs/insecure-cookie:
+  short_description: "Cookie missing HttpOnly or Secure in C#"
+  questions:
+    - "Is the cookie created with HttpOnly = false or Secure = false (CookieOptions / HttpCookie)?"
+    - "Does the cookie carry session or authentication state (where both flags matter most)?"
+    - "Without HttpOnly, can XSS steal it? Without Secure, can it leak over plaintext HTTP?"
+    - "Is SameSite also set appropriately for the cookie's purpose?"
+  context_hint: "Inspect the cookie's flags and what it stores."
+  additional_context: ["caller"]
+
+cs/cors-misconfiguration:
+  short_description: "Overly permissive CORS policy in C#"
+  questions:
+    - "Does the policy allow any origin (AllowAnyOrigin / SetIsOriginAllowed(_ => true)) together with AllowCredentials?"
+    - "Allowing credentials with a wildcard/reflected origin lets any site make authenticated cross-origin requests — is that the case here?"
+    - "If credentials are needed, is there an explicit WithOrigins allow-list instead?"
+    - "What authenticated actions become reachable cross-origin?"
+  context_hint: "Check the origin set against the credentials setting."
+  additional_context: ["caller"]
+
+cs/timing-unsafe-comparison:
+  short_description: "Non-constant-time comparison of a secret in C#"
+  questions:
+    - "Is a secret (token, HMAC, signature, password, API key) compared with ==, !=, string.Equals, or SequenceEqual (which short-circuit on first difference)?"
+    - "Is the comparison security-relevant (an attacker can measure timing across many guesses), or local/non-remote?"
+    - "Should it use CryptographicOperations.FixedTimeEquals for constant-time comparison?"
+    - "Can the attacker make repeated attempts and observe timing to recover the secret byte-by-byte?"
+  context_hint: "Confirm the operand is a secret and the comparator short-circuits."
+  additional_context: ["caller"]
+
+cs/csv-formula-injection:
+  short_description: "User input written to CSV/spreadsheet output (formula injection) in C#"
+  questions:
+    - "Where does the INPUT originate, and is it written into a CSV/Excel export via a TextWriter/StreamWriter or File.WriteAllText?"
+    - "Is a leading =, +, -, @ (or tab/CR) neutralized (e.g. prefixed with a quote) before writing the cell?"
+    - "Would the value execute as a formula when opened in Excel/LibreOffice (DDE, HYPERLINK, command execution)?"
+    - "Who opens the exported file, and what is the impact of formula execution on their machine?"
+  context_hint: "Trace input to the CSV write; check for formula-character neutralization."
+  additional_context: ["caller"]
+
+cs/mass-assignment:
+  short_description: "Request bound directly to a domain/entity model (over-posting) in C#"
+  questions:
+    - "Is an action binding the request body straight onto an EF entity or domain model (rather than a dedicated DTO/view-model)?"
+    - "Could a client set properties that were never meant to be client-writable (IsAdmin, Role, Price, OwnerId) via extra JSON/form fields?"
+    - "Is binding restricted with [Bind], [FromBody] to a DTO, or BindNever / a view-model boundary?"
+    - "What is the impact of an attacker over-posting a privileged or integrity-critical field?"
+  context_hint: "Identify the bound model and whether sensitive properties are exposed to binding."
+  additional_context: ["caller", "class"]
+  min_iterations: 2

@@ -214,3 +214,13 @@ repos:
   - name: govwa
     url: https://github.com/0c34/govwa.git
     language: go
+
+  # --- C# / .NET ---
+  # C# uses CodeQL buildless extraction by default (no build_command needed);
+  # set build_command to a `dotnet build` line for full call-graph fidelity.
+  - name: newtonsoft-json
+    url: https://github.com/JamesNK/Newtonsoft.Json.git
+    language: csharp
+  - name: webgoat-net
+    url: https://github.com/jerryhoff/WebGoat.NET.git
+    language: csharp

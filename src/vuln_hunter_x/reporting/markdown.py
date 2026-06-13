@@ -125,6 +125,7 @@ def _extract_code_snippet(
         ".py": "python", ".js": "javascript", ".ts": "typescript",
         ".java": "java", ".c": "c", ".cpp": "c++", ".cc": "c++",
         ".go": "go", ".php": "php", ".rb": "ruby", ".rs": "rust",
+        ".cs": "csharp",
         ".html": "html", ".xml": "xml",
     }.get(suffix, "")
 

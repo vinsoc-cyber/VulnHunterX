@@ -126,7 +126,11 @@ def check_treesitter() -> tuple[bool, str]:
         "java": "tree_sitter_java",
         "php": "tree_sitter_php",
         "go": "tree_sitter_go",
+        "csharp": "tree_sitter_c_sharp",
     }
+    # PyPI package names differ from the language key only for C# (the wheel is
+    # published as ``tree-sitter-c-sharp``).
+    pkg_for_lang = {"csharp": "tree-sitter-c-sharp"}
     missing: list[str] = []
     for lang, module in lang_modules.items():
         try:
@@ -135,10 +139,13 @@ def check_treesitter() -> tuple[bool, str]:
             missing.append(lang)
 
     if missing:
-        pkg_names = " ".join(f"tree-sitter-{lang}" for lang in missing)
+        pkg_names = " ".join(pkg_for_lang.get(lang, f"tree-sitter-{lang}") for lang in missing)
         return False, f"Missing language bindings ({', '.join(missing)}); run: pip install {pkg_names}"
 
-    return True, f"tree-sitter {version} with all language bindings (c, cpp, python, javascript, java, php, go)"
+    return True, (
+        f"tree-sitter {version} with all language bindings "
+        "(c, cpp, python, javascript, java, php, go, csharp)"
+    )
 
 
 def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:

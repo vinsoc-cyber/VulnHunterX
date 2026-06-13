@@ -15,7 +15,7 @@ from vuln_hunter_x.core.config import Config, load_config
 from vuln_hunter_x.core.types import Finding, Verdict
 
 
-_SUPPORTED_LANGS = {"c", "cpp", "python", "javascript", "php", "java", "go"}
+_SUPPORTED_LANGS = {"c", "cpp", "python", "javascript", "php", "java", "go", "csharp"}
 
 # Bundled assets ship with the installed VulnHunterX package, so resolve them
 # from __file__ rather than cwd — the CLI must work when invoked from a target
@@ -1594,4 +1594,152 @@ def cmd_info(args: argparse.Namespace) -> int:
     print(f"  Repos: {config.paths.repos_dir}")
     print(f"  Output: {config.paths.output_dir}")
 
+    return 0
+
+
+def _stage_banner(stage: str, detail: str = "") -> None:
+    """Print a visible banner separating scan pipeline stages."""
+    line = f"━━ {stage}" + (f": {detail}" if detail else "")
+    print(f"\n{line}\n{'─' * min(len(line), 72)}", file=sys.stderr)
+
+
+def cmd_scan(args: argparse.Namespace) -> int:
+    """Run the full pipeline (prepare → analyze → verify → report) in one command.
+
+    Composes the existing per-stage commands rather than duplicating their
+    logic. Each stage receives a Namespace seeded with that stage's own
+    argparse defaults (so every attribute the command reads is present),
+    overlaid with the relevant values from the scan invocation. Short-circuits
+    on the first stage that fails.
+    """
+    # Lazy import to avoid a circular import at module load (main imports
+    # commands). By call time both modules are fully initialised.
+    from vuln_hunter_x.cli.main import (
+        _add_analyze_args,
+        _add_prepare_args,
+        _add_report_args,
+        _add_verify_args,
+    )
+
+    def _stage_ns(adder) -> argparse.Namespace:
+        sub = argparse.ArgumentParser(add_help=False)
+        adder(sub)
+        return sub.parse_args([])
+
+    url = getattr(args, "url", None)
+    local_path = getattr(args, "local_path", None)
+    config = getattr(args, "config", None)
+    lang = getattr(args, "lang", None)
+    tool = getattr(args, "tool", "both")
+    dry_run = getattr(args, "dry_run", False)
+    verbose = getattr(args, "verbose", False)
+
+    # In direct mode (--url / --local-path) we need a concrete repo name + lang
+    # so the later stages can target exactly what prepare produced. In config
+    # mode (repos.yaml) we fall back to the --repo filter.
+    local_mode = bool(local_path)
+    direct_mode = bool(url or local_path)
+    if direct_mode and not lang:
+        print("Error: --lang is required with --url or --local-path", file=sys.stderr)
+        return 1
+    name = getattr(args, "name", None) or _derive_repo_name(url, local_path) or getattr(args, "repo", None)
+    if direct_mode and not name:
+        print("Error: could not derive a repository name; pass --name", file=sys.stderr)
+        return 1
+
+    # Whether the chosen analyzer can run on source alone (no CodeQL DB). When
+    # it can, a failed CodeQL database build is degraded-but-recoverable rather
+    # than fatal — Semgrep/OpenGrep still scan the source.
+    source_only_capable = tool in ("semgrep", "opengrep", "both", "all")
+
+    def _apply_source_target(ns: argparse.Namespace) -> None:
+        """Point a stage Namespace at the right source.
+
+        Local-path scans must thread --local-path through (the source lives at
+        the given path, not under repos/); analyze/verify symlink it into
+        repos/<lang>/<name> themselves. URL/config scans use the --repo filter,
+        which the stages resolve against the output/ + repos/ trees.
+        """
+        ns.lang = lang
+        if local_mode:
+            ns.local_path = local_path
+            ns.name = name
+            ns.repo = None
+        else:
+            ns.repo = name if direct_mode else getattr(args, "repo", None)
+
+    # ── Stage 1: prepare ──
+    _stage_banner("prepare", name or "(config mode)")
+    prep = _stage_ns(_add_prepare_args)
+    prep.url = url
+    prep.local_path = local_path
+    prep.config = config
+    prep.name = name
+    prep.lang = lang
+    prep.repo = getattr(args, "repo", None)
+    prep.build_command = getattr(args, "build_command", None)
+    prep.dry_run = dry_run
+    rc = cmd_prepare(prep)
+    if rc != 0:
+        if not source_only_capable:
+            print(
+                "scan: prepare failed and --tool codeql requires a CodeQL database; "
+                "aborting. Re-run with --tool semgrep for source-only analysis.",
+                file=sys.stderr,
+            )
+            return rc
+        print(
+            "scan: CodeQL database preparation failed — continuing with source-only "
+            f"analysis (--tool {tool} includes a source scanner). CodeQL findings "
+            "will be absent; fix the build to include them.",
+            file=sys.stderr,
+        )
+
+    # ── Stage 2: analyze ──
+    _stage_banner("analyze", f"tool={tool} profile={args.profile or 'standard'}")
+    analyze = _stage_ns(_add_analyze_args)
+    analyze.tool = tool
+    analyze.profile = args.profile
+    analyze.config = config
+    analyze.verbose = verbose
+    analyze.dry_run = dry_run
+    _apply_source_target(analyze)
+    rc = cmd_analyze(analyze)
+    if rc != 0:
+        print("scan: analyze failed; aborting.", file=sys.stderr)
+        return rc
+
+    if getattr(args, "skip_verify", False):
+        print("\nscan: --skip-verify set; stopping after analyze.", file=sys.stderr)
+        return 0
+
+    # ── Stage 3: verify ──
+    _stage_banner("verify", name or "(all)")
+    verify = _stage_ns(_add_verify_args)
+    verify.config = config
+    verify.provider = getattr(args, "provider", None)
+    verify.model = getattr(args, "model", None)
+    verify.limit = getattr(args, "limit", None)
+    verify.verbose = verbose
+    verify.dry_run = dry_run
+    _apply_source_target(verify)
+    rc = cmd_verify(verify)
+    if rc != 0:
+        print("scan: verify failed; aborting.", file=sys.stderr)
+        return rc
+
+    if getattr(args, "skip_report", False) or dry_run:
+        return 0
+
+    # ── Stage 4: report ── (reads output/<lang>/<name>, keyed by repo name)
+    _stage_banner("report", name or "(all)")
+    report = _stage_ns(_add_report_args)
+    report.lang = lang
+    report.repo = name if direct_mode else getattr(args, "repo", None)
+    rc = cmd_report(report)
+    if rc != 0:
+        print("scan: report failed.", file=sys.stderr)
+        return rc
+
+    print("\nscan: pipeline complete.", file=sys.stderr)
     return 0

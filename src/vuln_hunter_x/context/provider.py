@@ -354,7 +354,7 @@ class ContextProvider:
         struct_name: str,
     ) -> str:
         """Get struct/class definition."""
-        csv_name = "classes" if lang in ("python", "javascript") else "structs"
+        csv_name = "classes" if lang in ("python", "javascript", "csharp") else "structs"
         rows = self._load_csv(repo_name, lang, csv_name)
         for row in rows:
             if row.get("name") == struct_name:

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 VinSOC Cyber
 
+# PYTHON_ARGCOMPLETE_OK
 """Command-line interface for CodeQL + LLM verification."""
 
 from __future__ import annotations
@@ -22,8 +23,13 @@ from vuln_hunter_x.cli.commands import (
     cmd_info,
     cmd_prepare,
     cmd_report,
+    cmd_scan,
     cmd_verify,
 )
+from vuln_hunter_x.cli.interactive import cmd_interactive
+
+# Language choices shared across subcommand --lang flags, ordered for help text.
+_LANG_CHOICES = ["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"]
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -131,6 +137,20 @@ Examples:
     )
     _add_report_args(report_parser)
 
+    # Scan command (one-shot: prepare → analyze → verify → report)
+    scan_parser = subparsers.add_parser(
+        "scan",
+        help="Run the full pipeline (prepare → analyze → verify → report) in one command",
+    )
+    _add_scan_args(scan_parser)
+
+    # Interactive command (guided wizard that dispatches a scan)
+    subparsers.add_parser(
+        "interactive",
+        aliases=["wizard"],
+        help="Interactive wizard: prompts for inputs, then runs a full scan",
+    )
+
     return parser
 
 
@@ -151,7 +171,7 @@ def _add_prepare_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--lang",
-        choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"],
         help="Only this language (required with --url or --local-path)",
     )
     parser.add_argument("--repo", help="Only this repository (config mode filter)")
@@ -224,7 +244,7 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--lang",
-        choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"],
         help="Only this language (required with --local-path)",
     )
     parser.add_argument("--repo", help="Only this repository")
@@ -409,7 +429,7 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     filter_group.add_argument("--repo", help="Only process this repository")
     filter_group.add_argument(
         "--lang",
-        choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"],
         help="Only this language",
     )
     filter_group.add_argument("--limit", type=int, help="Maximum findings to process")
@@ -437,6 +457,67 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     output_group.add_argument("--dry-run", action="store_true", help="Show what would be processed")
 
 
+def _add_scan_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for the one-shot scan command.
+
+    Scan chains prepare → analyze → verify → report. It exposes the union of
+    the inputs those stages need; per-stage defaults are filled in by
+    ``cmd_scan`` from the individual stage parsers.
+    """
+    # Source selection (mirrors prepare)
+    parser.add_argument("--config", type=Path, help="Path to repos.yaml (config mode)")
+    parser.add_argument("--url", help="Git repository URL (direct clone)")
+    parser.add_argument(
+        "--local-path", type=Path, help="Path to an existing local repository"
+    )
+    parser.add_argument("--name", help="Repository name (auto-derived from URL/path if omitted)")
+    parser.add_argument("--repo", help="Only this repository (config mode filter)")
+    parser.add_argument(
+        "--build-command", help="Build command for compiled languages (C/C++; C# uses buildless by default)"
+    )
+    parser.add_argument(
+        "--lang",
+        choices=_LANG_CHOICES,
+        help="Language (required with --url or --local-path)",
+    )
+
+    # Analysis settings (mirrors analyze)
+    parser.add_argument(
+        "--tool",
+        choices=["codeql", "semgrep", "opengrep", "both", "all"],
+        default="both",
+        help="Analyzer(s) to run (default: both = codeql+semgrep)",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=["standard", "extended", "maximum", "extended-registry", "full"],
+        default=None,
+        help="Rule profile controlling breadth of analysis (default: standard)",
+    )
+
+    # LLM / verify settings (mirrors verify)
+    llm_group = parser.add_argument_group("LLM Settings")
+    llm_group.add_argument(
+        "--provider", choices=["openai", "ollama", "anthropic", "deepseek"], help="LLM provider"
+    )
+    llm_group.add_argument("--model", help="LLM model name")
+    llm_group.add_argument("--limit", type=int, help="Maximum findings to verify")
+
+    # Pipeline control
+    parser.add_argument(
+        "--skip-verify",
+        action="store_true",
+        help="Stop after analyze (skip LLM verification and report)",
+    )
+    parser.add_argument(
+        "--skip-report", action="store_true", help="Skip report generation after verify"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Verbose output across stages"
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only")
+
+
 def _add_report_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for the report command."""
     parser.add_argument(
@@ -449,7 +530,7 @@ def _add_report_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--lang",
-        choices=["c", "cpp", "python", "javascript", "php", "java", "go"],
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"],
         help="Language (for auto-discovering results)",
     )
     parser.add_argument(
@@ -472,6 +553,18 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv()
 
     parser = create_parser()
+
+    # Optional shell completion via argcomplete (no-op if not installed / not
+    # in a completion context). Install with: pip install "vuln-hunter-x[cli]"
+    # then run: activate-global-python-argcomplete  (or eval the per-command
+    # registration shown in the README).
+    try:
+        import argcomplete
+
+        argcomplete.autocomplete(parser)
+    except ImportError:
+        pass
+
     args = parser.parse_args(argv)
 
     if args.command == "check-env":
@@ -494,6 +587,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_info(args)
     elif args.command == "report":
         return cmd_report(args)
+    elif args.command == "scan":
+        return cmd_scan(args)
+    elif args.command in ("interactive", "wizard"):
+        return cmd_interactive(args)
     else:
         parser.print_help()
         return 0

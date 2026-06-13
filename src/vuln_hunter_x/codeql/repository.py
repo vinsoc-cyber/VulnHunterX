@@ -243,6 +243,7 @@ def _has_source_files(repo_dir: Path, ql_lang: str) -> bool:
         "javascript": ["**/*.js", "**/*.ts"],
         "php": ["**/*.php"],
         "java": ["**/*.java"],
+        "csharp": ["**/*.cs"],
     }
     patterns = signals.get(ql_lang)
     if not patterns:
@@ -267,6 +268,7 @@ class RepositoryManager:
         "php": "php",
         "java": "java",
         "go": "go",
+        "csharp": "csharp",
     }
 
     def __init__(
@@ -406,6 +408,10 @@ class RepositoryManager:
         if build_command:
             script_path = write_build_script(repo_dir, build_command)
             cmd.append(f"--command={script_path.resolve()}")
+        elif ql_lang == "csharp":
+            # C# is compiled; without an explicit build command, use CodeQL's
+            # buildless extractor so users don't need a working `dotnet build`.
+            cmd.append("--build-mode=none")
 
         try:
             result = subprocess.run(

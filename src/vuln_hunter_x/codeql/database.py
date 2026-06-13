@@ -28,6 +28,7 @@ class DatabaseManager:
         "php": "",  # No build needed
         "java": "",  # CodeQL auto-detects Maven/Gradle
         "go": "",  # CodeQL auto-detects Go builds
+        "csharp": "",  # Buildless: --build-mode=none (see create_database)
     }
 
     def __init__(
@@ -86,6 +87,10 @@ class DatabaseManager:
 
         if build_cmd:
             cmd.extend(["--command", build_cmd])
+        elif codeql_lang == "csharp":
+            # C# is compiled; without an explicit build use CodeQL's buildless
+            # extractor so users don't need a working `dotnet build`.
+            cmd.append("--build-mode=none")
 
         # Filter empty strings
         cmd = [c for c in cmd if c]

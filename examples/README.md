@@ -27,6 +27,7 @@ the LLM-backed verify stage (useful for smoke-testing the wiring).
 | [`pipeline_java.py`](pipeline_java.py) | Java | jackson-databind | WebGoat-style demo |
 | [`pipeline_php.py`](pipeline_php.py) | PHP | symfony | DVWA-style demo |
 | [`pipeline_go.py`](pipeline_go.py) | Go | gin | gosec-baseline demo |
+| [`pipeline_csharp.py`](pipeline_csharp.py) | C# | newtonsoft-json | WebGoat.NET demo (buildless CodeQL; `--scan` for one-shot) |
 | [`pipeline_zlib.py`](pipeline_zlib.py) | C | zlib (single-target, deeper dive) | — |
 | [`run_all_pipelines.py`](run_all_pipelines.py) | All | Iterates every per-language pipeline above. Heavy — use a local Ollama model. |
 

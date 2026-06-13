@@ -57,6 +57,8 @@ profiles:
         - "p/php"
       go:
         - "p/gosec"
+      csharp:
+        - "p/csharp"
 
   extended:
     description: "Broader — adds security-audit and secrets detection"
@@ -126,6 +128,8 @@ profiles:
         - "p/php"              # 24 rules
       go:
         - "p/gosec"            # 23 rules — G-series gosec rules
+      csharp:
+        - "p/csharp"           # C# / .NET registry pack
       # cpp/c have no working language-specific registry packs as of Stage-2 audit;
       # they rely on universal packs only.
 
@@ -170,6 +174,8 @@ profiles:
         - "p/php"
       go:
         - "p/gosec"
+      csharp:
+        - "p/csharp"
 
 # ── Security Categories ──────────────────────────────────────────────────────
 # Group vulnerability types by CWE ID for filtering at verify time.

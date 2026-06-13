@@ -39,6 +39,7 @@ dependencies = [
     "tree-sitter-java>=0.23,<1.0.0",
     "tree-sitter-php>=0.23,<1.0.0",
     "tree-sitter-go>=0.23,<1.0.0",
+    "tree-sitter-c-sharp>=0.23,<1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +54,9 @@ benchmark = [
     "pandas>=2.0",
     "tabulate>=0.9",
     "matplotlib>=3.8",
+]
+cli = [
+    "argcomplete>=3.0",  # optional shell tab-completion for vuln-hunter-x
 ]
 
 [project.scripts]

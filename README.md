@@ -46,10 +46,10 @@ The **Vulnhalla** methodology forces the LLM to:
 
 | Feature | Description |
 |---|---|
-| **Languages** | C, C++, Python, JavaScript, PHP, Java, Go |
+| **Languages** | C, C++, Python, JavaScript, PHP, Java, Go, C# |
 | **SAST engines** | CodeQL, Semgrep, OpenGrep (`--tool codeql\|semgrep\|opengrep\|both\|all`) |
 | **Security rule profiles** | `standard` → `extended` → `maximum` → `extended-registry` → `full` (see [config/RULES.md](config/RULES.md)) |
-| **Guided questions** | 316 rule-specific templates across 6 per-language banks plus a fallback |
+| **Guided questions** | 361 rule-specific templates across 7 per-language banks plus a fallback |
 | **LLM providers** | OpenAI, Anthropic, Ollama (local or [Ollama Cloud](https://ollama.com)) — via [LiteLLM](https://github.com/BerriAI/litellm) |
 | **Multi-turn verification** | Dynamic context expansion (callers, structs, globals, macros, free-sites) |
 | **Inputs** | Git URL, local directory, or batch list (`repos.yaml`) |
@@ -100,6 +100,21 @@ python examples/pipeline_python.py
 | `pipeline_java.py` | Java | commons-collections | webgoat |
 | `pipeline_php.py` | PHP | monolog | dvwa |
 | `pipeline_go.py` | Go | gin | govwa |
+| `pipeline_csharp.py` | C# | newtonsoft-json | webgoat-net |
+
+### One-shot scan (or guided wizard)
+
+```bash
+# Run the whole pipeline (prepare → analyze → verify → report) in one command
+vuln-hunter-x scan --url https://github.com/org/app.git --lang csharp --profile full --limit 10
+
+# Or be prompted for everything interactively
+vuln-hunter-x interactive
+```
+
+`scan` accepts the union of the per-stage flags (`--url`/`--local-path`/`--repo`,
+`--lang`, `--profile`, `--tool`, `--provider`/`--model`, `--limit`) plus
+`--skip-verify` / `--skip-report` to stop early.
 
 ### Or run stages directly
 
@@ -108,6 +123,13 @@ vuln-hunter-x prepare --repo pyyaml
 vuln-hunter-x analyze --repo pyyaml --profile extended
 vuln-hunter-x verify  --repo pyyaml --limit 5
 vuln-hunter-x report  --repo pyyaml --lang python
+```
+
+C# is compiled but uses CodeQL **buildless** extraction by default (no `dotnet
+build` required); pass `--build-command "dotnet build"` for full fidelity:
+
+```bash
+vuln-hunter-x scan --url https://github.com/org/app.git --lang csharp
 ```
 
 ### Add your own repository
@@ -204,9 +226,9 @@ Context CSVs (functions, callers, structs/classes, globals, macros) feed multi-t
 |---|---|---|
 | `auto` *(default)* | Most workflows | CodeQL where a database was built; tree-sitter as fallback for repos where the DB build failed |
 | `codeql` | Highest precision | Requires a valid CodeQL DB. Semantic-level extraction; adds C/C++-specific context (`free_sites`, `destructors`, `field_writes`) used by memory-safety guided questions |
-| `treesitter` | No CodeQL DB, quick iteration | Syntactic extraction — fast, no DB build. Covers C, C++, Python, JavaScript, Java, PHP, Go; skips the C/C++-specific context types listed above |
+| `treesitter` | No CodeQL DB, quick iteration | Syntactic extraction — fast, no DB build. Covers C, C++, Python, JavaScript, Java, PHP, Go, C#; skips the C/C++-specific context types listed above |
 
-Tree-sitter grammars (`tree-sitter-c/cpp/python/javascript/java/php/go`, pinned to `>=0.23,<1.0`) ship with the standard `pip install -e .` — no extra setup. Both backends emit the same CSV layout, so downstream stages (`analyze`, `verify`, `report`) work identically regardless of backend. `vuln-hunter-x check-env` verifies tree-sitter availability alongside CodeQL.
+Tree-sitter grammars (`tree-sitter-c/cpp/python/javascript/java/php/go/c-sharp`, pinned to `>=0.23,<1.0`) ship with the standard `pip install -e .` — no extra setup. Both backends emit the same CSV layout, so downstream stages (`analyze`, `verify`, `report`) work identically regardless of backend. `vuln-hunter-x check-env` verifies tree-sitter availability alongside CodeQL.
 
 ### `analyze`
 
@@ -301,6 +323,48 @@ vuln-hunter-x info
 
 Prints the resolved configuration — provider, model, paths.
 
+### `scan`
+
+Runs the full pipeline (`prepare → analyze → verify → report`) in one command by composing the individual stages. Accepts the union of their flags.
+
+```bash
+vuln-hunter-x scan --url https://github.com/org/app.git --lang csharp --profile full --limit 10
+vuln-hunter-x scan --repo pyyaml --tool both             # config-mode, from repos.yaml
+vuln-hunter-x scan --local-path ./app --lang go --skip-report
+```
+
+| Option | Description | Default |
+|---|---|---|
+| `--url` / `--local-path` / `--repo` | Source selection (mirrors `prepare`) | — |
+| `--lang` | Language (required with `--url`/`--local-path`) | — |
+| `--tool` | `codeql` / `semgrep` / `opengrep` / `both` / `all` | `both` |
+| `--profile` | Rule profile | `standard` |
+| `--provider` / `--model` / `--limit` | LLM settings for the verify stage | from config |
+| `--skip-verify` / `--skip-report` | Stop after analyze / skip report | off |
+
+If the CodeQL database build fails (e.g. a compiled project that needs a specific build command), `scan` continues with **source-only analysis** when the analyzer can run without a database (`--tool semgrep`/`opengrep`/`both`/`all`) — CodeQL findings are skipped but Semgrep still runs. With `--tool codeql` the run aborts, since CodeQL needs the database.
+
+### `interactive` *(alias: `wizard`)*
+
+A guided wizard that prompts for the inputs above, then dispatches a `scan`. The friendliest entry point — no flags to remember.
+
+```bash
+vuln-hunter-x interactive
+```
+
+It runs an environment check first and **exits if no analyzer** (CodeQL/Semgrep/OpenGrep) is installed. Each answer is validated as you enter it: a local path must exist, the chosen analyzer must be installed (unavailable ones are marked and rejected), and the LLM provider is **live-tested** — if it fails you can re-enter it, continue with verification skipped, or abort, instead of failing partway through the run.
+
+### Shell completion (optional)
+
+Install the `cli` extra and enable [argcomplete](https://github.com/kislyuk/argcomplete):
+
+```bash
+pip install "vuln-hunter-x[cli]"
+# bash/zsh, for this shell:
+eval "$(register-python-argcomplete vuln-hunter-x)"
+# or globally (bash): activate-global-python-argcomplete
+```
+
 ---
 
 ## Python API
@@ -333,8 +397,8 @@ MarkdownReportGenerator().generate(
 | Rule profiles | 5 (`standard` → `full`) |
 | Security categories | 12 |
 | CWE entries in routing map | 123 |
-| Custom CodeQL queries | 73 (C/C++ 21, Java 14, JavaScript 15, Python 12, Go 11) |
-| Custom Semgrep rules | 47 (Python 12, JavaScript 9, Java 7, Go 8, PHP 7, C/C++ 4) |
+| Custom CodeQL queries | 78 (C/C++ 21, Java 14, JavaScript 15, Python 12, Go 11, C# 5) |
+| Custom Semgrep rules | 61 (Python 12, JavaScript 9, Java 7, Go 8, PHP 7, C/C++ 4, C# 14) |
 | Built-in CodeQL suites | `security-extended` (~200), `security-and-quality` (~400) |
 | Built-in Semgrep universal packs | 8 |
 | Built-in Semgrep per-language packs | 10 (django, flask, nodejs, gosec, …) |
@@ -394,7 +458,7 @@ repos:
 |---|---|
 | `name` | Short identifier used in output paths |
 | `url` | Git clone URL |
-| `language` | `c` · `cpp` · `python` · `javascript` · `php` · `java` · `go` |
+| `language` | `c` · `cpp` · `python` · `javascript` · `php` · `java` · `go` · `csharp` |
 | `build_command` | Required for C/C++; omit for interpreted languages |
 
 ### Guided questions (`config/prompts/`)

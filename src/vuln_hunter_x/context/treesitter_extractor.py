@@ -19,6 +19,7 @@ QUERIES_BY_LANG: dict[str, list[str]] = {
     "php": ["functions", "callers", "classes"],
     "java": ["functions", "callers", "classes"],
     "go": ["functions", "callers", "classes"],
+    "csharp": ["functions", "callers", "classes"],
 }
 
 # File extensions per language
@@ -30,6 +31,7 @@ LANG_EXTENSIONS: dict[str, tuple[str, ...]] = {
     "java": (".java",),
     "php": (".php",),
     "go": (".go",),
+    "csharp": (".cs",),
 }
 
 # CSV field definitions per query type
@@ -60,6 +62,7 @@ def _get_language(lang: str) -> tree_sitter.Language:
         "java": "tree_sitter_java",
         "php": "tree_sitter_php",
         "go": "tree_sitter_go",
+        "csharp": "tree_sitter_c_sharp",
     }
     module_name = lang_modules[lang]
     import importlib
@@ -146,6 +149,14 @@ def _find_param_list(node: tree_sitter.Node) -> tree_sitter.Node | None:
 
 def _get_func_name(node: tree_sitter.Node, lang: str) -> str | None:
     """Extract function name from a function definition node."""
+    # C#: the method/constructor name is in the "name" field. Using the first
+    # identifier child would wrongly pick up the return-type identifier that
+    # precedes the name (e.g. `public Foo Bar()` → "Foo").
+    if lang == "csharp":
+        name_node = node.child_by_field_name("name")
+        if name_node:
+            return _get_node_text(name_node)
+
     # Try declarator first (C/C++)
     declarator = _find_child_by_type(node, "function_declarator")
     if declarator:
@@ -274,6 +285,11 @@ class TreeSitterContextExtractor:
             "java": ("method_declaration",),
             "php": ("function_definition", "method_declaration"),
             "go": ("function_declaration", "method_declaration"),
+            "csharp": (
+                "method_declaration",
+                "constructor_declaration",
+                "local_function_statement",
+            ),
         }
         types = func_node_types.get(lang, ("function_definition",))
         rows: list[dict] = []
@@ -317,6 +333,7 @@ class TreeSitterContextExtractor:
             "java": ("method_invocation",),
             "php": ("function_call_expression",),
             "go": ("call_expression",),
+            "csharp": ("invocation_expression",),
         }
         types = call_node_types.get(lang, ("call_expression",))
         rows: list[dict] = []
@@ -360,6 +377,21 @@ class TreeSitterContextExtractor:
     def _get_callee_name(node: tree_sitter.Node, lang: str) -> str | None:
         """Extract the callee function name from a call node."""
         if not node.children:
+            return None
+
+        # C#: invocation_expression exposes the called expression in the
+        # "function" field — either a bare identifier (`Foo()`) or a
+        # member_access_expression (`obj.Method()`) whose "name" field holds
+        # the method.
+        if lang == "csharp":
+            fn = node.child_by_field_name("function")
+            if fn is None:
+                return None
+            if fn.type == "identifier":
+                return _get_node_text(fn)
+            name_node = fn.child_by_field_name("name")
+            if name_node:
+                return _get_node_text(name_node)
             return None
 
         func_node = node.children[0]
@@ -412,6 +444,12 @@ class TreeSitterContextExtractor:
             "java": ("class_declaration",),
             "php": ("class_declaration",),
             "go": ("type_declaration",),
+            "csharp": (
+                "class_declaration",
+                "interface_declaration",
+                "struct_declaration",
+                "record_declaration",
+            ),
         }
         types = class_node_types.get(lang, ("class_declaration",))
         rows: list[dict] = []
@@ -422,7 +460,9 @@ class TreeSitterContextExtractor:
                 continue
             rel = str(fpath.relative_to(repo_root))
             for node in _walk_tree(tree.root_node, *types):
-                name_node = _find_child_by_type(node, "identifier", "name")
+                name_node = node.child_by_field_name("name") or _find_child_by_type(
+                    node, "identifier", "name"
+                )
                 if name_node is None:
                     continue
                 rows.append(

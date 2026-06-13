@@ -926,7 +926,7 @@ def main():
     )
     parser.add_argument(
         "--lang",
-        choices=["c", "cpp", "python", "javascript", "php", "java"],
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"],
         help="Process only this language",
     )
     parser.add_argument(
