@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
 """Unit tests for benchmark adapters (ground_truth, cwe_rule_map, dataset adapters)."""

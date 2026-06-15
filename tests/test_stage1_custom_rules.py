@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
 """Tests for Stage 1 plumbing of the custom-rules coverage plan:
@@ -126,6 +126,60 @@ class TestExpandPerRepoConfigs:
         args = _args(_profile_language_specific_configs={"python": ["p/django"]})
         out = _expand_per_repo_configs(args, ["auto", "p/django"], "python")
         assert out.count("p/django") == 1
+
+    # ── engine-aware decoupling (Semgrep registry vs registry-free OpenGrep) ──
+
+    def test_opengrep_skips_registry_language_packs(self) -> None:
+        # Registry language packs are Semgrep-only; OpenGrep must not receive them.
+        args = _args(_profile_language_specific_configs={"python": ["p/django", "p/flask"]})
+        out = _expand_per_repo_configs(
+            args, ["config/opengrep-rules/${LANG}"], "python", engine="opengrep",
+        )
+        assert "p/django" not in out
+        assert "p/flask" not in out
+
+    def test_semgrep_still_gets_registry_language_packs(self) -> None:
+        args = _args(_profile_language_specific_configs={"python": ["p/django"]})
+        out = _expand_per_repo_configs(args, ["auto"], "python", engine="semgrep")
+        assert "p/django" in out
+
+    def test_opengrep_still_gets_custom_semgrep_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The project's own custom YAML (not a registry pack) flows to both engines.
+        custom_dir = tmp_path / "config" / "semgrep-custom"
+        custom_dir.mkdir(parents=True)
+        (custom_dir / "python.yaml").write_text("rules: []\n")
+        monkeypatch.chdir(tmp_path)
+        args = _args(_profile_custom_semgrep_path="config/semgrep-custom/${LANG}.yaml")
+        out = _expand_per_repo_configs(
+            args, ["config/opengrep-rules/${LANG}"], "python", engine="opengrep",
+        )
+        assert "config/semgrep-custom/python.yaml" in out
+
+    def test_directory_template_resolves(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # A ${LANG} template pointing at a directory (the vendored rule tree) must
+        # be kept, not dropped — the analyzer accepts --config <dir>.
+        rules_dir = tmp_path / "config" / "opengrep-rules" / "python"
+        rules_dir.mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        args = _args()
+        out = _expand_per_repo_configs(
+            args, ["config/opengrep-rules/${LANG}"], "python", engine="opengrep",
+        )
+        assert out == ["config/opengrep-rules/python"]
+
+    def test_directory_template_dropped_when_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        args = _args()
+        out = _expand_per_repo_configs(
+            args, ["config/opengrep-rules/${LANG}"], "python", engine="opengrep",
+        )
+        assert out == []
 
 
 # ── CodeQLAnalyzer.run_analysis(extra_suites=...) ────────────────────────────
