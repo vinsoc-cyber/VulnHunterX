@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
 """Run the SAME benchmark across multiple models and collect the results.

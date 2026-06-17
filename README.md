@@ -47,7 +47,7 @@ The **Vulnhalla** methodology forces the LLM to:
 | Feature | Description |
 |---|---|
 | **Languages** | C, C++, Python, JavaScript, PHP, Java, Go, C# |
-| **SAST engines** | CodeQL, Semgrep, OpenGrep (`--tool codeql\|semgrep\|opengrep\|both\|all`) |
+| **SAST engines** | CodeQL, Semgrep (live `registry.semgrep.dev` packs), OpenGrep (registry-free, runs the vendored offline [config/opengrep-rules/](config/opengrep-rules/)) — `--tool codeql\|semgrep\|opengrep\|both\|all` |
 | **Security rule profiles** | `standard` → `extended` → `maximum` → `extended-registry` → `full` (see [config/RULES.md](config/RULES.md)) |
 | **Guided questions** | 394 rule-specific templates across 7 per-language banks plus a fallback |
 | **LLM providers** | OpenAI, Anthropic, Ollama (local or [Ollama Cloud](https://ollama.com)) — via [LiteLLM](https://github.com/BerriAI/litellm) |
@@ -242,8 +242,8 @@ vuln-hunter-x analyze --tool semgrep --local-path /path/to/project --lang python
 
 | Option | Description | Default |
 |---|---|---|
-| `--tool {codeql,semgrep,opengrep,both,all}` | Analyzer(s) | `codeql` |
-| `--profile {standard,extended,maximum,extended-registry,full}` | Rule profile (see [config/RULES.md](config/RULES.md)) | `standard` |
+| `--tool {codeql,semgrep,opengrep,both,all}` | Analyzer(s). `both` = CodeQL+Semgrep; `all` adds OpenGrep | `codeql` |
+| `--profile {standard,extended,maximum,extended-registry,full}` | Rule profile — scales Semgrep/CodeQL coverage; OpenGrep uses the fixed vendored rule set regardless (see [config/RULES.md](config/RULES.md)) | `standard` |
 | `--category CAT` | Filter by security category (repeatable) | All |
 | `--local-path PATH` | Analyze a local directory | — |
 | `--name NAME` | Repository name | auto-derived |

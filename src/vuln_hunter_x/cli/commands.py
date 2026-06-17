@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
 """CLI command implementations for vuln-hunter-x."""
@@ -431,21 +431,24 @@ def _run_codeql_analyze(
 
 
 def _expand_per_repo_configs(
-    args: argparse.Namespace, configs: list[str], lang: str,
+    args: argparse.Namespace, configs: list[str], lang: str, *, engine: str = "semgrep",
 ) -> list[str]:
     """Resolve final Semgrep/OpenGrep configs for one repo at one language.
 
     The transformation pipeline is:
 
-    1. Expand ``${LANG}`` placeholders in the input list. For *local file*
-       paths the resolved path must exist (otherwise the entry is dropped);
-       *registry refs* (containing ``:`` or starting with ``p/``/``r/``) are
-       always kept.
-    2. Append per-language packs from
+    1. Expand ``${LANG}`` placeholders in the input list. For *local* paths the
+       resolved path must exist as a file or directory (otherwise the entry is
+       dropped); *registry refs* (containing ``:`` or starting with ``p/``/``r/``)
+       are always kept.
+    2. Append per-language *registry* packs from
        ``args._profile_language_specific_configs[lang]`` (set by ``cmd_analyze``
-       when a profile is active).
-    3. Append the profile's ``custom_semgrep_path`` template, resolved for
-       this language, when the resolved file exists.
+       when a profile is active) — **Semgrep only**. OpenGrep is registry-free:
+       its rules come from the vendored ``config/opengrep-rules/`` tree plus the
+       project's own custom YAML, so it must not pull ``p/...`` registry packs.
+    3. Append the profile's ``custom_semgrep_path`` template (the project's own
+       rules), resolved for this language, when the resolved file exists — both
+       engines.
 
     Returns a new list — does not mutate ``configs``.
     """
@@ -457,16 +460,18 @@ def _expand_per_repo_configs(
             # accept anything that looks like a Semgrep registry handle.
             if resolved.startswith(("p/", "r/")) or ":" in resolved:
                 expanded.append(resolved)
-            elif Path(resolved).is_file():
+            elif Path(resolved).is_file() or Path(resolved).is_dir():
                 expanded.append(resolved)
             # else: drop — local-path template that didn't resolve
         else:
             expanded.append(c)
 
-    lang_specific = getattr(args, "_profile_language_specific_configs", None) or {}
-    for c in lang_specific.get(lang, []):
-        if c not in expanded:
-            expanded.append(c)
+    # Registry language packs are Semgrep-only — OpenGrep stays registry-free.
+    if engine == "semgrep":
+        lang_specific = getattr(args, "_profile_language_specific_configs", None) or {}
+        for c in lang_specific.get(lang, []):
+            if c not in expanded:
+                expanded.append(c)
 
     custom_path = getattr(args, "_profile_custom_semgrep_path", "") or ""
     if custom_path:
@@ -575,7 +580,7 @@ def _run_semgrep_analyze(
         print(f"[{name}] {lang}")
         # Per-repo expansion: ${LANG} → repo's language; append custom-semgrep-path
         # from the rule profile when it resolves to an existing file.
-        repo_configs = _expand_per_repo_configs(args, configs, lang)
+        repo_configs = _expand_per_repo_configs(args, configs, lang, engine="semgrep")
         if getattr(args, "dry_run", False):
             print(f"  [dry-run] Would run Semgrep on {repo_path}")
             print(f"  [dry-run] Configs: {repo_configs}")
@@ -696,7 +701,7 @@ def _run_opengrep_analyze(
             ok_count += 1
             continue
         print(f"[{name}] {lang}")
-        repo_configs = _expand_per_repo_configs(args, configs, lang)
+        repo_configs = _expand_per_repo_configs(args, configs, lang, engine="opengrep")
         if getattr(args, "dry_run", False):
             print(f"  [dry-run] Would run OpenGrep on {repo_path}")
             print(f"  [dry-run] Configs: {repo_configs}")

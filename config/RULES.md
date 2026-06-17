@@ -6,6 +6,8 @@ This document is a reference inventory of every static-analysis rule set VulnHun
 
 Stage 2 of the pipeline runs three SAST engines in parallel: **CodeQL** (database-driven taint analysis), **Semgrep**, and **OpenGrep** (Semgrep-compatible fork). The `--profile` flag picks a named bundle from [rule_categories.yaml](rule_categories.yaml) that controls (a) which built-in CodeQL suite is selected, (b) which Semgrep registry packs are pulled, and (c) whether the local custom CodeQL/Semgrep rule trees under `config/codeql-custom/` and `config/semgrep-custom/` are layered on top.
 
+**Semgrep vs OpenGrep — registry vs offline.** The two engines are deliberately *decoupled*, not clones. **Semgrep** pulls live rule packs (`auto`, `p/...`) from `registry.semgrep.dev`, so its coverage scales across the `standard → full` profile tiers. **OpenGrep is registry-free**: it never contacts `registry.semgrep.dev` and instead runs the vendored offline rule tree [config/opengrep-rules/](opengrep-rules/) (`config/opengrep-rules/${LANG}`) plus, under `full`, the project's own [config/semgrep-custom/](semgrep-custom/) rules. Consequently the profile tiers widen Semgrep and CodeQL but **do not** scale OpenGrep — its rule set is fixed by the vendored snapshot. The vendored rules carry their own **LGPL-2.1 + Commons Clause** license (NOT MIT); see [config/opengrep-rules/NOTICE.md](opengrep-rules/NOTICE.md) before redistributing or selling.
+
 Each emitted SARIF finding is then routed in [verification/](../src/vuln_hunter_x/verification/) to a guided-question template in [prompts/](prompts/) using a 3-tier match (exact `ruleId` → normalized/prefix → `CWE` tag via [`cwe_question_map`](rule_categories.yaml)). The LLM verdict is `TRUE_POSITIVE`, `FALSE_POSITIVE`, or `NEEDS_MORE_DATA`.
 
 ## 2. Rule Profiles
@@ -130,6 +132,8 @@ These fill gaps the comprehensive built-in `csharp-security-extended` suite leav
 Layered onto Semgrep/OpenGrep via the `full` profile through `custom_semgrep_path: "config/semgrep-custom/${LANG}.yaml"`. Each rule sets `metadata.cwe` so findings without exact-id matches route to guided questions via [`cwe_question_map`](rule_categories.yaml) — Semgrep rule IDs cannot use `/`, so they never exact-match a guided-question key.
 
 OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass of `SemgrepAnalyzer` ([../src/vuln_hunter_x/opengrep/analyzer.py](../src/vuln_hunter_x/opengrep/analyzer.py)) — both engines consume these YAMLs identically.
+
+**OpenGrep's registry-free rule source.** Because OpenGrep does not use the Semgrep registry, its baseline coverage comes from the vendored tree [config/opengrep-rules/](opengrep-rules/) (`${LANG}` → `config/opengrep-rules/python`, etc.), referenced by every profile's `opengrep_configs`. Under `full` it additionally layers the custom `config/semgrep-custom/${LANG}.yaml` rules above. The registry `language_specific_configs` (`p/python`, `p/gosec`, …) are appended to **Semgrep only** — `_expand_per_repo_configs(..., engine="opengrep")` in [../src/vuln_hunter_x/cli/commands.py](../src/vuln_hunter_x/cli/commands.py) skips them. The vendored rules are LGPL-2.1 + Commons Clause; see [opengrep-rules/NOTICE.md](opengrep-rules/NOTICE.md). Refresh the snapshot with `scripts/refresh_opengrep_rules.sh`.
 <!-- sg_tables_begin -->
 ### Python — [semgrep-custom/python.yaml](semgrep-custom/python.yaml) (22 rules)
 
@@ -274,7 +278,7 @@ Structural / config / ASP.NET-idiom patterns. Taint-driven CWEs are handled by t
 
 ## 5. Built-in Coverage
 
-Upstream rules are pulled at runtime; their content is maintained by GitHub CodeQL and the Semgrep registry. The profiles reference them by name only.
+Upstream rules are pulled at runtime; their content is maintained by GitHub CodeQL and the Semgrep registry. The profiles reference them by name only. **This applies to CodeQL and Semgrep only** — OpenGrep pulls nothing at runtime; it runs the committed [config/opengrep-rules/](opengrep-rules/) snapshot (see §1 and §4).
 
 **CodeQL suites**
 - `security-extended` — ~200 queries, default for `standard`/`extended`.

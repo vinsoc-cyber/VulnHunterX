@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
 """LLM client abstraction for OpenAI, Anthropic, and Ollama (local + cloud) via LiteLLM."""
