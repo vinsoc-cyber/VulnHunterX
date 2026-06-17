@@ -870,3 +870,26 @@ py/overflow-destination:
     - "Could the write extend the bytearray unexpectedly (slice-assignment auto-resizes) and break invariants?"
   context_hint: "Examine destination, length, and source together."
   additional_context: ["caller"]
+
+# ── Configuration-weakness XSS: template autoescaping disabled ──────────────
+# These findings flag a CONFIGURATION flag (autoescape=False), not a taint
+# flow. The generic py/xss question set demands a source→sink trace the model
+# cannot complete because the {{ }} sink lives in separate template files that
+# are out of scope — which made the verifier wrongly mark a real misconfig as
+# a False Positive. This set frames it correctly: the disable itself is the
+# weakness whenever the engine renders any dynamic data. Two keys (CodeQL exact
+# id + Semgrep exact id) so both detectors route here instead of py/xss.
+py/jinja-autoescape-disabled: &py_autoescape_disabled
+  short_description: "Template engine autoescaping disabled — XSS exposure (configuration weakness)"
+  questions:
+    - "Quote the flagged line and confirm it disables autoescaping (e.g. autoescape=False on a Jinja2 Environment / aiohttp_jinja2.setup / setup_jinja). Is this GLOBAL (engine/app-wide) or scoped to one template/block?"
+    - "IMPORTANT: this is a CONFIGURATION weakness, not a taint finding. The vulnerability is that escaping is OFF for templates this engine renders. You do NOT need to see a concrete `{{ var }}` sink in this file — template files are normally separate and out of scope, so their absence here is NOT evidence of safety."
+    - "Does the application render ANY template through this engine with non-constant data (e.g. aiohttp_jinja2 @template handlers, render_template/render_string, returning a context dict)? Cite a render site if visible. If the engine is provably never used to render dynamic data anywhere, that would make it a false positive."
+    - "Is autoescaping re-enabled elsewhere, or is every dynamic value explicitly escaped at render time (|e / markupsafe.escape / bleach.clean)? Only a complete, consistent escaping discipline makes a global disable safe."
+    - "Verdict: with autoescaping globally disabled AND the engine used to render any dynamic/user-influenced data, this is a True Positive for XSS exposure (CWE-79). Do NOT return False Positive merely because no source→sink path is visible in the provided snippet — the sink is in template files outside this context."
+  context_hint: "Treat as a configuration weakness; do NOT require a visible {{ }} sink. Confirm the engine renders dynamic data somewhere (check handlers/routes via caller context)."
+  additional_context: ["caller"]
+  min_iterations: 1
+
+# Semgrep custom rule (exact id) → same config-weakness questions.
+config.semgrep-custom.vulnhunterx.python.template-autoescape-disabled: *py_autoescape_disabled

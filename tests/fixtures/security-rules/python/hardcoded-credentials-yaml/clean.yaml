@@ -1,0 +1,4 @@
+db:
+  user: app
+  password: ${DB_PASSWORD}
+  host: localhost

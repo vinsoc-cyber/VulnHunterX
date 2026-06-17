@@ -72,6 +72,18 @@ _NON_SECURITY_RULE_SUFFIXES: frozenset[str] = frozenset(
         "useless-comparison-test",
         "inconsistent-use-of-new",
         "duplicate-property",
+        # C/C++ maintainability lint pulled in by the security-AND-quality
+        # suite (profile full/maximum). Observed flooding C/C++ scans
+        # (insecure-coding-examples: complex-condition x14, implicit-function-
+        # declaration x17, unused-static-function x7, commented-out-code — ~half
+        # the findings and ~40 needless False Positives). None are vuln classes.
+        "complex-condition",
+        "commented-out-code",
+        "unused-static-function",
+        "irregular-enum-init",
+        "empty-if",
+        "constant-comparison",
+        "implicit-function-declaration",
     }
 )
 
@@ -85,8 +97,24 @@ def _is_non_security_rule(rule_id: str) -> bool:
 
 
 def _normalize_tool_name(raw: str) -> str:
-    """Return the canonical tool label for *raw*, or *raw* unchanged if unknown."""
-    return _TOOL_NAME_MAP.get(raw.lower(), raw)
+    """Return the canonical tool label for *raw*, or *raw* unchanged if unknown.
+
+    SARIF producers append an edition/distribution suffix to the driver name —
+    Semgrep emits ``"Semgrep OSS"`` and OpenGrep emits ``"Opengrep OSS"`` — so a
+    bare exact lookup against the binary names ("semgrep"/"opengrep") missed
+    them. That left verdicts tagged ``"Semgrep OSS"``/``"Opengrep OSS"`` while
+    the report's coverage table expected ``"Semgrep"``/``"OpenGrep"``, producing
+    phantom zero rows and a false "recall blind spot" warning even when those
+    tools had findings. Strip the trailing edition word and match the leading
+    token so every edition collapses to the canonical label.
+    """
+    if not raw:
+        return raw
+    lowered = raw.strip().lower()
+    # Exact match first; then fall back to the leading token so edition suffixes
+    # ("Semgrep OSS", "Opengrep CE", ...) collapse to the canonical label.
+    base = re.split(r"\s+", lowered, maxsplit=1)[0]
+    return _TOOL_NAME_MAP.get(lowered, _TOOL_NAME_MAP.get(base, raw))
 
 
 def _extract_thread_flow_locations(thread_flow: dict) -> list[str]:

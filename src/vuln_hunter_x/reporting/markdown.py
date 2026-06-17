@@ -18,6 +18,7 @@ from vuln_hunter_x.core.types import (
     VerdictType,
     VerificationResult,
 )
+from vuln_hunter_x.sarif.parser import _normalize_tool_name
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +354,7 @@ class MarkdownReportGenerator:
             self._header(result, repo_name or "unknown", lang or "unknown", report_lang),
             self._executive_summary(result, report_lang),
             self._detection_coverage(result, report_lang),
+            self._coverage_limitations(result, report_lang),
             self._findings_overview(result, report_lang),
             self._severity_breakdown(result, report_lang),
             self._cwe_distribution(result, report_lang),
@@ -479,7 +481,11 @@ class MarkdownReportGenerator:
 
         by_tool: dict[str, dict[str, int]] = {}
         for v in result.verdicts:
-            tool = (v.finding.tool or "unknown").strip() or "unknown"
+            # Normalise here too (not only at parse time) so reports regenerated
+            # from verdicts persisted before the parser fix — which stored
+            # "Semgrep OSS"/"Opengrep OSS" — still collapse to canonical labels
+            # and don't trigger phantom zero rows for "Semgrep"/"OpenGrep".
+            tool = _normalize_tool_name((v.finding.tool or "unknown").strip() or "unknown")
             bucket = by_tool.setdefault(tool, {"total": 0, "tp": 0, "fp": 0})
             bucket["total"] += 1
             if v.verdict == VerdictType.TRUE_POSITIVE.value:
@@ -517,6 +523,50 @@ class MarkdownReportGenerator:
                 + ".",
             ])
         lines.append("")
+        return "\n".join(lines)
+
+    def _coverage_limitations(self, result: VerificationResult, rl: str) -> str:
+        """Standing caveat: classes SAST cannot reliably detect.
+
+        SAST (CodeQL/Semgrep/OpenGrep) reasons over code that is present and
+        parsed. Whole vulnerability classes are therefore systematically out of
+        reach regardless of profile — most importantly *absence-of-control*
+        bugs: a security middleware that is commented out / never registered, a
+        missing authorization check on an endpoint, or a control disabled by
+        configuration. A clean (0-finding) result in these classes is NOT
+        evidence of safety. Stating this explicitly prevents a low finding count
+        from being read as "secure".
+        """
+        if not result.verdicts:
+            return ""
+        lines = [
+            "---\n",
+            f"## {_t('Coverage Limitations', rl)}\n",
+            _t(
+                "SAST analyzes code that is present and parsed. The following "
+                "classes are not reliably detectable by any profile, so 0 "
+                "findings here does NOT mean the code is safe — confirm them by "
+                "manual review:", rl,
+            ),
+            "",
+            "- "
+            + _t(
+                "Disabled / commented-out / unregistered security middleware "
+                "(e.g. a CSRF or auth middleware that is defined but never "
+                "wired into the app).", rl,
+            ),
+            "- "
+            + _t(
+                "Missing authorization checks on endpoints (absence of a "
+                "decorator or guard cannot be flagged by a pattern).", rl,
+            ),
+            "- "
+            + _t(
+                "Stored XSS / injection whose taint flows through a database or "
+                "other external store the analyzer does not model end-to-end.", rl,
+            ),
+            "",
+        ]
         return "\n".join(lines)
 
     def _findings_overview(self, result: VerificationResult, rl: str) -> str:

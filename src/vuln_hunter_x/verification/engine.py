@@ -12,6 +12,7 @@ import logging
 import re
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -104,6 +105,250 @@ _CPP_PATTERN_CLASS_CWES: frozenset[str] = frozenset({
 })
 
 
+def _is_high_severity(finding: Finding | None) -> bool:
+    """True if *finding* is high-severity (numeric ≥ 7.0 or error/critical/high).
+
+    CodeQL emits a numeric security-severity ("9.0"); Semgrep/SARIF emit a
+    level word ("error"/"warning"/"note"). Treat both.
+    """
+    sev = (getattr(finding, "severity", "") or "").strip().lower()
+    if not sev:
+        return False
+    try:
+        return float(sev) >= 7.0
+    except ValueError:
+        return sev in ("error", "critical", "high")
+
+
+# Specific vulnerability-class CWEs precise enough that two DIFFERENT rules
+# sharing one at the same location are reliably the SAME bug. Broad/structural
+# CWEs (CWE-20 input validation, CWE-200 info exposure, CWE-664/693/707/710,
+# CWE-732 permissions, …) are deliberately EXCLUDED: they attach to many
+# unrelated rules and would fuse distinct findings into one cluster.
+_RECONCILE_SPECIFIC_CWES: frozenset[str] = frozenset({
+    "CWE-22",   # path traversal
+    "CWE-77", "CWE-78",            # command injection
+    "CWE-79", "CWE-80", "CWE-87",  # XSS
+    "CWE-89",   # SQL injection
+    "CWE-90",   # LDAP injection
+    "CWE-91",   # XML injection
+    "CWE-94", "CWE-95",            # code / eval injection
+    "CWE-98",   # PHP file inclusion
+    "CWE-113",  # HTTP header injection
+    "CWE-134",  # format string
+    "CWE-326", "CWE-327", "CWE-328",  # weak crypto / hashing
+    "CWE-338",  # weak PRNG
+    "CWE-502",  # insecure deserialisation
+    "CWE-601",  # open redirect
+    "CWE-611",  # XXE
+    "CWE-643",  # XPath injection
+    "CWE-798",  # hardcoded credentials
+    "CWE-915",  # mass assignment
+    "CWE-917",  # SSTI
+    "CWE-918",  # SSRF
+    "CWE-943",  # NoSQL injection
+    "CWE-1004", "CWE-614",         # insecure cookie flags
+    "CWE-1333", # ReDoS
+    # C/C++ memory-safety classes — specific enough that two rules sharing one
+    # at a location are the same bug. Without these, cross-rule reconciliation
+    # was a no-op for C/C++ (the language where cross-tool corroboration matters
+    # most): on dvcp, CodeQL cpp/double-free→FP and Semgrep double-free→TP at the
+    # same imgRead.c:62 (CWE-415) were left contradictory. CWE-119 (the broad
+    # buffer parent) is deliberately omitted.
+    "CWE-120", "CWE-121", "CWE-122", "CWE-124", "CWE-125", "CWE-126", "CWE-127",
+    "CWE-131",  # incorrect buffer size calc
+    "CWE-190", "CWE-191", "CWE-192", "CWE-197",  # integer over/under/trunc
+    "CWE-369",  # divide by zero
+    "CWE-401", "CWE-415", "CWE-416",  # leak / double-free / use-after-free
+    "CWE-457", "CWE-476",  # uninitialized / null deref
+    "CWE-674",  # uncontrolled recursion (stack exhaustion)
+    "CWE-787", "CWE-788",  # out-of-bounds write
+})
+
+# Reconciliation does not run on these paths — vendored / generated / minified
+# code is out of scope and a frequent source of dense, unrelated findings.
+_VENDORED_PATH_RE = re.compile(
+    r"(?:^|/)(?:node_modules|bower_components|vendor|third_party|"
+    r"dist|build|out|static|assets|public)/"
+    r"|[.-]min\.(?:js|css)$",
+    re.IGNORECASE,
+)
+
+# If more than this many DISTINCT rules fire at one (file, line), treat it as a
+# dense/generated hotspot and skip cross-rule clustering there (same-rule
+# sibling-tool consensus still applies). Set above legitimate hotspots — the
+# dvpwa MD5 line has 4 distinct rules, the SQLi line 3.
+_MAX_DISTINCT_RULES_FOR_CROSS = 6
+
+
+def _norm_path(path: str) -> str:
+    """Normalise a finding path for comparison (forward slashes, no edges)."""
+    return (path or "").replace("\\", "/").strip("/")
+
+
+def _repo_relative_path(path: str) -> str:
+    """Return *path* relative to its repository root, for cross-tool equality.
+
+    CodeQL emits repo-relative paths (``sqli/dao/student.py``); Semgrep/OpenGrep
+    emit absolute paths. Reduce an absolute path to its repo-relative form so
+    the two compare *equal* — and so two different files that merely share a
+    tail segment (``svc1/a/util.py`` vs ``svc2/a/util.py`` in a monorepo) do
+    NOT. A relative path is already repo-root-relative and used as-is. When an
+    absolute path's root cannot be found, the full normalised path is returned
+    (it will not equal a relative path → no merge, the safe direction).
+    """
+    norm = _norm_path(path)
+    if not norm:
+        return ""
+    p = Path(path)
+    if p.is_absolute():
+        root = find_repo_root(path)
+        if root is not None:
+            try:
+                return _norm_path(str(p.resolve().relative_to(root)))
+            except (ValueError, OSError):
+                pass
+        return norm
+    return norm
+
+
+def _is_vendored_or_minified(path: str) -> bool:
+    """True if *path* is vendored / generated / minified (skip reconciliation)."""
+    return bool(_VENDORED_PATH_RE.search(_norm_path(path)))
+
+
+def _paths_same_file(a: str, b: str) -> bool:
+    """True if two finding paths denote the same file (repo-relative equality)."""
+    ra, rb = _repo_relative_path(a), _repo_relative_path(b)
+    return bool(ra) and ra == rb
+
+
+def _same_issue(a: Verdict, b: Verdict, *, allow_cross_rule: bool) -> bool:
+    """True if two same-bucket verdicts concern the same underlying issue.
+
+    Same file (repo-relative equality) AND either the same rule id (sibling-tool
+    duplicate) or — only when ``allow_cross_rule`` — an overlapping *specific*
+    CWE (different rules flagging one bug; broad CWEs are excluded so unrelated
+    findings are never fused).
+    """
+    fa, fb = a.finding, b.finding
+    if not _paths_same_file(fa.file, fb.file):
+        return False
+    if fa.rule_id and fa.rule_id == fb.rule_id:
+        return True
+    if not allow_cross_rule:
+        return False
+    shared = set(fa.cwe_ids or ()) & set(fb.cwe_ids or ())
+    return bool(shared & _RECONCILE_SPECIFIC_CWES)
+
+
+def _reconcile_conflicting_verdicts(verdicts: list[Verdict]) -> list[Verdict]:
+    """Harmonise conflicting verdicts that concern the SAME underlying bug.
+
+    Two situations produce one bug reported as both real and false-alarm:
+      * sibling tools (OpenGrep is a Semgrep fork) flag the same (file, line,
+        rule) — the dvpwa cleartext-password-log case (Semgrep→TP, OpenGrep→FP);
+      * different rules flag one bug at one line — the dvpwa SQLi at
+        student.py:45, TP via Semgrep ``formatted-sql-query`` but FP via CodeQL
+        ``py/django-raw-sql`` (a Django rule mismatched on an aiohttp app).
+
+    Resolution is deliberately asymmetric to avoid inventing vulnerabilities:
+
+      * **Same-rule clusters** (sibling tools): legitimate consensus — majority
+        wins, ties keep the flagged verdict (TP > Needs More Data > FP).
+      * **Cross-rule clusters** (different rules linked by a specific CWE): the
+        safe direction only. A True Positive is never created or dropped; an FP
+        that is contradicted by a corroborating TP from another rule becomes
+        **Needs More Data** (tools disagree → human review), preserving the
+        ambiguity signal instead of fabricating a TP.
+
+    Guards: vendored/minified paths are skipped entirely; dense hotspots (more
+    than ``_MAX_DISTINCT_RULES_FOR_CROSS`` distinct rules at one line) allow only
+    same-rule consensus; file identity is repo-root-relative (no suffix fuzz).
+    Findings are NOT merged/deduped (out of scope); only verdict and confidence
+    are reconciled, in place.
+    """
+    tp = VerdictType.TRUE_POSITIVE.value
+    nmd = VerdictType.NEEDS_MORE_DATA.value
+    fp = VerdictType.FALSE_POSITIVE.value
+    rank = {tp: 0, nmd: 1, fp: 2}  # lower = preferred on a tie (keep flagged)
+
+    # Bucket by (basename, line) so absolute- and relative-path variants of the
+    # same file land together; clustering then confirms they are the same file.
+    # Vendored/generated/minified findings are excluded outright.
+    buckets: dict[tuple, list[Verdict]] = {}
+    for v in verdicts:
+        f = v.finding
+        if _is_vendored_or_minified(f.file):
+            continue
+        base = _norm_path(f.file).rsplit("/", 1)[-1]
+        buckets.setdefault((base, f.start_line), []).append(v)
+
+    for bucket in buckets.values():
+        if len(bucket) < 2:
+            continue
+        # Dense-hotspot backstop: too many distinct rules at one line → only
+        # same-rule (sibling-tool) consensus, no cross-rule CWE merging.
+        allow_cross = len({v.finding.rule_id for v in bucket}) <= _MAX_DISTINCT_RULES_FOR_CROSS
+
+        # Connected-components clustering. A new member may bridge several
+        # existing clusters, so merge every cluster it matches.
+        clusters: list[list[Verdict]] = []
+        for v in bucket:
+            matched = [
+                c for c in clusters
+                if any(_same_issue(v, m, allow_cross_rule=allow_cross) for m in c)
+            ]
+            if not matched:
+                clusters.append([v])
+                continue
+            merged = [v]
+            for c in matched:
+                merged.extend(c)
+                clusters.remove(c)
+            clusters.append(merged)
+
+        for cluster in clusters:
+            if len(cluster) < 2 or len({v.verdict for v in cluster}) < 2:
+                continue  # singleton or already consistent
+
+            if len({v.finding.rule_id for v in cluster}) == 1:
+                # Same-rule sibling consensus: majority, tie → keep flagged.
+                counts = Counter(v.verdict for v in cluster)
+                top = max(counts.values())
+                winners = [k for k, c in counts.items() if c == top]
+                resolved = min(winners, key=lambda k: rank.get(k, 99))
+                best = max(
+                    (v for v in cluster if v.verdict == resolved),
+                    key=lambda v: v.confidence_score,
+                )
+                for v in cluster:
+                    if v.verdict != resolved:
+                        v.verdict = resolved
+                        v.confidence = best.confidence
+                        v.confidence_score = best.confidence_score
+                        v.reasoning = (v.reasoning or "") + (
+                            " [verdict reconciled: a sibling tool reported the "
+                            f"same rule at {v.finding.file}:{v.finding.start_line} "
+                            f"as '{resolved}']"
+                        )
+            elif tp in {v.verdict for v in cluster}:
+                # Cross-rule disagreement: never fabricate or drop a TP. An FP
+                # contradicted by a corroborating TP → Needs More Data (review).
+                for v in cluster:
+                    if v.verdict == fp:
+                        v.verdict = nmd
+                        v.confidence = "Low"
+                        v.confidence_score = min(v.confidence_score, 0.3)
+                        v.reasoning = (v.reasoning or "") + (
+                            " [verdict set to Needs More Data: a different "
+                            f"rule/tool flagged the same issue at {v.finding.file}:"
+                            f"{v.finding.start_line} as True Positive — tools "
+                            "disagree, manual review required]"
+                        )
+    return verdicts
+
+
 def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
     """Demote High/Medium → Low when a TP or FP verdict lacks specific citations.
 
@@ -117,6 +362,15 @@ def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
     dominant calibration defect. Skipping the FP side biased the Low bucket
     toward FP and made High/Low accuracy indistinguishable.
 
+    Two refinements keep the heuristic from inverting confidence vs. severity
+    (a confirmed SQLi was being demoted to Low for saying "textbook"):
+      * A citation found in the guided-question answers or the data-flow trace
+        counts — the evidence need not sit in the prose ``reasoning`` field.
+      * A *True Positive* on a HIGH-severity finding is exempt: demoting the
+        most dangerous confirmed bugs purely for phrasing is worse than the
+        over-confidence it guards against. The FP side (the actual calibration
+        defect) and lower-severity TPs are unchanged.
+
     Needs-More-Data verdicts are not downgraded; they already signal
     uncertainty and the calibration data treats them separately.
     """
@@ -124,8 +378,18 @@ def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
         return verdict
     if verdict.confidence not in ("High", "Medium"):
         return verdict
+    is_tp = verdict.verdict in ("True Positive", "TP")
+    if is_tp and _is_high_severity(getattr(verdict, "finding", None)):
+        return verdict
     text = (verdict.reasoning or "").lower()
-    has_citation = bool(_CITATION_RE.search(verdict.reasoning or ""))
+    # A citation anywhere in the structured evidence (reasoning, answers, or the
+    # data-flow trace) is sufficient — not only the free-text reasoning.
+    citation_corpus = "\n".join(
+        [verdict.reasoning or "", verdict.data_flow or ""]
+        + list(verdict.answers or [])
+        + list(getattr(getattr(verdict, "finding", None), "dataflow_path", []) or [])
+    )
+    has_citation = bool(_CITATION_RE.search(citation_corpus))
     has_generic = any(m in text for m in _GENERIC_PATTERN_MARKERS)
     if has_generic and not has_citation:
         verdict.confidence = "Low"
@@ -308,9 +572,19 @@ def _check_rule_construct_presence(verdict: Verdict) -> Verdict:
 
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
+from vuln_hunter_x.context.repo_signals import (
+    commented_out_symbol,
+    detect_frameworks_for,
+    find_repo_root,
+)
 from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
 from vuln_hunter_x.core.config import Config, load_config
-from vuln_hunter_x.core.types import Finding, Verdict, VerificationResult
+from vuln_hunter_x.core.types import (
+    Finding,
+    Verdict,
+    VerdictType,
+    VerificationResult,
+)
 from vuln_hunter_x.llm.client import LLMClient
 from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
@@ -726,6 +1000,10 @@ class VerificationEngine:
                 pool.shutdown(wait=True)
             verdicts = [verdicts_by_index[i] for i in sorted(verdicts_by_index)]
 
+        # Reconcile conflicting verdicts on exact-duplicate findings (e.g.
+        # Semgrep vs OpenGrep) BEFORE tallying stats so the counts match.
+        verdicts = _reconcile_conflicting_verdicts(verdicts)
+
         for v in verdicts:
             stats[v.verdict] = stats.get(v.verdict, 0) + 1
 
@@ -895,6 +1173,43 @@ class VerificationEngine:
                 "weight reachability accordingly and prefer False Positive / Needs "
                 "More Data over confirming a pattern that cannot reach a dangerous "
                 "value in this context."
+            )
+
+        # Framework signal (P2.1): tell the verifier the repo's actual web
+        # framework so it reasons about THIS one instead of guessing (the dvpwa
+        # run argued about "FastAPI/Django" for an aiohttp app). Best-effort and
+        # cached per repo root.
+        try:
+            frameworks = detect_frameworks_for(finding.file, finding.lang)
+        except Exception:  # never let a context signal break verification
+            frameworks = ()
+        if frameworks:
+            prefetched_context["NOTE: detected framework(s)"] = (
+                "This repository uses: " + ", ".join(frameworks) + ". Base "
+                "exploitability and framework-protection reasoning on THIS "
+                "framework. Do NOT assume Flask/Django/FastAPI unless listed here."
+            )
+
+        # Reachability signal (P2.2): if the enclosing symbol appears only on a
+        # commented-out line elsewhere in the repo, the control may be defined
+        # but never wired in (dvpwa's csrf_middleware is commented out in
+        # app.py). Flag it so the model weights reachability rather than
+        # confirming a dead-code pattern as a live bug.
+        try:
+            unwired = commented_out_symbol(
+                finding.file, context_result.function_name, finding.lang
+            )
+        except Exception:
+            unwired = False
+        if unwired:
+            prefetched_context["NOTE: possibly unwired / disabled code"] = (
+                f"The enclosing symbol '{context_result.function_name}' appears on "
+                "a COMMENTED-OUT line elsewhere in this repository, which often "
+                "means it was wired up and then disabled (e.g. a middleware "
+                "removed from the app's middleware chain). If this code is never "
+                "registered/called on a live path, the finding is not reachable — "
+                "verify registration before confirming, and prefer False Positive "
+                "/ Needs More Data if you cannot establish a live call path."
             )
 
         # Call LLM. When ``self_consistency_samples > 1`` we route through

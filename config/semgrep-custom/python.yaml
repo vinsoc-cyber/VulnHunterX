@@ -603,3 +603,158 @@ rules:
           - pattern: lxml.etree.XMLParser(..., resolve_entities=True, ...)
           - pattern: etree.XMLParser(..., no_network=False, ...)
           - pattern: lxml.etree.XMLParser(..., no_network=False, ...)
+
+  # ── CWE-79: Jinja2 template autoescape disabled → stored/reflected XSS ──
+  # Framework-general: matches the explicit autoescape=False kwarg on a Jinja2
+  # Environment or on a framework template setup helper (aiohttp-jinja2's
+  # setup/setup_jinja, Flask's select_jinja_autoescape override, etc.). When
+  # autoescape is off, every `{{ var }}` rendered from user-controlled data is
+  # an XSS sink — the dvpwa class of bug no registry pack flags.
+  - id: vulnhunterx.python.template-autoescape-disabled
+    languages: [python]
+    severity: ERROR
+    message: |
+      Jinja2 autoescape is explicitly disabled (autoescape=False). With
+      autoescape off, any user-controlled value rendered in a template
+      ({{ value }}) is emitted unescaped, enabling stored/reflected XSS
+      (CWE-79). Enable autoescape (autoescape=True or select_autoescape([...]))
+      and escape any intentional raw HTML explicitly.
+    metadata:
+      cwe: ["CWE-79"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/79.html
+        - https://jinja.palletsprojects.com/en/latest/api/#autoescaping
+    patterns:
+      - pattern-either:
+          - pattern: jinja2.Environment(..., autoescape=False, ...)
+          - pattern: Environment(..., autoescape=False, ...)
+          - pattern: aiohttp_jinja2.setup(..., autoescape=False, ...)
+          - pattern: setup_jinja(..., autoescape=False, ...)
+          - pattern: setup_jinja2(..., autoescape=False, ...)
+
+  # ── CWE-1004/614: aiohttp_session storage with insecure cookie flags ──
+  # Session cookie created with httponly=False (JS can read it → XSS-assisted
+  # session theft) or secure=False (sent over plain HTTP). No aiohttp_session
+  # rule ships in p/python; this is the dvpwa middlewares.py:20 miss.
+  - id: vulnhunterx.python.aiohttp-insecure-session-cookie
+    languages: [python]
+    severity: WARNING
+    message: |
+      An aiohttp_session storage is configured with an insecure cookie flag
+      (httponly=False or secure=False). httponly=False exposes the session
+      cookie to JavaScript (session theft via XSS, CWE-1004); secure=False
+      lets it travel over plaintext HTTP (CWE-614). Use httponly=True and
+      secure=True for session cookies.
+    metadata:
+      cwe: ["CWE-1004", "CWE-614"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1004.html
+        - https://cwe.mitre.org/data/definitions/614.html
+    patterns:
+      - pattern-either:
+          - pattern: RedisStorage(..., httponly=False, ...)
+          - pattern: EncryptedCookieStorage(..., httponly=False, ...)
+          - pattern: SimpleCookieStorage(..., httponly=False, ...)
+          - pattern: NaClCookieStorage(..., httponly=False, ...)
+          - pattern: RedisStorage(..., secure=False, ...)
+          - pattern: EncryptedCookieStorage(..., secure=False, ...)
+          - pattern: SimpleCookieStorage(..., secure=False, ...)
+          - pattern: NaClCookieStorage(..., secure=False, ...)
+
+  # ── CWE-489: aiohttp web.Application(debug=True) ──
+  # Complements the Flask flask-debug rule above. aiohttp's debug mode emits
+  # verbose tracebacks/diagnostics and is not for production. dvpwa app.py:23.
+  - id: vulnhunterx.python.aiohttp-debug-enabled
+    languages: [python]
+    severity: WARNING
+    message: |
+      aiohttp web.Application(debug=True) enables debug mode, which surfaces
+      verbose diagnostics and disables some safety checks. Do not enable in
+      production (CWE-489).
+    metadata:
+      cwe: ["CWE-489"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/489.html
+        - https://docs.aiohttp.org/en/stable/web_reference.html#application
+    patterns:
+      - pattern-either:
+          - pattern: web.Application(..., debug=True, ...)
+          - pattern: aiohttp.web.Application(..., debug=True, ...)
+          - pattern: Application(..., debug=True, ...)
+
+  # ── CWE-798: hardcoded credential literal in a YAML config file ──
+  # gitleaks / p/secrets only flag high-entropy values, so a low-entropy
+  # literal like `password: postgres` (dvpwa config/dev.yaml) slips through.
+  # Scoped to config-style YAML and excludes env interpolation / empty values.
+  - id: vulnhunterx.python.hardcoded-credentials-yaml
+    languages: [yaml]
+    severity: WARNING
+    message: |
+      A credential appears to be hardcoded as a literal in a YAML config file.
+      Checked-in secrets are exposed to anyone with repo access and end up in
+      version history (CWE-798). Load secrets from environment variables or a
+      secrets manager instead.
+    metadata:
+      cwe: ["CWE-798"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/798.html
+    patterns:
+      - pattern-either:
+          - pattern: "password: $V"
+          - pattern: "passwd: $V"
+          - pattern: "secret: $V"
+          - pattern: "secret_key: $V"
+          - pattern: "api_key: $V"
+          - pattern: "apikey: $V"
+          - pattern: "access_key: $V"
+          - pattern: "private_key: $V"
+          - pattern: "token: $V"
+      # Require a plausible literal value: not empty, not an env interpolation
+      # (${VAR}, $VAR, {{ ... }}, %(...)s), and at least 3 chars.
+      - metavariable-regex:
+          metavariable: $V
+          regex: ^(?!\s*$)(?!\$)(?!\{\{)(?!%\()(?!<).{3,}$
+
+  # ── CWE-798: hardcoded credential in an .env / .ini-style config file ──
+  - id: vulnhunterx.python.hardcoded-credentials-env-ini
+    languages: [generic]
+    severity: WARNING
+    paths:
+      include:
+        - "*.env"
+        - "*.ini"
+        - "*.cfg"
+        - "*.conf"
+        - "*.properties"
+    message: |
+      A credential appears to be hardcoded as a literal in a config file
+      (.env/.ini/.cfg/.conf/.properties). Checked-in secrets are exposed to
+      anyone with repo access and persist in version history (CWE-798). Load
+      secrets from the environment or a secrets manager.
+    metadata:
+      cwe: ["CWE-798"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/798.html
+    patterns:
+      - pattern-either:
+          - pattern: PASSWORD=$V
+          - pattern: PASSWD=$V
+          - pattern: SECRET=$V
+          - pattern: SECRET_KEY=$V
+          - pattern: API_KEY=$V
+          - pattern: ACCESS_KEY=$V
+          - pattern: PRIVATE_KEY=$V
+          - pattern: TOKEN=$V
+      - metavariable-regex:
+          metavariable: $V
+          regex: ^(?!\s*$)(?!\$)(?!\{\{)(?!%\().{3,}$
