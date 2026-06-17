@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
 """Tests for rule profiles, security categories, and CWE mapping."""
@@ -268,11 +268,20 @@ class TestExtendedRegistryProfile:
         assert "p/django" not in configs
         assert "p/security-audit" in configs
 
-    def test_opengrep_same_as_semgrep(self, mgr: RuleProfileManager) -> None:
+    def test_opengrep_is_registry_free(self, mgr: RuleProfileManager) -> None:
+        # OpenGrep is decoupled from the Semgrep registry: it points only at the
+        # vendored offline rule tree, never at auto / p-pack handles.
+        og = mgr.get_opengrep_configs("extended-registry", lang="python")
+        assert og == ["config/opengrep-rules/python"]
+        assert not any(c == "auto" or c.startswith(("p/", "r/")) for c in og)
+
+    def test_opengrep_diverges_from_semgrep(self, mgr: RuleProfileManager) -> None:
+        # The two engines must no longer be clones (the whole point of the split).
         sg = mgr.get_semgrep_configs("extended-registry", lang="python")
         og = mgr.get_opengrep_configs("extended-registry", lang="python")
-        # OpenGrep accepts the same registry handles as Semgrep
-        assert set(sg) == set(og)
+        assert set(sg) != set(og)
+        # Registry language packs (Semgrep-only) must not leak into OpenGrep.
+        assert "p/python" in sg and "p/python" not in og
 
 
 class TestFullProfileWithLanguageSpecific:

@@ -6,6 +6,8 @@ This document is a reference inventory of every static-analysis rule set VulnHun
 
 Stage 2 of the pipeline runs three SAST engines in parallel: **CodeQL** (database-driven taint analysis), **Semgrep**, and **OpenGrep** (Semgrep-compatible fork). The `--profile` flag picks a named bundle from [rule_categories.yaml](rule_categories.yaml) that controls (a) which built-in CodeQL suite is selected, (b) which Semgrep registry packs are pulled, and (c) whether the local custom CodeQL/Semgrep rule trees under `config/codeql-custom/` and `config/semgrep-custom/` are layered on top.
 
+**Semgrep vs OpenGrep — registry vs offline.** The two engines are deliberately *decoupled*, not clones. **Semgrep** pulls live rule packs (`auto`, `p/...`) from `registry.semgrep.dev`, so its coverage scales across the `standard → full` profile tiers. **OpenGrep is registry-free**: it never contacts `registry.semgrep.dev` and instead runs the vendored offline rule tree [config/opengrep-rules/](opengrep-rules/) (`config/opengrep-rules/${LANG}`) plus, under `full`, the project's own [config/semgrep-custom/](semgrep-custom/) rules. Consequently the profile tiers widen Semgrep and CodeQL but **do not** scale OpenGrep — its rule set is fixed by the vendored snapshot. The vendored rules carry their own **LGPL-2.1 + Commons Clause** license (NOT MIT); see [config/opengrep-rules/NOTICE.md](opengrep-rules/NOTICE.md) before redistributing or selling.
+
 Each emitted SARIF finding is then routed in [verification/](../src/vuln_hunter_x/verification/) to a guided-question template in [prompts/](prompts/) using a 3-tier match (exact `ruleId` → normalized/prefix → `CWE` tag via [`cwe_question_map`](rule_categories.yaml)). The LLM verdict is `TRUE_POSITIVE`, `FALSE_POSITIVE`, or `NEEDS_MORE_DATA`.
 
 ## 2. Rule Profiles
@@ -130,6 +132,8 @@ These fill gaps the comprehensive built-in `csharp-security-extended` suite leav
 Layered onto Semgrep/OpenGrep via the `full` profile through `custom_semgrep_path: "config/semgrep-custom/${LANG}.yaml"`. Each rule sets `metadata.cwe` so findings without exact-id matches route to guided questions via [`cwe_question_map`](rule_categories.yaml) — Semgrep rule IDs cannot use `/`, so they never exact-match a guided-question key.
 
 OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass of `SemgrepAnalyzer` ([../src/vuln_hunter_x/opengrep/analyzer.py](../src/vuln_hunter_x/opengrep/analyzer.py)) — both engines consume these YAMLs identically.
+
+**OpenGrep's registry-free rule source.** Because OpenGrep does not use the Semgrep registry, its baseline coverage comes from the vendored tree [config/opengrep-rules/](opengrep-rules/) (`${LANG}` → `config/opengrep-rules/python`, etc.), referenced by every profile's `opengrep_configs`. Under `full` it additionally layers the custom `config/semgrep-custom/${LANG}.yaml` rules above. The registry `language_specific_configs` (`p/python`, `p/gosec`, …) are appended to **Semgrep only** — `_expand_per_repo_configs(..., engine="opengrep")` in [../src/vuln_hunter_x/cli/commands.py](../src/vuln_hunter_x/cli/commands.py) skips them. The vendored rules are LGPL-2.1 + Commons Clause; see [opengrep-rules/NOTICE.md](opengrep-rules/NOTICE.md). Refresh the snapshot with `scripts/refresh_opengrep_rules.sh`.
 <!-- sg_tables_begin -->
 ### Python — [semgrep-custom/python.yaml](semgrep-custom/python.yaml) (22 rules)
 
@@ -158,13 +162,14 @@ OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass 
 | `vulnhunterx.python.nosql-injection` | CWE-943 | ERROR | A MongoDB query uses the $where operator with a non-literal value (server-side JS evaluation). |
 | `vulnhunterx.python.xxe` | CWE-611 | ERROR | An lxml XMLParser is created with resolve_entities=True / no_network=False, enabling XXE file disclosure and SSRF. |
 
-### JavaScript / TypeScript — [semgrep-custom/javascript.yaml](semgrep-custom/javascript.yaml) (13 rules)
+### JavaScript / TypeScript — [semgrep-custom/javascript.yaml](semgrep-custom/javascript.yaml) (14 rules)
 
 | Rule id | CWE | Severity | Message |
 |---|---|---|---|
 | `vulnhunterx.js.prototype-pollution` | CWE-1321 | ERROR | Writing a bracket-indexed property whose key comes from user input can pollute Object.prototype (or any reachable prototype), influencing every object in the runtime. |
 | `vulnhunterx.js.electron-node-integration` | CWE-1188 | ERROR | Electron BrowserWindow with `nodeIntegration: true` (or default value pre-v5) exposes full Node.js APIs to renderer code. |
 | `vulnhunterx.js.html-injection` | CWE-79 | WARNING | Tainted value assigned to innerHTML / outerHTML / insertAdjacentHTML allows arbitrary HTML & script injection. |
+| `vulnhunterx.js.dom-xss-sink` | CWE-79 | WARNING | A value is assigned to innerHTML / outerHTML / insertAdjacentHTML without sanitization (DOM-based XSS sink). |
 | `vulnhunterx.js.weak-hash` | CWE-327/CWE-328 | WARNING | crypto.createHash with 'md5' / 'sha1' produces collisions cheaply. |
 | `vulnhunterx.js.math-random-secret` | CWE-330/CWE-338 | WARNING | Math.random() is a pseudo-random generator seeded predictably — output can be reversed from a few samples. Flagged inside security-named functions. |
 | `vulnhunterx.js.jwt-none` | CWE-347 | ERROR | JWT verification configured to accept algorithm 'none' — a forged token with `{"alg":"none"}` will pass without a signature. |
@@ -197,7 +202,7 @@ OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass 
 | `vulnhunterx.java.nosql-injection` | CWE-943 | ERROR | A MongoDB query is built from a non-literal string via BasicQuery / Document.parse (operator injection). |
 | `vulnhunterx.java.regex-injection` | CWE-1333 | WARNING | Request data is compiled into a regular expression (taint mode; Pattern.quote sanitizes) — ReDoS. |
 
-### Go — [semgrep-custom/go.yaml](semgrep-custom/go.yaml) (17 rules)
+### Go — [semgrep-custom/go.yaml](semgrep-custom/go.yaml) (19 rules)
 
 | Rule id | CWE | Severity | Message |
 |---|---|---|---|
@@ -209,6 +214,8 @@ OpenGrep is a Semgrep fork (LGPL 2.1) and `OpenGrepAnalyzer` is a pure subclass 
 | `vulnhunterx.go.insecure-skip-verify` | CWE-295 | ERROR | tls.Config with InsecureSkipVerify: true disables TLS certificate validation — MITM attacks become trivial on the network path. |
 | `vulnhunterx.go.world-writable-file` | CWE-732/CWE-276 | WARNING | File created with world-writable mode (0o666 / 0o777 / 0o646). |
 | `vulnhunterx.go.hardcoded-jwt-secret` | CWE-798/CWE-259 | ERROR | JWT signing key is a string/byte-slice literal embedded in source. |
+| `vulnhunterx.go.hardcoded-symmetric-key` | CWE-798/CWE-321 | ERROR | A symmetric / HMAC / cipher key is a string- or byte-literal embedded in source. |
+| `vulnhunterx.go.permissive-cors` | CWE-942/CWE-346 | WARNING | Access-Control-Allow-Origin is set to the wildcard "*", allowing any origin. |
 | `vulnhunterx.go.file-upload` | CWE-434 | ERROR | An uploaded file's attacker-controlled FileHeader.Filename is used as the destination path for os.Create / os.OpenFile. |
 | `vulnhunterx.go.improper-privilege-management` | CWE-269 | WARNING | Escalation via syscall.Setuid/Setgid(0) or creation of a setuid/setgid-bit file (0o4xxx / 0o6xxx). |
 | `vulnhunterx.go.resource-exhaustion` | CWE-400/CWE-770 | WARNING | io.ReadAll / ioutil.ReadAll on r.Body with no http.MaxBytesReader cap — unbounded body read. |
@@ -271,7 +278,7 @@ Structural / config / ASP.NET-idiom patterns. Taint-driven CWEs are handled by t
 
 ## 5. Built-in Coverage
 
-Upstream rules are pulled at runtime; their content is maintained by GitHub CodeQL and the Semgrep registry. The profiles reference them by name only.
+Upstream rules are pulled at runtime; their content is maintained by GitHub CodeQL and the Semgrep registry. The profiles reference them by name only. **This applies to CodeQL and Semgrep only** — OpenGrep pulls nothing at runtime; it runs the committed [config/opengrep-rules/](opengrep-rules/) snapshot (see §1 and §4).
 
 **CodeQL suites**
 - `security-extended` — ~200 queries, default for `standard`/`extended`.
@@ -318,11 +325,11 @@ If all three fail, the generic [`default_questions.yaml`](prompts/default_questi
 
 | Language | File | Question sets |
 |---|---|---|
-| C/C++ | [cpp_questions.yaml](prompts/cpp_questions.yaml) | 61 |
+| C/C++ | [cpp_questions.yaml](prompts/cpp_questions.yaml) | 62 |
 | Python | [python_questions.yaml](prompts/python_questions.yaml) | 65 |
-| JavaScript/TS | [javascript_questions.yaml](prompts/javascript_questions.yaml) | 54 |
-| Go | [go_questions.yaml](prompts/go_questions.yaml) | 53 |
-| Java | [java_questions.yaml](prompts/java_questions.yaml) | 57 |
+| JavaScript/TS | [javascript_questions.yaml](prompts/javascript_questions.yaml) | 57 |
+| Go | [go_questions.yaml](prompts/go_questions.yaml) | 54 |
+| Java | [java_questions.yaml](prompts/java_questions.yaml) | 59 |
 | PHP | [php_questions.yaml](prompts/php_questions.yaml) | 52 |
 | C# | [cs_questions.yaml](prompts/cs_questions.yaml) | 45 |
 | Fallback | [default_questions.yaml](prompts/default_questions.yaml) | 1 |

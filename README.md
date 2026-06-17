@@ -47,9 +47,9 @@ The **Vulnhalla** methodology forces the LLM to:
 | Feature | Description |
 |---|---|
 | **Languages** | C, C++, Python, JavaScript, PHP, Java, Go, C# |
-| **SAST engines** | CodeQL, Semgrep, OpenGrep (`--tool codeql\|semgrep\|opengrep\|both\|all`) |
+| **SAST engines** | CodeQL, Semgrep (live `registry.semgrep.dev` packs), OpenGrep (registry-free, runs the vendored offline [config/opengrep-rules/](config/opengrep-rules/)) — `--tool codeql\|semgrep\|opengrep\|both\|all` |
 | **Security rule profiles** | `standard` → `extended` → `maximum` → `extended-registry` → `full` (see [config/RULES.md](config/RULES.md)) |
-| **Guided questions** | 361 rule-specific templates across 7 per-language banks plus a fallback |
+| **Guided questions** | 394 rule-specific templates across 7 per-language banks plus a fallback |
 | **LLM providers** | OpenAI, Anthropic, Ollama (local or [Ollama Cloud](https://ollama.com)) — via [LiteLLM](https://github.com/BerriAI/litellm) |
 | **Multi-turn verification** | Dynamic context expansion (callers, structs, globals, macros, free-sites) |
 | **Inputs** | Git URL, local directory, or batch list (`repos.yaml`) |
@@ -242,8 +242,8 @@ vuln-hunter-x analyze --tool semgrep --local-path /path/to/project --lang python
 
 | Option | Description | Default |
 |---|---|---|
-| `--tool {codeql,semgrep,opengrep,both,all}` | Analyzer(s) | `codeql` |
-| `--profile {standard,extended,maximum,extended-registry,full}` | Rule profile (see [config/RULES.md](config/RULES.md)) | `standard` |
+| `--tool {codeql,semgrep,opengrep,both,all}` | Analyzer(s). `both` = CodeQL+Semgrep; `all` adds OpenGrep | `codeql` |
+| `--profile {standard,extended,maximum,extended-registry,full}` | Rule profile — scales Semgrep/CodeQL coverage; OpenGrep uses the fixed vendored rule set regardless (see [config/RULES.md](config/RULES.md)) | `standard` |
 | `--category CAT` | Filter by security category (repeatable) | All |
 | `--local-path PATH` | Analyze a local directory | — |
 | `--name NAME` | Repository name | auto-derived |
@@ -396,13 +396,13 @@ MarkdownReportGenerator().generate(
 |---|---|
 | Rule profiles | 5 (`standard` → `full`) |
 | Security categories | 12 |
-| CWE entries in routing map | 123 |
-| Custom CodeQL queries | 78 (C/C++ 21, Java 14, JavaScript 15, Python 12, Go 11, C# 5) |
-| Custom Semgrep rules | 61 (Python 12, JavaScript 9, Java 7, Go 8, PHP 7, C/C++ 4, C# 14) |
+| CWE entries in routing map | 124 |
+| Custom CodeQL queries | 64 (C/C++ 16, Java 10, JavaScript 14, Python 11, Go 8, C# 5) |
+| Custom Semgrep rules | 103 (Python 22, JavaScript 14, Java 16, Go 19, PHP 14, C/C++ 4, C# 14) |
 | Built-in CodeQL suites | `security-extended` (~200), `security-and-quality` (~400) |
 | Built-in Semgrep universal packs | 8 |
 | Built-in Semgrep per-language packs | 10 (django, flask, nodejs, gosec, …) |
-| Guided-question templates | 342 across 6 per-language banks + 1 fallback |
+| Guided-question templates | 394 across 7 per-language banks + 1 fallback |
 
 Coverage growth from `--profile standard` to `--profile full` is roughly **5×–10×** more rules per scan. Per-language registry packs (`p/django`, `p/gosec`, …) are only applied to matching repos so cross-language scans aren't polluted.
 

@@ -5,6 +5,36 @@ All notable changes to VulnHunterX are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **C# / .NET language support** to full parity with the other languages:
+  CLI wiring, tree-sitter context extraction (`.cs`), CodeQL
+  `csharp-security-extended` analysis, a custom CodeQL pack
+  (`config/codeql-custom/csharp/`, 5 gap-filling queries), custom Semgrep
+  rules (`config/semgrep-custom/csharp.yaml`, 14 rules), a guided-question
+  bank (`config/prompts/cs_questions.yaml`, 45 sets), and the `p/csharp`
+  registry pack in the standard/extended-registry/full profiles. C#
+  databases use CodeQL's **buildless** extractor (`--build-mode none`) by
+  default, so no `dotnet build` is required; pass `--build-command` for full
+  fidelity.
+- **`scan` command** — one-shot pipeline (`prepare → analyze → verify →
+  report`) that composes the existing per-stage commands. Continues with
+  source-only analysis when the CodeQL database build fails but the chosen
+  analyzer (`semgrep`/`opengrep`/`both`/`all`) can run without a database.
+- **`interactive` (alias `wizard`) command** — a guided wizard that runs an
+  environment prerequisite check up front (exits if no analyzer is
+  installed), validates each answer as it is entered (path existence,
+  analyzer availability, a live LLM-provider connectivity test), and then
+  dispatches a full `scan`.
+- Optional shell completion via `argcomplete`, installable with the new
+  `[cli]` extra (`pip install "vuln-hunter-x[cli]"`).
+
+### Fixed
+- Corrected drifted rule/question counts in the README and `config/RULES.md`,
+  and added the previously-undocumented Semgrep rules (`js/dom-xss-sink`,
+  `go/hardcoded-symmetric-key`, `go/permissive-cors`) to the inventory.
+
 ## [1.0.0] - 2026-06-12
 
 ### Added

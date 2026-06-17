@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
 # =============================================================================
@@ -22,11 +22,18 @@
 #   security-extended     ~200 queries  (default)
 #   security-and-quality  ~400 queries  (includes code quality)
 #
-# Semgrep/OpenGrep registry presets:
+# Semgrep registry presets (semgrep_configs only — fetched from semgrep.dev):
 #   auto               Language-auto-detected rules
 #   p/security-audit   Comprehensive security audit rules
 #   p/secrets          Hardcoded secrets, API keys, tokens
 #   p/owasp-top-ten    OWASP Top 10 coverage
+#
+# OpenGrep is REGISTRY-FREE. `opengrep_configs` points only at the vendored,
+# offline rule tree config/opengrep-rules/${LANG} (+ the custom
+# config/semgrep-custom/${LANG}.yaml under the `full` profile). OpenGrep never
+# contacts semgrep.dev, so its coverage does NOT scale across the
+# standard→full tiers the way the Semgrep registry packs do — those tiers
+# only widen Semgrep and CodeQL. See config/opengrep-rules/NOTICE.md.
 # =============================================================================
 
 profiles:
@@ -35,8 +42,9 @@ profiles:
     codeql_suite_suffix: "security-extended"
     semgrep_configs:
       - "auto"
+    # OpenGrep: registry-free, vendored offline rules only (see file header).
     opengrep_configs:
-      - "auto"
+      - "config/opengrep-rules/${LANG}"
     # Per-language packs ensure a bare `auto` does not silently skip a language
     # (the root cause of the Go scan returning 0 Semgrep/OpenGrep results).
     # These are registry packs and need semgrep.dev access; the analyzer now
@@ -67,10 +75,9 @@ profiles:
       - "auto"
       - "p/security-audit"
       - "p/secrets"
+    # OpenGrep: registry-free, vendored offline rules only (see file header).
     opengrep_configs:
-      - "auto"
-      - "p/security-audit"
-      - "p/secrets"
+      - "config/opengrep-rules/${LANG}"
 
   maximum:
     description: "Maximum — security-and-quality suite + all major presets"
@@ -80,11 +87,9 @@ profiles:
       - "p/security-audit"
       - "p/secrets"
       - "p/owasp-top-ten"
+    # OpenGrep: registry-free, vendored offline rules only (see file header).
     opengrep_configs:
-      - "auto"
-      - "p/security-audit"
-      - "p/secrets"
-      - "p/owasp-top-ten"
+      - "config/opengrep-rules/${LANG}"
 
   extended-registry:
     description: "Verified public registry packs only — no custom rules, broadest CWE coverage from semgrep.dev"
@@ -101,15 +106,9 @@ profiles:
       - "p/gitleaks"           # 175 rules — secret detection (broader than p/secrets)
       - "p/jwt"                # 16 rules  — CWE-347 signature checks
       - "p/insecure-transport" # 53 rules  — CWE-319 cleartext-transmission
+    # OpenGrep: registry-free, vendored offline rules only (see file header).
     opengrep_configs:
-      - "auto"
-      - "p/security-audit"
-      - "p/secrets"
-      - "p/owasp-top-ten"
-      - "p/cwe-top-25"
-      - "p/gitleaks"
-      - "p/jwt"
-      - "p/insecure-transport"
+      - "config/opengrep-rules/${LANG}"
     language_specific_configs:
       python:
         - "p/python"           # 151 rules
@@ -147,15 +146,10 @@ profiles:
       - "p/gitleaks"
       - "p/jwt"
       - "p/insecure-transport"
+    # OpenGrep: registry-free, vendored offline rules + custom YAML (via
+    # custom_semgrep_path below). See file header.
     opengrep_configs:
-      - "auto"
-      - "p/security-audit"
-      - "p/secrets"
-      - "p/owasp-top-ten"
-      - "p/cwe-top-25"
-      - "p/gitleaks"
-      - "p/jwt"
-      - "p/insecure-transport"
+      - "config/opengrep-rules/${LANG}"
     language_specific_configs:
       python:
         - "p/python"

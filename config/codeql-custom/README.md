@@ -13,8 +13,9 @@ This directory holds project-authored CodeQL security queries that supplement th
 | JavaScript / TypeScript | [javascript/](javascript/) | 14 |
 | Python | [python/](python/) | 11 |
 | Go | [go/](go/) | 8 |
+| C# | [csharp/](csharp/) | 5 |
 
-**Total: 59 custom queries.** Per-rule inventory with `@id` / CWE / severity / description
+**Total: 64 custom queries.** Per-rule inventory with `@id` / CWE / severity / description
 lives in [../RULES.md §3](../RULES.md#3-custom-codeql-queries).
 
 > Queries whose detection is fully covered by a built-in `security-extended` /
@@ -59,13 +60,17 @@ Each language pack needs a one-time `codeql pack install` to resolve its
 `codeql/<lang>-all` dependency:
 
 ```bash
-for lang in cpp java javascript python go; do
+for lang in cpp java javascript python go csharp; do
   codeql pack install config/codeql-custom/$lang/
 done
 ```
 
+> C# queries depend on `codeql/csharp-all`. C# databases are created with
+> CodeQL's buildless extractor (`--build-mode none`) by default, so no `dotnet
+> build` is required for analysis.
+
 The `full` rule profile (in [`config/rule_categories.yaml`](../rule_categories.yaml))
-sets `include_custom_codeql: true` to layer all five packs on top of the
+sets `include_custom_codeql: true` to layer all six packs on top of the
 built-in suite. Other profiles ignore this directory.
 
 ## Verifying coverage

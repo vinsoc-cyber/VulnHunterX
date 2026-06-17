@@ -9,12 +9,15 @@ and `OpenGrepAnalyzer` consume these files unchanged.
 
 | File | Rule count |
 |---|---|
-| [python.yaml](python.yaml) | 12 |
-| [javascript.yaml](javascript.yaml) | 9 |
-| [java.yaml](java.yaml) | 7 |
-| [go.yaml](go.yaml) | 8 |
-| [php.yaml](php.yaml) | 7 |
+| [python.yaml](python.yaml) | 22 |
+| [javascript.yaml](javascript.yaml) | 14 |
+| [java.yaml](java.yaml) | 16 |
+| [go.yaml](go.yaml) | 19 |
+| [php.yaml](php.yaml) | 14 |
 | [cpp.yaml](cpp.yaml) | 4 |
+| [csharp.yaml](csharp.yaml) | 14 |
+
+**Total: 103 custom rules.**
 
 Rules target structural / configuration / dangerous-default patterns. Cross-
 procedural taint flows are handled by custom CodeQL queries in

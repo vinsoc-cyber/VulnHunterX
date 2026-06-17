@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
 """Rule profiles and security category management.
@@ -222,13 +222,14 @@ class RuleProfileManager:
     def get_opengrep_configs(self, profile_name: str, *, lang: str = "") -> list[str]:
         """Return OpenGrep configs for *profile_name*, with ``${LANG}`` expanded.
 
-        Same semantics as ``get_semgrep_configs`` — OpenGrep accepts the same
-        ``--config p/<pack>`` syntax.
+        OpenGrep is **registry-free**: unlike ``get_semgrep_configs`` it does NOT
+        append the per-language ``language_specific_configs`` (those are
+        ``p/<pack>`` registry handles meant for Semgrep). OpenGrep's coverage comes
+        from the vendored ``config/opengrep-rules/`` tree referenced in
+        ``opengrep_configs`` plus the project's own ``custom_semgrep_path`` rules.
         """
         profile = self.get_profile(profile_name)
         configs = [c.replace("${LANG}", lang) for c in profile.opengrep_configs]
-        if lang:
-            configs.extend(profile.language_specific_configs.get(lang, []))
         if profile.custom_semgrep_path and lang:
             resolved = profile.custom_semgrep_path.replace("${LANG}", lang)
             if Path(resolved).is_file():
