@@ -695,3 +695,32 @@ class TestNonSecurityRuleFiltering:
         _write_sarif(p, self._sarif_with_rules(["js/comparison-between-incompatible-types"]))
         findings = SarifParser(p).parse_findings("javascript", "repo")
         assert len(findings) == 1
+
+    def test_cpp_quality_lint_dropped(self, tmp_path):
+        # C/C++ maintainability lint from the security-AND-quality suite that
+        # flooded the insecure-coding-examples scan (~half the findings).
+        p = tmp_path / "q.sarif"
+        _write_sarif(p, self._sarif_with_rules([
+            "cpp/complex-condition",
+            "cpp/implicit-function-declaration",
+            "cpp/unused-static-function",
+            "cpp/commented-out-code",
+            "cpp/empty-if",
+            "cpp/constant-comparison",
+            "cpp/irregular-enum-init",
+            "cpp/double-free",        # security — must survive
+            "cpp/use-after-free",     # security — must survive
+        ]))
+        findings = SarifParser(p).parse_findings("cpp", "repo")
+        assert {f.rule_id for f in findings} == {"cpp/double-free", "cpp/use-after-free"}
+
+    def test_cpp_security_rules_preserved(self, tmp_path):
+        # Borderline rules that CAN indicate real bugs must NOT be dropped.
+        p = tmp_path / "q.sarif"
+        _write_sarif(p, self._sarif_with_rules([
+            "cpp/missing-return-value-check",
+            "cpp/suspicious-sizeof",
+            "cpp/null-pointer-deref",
+        ]))
+        findings = SarifParser(p).parse_findings("cpp", "repo")
+        assert len(findings) == 3
