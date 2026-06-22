@@ -1,0 +1,98 @@
+name: Verdict pattern (systemic mis-triage)
+description: A recurring VulnHunterX mis-triage pattern spanning several findings that share one root cause
+title: "[Verdict Pattern] "
+labels: ["triage-quality"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when VulnHunterX makes the **same kind of triage mistake across multiple findings** — a recurring root cause, not a one-off.
+        Also add the matching outcome label: **over-confirmed** (TP that should be FP) or **over-dismissed** (FP that should be TP).
+
+        > A **single** mis-triaged finding? Use the **Verdict / false-positive report** form instead.
+        > A vulnerability VulnHunterX **never surfaced** (no finding at all)? That's a coverage gap — use the **Feature request** form.
+  - type: textarea
+    id: root-cause
+    attributes:
+      label: Root cause
+      description: The single shared failure mode behind every finding listed below.
+      placeholder: e.g. The verifier reasons over a header-stripped, line-misaligned snippet, so it concludes the construct "isn't there."
+    validations:
+      required: true
+  - type: dropdown
+    id: error-type
+    attributes:
+      label: Dominant error type
+      description: Which way does the mistake go?
+      options:
+        - "Over-dismissed — real bugs called False Positive"
+        - "Over-confirmed — non-bugs called True Positive"
+        - "Over-hedged — Needs More Data when locally decidable"
+        - "Mixed"
+    validations:
+      required: true
+  - type: textarea
+    id: affected-findings
+    attributes:
+      label: Affected findings
+      description: "One per line: path/to/file.ext:line · engine/rule · VHX verdict → expected verdict."
+      placeholder: |
+        vulnerabilities/sqli_blind/source/high.php:33 · semgrep/tainted-sql-string · FP → TP
+        vulnerabilities/sqli_blind/source/low.php:32 · semgrep/tainted-sql-string · FP → TP
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: vhx-verdicts
+    attributes:
+      label: VulnHunterX's verdicts (verbatim)
+      description: VHX's emitted verdict + confidence + reasoning for each finding above — one block per finding, copied verbatim (redact only absolute local paths).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Why these verdicts are wrong
+      description: Concrete evidence for the correct verdict(s) and the real impact. Cite source file:line.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-fix
+    attributes:
+      label: Proposed fix
+      description: Suggested change to VulnHunterX (verifier prompt, context window, rule, consistency pass…).
+    validations:
+      required: false
+  - type: input
+    id: target
+    attributes:
+      label: Target analyzed
+      description: Repo(s) + commit/version that were scanned.
+      placeholder: e.g. github.com/org/repo @ a1b2c3d
+    validations:
+      required: false
+  - type: input
+    id: llm
+    attributes:
+      label: LLM provider + model
+      description: The model that produced the verdicts.
+      placeholder: e.g. anthropic / claude-opus-4-8
+    validations:
+      required: false
+  - type: textarea
+    id: command
+    attributes:
+      label: Command run
+      render: bash
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Please confirm
+      options:
+        - label: I have searched existing issues and discussions for this pattern.
+          required: true
+        - label: I listed the affected findings and provided evidence above.
+          required: true
