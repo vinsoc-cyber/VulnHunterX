@@ -4,6 +4,7 @@
 """Unit tests for absolute-line-number rendering of verifier code slices."""
 
 import inspect
+from unittest.mock import MagicMock, patch
 
 from vuln_hunter_x.core.types import Finding, GuidedQuestions
 from vuln_hunter_x.llm.client import LLMClient
@@ -76,3 +77,49 @@ def test_client_methods_accept_context_start_line():
     for name in ("analyze", "analyze_with_voting", "request_second_opinion"):
         params = inspect.signature(getattr(LLMClient, name)).parameters
         assert "context_start_line" in params, f"{name} missing context_start_line"
+
+
+@patch("vuln_hunter_x.llm.client.litellm.completion")
+def test_analyze_forwards_context_start_line_to_build_user_prompt(mock_completion):
+    """Behavioral test: analyze() must forward context_start_line to build_user_prompt."""
+    choice = MagicMock()
+    choice.message.content = '{"verdict": "True Positive", "confidence": "High", "reasoning": "r", "answers": []}'
+    mock_completion.return_value = MagicMock(choices=[choice])
+
+    client = LLMClient(provider="openai", model="gpt-4o")
+    client.prompt_builder.build_user_prompt = MagicMock(return_value="<prompt>")
+
+    finding = Finding(
+        rule_id="cpp/double-free",
+        message="double free",
+        file="src/buf.c",
+        start_line=42,
+        end_line=42,
+        repo_name="myrepo",
+        lang="c",
+    )
+    questions = GuidedQuestions(
+        rule_id="cpp/double-free",
+        short_description="double free",
+        questions=["Is buff freed twice?"],
+        context_hint="",
+    )
+
+    client.analyze(
+        finding=finding,
+        context="void f() { free(p); free(p); }",
+        questions=questions,
+        func_name="f",
+        max_iterations=1,
+        quiet=True,
+        context_start_line=99,
+    )
+
+    call = client.prompt_builder.build_user_prompt.call_args
+    # context_start_line is the 5th positional arg (index 4) or keyword arg
+    positional_value = call.args[4] if len(call.args) > 4 else None
+    keyword_value = call.kwargs.get("context_start_line")
+    actual = positional_value if positional_value is not None else keyword_value
+    assert actual == 99, (
+        f"build_user_prompt was called with context_start_line={actual!r}, expected 99"
+    )
