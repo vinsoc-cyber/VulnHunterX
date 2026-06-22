@@ -1,0 +1,64 @@
+name: Feature request
+description: Suggest an idea for VulnHunterX
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to suggest a feature!
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem does this feature solve?
+      placeholder: Describe the problem you're facing.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like it to work?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative solutions or features you considered?
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which component does this feature touch? (e.g. choose CodeQL for a new CodeQL rule.)
+      options:
+        - CodeQL
+        - Semgrep
+        - OpenGrep
+        - Custom detection rules
+        - LLM verification / triage
+        - SARIF parsing
+        - CLI
+        - Fuzzing
+        - Reporting
+        - Configuration
+        - Other / not sure
+    validations:
+      required: false
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add any other context or screenshots here.
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Please confirm
+      options:
+        - label: I have searched existing issues and discussions for this request.
+          required: true
