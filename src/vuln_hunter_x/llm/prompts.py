@@ -15,6 +15,62 @@ from vuln_hunter_x.core.types import Finding, GuidedQuestions
 logger = logging.getLogger(__name__)
 
 
+def render_code_for_prompt(
+    code: str,
+    start_line: int,
+    flagged_line: int,
+    window: int | None = None,
+) -> str:
+    """Render a code slice with absolute line-number gutters, marking the
+    flagged line so the verifier never has to count lines to locate it.
+
+    Args:
+        code: Raw source slice (no line numbers).
+        start_line: Absolute file line number of the slice's FIRST line.
+        flagged_line: Absolute file line number the finding points at.
+        window: If set (>0), keep only ±window lines around the flagged line
+            before numbering. Replaces the old ``_window_around_line`` helper.
+
+    Returns:
+        The slice with each line prefixed by its absolute line number; the
+        flagged line marked with a leading arrow. When the flagged line is not
+        within the slice, a NOTE header is prepended and no line is marked.
+    """
+    lines = code.splitlines()
+    if not lines:
+        return code
+    if start_line < 1:
+        start_line = 1
+    end_line = start_line + len(lines) - 1
+
+    window_note = ""
+    if window is not None and window > 0 and start_line <= flagged_line <= end_line:
+        lo = max(start_line, flagged_line - window)
+        hi = min(end_line, flagged_line + window)
+        if lo > start_line or hi < end_line:
+            window_note = (
+                f"// [snippet windowed around flagged line {flagged_line} "
+                f"(showing lines {lo}-{hi} of {start_line}-{end_line})]\n"
+            )
+            lines = lines[lo - start_line : hi - start_line + 1]
+            start_line, end_line = lo, hi
+
+    out_note = ""
+    if not start_line <= flagged_line <= end_line:
+        out_note = (
+            f"// NOTE: flagged line {flagged_line} is NOT within this slice "
+            f"(lines {start_line}-{end_line}); request the enclosing function "
+            f"if you cannot confirm the construct.\n"
+        )
+
+    rendered = []
+    for i, text in enumerate(lines):
+        n = start_line + i
+        marker = "→" if n == flagged_line else " "
+        rendered.append(f"{marker} {n}: {text}")
+    return out_note + window_note + "\n".join(rendered)
+
+
 def _window_around_line(code: str, target_line: int, window: int) -> str:
     """Trim `code` to ±`window` lines around `target_line` (1-indexed).
 
