@@ -3,7 +3,10 @@
 
 """Unit tests for absolute-line-number rendering of verifier code slices."""
 
+import inspect
+
 from vuln_hunter_x.core.types import Finding, GuidedQuestions
+from vuln_hunter_x.llm.client import LLMClient
 from vuln_hunter_x.llm.prompts import PromptBuilder, render_code_for_prompt
 
 
@@ -67,3 +70,9 @@ def test_build_user_prompt_numbers_and_marks_flagged_line():
     assert "→ 62: free(buff1);" in prompt
     assert "  61: void ProcessImage() {" in prompt
     assert "cpp/double-free" in prompt  # existing finding metadata still present
+
+
+def test_client_methods_accept_context_start_line():
+    for name in ("analyze", "analyze_with_voting", "request_second_opinion"):
+        params = inspect.signature(getattr(LLMClient, name)).parameters
+        assert "context_start_line" in params, f"{name} missing context_start_line"
