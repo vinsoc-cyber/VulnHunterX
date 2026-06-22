@@ -3,7 +3,8 @@
 
 """Unit tests for absolute-line-number rendering of verifier code slices."""
 
-from vuln_hunter_x.llm.prompts import render_code_for_prompt
+from vuln_hunter_x.core.types import Finding, GuidedQuestions
+from vuln_hunter_x.llm.prompts import PromptBuilder, render_code_for_prompt
 
 
 def test_numbers_lines_with_absolute_offset_and_marks_flagged():
@@ -39,10 +40,6 @@ def test_marks_first_line_when_flagged_is_start():
     out = render_code_for_prompt("a();\nb();", start_line=42, flagged_line=42)
     assert "→ 42: a();" in out
     assert "  43: b();" in out
-
-
-from vuln_hunter_x.core.types import Finding, GuidedQuestions
-from vuln_hunter_x.llm.prompts import PromptBuilder
 
 
 def test_build_user_prompt_numbers_and_marks_flagged_line():
