@@ -27,6 +27,7 @@ def render_code_for_prompt(
     Args:
         code: Raw source slice (no line numbers).
         start_line: Absolute file line number of the slice's FIRST line.
+            Values < 1 are clamped to 1.
         flagged_line: Absolute file line number the finding points at.
         window: If set (>0), keep only ±window lines around the flagged line
             before numbering. Replaces the old ``_window_around_line`` helper.

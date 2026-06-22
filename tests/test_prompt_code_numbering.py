@@ -22,7 +22,7 @@ def test_numbers_lines_with_absolute_offset_and_marks_flagged():
 def test_flagged_line_outside_slice_emits_note_and_no_marker():
     out = render_code_for_prompt("int a;\nint b;", start_line=10, flagged_line=99)
     assert "NOTE: flagged line 99 is NOT within this slice (lines 10-11)" in out
-    assert "→" not in out
+    assert not any(line.startswith("→") for line in out.splitlines())
 
 
 def test_window_trims_around_flagged_line_keeping_absolute_numbers():
@@ -44,6 +44,12 @@ def test_marks_first_line_when_flagged_is_start():
     out = render_code_for_prompt("a();\nb();", start_line=42, flagged_line=42)
     assert "→ 42: a();" in out
     assert "  43: b();" in out
+
+
+def test_start_line_below_one_clamps_to_one():
+    out = render_code_for_prompt("a();\nb();", start_line=0, flagged_line=1)
+    assert "→ 1: a();" in out
+    assert "  2: b();" in out
 
 
 def test_build_user_prompt_numbers_and_marks_flagged_line():
@@ -133,3 +139,4 @@ def test_system_prompt_has_locate_and_quote_guard():
 
 def test_default_system_prompt_constant_has_guard():
     assert "LOCATE the flagged line" in DEFAULT_SYSTEM_PROMPT
+    assert "Needs More Data" in DEFAULT_SYSTEM_PROMPT
