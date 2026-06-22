@@ -39,3 +39,34 @@ def test_marks_first_line_when_flagged_is_start():
     out = render_code_for_prompt("a();\nb();", start_line=42, flagged_line=42)
     assert "→ 42: a();" in out
     assert "  43: b();" in out
+
+
+from vuln_hunter_x.core.types import Finding, GuidedQuestions
+from vuln_hunter_x.llm.prompts import PromptBuilder
+
+
+def test_build_user_prompt_numbers_and_marks_flagged_line():
+    builder = PromptBuilder()
+    finding = Finding(
+        rule_id="cpp/double-free",
+        message="double free of buff1",
+        file="imgRead.c",
+        start_line=62,
+        end_line=62,
+        repo_name="dvcp",
+        lang="cpp",
+    )
+    questions = GuidedQuestions(
+        rule_id="cpp/double-free",
+        short_description="double free",
+        questions=["Is buff1 freed twice?"],
+        context_hint="",
+    )
+    # Slice starts at file line 61, so line 62 is "free(buff1);".
+    code = "void ProcessImage() {\nfree(buff1);\n}"
+    prompt = builder.build_user_prompt(
+        finding, code, questions, "ProcessImage", context_start_line=61
+    )
+    assert "→ 62: free(buff1);" in prompt
+    assert "  61: void ProcessImage() {" in prompt
+    assert "cpp/double-free" in prompt  # existing finding metadata still present

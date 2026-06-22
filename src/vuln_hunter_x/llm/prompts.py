@@ -71,34 +71,6 @@ def render_code_for_prompt(
     return out_note + window_note + "\n".join(rendered)
 
 
-def _window_around_line(code: str, target_line: int, window: int) -> str:
-    """Trim `code` to ±`window` lines around `target_line` (1-indexed).
-
-    The original numbering is preserved by prefixing each kept line with its
-    real line number so the LLM can still cite "line 124" accurately, and a
-    header notes that the snippet was trimmed for focus.
-
-    If `target_line` falls outside the snippet (e.g. `code` is just one
-    function and `target_line` is absolute file-line), the function returns
-    `code` unchanged — windowing only fires when the target is reachable.
-    """
-    if window <= 0 or target_line <= 0:
-        return code
-    lines = code.splitlines()
-    if target_line > len(lines):
-        return code  # target outside snippet; don't risk dropping the actual flag
-    start = max(1, target_line - window)
-    end = min(len(lines), target_line + window)
-    if start == 1 and end == len(lines):
-        return code  # already smaller than window
-    kept = lines[start - 1 : end]
-    numbered = "\n".join(f"{start + i}: {ln}" for i, ln in enumerate(kept))
-    header = (
-        f"// [snippet windowed around flagged line {target_line} "
-        f"(showing lines {start}-{end} of {len(lines)})]"
-    )
-    return f"{header}\n{numbered}"
-
 # Default system prompt used when config/prompts/system_prompt.yaml is missing.
 DEFAULT_SYSTEM_PROMPT = """You are a security static-analysis expert specializing in {lang} code.
 
@@ -283,17 +255,21 @@ class PromptBuilder:
         context: str,
         questions: GuidedQuestions,
         func_name: str,
+        context_start_line: int = 1,
     ) -> str:
-        """Build the user prompt for the LLM."""
-        # Apply snippet windowing if configured for this rule (e.g., memory-safety
-        # CWEs where over-reading the snippet causes false alarms — see
-        # benchmarks/Conclusion.md on CWE-416).
-        if questions.snippet_window_lines:
-            context = _window_around_line(
-                context,
-                target_line=finding.start_line,
-                window=questions.snippet_window_lines,
-            )
+        """Build the user prompt for the LLM.
+
+        ``context`` is the raw code slice; ``context_start_line`` is its
+        absolute first-line number. The slice is rendered with absolute
+        line-number gutters and the flagged line marked so the model can
+        locate it without counting.
+        """
+        context = render_code_for_prompt(
+            context,
+            start_line=context_start_line,
+            flagged_line=finding.start_line,
+            window=questions.snippet_window_lines or None,
+        )
         questions_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(questions.questions))
         return self._build_prompt(finding, context, questions, func_name, questions_text)
 
