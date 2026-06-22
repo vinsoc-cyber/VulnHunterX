@@ -8,6 +8,8 @@ body:
       value: |
         Use this when VulnHunterX assigned the **wrong verdict** to a finding — a false positive it confirmed, a real bug it dismissed, or reasoning that doesn't hold up.
         Please paste directly from VulnHunterX's output where possible.
+
+        > Reporting a vulnerability VulnHunterX **missed entirely** (no finding was produced)? That's a coverage gap — please use the **Feature request** form to request detection coverage instead.
   - type: input
     id: target
     attributes:

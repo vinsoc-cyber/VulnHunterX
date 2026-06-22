@@ -12,6 +12,11 @@ REPO="${1:-vinsoc-cyber/VulnHunterX}"
 # Type label used by the verdict-report form (bug/enhancement already exist).
 gh label create triage-quality   --repo "$REPO" --force --color "5319e7" --description "Verdict accuracy / false-positive reports"
 
+# Triage-error sub-labels (applied alongside triage-quality during triage).
+gh label create over-confirmed   --repo "$REPO" --force --color "e99695" --description "VulnHunterX said TP but the finding is FP (over-confirmation)"
+gh label create over-dismissed   --repo "$REPO" --force --color "d93f0b" --description "VulnHunterX said FP but the finding is TP (real bug dismissed)"
+gh label create false-negative   --repo "$REPO" --force --color "b60205" --description "Vulnerability never surfaced by the scanner (coverage gap)"
+
 # Area labels (applied by maintainers at triage; chosen via the Area dropdown).
 gh label create codeql           --repo "$REPO" --force --color "0e8a16" --description "CodeQL engine / queries"
 gh label create semgrep          --repo "$REPO" --force --color "0e8a16" --description "Semgrep engine / rules"

@@ -39,6 +39,14 @@ scripts/setup-labels.sh     # one-shot creation of Area + triage-quality labels
 | `enhancement` | feature-request.yml | exists |
 | `triage-quality` | verdict-report.yml | **create** |
 
+**Triage-error sub-labels** (applied alongside `triage-quality` at triage; derivable from the verdict dropdowns):
+
+| Label | Meaning |
+|---|---|
+| `over-confirmed` | VHX said TP, truth is FP (over-confirmation) |
+| `over-dismissed` | VHX said FP, truth is TP (real bug dismissed) |
+| `false-negative` | Vulnerability never surfaced at all (coverage gap) — filed via the Feature request form |
+
 **Area** (selected in the dropdown, applied by a maintainer at triage). Maps to `src/vuln_hunter_x/` modules and `config/`:
 
 | Label | Covers | Dropdown option text |
@@ -56,7 +64,7 @@ scripts/setup-labels.sh     # one-shot creation of Area + triage-quality labels
 
 The dropdown also offers **Other / not sure** (no label). The same Area dropdown appears in `bug-report.yml` and `feature-request.yml`. `verdict-report.yml` uses a narrower **SAST engine** dropdown instead (codeql/semgrep/opengrep), since the area is inherently triage.
 
-`scripts/setup-labels.sh` creates the Area labels + `triage-quality` via `gh label create --force`, so the taxonomy is reproducible.
+`scripts/setup-labels.sh` creates the Area labels + `triage-quality` + the triage-error sub-labels via `gh label create --force`, so the taxonomy is reproducible.
 
 ## Template specifications
 
@@ -91,7 +99,7 @@ Field conventions: `*` = required. Textareas that hold console output use `rende
 ### `verdict-report.yml`
 For when VHX assigned a wrong verdict (TP / FP / NMD), bad confidence, or flawed reasoning.
 - **name:** Verdict / false-positive report · **description:** A finding was mis-triaged · **title:** `[Verdict] ` · **labels:** `["triage-quality"]`
-- **markdown intro:** explain when to use this vs. a bug; ask reporter to paste from VHX output where possible.
+- **markdown intro:** explain when to use this vs. a bug; ask reporter to paste from VHX output where possible; point false-negative (missed-detection) reports to the Feature request form.
 - **Target analyzed** (input, optional) — repo + commit/version that was scanned. *Provide this and/or a minimal snippet below — at least one is needed to reproduce.*
 - **Minimal reproducible code** (textarea, optional) — the smallest snippet that reproduces the mis-triage; note the language/filename. *Provide this and/or a target above.*
 - **Engine + rule*** (input) — SAST engine and rule ID that produced the finding.
@@ -130,5 +138,5 @@ contact_links:
 
 1. The four `.github/ISSUE_TEMPLATE/` files are valid YAML and parse as GitHub issue forms (the "New issue" chooser shows three forms; blank issues are disabled).
 2. Each form's required fields and dropdowns match this spec; type labels auto-apply.
-3. `scripts/setup-labels.sh` creates the Area labels + `triage-quality` idempotently.
+3. `scripts/setup-labels.sh` creates the Area labels + `triage-quality` + triage-error sub-labels (`over-confirmed`, `over-dismissed`, `false-negative`) idempotently.
 4. `config.yml` routes questions → Discussions and security reports → Security Advisories.
