@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from vuln_hunter_x.core.types import Finding, GuidedQuestions
 from vuln_hunter_x.llm.client import LLMClient
-from vuln_hunter_x.llm.prompts import PromptBuilder, render_code_for_prompt
+from vuln_hunter_x.llm.prompts import DEFAULT_SYSTEM_PROMPT, PromptBuilder, render_code_for_prompt
 
 
 def test_numbers_lines_with_absolute_offset_and_marks_flagged():
@@ -123,3 +123,13 @@ def test_analyze_forwards_context_start_line_to_build_user_prompt(mock_completio
     assert actual == 99, (
         f"build_user_prompt was called with context_start_line={actual!r}, expected 99"
     )
+
+
+def test_system_prompt_has_locate_and_quote_guard():
+    sp = PromptBuilder().get_system_prompt(tool_name="CodeQL", lang="cpp")
+    assert "LOCATE the flagged line" in sp
+    assert "Needs More Data" in sp
+
+
+def test_default_system_prompt_constant_has_guard():
+    assert "LOCATE the flagged line" in DEFAULT_SYSTEM_PROMPT

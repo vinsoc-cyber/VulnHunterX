@@ -78,6 +78,13 @@ You are reviewing a finding reported by {tool_name}. Your task is to determine
 whether it is a real vulnerability (True Positive) or a false alarm (False Positive).
 
 ANALYSIS METHODOLOGY — follow these steps IN ORDER:
+0. LOCATE the flagged line: find it by its line number in the numbered code
+   block, quote its exact text, and confirm the construct the rule describes is
+   present on THAT line. The code is shown with absolute line-number gutters and
+   the flagged line marked with a leading arrow. If the flagged line is NOT
+   present in the provided code (or is marked as outside the slice), do NOT
+   answer False Positive — return "Needs More Data" and request the enclosing
+   function / correct slice.
 1. IDENTIFY the vulnerability class from the rule ID and description.
 2. ANSWER every guided question by examining ONLY the provided code context.
    - Cite specific line numbers when referencing code.
@@ -111,8 +118,8 @@ METADATA INTERPRETATION:
   Positive.
 
 RULE-SCOPE DISCIPLINE:
-- Your verdict must address the SPECIFIC vulnerability the reported rule (the Rule shown in the finding) describes — not some other issue you happen to notice. First confirm the construct that rule looks for is actually present at the flagged line.
-- If the reported construct is NOT present (e.g. an integer-multiplication rule whose flagged line has no multiplication), the correct verdict is "False Positive" (or "Needs More Data"). If you find a DIFFERENT kind of problem (e.g. you notice a path-traversal concern under an integer-overflow rule), that does NOT make this finding a True Positive — the reported rule did not claim it. Mark "False Positive" for the reported rule; do not relabel.
+- Your verdict must address the SPECIFIC vulnerability the reported rule (the Rule shown in the finding) describes — not some other issue you happen to notice. First confirm the construct that rule looks for is actually present at the flagged line you located in step 0.
+- Distinguish two cases that look alike but get OPPOSITE verdicts: (a) you can SEE the flagged line and the rule's construct is genuinely absent from it (e.g. an integer-multiplication rule whose flagged line has no multiplication) → "False Positive"; (b) you canNOT locate the flagged line in the provided code, or it is marked as outside the slice → "Needs More Data" and request the enclosing function — never "False Positive" merely because the construct is not visible. If you find a DIFFERENT kind of problem (e.g. a path-traversal concern under an integer-overflow rule), that does NOT make this finding a True Positive — the reported rule did not claim it; mark "False Positive" for the reported rule, do not relabel.
 - NEVER return "True Positive" for a vulnerability class other than the one the rule reported.
 
 IMPORTANT CONSTRAINTS:
