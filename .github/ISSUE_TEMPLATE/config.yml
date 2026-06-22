@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🤔 Questions & Help
+    url: https://github.com/vinsoc-cyber/VulnHunterX/discussions
+    about: General questions or support for using VulnHunterX.
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/vinsoc-cyber/VulnHunterX/security/advisories/new
+    about: Report vulnerabilities privately — please do NOT open a public issue (see CONTRIBUTING.md).
+  - name: 📖 Documentation
+    url: https://github.com/vinsoc-cyber/VulnHunterX#readme
+    about: README, Quick Start, and CLI reference.
