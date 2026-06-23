@@ -15,33 +15,62 @@ from vuln_hunter_x.core.types import Finding, GuidedQuestions
 logger = logging.getLogger(__name__)
 
 
-def _window_around_line(code: str, target_line: int, window: int) -> str:
-    """Trim `code` to ±`window` lines around `target_line` (1-indexed).
+def render_code_for_prompt(
+    code: str,
+    start_line: int,
+    flagged_line: int,
+    window: int | None = None,
+) -> str:
+    """Render a code slice with absolute line-number gutters, marking the
+    flagged line so the verifier never has to count lines to locate it.
 
-    The original numbering is preserved by prefixing each kept line with its
-    real line number so the LLM can still cite "line 124" accurately, and a
-    header notes that the snippet was trimmed for focus.
+    Args:
+        code: Raw source slice (no line numbers).
+        start_line: Absolute file line number of the slice's FIRST line.
+            Values < 1 are clamped to 1.
+        flagged_line: Absolute file line number the finding points at.
+        window: If set (>0), keep only ±window lines around the flagged line
+            before numbering. Replaces the old ``_window_around_line`` helper.
 
-    If `target_line` falls outside the snippet (e.g. `code` is just one
-    function and `target_line` is absolute file-line), the function returns
-    `code` unchanged — windowing only fires when the target is reachable.
+    Returns:
+        The slice with each line prefixed by its absolute line number; the
+        flagged line marked with a leading arrow. When the flagged line is not
+        within the slice, a NOTE header is prepended and no line is marked.
     """
-    if window <= 0 or target_line <= 0:
-        return code
     lines = code.splitlines()
-    if target_line > len(lines):
-        return code  # target outside snippet; don't risk dropping the actual flag
-    start = max(1, target_line - window)
-    end = min(len(lines), target_line + window)
-    if start == 1 and end == len(lines):
-        return code  # already smaller than window
-    kept = lines[start - 1 : end]
-    numbered = "\n".join(f"{start + i}: {ln}" for i, ln in enumerate(kept))
-    header = (
-        f"// [snippet windowed around flagged line {target_line} "
-        f"(showing lines {start}-{end} of {len(lines)})]"
-    )
-    return f"{header}\n{numbered}"
+    if not lines:
+        return code
+    if start_line < 1:
+        start_line = 1
+    end_line = start_line + len(lines) - 1
+
+    window_note = ""
+    if window is not None and window > 0 and start_line <= flagged_line <= end_line:
+        lo = max(start_line, flagged_line - window)
+        hi = min(end_line, flagged_line + window)
+        if lo > start_line or hi < end_line:
+            window_note = (
+                f"// [snippet windowed around flagged line {flagged_line} "
+                f"(showing lines {lo}-{hi} of {start_line}-{end_line})]\n"
+            )
+            lines = lines[lo - start_line : hi - start_line + 1]
+            start_line, end_line = lo, hi
+
+    out_note = ""
+    if not start_line <= flagged_line <= end_line:
+        out_note = (
+            f"// NOTE: flagged line {flagged_line} is NOT within this slice "
+            f"(lines {start_line}-{end_line}); request the enclosing function "
+            f"if you cannot confirm the construct.\n"
+        )
+
+    rendered = []
+    for i, text in enumerate(lines):
+        n = start_line + i
+        marker = "→" if n == flagged_line else " "
+        rendered.append(f"{marker} {n}: {text}")
+    return out_note + window_note + "\n".join(rendered)
+
 
 # Default system prompt used when config/prompts/system_prompt.yaml is missing.
 DEFAULT_SYSTEM_PROMPT = """You are a security static-analysis expert specializing in {lang} code.
@@ -50,6 +79,13 @@ You are reviewing a finding reported by {tool_name}. Your task is to determine
 whether it is a real vulnerability (True Positive) or a false alarm (False Positive).
 
 ANALYSIS METHODOLOGY — follow these steps IN ORDER:
+0. LOCATE the flagged line: find it by its line number in the numbered code
+   block, quote its exact text, and confirm the construct the rule describes is
+   present on THAT line. The code is shown with absolute line-number gutters and
+   the flagged line marked with a leading arrow. If the flagged line is NOT
+   present in the provided code (or is marked as outside the slice), do NOT
+   answer False Positive — return "Needs More Data" and request the enclosing
+   function / correct slice.
 1. IDENTIFY the vulnerability class from the rule ID and description.
 2. ANSWER every guided question by examining ONLY the provided code context.
    - Cite specific line numbers when referencing code.
@@ -83,8 +119,8 @@ METADATA INTERPRETATION:
   Positive.
 
 RULE-SCOPE DISCIPLINE:
-- Your verdict must address the SPECIFIC vulnerability the reported rule (the Rule shown in the finding) describes — not some other issue you happen to notice. First confirm the construct that rule looks for is actually present at the flagged line.
-- If the reported construct is NOT present (e.g. an integer-multiplication rule whose flagged line has no multiplication), the correct verdict is "False Positive" (or "Needs More Data"). If you find a DIFFERENT kind of problem (e.g. you notice a path-traversal concern under an integer-overflow rule), that does NOT make this finding a True Positive — the reported rule did not claim it. Mark "False Positive" for the reported rule; do not relabel.
+- Your verdict must address the SPECIFIC vulnerability the reported rule (the Rule shown in the finding) describes — not some other issue you happen to notice. First confirm the construct that rule looks for is actually present at the flagged line you located in step 0.
+- Distinguish two cases that look alike but get OPPOSITE verdicts: (a) you can SEE the flagged line and the rule's construct is genuinely absent from it (e.g. an integer-multiplication rule whose flagged line has no multiplication) → "False Positive"; (b) you canNOT locate the flagged line in the provided code, or it is marked as outside the slice → "Needs More Data" and request the enclosing function — never "False Positive" merely because the construct is not visible. If you find a DIFFERENT kind of problem (e.g. a path-traversal concern under an integer-overflow rule), that does NOT make this finding a True Positive — the reported rule did not claim it; mark "False Positive" for the reported rule, do not relabel.
 - NEVER return "True Positive" for a vulnerability class other than the one the rule reported.
 
 IMPORTANT CONSTRAINTS:
@@ -227,17 +263,21 @@ class PromptBuilder:
         context: str,
         questions: GuidedQuestions,
         func_name: str,
+        context_start_line: int = 1,
     ) -> str:
-        """Build the user prompt for the LLM."""
-        # Apply snippet windowing if configured for this rule (e.g., memory-safety
-        # CWEs where over-reading the snippet causes false alarms — see
-        # benchmarks/Conclusion.md on CWE-416).
-        if questions.snippet_window_lines:
-            context = _window_around_line(
-                context,
-                target_line=finding.start_line,
-                window=questions.snippet_window_lines,
-            )
+        """Build the user prompt for the LLM.
+
+        ``context`` is the raw code slice; ``context_start_line`` is its
+        absolute first-line number. The slice is rendered with absolute
+        line-number gutters and the flagged line marked so the model can
+        locate it without counting.
+        """
+        context = render_code_for_prompt(
+            context,
+            start_line=context_start_line,
+            flagged_line=finding.start_line,
+            window=questions.snippet_window_lines or None,
+        )
         questions_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(questions.questions))
         return self._build_prompt(finding, context, questions, func_name, questions_text)
 
