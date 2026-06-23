@@ -45,7 +45,7 @@ body:
       label: Proposed change
       description: The refactor / cleanup you propose. Behavior should be preserved unless this is correctness-hardening — if behavior changes, say so explicitly.
     validations:
-      required: true
+      required: false
   - type: textarea
     id: blast-radius
     attributes:
@@ -53,7 +53,7 @@ body:
       description: What does this touch — files, call sites, public interfaces? Any backward-compatibility concerns?
       placeholder: e.g. only `_resolve_path` + its two callers; thread `repo_name` into the lookup and cache key. No public API change.
     validations:
-      required: true
+      required: false
   - type: textarea
     id: verification
     attributes:
@@ -61,7 +61,7 @@ body:
       description: How will we confirm behavior is preserved (or correctly changed)? Name the tests to add or run.
       placeholder: e.g. unit test — two repos under `python/` sharing `app.py` resolve to the one matching `repo_name`; existing extractor tests stay green.
     validations:
-      required: true
+      required: false
   - type: input
     id: target-files
     attributes:
