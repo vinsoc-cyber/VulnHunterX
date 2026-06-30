@@ -35,3 +35,4 @@ CLAUDE.md
 .ruff_cache/
 docs/paper/
 docs/superpowers/
+benchmark/output/

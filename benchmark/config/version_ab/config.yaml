@@ -1,0 +1,5 @@
+provider: openai
+model: gpt-5.5
+temperature: 0
+max_cost: 25
+max_iterations: 5
