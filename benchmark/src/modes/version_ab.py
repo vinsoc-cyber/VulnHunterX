@@ -135,3 +135,66 @@ def compare_scores(previous: dict, current: dict, timestamp: str) -> dict:
         "deltas": {"precision": delta("precision"), "recall": delta("recall")},
         "timestamp": timestamp,
     }
+
+
+def _pct(x: float | None) -> str:
+    return "n/a" if x is None else f"{x:.0%}"
+
+
+def render_score_md(score: dict) -> str:
+    m, a = score["meta"], score["aggregates"]
+    lines = [
+        f"# Score — {m['version']}", "",
+        f"Model `{m.get('model')}` · temp `{m.get('temperature')}` · "
+        f"panel `{str(m.get('panel_hash', '?'))[:16]}…` · {m.get('timestamp')}", "",
+        f"precision **{_pct(a['precision'])}** · recall **{_pct(a['recall'])}** · "
+        f"TP {a['tp_total']} (real {a['tp_real']}, false-alarm {a['false_alarm']}) · "
+        f"real {a['n_real']} · not-real {a['n_not_real']} · ${a['cost_usd']}", "",
+        "| finding | truth | verdict | grade | conf |", "|---|---|---|---|---|",
+    ]
+    for f in score["findings"]:
+        lines.append(f"| {f['rule']}@{f['file']}:{f['line']} | {f['truth']} | "
+                     f"{f['verdict']} | {f['grade']} | {f['confidence']} |")
+    return "\n".join(lines) + "\n"
+
+
+def render_compare_md(churn: dict) -> str:
+    t, d = churn["totals"], churn["deltas"]
+
+    def signed(x):
+        return "n/a" if x is None else f"{x:+.0%}"
+
+    lines = [
+        f"# Compare — {churn['previous']} → {churn['current']}", "",
+        f"Δprecision **{signed(d.get('precision'))}** · Δrecall **{signed(d.get('recall'))}** · "
+        f"{churn['timestamp']}", "",
+        f"## Flips: {t['flips']} (improve {t['improve']} · regress {t['regress']} · "
+        f"neutral {t['neutral']})", "",
+    ]
+    if churn["flips"]:
+        lines += ["| finding | truth | prev → cur | dir | conf |", "|---|---|---|---|---|"]
+        for f in churn["flips"]:
+            lines.append(f"| {f['rule']}@{f['file']}:{f['line']} | {f['truth']} | "
+                         f"{f['previous']} → {f['current']} | {f['direction']} | "
+                         f"{f['prev_conf']}→{f['cur_conf']} |")
+    else:
+        lines.append("_No verdict changed._")
+    return "\n".join(lines) + "\n"
+
+
+def rollup_score(scores: dict, meta: dict) -> dict:
+    findings = [f for s in scores.values() for f in s["findings"]]
+    n_real = sum(s["aggregates"]["n_real"] for s in scores.values())
+    return {"meta": meta, "findings": findings, "aggregates": aggregate(findings, n_real)}
+
+
+def rollup_compare(churns: list, prev_label: str, cur_label: str, deltas: dict, timestamp: str) -> dict:
+    flips = [f for c in churns for f in c["flips"]]
+    totals = {
+        "flips": len(flips),
+        "improve": sum(1 for f in flips if f["direction"] == "IMPROVE"),
+        "regress": sum(1 for f in flips if f["direction"] == "REGRESS"),
+        "neutral": sum(1 for f in flips if f["direction"] == "neutral"),
+    }
+    return {"previous": prev_label, "current": cur_label, "flips": flips,
+            "totals": totals, "deltas": deltas, "timestamp": timestamp}
