@@ -84,3 +84,54 @@ def build_score(raw_dir: Path, real_keys: set, meta: dict) -> dict:
             "truth": truth, "grade": grade(nv, truth),
         })
     return {"meta": meta, "findings": findings, "aggregates": aggregate(findings, len(real_keys))}
+
+
+CONFOUND_KEYS = ("provider", "model", "temperature", "panel_hash")
+
+
+class ConfoundError(Exception):
+    pass
+
+
+def compare_scores(previous: dict, current: dict, timestamp: str) -> dict:
+    for k in CONFOUND_KEYS:
+        if previous["meta"].get(k) != current["meta"].get(k):
+            raise ConfoundError(
+                f"{k}: previous={previous['meta'].get(k)!r} current={current['meta'].get(k)!r}")
+
+    prev = {(f["rule"], f["file"], f["line"]): f for f in previous["findings"]}
+    cur = {(f["rule"], f["file"], f["line"]): f for f in current["findings"]}
+
+    flips = []
+    for key in sorted(set(prev) | set(cur)):
+        pf, cf = prev.get(key), cur.get(key)
+        pv = pf["verdict"] if pf else "—"
+        cv = cf["verdict"] if cf else "—"
+        if pv == cv:
+            continue
+        truth = (cf or pf)["truth"]
+        flips.append({
+            "rule": key[0], "file": key[1], "line": key[2], "truth": truth,
+            "previous": pv, "current": cv,
+            "prev_conf": pf["confidence"] if pf else None,
+            "cur_conf": cf["confidence"] if cf else None,
+            "direction": classify_flip(pv, cv, truth),
+        })
+
+    def delta(metric):
+        a = previous["aggregates"].get(metric)
+        b = current["aggregates"].get(metric)
+        return None if (a is None or b is None) else round(b - a, 4)
+
+    totals = {
+        "flips": len(flips),
+        "improve": sum(1 for f in flips if f["direction"] == "IMPROVE"),
+        "regress": sum(1 for f in flips if f["direction"] == "REGRESS"),
+        "neutral": sum(1 for f in flips if f["direction"] == "neutral"),
+    }
+    return {
+        "previous": previous["meta"]["version"], "current": current["meta"]["version"],
+        "flips": flips, "totals": totals,
+        "deltas": {"precision": delta("precision"), "recall": delta("recall")},
+        "timestamp": timestamp,
+    }
