@@ -1,0 +1,7 @@
+{
+  "repo_url": "https://github.com/hardik05/Damn_Vulnerable_C_Program.git",
+  "sha": "8dcbd202887f587783952a320a2301de701be529",
+  "lang": "c",
+  "name": "dvcp",
+  "scanner": "codeql"
+}

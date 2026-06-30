@@ -1,0 +1,14 @@
+"type_field","in_function","file","line"
+"(unnamed class/struct/union).allowaccess","main","exploit/wargames/stack_variable_exploit.c",15
+"(unnamed class/struct/union).n_missiles","main","exploit/wargames/stack_variable_exploit.c",16
+"Audio.volume","increaseVolume","practice/guidelines/functions/cautious_this_capture.cpp",11
+"SSL.s3","test_openssl_1_0_1g","vulnerability/heartbleed.c",230
+"SSL.s3","test_openssl_1_0_1f","vulnerability/heartbleed.c",220
+"RRec.data","test_openssl_1_0_1g","vulnerability/heartbleed.c",231
+"RRec.data","test_openssl_1_0_1f","vulnerability/heartbleed.c",221
+"RRec.length","test_openssl_1_0_1g","vulnerability/heartbleed.c",232
+"RRec.length","test_openssl_1_0_1f","vulnerability/heartbleed.c",222
+"SSL.msg_callback","test_openssl_1_0_1g","vulnerability/heartbleed.c",233
+"SSL.msg_callback","test_openssl_1_0_1f","vulnerability/heartbleed.c",223
+"SSL.tlsext_hb_pending","dtls1_process_heartbeat_fixed","vulnerability/heartbleed.c",210
+"SSL.tlsext_hb_pending","dtls1_process_heartbeat","vulnerability/heartbleed.c",135

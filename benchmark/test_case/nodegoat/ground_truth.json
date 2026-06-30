@@ -1,0 +1,18 @@
+[
+  "js/missing-rate-limiting@app/routes/index.js:34",
+  "js/server-side-unvalidated-url-redirection@app/routes/index.js:72",
+  "js/missing-token-validation@server.js:78",
+  "js/sql-injection@app/data/user-dao.js:91",
+  "js/sql-injection@app/data/user-dao.js:104",
+  "js/code-injection@app/data/allocations-dao.js:78",
+  "js/code-injection@app/routes/contributions.js:32",
+  "js/code-injection@app/routes/contributions.js:33",
+  "js/code-injection@app/routes/contributions.js:34",
+  "js/clear-text-cookie@server.js:78",
+  "js/request-forgery@app/routes/research.js:16",
+  "js/redos@app/routes/profile.js:59",
+  "js/polynomial-redos@app/routes/profile.js:61",
+  "js/polynomial-redos@app/routes/session.js:181",
+  "js/log-injection@app/routes/session.js:64",
+  "js/session-fixation@app/routes/index.js:34"
+]

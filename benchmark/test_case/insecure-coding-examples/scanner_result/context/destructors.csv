@@ -1,0 +1,5 @@
+"type_name","method_name","file","start_line","end_line"
+"Spiderman","~Spiderman","practice/guidelines/expressions_and_statements/use_named_cast.cpp",8,0
+"Hero","~Hero","practice/guidelines/expressions_and_statements/use_named_cast.cpp",6,0
+"Prefixer","~Prefixer","practice/guidelines/functions/cautious_this_capture_cpp17.cpp",7,0
+"Prefixer","~Prefixer","practice/guidelines/functions/cautious_this_capture_cpp_pre17.cpp",7,0

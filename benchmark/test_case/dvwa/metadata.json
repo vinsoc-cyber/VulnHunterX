@@ -1,0 +1,7 @@
+{
+  "repo_url": "https://github.com/digininja/DVWA.git",
+  "sha": "d45ba3c4e7efa7f023f25f58ab4af9912c887057",
+  "lang": "php",
+  "name": "dvwa",
+  "scanner": "semgrep"
+}

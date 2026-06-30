@@ -1,0 +1,5 @@
+"callee_name","callee_file","caller_name","caller_file","caller_start_line","caller_end_line"
+"AllocationsDAO","app/data/allocations-dao.js","AllocationsDAO","app/data/allocations-dao.js",4,112
+"searchCriteria","app/data/allocations-dao.js","getByUserIdAndThreshold","app/data/allocations-dao.js",57,110
+"comparePassword","app/data/user-dao.js","validateUserDoc","app/data/user-dao.js",70,89
+"validateSignup","app/routes/session.js","handleSignup","app/routes/session.js",189,254

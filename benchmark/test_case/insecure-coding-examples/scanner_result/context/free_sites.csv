@@ -1,0 +1,9 @@
+"pointer_name","free_kind","in_function","file","line"
+"buffer","free","main","exploitable/double_free.c",13
+"buffer","free","main","exploitable/double_free.c",15
+"buffer","free","main","exploitable/use_after_free.c",15
+"buffer","free","OPENSSL_free","vulnerability/heartbleed.c",57
+"buffer","OPENSSL_free","dtls1_process_heartbeat_fixed","vulnerability/heartbleed.c",195
+"buffer","OPENSSL_free","dtls1_process_heartbeat","vulnerability/heartbleed.c",120
+"buf","free","main","exploitable/heap_buffer_overflow.c",15
+"* ...","free","free_buffer","practice/guidelines/resource_management/use_raii_c.c",5

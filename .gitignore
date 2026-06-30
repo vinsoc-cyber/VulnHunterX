@@ -36,3 +36,4 @@ CLAUDE.md
 docs/paper/
 docs/superpowers/
 benchmark/output/
+!benchmark/test_case/**/*.sarif
