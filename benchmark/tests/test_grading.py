@@ -1,3 +1,4 @@
+from __future__ import annotations
 from modes import version_ab as v
 
 
@@ -6,6 +7,8 @@ def test_normalize_verdict():
     assert v.normalize_verdict("False Positive") == "FP"
     assert v.normalize_verdict("Needs More Data") == "NMD"
     assert v.normalize_verdict("TP") == "TP"  # idempotent
+    assert v.normalize_verdict("FP") == "FP"
+    assert v.normalize_verdict("NMD") == "NMD"
 
 
 def test_grade_real():
@@ -17,6 +20,7 @@ def test_grade_real():
 def test_grade_not_real():
     assert v.grade("False Positive", "not-real") == "CORRECT"
     assert v.grade("True Positive", "not-real") == "FALSE-ALARM"
+    assert v.grade("Needs More Data", "not-real") == "abstain"
 
 
 def test_aggregate():
