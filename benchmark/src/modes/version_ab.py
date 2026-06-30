@@ -23,7 +23,7 @@ def normalize_verdict(v: str) -> str:
         return "FP"
     if s == "nmd" or "more data" in s or "needs more" in s:
         return "NMD"
-    return (v or "?").strip().upper()[:4]
+    return (v or "?").strip().upper()
 
 
 def grade(verdict: str, truth: str) -> str:
@@ -74,6 +74,38 @@ def panel_hash(test_case_dir: Path) -> str:
             h.update(str(f.relative_to(test_case_dir)).encode())
             h.update(f.read_bytes())
     return "sha256:" + h.hexdigest()[:32]
+
+
+def sarif_result_keys(sarif_path) -> set[tuple]:
+    s = json.loads(Path(sarif_path).read_text())
+    keys = set()
+    for run in s.get("runs", []):
+        for res in run.get("results", []):
+            rid = res.get("ruleId")
+            for loc in res.get("locations", []):
+                pl = loc.get("physicalLocation", {})
+                uri = pl.get("artifactLocation", {}).get("uri")
+                line = pl.get("region", {}).get("startLine")
+                if uri is None or line is None:
+                    continue
+                keys.add((rid, uri, line))
+    return keys
+
+
+def validate_panel(test_case_dir) -> None:
+    tc = Path(test_case_dir)
+    app = tc.name
+    real_keys = load_real_keys(tc / "ground_truth.json")
+    sarif_keys = sarif_result_keys(tc / "scanner_result" / f"{app}.sarif")
+    problems = []
+    problems += [f"absolute oracle path: {r}@{f}:{ln}"
+                 for (r, f, ln) in sorted(real_keys) if str(f).startswith("/")]
+    problems += [f"absolute SARIF uri: {uri}"
+                 for uri in sorted({u for (_r, u, _l) in sarif_keys}) if str(uri).startswith("/")]
+    problems += [f"oracle key not in SARIF: {r}@{f}:{ln}"
+                 for (r, f, ln) in sorted(real_keys) if (r, f, ln) not in sarif_keys]
+    if problems:
+        sys.exit(f"ERROR: panel '{app}' failed validation:\n  " + "\n  ".join(problems))
 
 
 def build_score(raw_dir: Path, real_keys: set, meta: dict) -> dict:
@@ -331,6 +363,8 @@ def run(args, bench_root) -> int:
     cfg_path = Path(args.config) if args.config else bench_root / "config" / "version_ab" / "config.yaml"
     cfg = load_config(cfg_path)
 
+    if not test_case.is_dir():
+        sys.exit(f"ERROR: test_case dir not found: {test_case}")
     if args.targets:
         targets = [t.strip() for t in args.targets.split(",") if t.strip()]
     else:
@@ -340,13 +374,15 @@ def run(args, bench_root) -> int:
 
     current = args.current or current_label(repo_root)
     cur_dir = result_root / current
-    if cur_dir.exists() and not args.force and not args.compare_only:
+    if cur_dir.exists() and not args.force and not args.compare_only and not args.dry_run:
         sys.exit(f"ERROR: {cur_dir} already exists. Bump __version__, or pass --force to overwrite.")
 
     hns, scorer = Harness(repo_root), Scorer()
     now = args.timestamp or datetime.datetime.now().isoformat(timespec="seconds")
+    prev_label = resolve_previous(args.previous, result_root, current)
     total_cost = 0.0
     scores, churns = {}, {}
+    failed_targets = []
 
     for target in targets:
         tc = test_case / target
@@ -358,37 +394,48 @@ def run(args, bench_root) -> int:
                       "temperature": cfg["temperature"], "panel_hash": panel_hash(tc), "timestamp": now}
         tdir = cur_dir / target
 
-        if args.compare_only:
-            score = json.loads((tdir / "score.json").read_text())
-        elif args.dry_run:
-            print(f"[dry-run] {target}: clone {meta_t['repo_url']}@{meta_t['sha']} → "
-                  f"verify {target}.sarif (provider={cfg['provider']} model={cfg['model']} "
-                  f"temp={cfg['temperature']})")
+        try:
+            if args.compare_only:
+                sp = tdir / "score.json"
+                if not sp.exists():
+                    sys.exit(f"ERROR: --compare-only: {sp} not found. Score this version first.")
+                score = json.loads(sp.read_text())
+            elif args.dry_run:
+                print(f"[dry-run] {target}: clone {meta_t['repo_url']}@{meta_t['sha']} → "
+                      f"verify {target}.sarif (provider={cfg['provider']} model={cfg['model']} "
+                      f"temp={cfg['temperature']})")
+                continue
+            else:
+                validate_panel(tc)
+                sarif = tc / "scanner_result" / f"{target}.sarif"
+                ctx = tc / "scanner_result" / "context"
+                raw_dir = (output_root / current / target) if not args.no_keep_output \
+                    else Path(tempfile.mkdtemp(prefix="vab_raw_"))
+                clone = Path(tempfile.mkdtemp(prefix="vab_src_")) / target
+                try:
+                    hns.fetch(meta_t, clone)
+                    cost = hns.run(meta_t, clone, cfg, raw_dir, sarif, ctx if ctx.is_dir() else None)
+                finally:
+                    shutil.rmtree(clone.parent, ignore_errors=True)
+                total_cost += cost
+                score = scorer.score(raw_dir, real_keys, score_meta)
+                tdir.mkdir(parents=True, exist_ok=True)
+                (tdir / "score.json").write_text(json.dumps(score, indent=2))
+                (tdir / "score.md").write_text(scorer.render_score(score))
+                if args.no_keep_output:
+                    shutil.rmtree(raw_dir, ignore_errors=True)
+                a = score["aggregates"]
+                print(f"[{target}] precision={_pct(a['precision'])} recall={_pct(a['recall'])} ${cost}")
+                if cfg.get("max_cost") and total_cost > cfg["max_cost"]:
+                    sys.exit(f"ERROR: max_cost ${cfg['max_cost']} exceeded (${total_cost:.2f}).")
+        except Exception as e:
+            print(f"[{target}] FAILED: {e}")
+            failed_targets.append(target)
             continue
-        else:
-            sarif = tc / "scanner_result" / f"{target}.sarif"
-            ctx = tc / "scanner_result" / "context"
-            raw_dir = (output_root / current / target) if not args.no_keep_output \
-                else Path(tempfile.mkdtemp(prefix="vab_raw_"))
-            clone = Path(tempfile.mkdtemp(prefix="vab_src_")) / target
-            hns.fetch(meta_t, clone)
-            cost = hns.run(meta_t, clone, cfg, raw_dir, sarif, ctx if ctx.is_dir() else None)
-            total_cost += cost
-            score = scorer.score(raw_dir, real_keys, score_meta)
-            tdir.mkdir(parents=True, exist_ok=True)
-            (tdir / "score.json").write_text(json.dumps(score, indent=2))
-            (tdir / "score.md").write_text(scorer.render_score(score))
-            if args.no_keep_output:
-                shutil.rmtree(raw_dir, ignore_errors=True)
-            a = score["aggregates"]
-            print(f"[{target}] precision={_pct(a['precision'])} recall={_pct(a['recall'])} ${cost}")
-            if cfg.get("max_cost") and total_cost > cfg["max_cost"]:
-                sys.exit(f"ERROR: max_cost ${cfg['max_cost']} exceeded (${total_cost:.2f}).")
 
         scores[target] = score
 
         if not args.no_compare:
-            prev_label = resolve_previous(args.previous, result_root, current)
             if not prev_label:
                 print(f"[{target}] no previous version found; skipping compare.")
                 continue
@@ -416,10 +463,9 @@ def run(args, bench_root) -> int:
         (cur_dir / "score.json").write_text(json.dumps(roll, indent=2))
         (cur_dir / "score.md").write_text(scorer.render_score(roll))
         if churns:
-            prev_label = resolve_previous(args.previous, result_root, current)
             deltas = {"precision": _rollup_delta(roll, prev_label, result_root, "precision"),
                       "recall": _rollup_delta(roll, prev_label, result_root, "recall")}
             rc = rollup_compare(list(churns.values()), prev_label, current, deltas, now)
             (cur_dir / f"compare_vs_{prev_label}.json").write_text(json.dumps(rc, indent=2))
             (cur_dir / f"compare_vs_{prev_label}.md").write_text(scorer.render_compare(rc))
-    return 0
+    return 1 if failed_targets else 0

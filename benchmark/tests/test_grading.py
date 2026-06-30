@@ -9,6 +9,7 @@ def test_normalize_verdict():
     assert v.normalize_verdict("TP") == "TP"  # idempotent
     assert v.normalize_verdict("FP") == "FP"
     assert v.normalize_verdict("NMD") == "NMD"
+    assert v.normalize_verdict("inconclusive") == "INCONCLUSIVE"  # unknown fallback: no [:4] truncation
 
 
 def test_grade_real():
