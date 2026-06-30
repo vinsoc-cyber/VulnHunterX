@@ -1,11 +1,14 @@
 """versionab — version-A/B verifier benchmark mode."""
 from __future__ import annotations
 
+import argparse
+import datetime
 import hashlib
 import json
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import harness
@@ -263,3 +266,160 @@ class Scorer(scoring.Scorer):
 
     def render_compare(self, churn):
         return render_compare_md(churn)
+
+
+def add_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--targets", default=None, help="comma list; default = all of test_case/")
+    p.add_argument("--config", default=None, help="path to config.yaml")
+    p.add_argument("--previous", default=None, help="baseline VER@SHA (default: most recent other)")
+    p.add_argument("--current", default=None, help="current label (default: {__version__}@{short-sha})")
+    p.add_argument("--compare-only", action="store_true", help="recompute churn from existing score.json")
+    p.add_argument("--no-compare", action="store_true", help="run + score only")
+    p.add_argument("--force", action="store_true", help="overwrite an existing version dir")
+    p.add_argument("--no-keep-output", action="store_true", help="discard raw output after scoring")
+    p.add_argument("--timestamp", default=None, help=argparse.SUPPRESS)  # test determinism
+
+
+def load_config(path) -> dict:
+    import yaml
+    cfg = yaml.safe_load(Path(path).read_text())
+    cfg.setdefault("max_iterations", 5)
+    cfg.setdefault("max_cost", None)
+    return cfg
+
+
+def current_label(repo_root) -> str:
+    from vuln_hunter_x import __version__
+    sha = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
+                         capture_output=True, text=True, check=True).stdout.strip()
+    return f"{__version__}@{sha}"
+
+
+def resolve_previous(previous_arg, result_root: Path, current: str):
+    if previous_arg:
+        return previous_arg
+    result_root = Path(result_root)
+    if not result_root.is_dir():
+        return None
+    candidates = []
+    for d in result_root.iterdir():
+        if d.name == current or not (d / "score.json").exists():
+            continue
+        try:
+            ts = json.loads((d / "score.json").read_text())["meta"]["timestamp"]
+        except Exception:
+            ts = ""
+        candidates.append((ts, d.name))
+    return max(candidates)[1] if candidates else None
+
+
+def _rollup_delta(cur_roll, prev_label, result_root: Path, metric):
+    p = Path(result_root) / prev_label / "score.json"
+    if not p.exists():
+        return None
+    a = json.loads(p.read_text())["aggregates"].get(metric)
+    b = cur_roll["aggregates"].get(metric)
+    return None if (a is None or b is None) else round(b - a, 4)
+
+
+def run(args, bench_root) -> int:
+    bench_root = Path(bench_root)
+    repo_root = bench_root.parent
+    test_case = bench_root / "test_case"
+    result_root = bench_root / "result" / "version_ab"
+    output_root = bench_root / "output" / "version_ab"
+    cfg_path = Path(args.config) if args.config else bench_root / "config" / "version_ab" / "config.yaml"
+    cfg = load_config(cfg_path)
+
+    if args.targets:
+        targets = [t.strip() for t in args.targets.split(",") if t.strip()]
+    else:
+        targets = sorted(p.name for p in test_case.iterdir() if (p / "metadata.json").exists())
+    if not targets:
+        sys.exit("ERROR: no targets found under test_case/.")
+
+    current = args.current or current_label(repo_root)
+    cur_dir = result_root / current
+    if cur_dir.exists() and not args.force and not args.compare_only:
+        sys.exit(f"ERROR: {cur_dir} already exists. Bump __version__, or pass --force to overwrite.")
+
+    hns, scorer = Harness(repo_root), Scorer()
+    now = args.timestamp or datetime.datetime.now().isoformat(timespec="seconds")
+    total_cost = 0.0
+    scores, churns = {}, {}
+
+    for target in targets:
+        tc = test_case / target
+        if not (tc / "metadata.json").exists():
+            sys.exit(f"ERROR: test_case/{target}/metadata.json not found.")
+        meta_t = json.loads((tc / "metadata.json").read_text())
+        real_keys = load_real_keys(tc / "ground_truth.json")
+        score_meta = {"version": current, "provider": cfg["provider"], "model": cfg["model"],
+                      "temperature": cfg["temperature"], "panel_hash": panel_hash(tc), "timestamp": now}
+        tdir = cur_dir / target
+
+        if args.compare_only:
+            score = json.loads((tdir / "score.json").read_text())
+        elif args.dry_run:
+            print(f"[dry-run] {target}: clone {meta_t['repo_url']}@{meta_t['sha']} → "
+                  f"verify {target}.sarif (provider={cfg['provider']} model={cfg['model']} "
+                  f"temp={cfg['temperature']})")
+            continue
+        else:
+            sarif = tc / "scanner_result" / f"{target}.sarif"
+            ctx = tc / "scanner_result" / "context"
+            raw_dir = (output_root / current / target) if not args.no_keep_output \
+                else Path(tempfile.mkdtemp(prefix="vab_raw_"))
+            clone = Path(tempfile.mkdtemp(prefix="vab_src_")) / target
+            hns.fetch(meta_t, clone)
+            cost = hns.run(meta_t, clone, cfg, raw_dir, sarif, ctx if ctx.is_dir() else None)
+            total_cost += cost
+            score = scorer.score(raw_dir, real_keys, score_meta)
+            tdir.mkdir(parents=True, exist_ok=True)
+            (tdir / "score.json").write_text(json.dumps(score, indent=2))
+            (tdir / "score.md").write_text(scorer.render_score(score))
+            if args.no_keep_output:
+                shutil.rmtree(raw_dir, ignore_errors=True)
+            a = score["aggregates"]
+            print(f"[{target}] precision={_pct(a['precision'])} recall={_pct(a['recall'])} ${cost}")
+            if cfg.get("max_cost") and total_cost > cfg["max_cost"]:
+                sys.exit(f"ERROR: max_cost ${cfg['max_cost']} exceeded (${total_cost:.2f}).")
+
+        scores[target] = score
+
+        if not args.no_compare:
+            prev_label = resolve_previous(args.previous, result_root, current)
+            if not prev_label:
+                print(f"[{target}] no previous version found; skipping compare.")
+                continue
+            prev_path = result_root / prev_label / target / "score.json"
+            if not prev_path.exists():
+                print(f"[{target}] previous {prev_label} has no score for this target; skipping.")
+                continue
+            try:
+                churn = scorer.compare(json.loads(prev_path.read_text()), score, now)
+            except ConfoundError as e:
+                sys.exit(f"ERROR: confound guard — {e}")
+            churns[target] = churn
+            tdir.mkdir(parents=True, exist_ok=True)
+            (tdir / f"compare_vs_{prev_label}.json").write_text(json.dumps(churn, indent=2))
+            (tdir / f"compare_vs_{prev_label}.md").write_text(scorer.render_compare(churn))
+
+    if args.dry_run:
+        return 0
+
+    if scores:
+        roll = rollup_score(scores, {"version": current, "provider": cfg["provider"],
+                                     "model": cfg["model"], "temperature": cfg["temperature"],
+                                     "timestamp": now})
+        cur_dir.mkdir(parents=True, exist_ok=True)
+        (cur_dir / "score.json").write_text(json.dumps(roll, indent=2))
+        (cur_dir / "score.md").write_text(scorer.render_score(roll))
+        if churns:
+            prev_label = resolve_previous(args.previous, result_root, current)
+            deltas = {"precision": _rollup_delta(roll, prev_label, result_root, "precision"),
+                      "recall": _rollup_delta(roll, prev_label, result_root, "recall")}
+            rc = rollup_compare(list(churns.values()), prev_label, current, deltas, now)
+            (cur_dir / f"compare_vs_{prev_label}.json").write_text(json.dumps(rc, indent=2))
+            (cur_dir / f"compare_vs_{prev_label}.md").write_text(scorer.render_compare(rc))
+    return 0
