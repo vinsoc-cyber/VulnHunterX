@@ -182,20 +182,44 @@ def _pct(x: float | None) -> str:
     return "n/a" if x is None else f"{x:.0%}"
 
 
+def _panel_short(h) -> str:
+    s = str(h or "")
+    return (s[:16] + "…") if s else "—"
+
+
 def render_score_md(score: dict) -> str:
     m, a = score["meta"], score["aggregates"]
+    is_roll = "targets" in score
+    meta_line = f"Model `{m.get('model')}` · temp `{m.get('temperature')}` · "
+    if not is_roll:  # a rollup spans many panels — no single hash (per-target table below)
+        meta_line += f"panel `{_panel_short(m.get('panel_hash'))}` · "
+    meta_line += str(m.get("timestamp"))
     lines = [
-        f"# Score — {m['version']}", "",
-        f"Model `{m.get('model')}` · temp `{m.get('temperature')}` · "
-        f"panel `{str(m.get('panel_hash', '?'))[:16]}…` · {m.get('timestamp')}", "",
+        f"# Score — {m['version']}", "", meta_line, "",
         f"precision **{_pct(a['precision'])}** · recall **{_pct(a['recall'])}** · "
         f"TP {a['tp_total']} (real {a['tp_real']}, false-alarm {a['false_alarm']}) · "
         f"real {a['n_real']} · not-real {a['n_not_real']} · ${a['cost_usd']}", "",
-        "| finding | truth | verdict | grade | conf |", "|---|---|---|---|---|",
     ]
-    for f in score["findings"]:
-        lines.append(f"| {f['rule']}@{f['file']}:{f['line']} | {f['truth']} | "
-                     f"{f['verdict']} | {f['grade']} | {f['confidence']} |")
+    if is_roll:
+        lines += ["| target | finding | truth | verdict | grade | conf |",
+                  "|---|---|---|---|---|---|"]
+        for f in score["findings"]:
+            lines.append(f"| {f.get('target', '')} | {f['rule']}@{f['file']}:{f['line']} | "
+                         f"{f['truth']} | {f['verdict']} | {f['grade']} | {f['confidence']} |")
+        lines += ["", "## Per target",
+                  "| target | precision | recall | TP (real/FA) | real | not-real | cost | panel |",
+                  "|---|---|---|---|---|---|---|---|"]
+        for t, ta in score["targets"].items():
+            lines.append(
+                f"| {t} | {_pct(ta.get('precision'))} | {_pct(ta.get('recall'))} | "
+                f"{ta.get('tp_total')} ({ta.get('tp_real')}/{ta.get('false_alarm')}) | "
+                f"{ta.get('n_real')} | {ta.get('n_not_real')} | ${ta.get('cost_usd')} | "
+                f"{_panel_short(ta.get('panel_hash'))} |")
+    else:
+        lines += ["| finding | truth | verdict | grade | conf |", "|---|---|---|---|---|"]
+        for f in score["findings"]:
+            lines.append(f"| {f['rule']}@{f['file']}:{f['line']} | {f['truth']} | "
+                         f"{f['verdict']} | {f['grade']} | {f['confidence']} |")
     return "\n".join(lines) + "\n"
 
 
@@ -224,9 +248,12 @@ def render_compare_md(churn: dict) -> str:
 
 
 def rollup_score(scores: dict, meta: dict) -> dict:
-    findings = [f for s in scores.values() for f in s["findings"]]
+    findings = [{**f, "target": t} for t, s in scores.items() for f in s["findings"]]
+    targets = {t: {**s["aggregates"], "panel_hash": s.get("meta", {}).get("panel_hash")}
+               for t, s in scores.items()}
     n_real = sum(s["aggregates"]["n_real"] for s in scores.values())
-    return {"meta": meta, "findings": findings, "aggregates": aggregate(findings, n_real)}
+    return {"meta": meta, "targets": targets, "findings": findings,
+            "aggregates": aggregate(findings, n_real)}
 
 
 def rollup_compare(churns: list, prev_label: str, cur_label: str, deltas: dict, timestamp: str) -> dict:
@@ -254,9 +281,23 @@ class Harness(harness.Harness):
         self._invoke(["git", "-C", str(dest), "checkout", "--quiet", meta["sha"]])
         return dest
 
+    def _work_dir(self, cfg, raw_dir: Path) -> Path:
+        """Engine cwd: it writes its output/ tree, repos/ symlinks and LLM logs
+        here. Default = <raw_dir>/_engine, so it persists or is discarded together
+        with the kept verdicts (governed by --keep-output). cfg['output_dir']
+        (relative -> repo root, or absolute) redirects it elsewhere."""
+        out = cfg.get("output_dir")
+        if out:
+            work = Path(out)
+            return work if work.is_absolute() else self.root / work
+        return Path(raw_dir) / "_engine"
+
     def run(self, meta, src, cfg, raw_dir, sarif, context_dir):
         lang, name = meta["lang"], meta["name"]
-        eng = self.root / "output" / lang / name
+        raw_dir = Path(raw_dir)
+        work = self._work_dir(cfg, raw_dir)
+        work.mkdir(parents=True, exist_ok=True)
+        eng = work / "output" / lang / name
         if context_dir and Path(context_dir).is_dir():
             dst = eng / "context"
             if dst.exists():
@@ -273,8 +314,7 @@ class Harness(harness.Harness):
                "--provider", cfg["provider"], "--model", cfg["model"],
                "--temperature", str(cfg["temperature"]),
                "--max-iterations", str(cfg["max_iterations"]), "-q"]
-        self._invoke(cmd, cwd=str(self.root))
-        raw_dir = Path(raw_dir)
+        self._invoke(cmd, cwd=str(work))
         raw_dir.mkdir(parents=True, exist_ok=True)
         cost = 0.0
         for jf in sorted(vr.glob("*.json")):
@@ -283,6 +323,7 @@ class Harness(harness.Harness):
             j = json.loads(jf.read_text())
             (raw_dir / jf.name).write_text(json.dumps(j, indent=2))
             cost += j.get("cost_usd") or 0.0
+        shutil.rmtree(work / "repos", ignore_errors=True)  # drop dangling clone symlink
         return round(cost, 4)
 
 
@@ -409,23 +450,24 @@ def run(args, bench_root) -> int:
                 validate_panel(tc)
                 sarif = tc / "scanner_result" / f"{target}.sarif"
                 ctx = tc / "scanner_result" / "context"
-                raw_dir = (output_root / current / target) if not args.no_keep_output \
+                keep = not args.no_keep_output
+                raw_dir = (output_root / current / target) if keep \
                     else Path(tempfile.mkdtemp(prefix="vab_raw_"))
                 clone = Path(tempfile.mkdtemp(prefix="vab_src_")) / target
                 try:
                     hns.fetch(meta_t, clone)
                     cost = hns.run(meta_t, clone, cfg, raw_dir, sarif, ctx if ctx.is_dir() else None)
-                finally:
+                    total_cost += cost
+                    score = scorer.score(raw_dir, real_keys, score_meta)
+                    tdir.mkdir(parents=True, exist_ok=True)
+                    (tdir / "score.json").write_text(json.dumps(score, indent=2))
+                    (tdir / "score.md").write_text(scorer.render_score(score))
+                    a = score["aggregates"]
+                    print(f"[{target}] precision={_pct(a['precision'])} recall={_pct(a['recall'])} ${cost}")
+                finally:  # always reclaim temp clone + (when discarding) temp raw_dir
                     shutil.rmtree(clone.parent, ignore_errors=True)
-                total_cost += cost
-                score = scorer.score(raw_dir, real_keys, score_meta)
-                tdir.mkdir(parents=True, exist_ok=True)
-                (tdir / "score.json").write_text(json.dumps(score, indent=2))
-                (tdir / "score.md").write_text(scorer.render_score(score))
-                if args.no_keep_output:
-                    shutil.rmtree(raw_dir, ignore_errors=True)
-                a = score["aggregates"]
-                print(f"[{target}] precision={_pct(a['precision'])} recall={_pct(a['recall'])} ${cost}")
+                    if not keep:
+                        shutil.rmtree(raw_dir, ignore_errors=True)
                 if cfg.get("max_cost") and total_cost > cfg["max_cost"]:
                     sys.exit(f"ERROR: max_cost ${cfg['max_cost']} exceeded (${total_cost:.2f}).")
         except Exception as e:

@@ -3,3 +3,11 @@ model: gpt-5.5
 temperature: 0
 max_cost: 25
 max_iterations: 5
+
+# Engine working directory: the verifier writes its raw output/ tree, repos/
+# symlinks, and LLM logs here. The scored verdicts are also copied (flat) into
+# benchmark/output/version_ab/<version>/<target>/.
+#   null (default) -> an "_engine" folder beside those verdicts, so it persists
+#       or is cleaned together with --keep-output (keep is the default).
+#   a path (relative to repo root, or absolute) -> redirect it elsewhere.
+output_dir: null
