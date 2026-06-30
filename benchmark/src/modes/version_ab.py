@@ -3,7 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
+
+import harness
+import scoring
 
 
 def normalize_verdict(v: str) -> str:
@@ -198,3 +204,62 @@ def rollup_compare(churns: list, prev_label: str, cur_label: str, deltas: dict, 
     }
     return {"previous": prev_label, "current": cur_label, "flips": flips,
             "totals": totals, "deltas": deltas, "timestamp": timestamp}
+
+
+class Harness(harness.Harness):
+    def __init__(self, root: Path):
+        self.root = Path(root)  # repo root: engine writes output/<lang>/<name>/ here
+
+    def _invoke(self, cmd, cwd=None):  # subprocess seam (patched in tests)
+        subprocess.run(cmd, check=True, cwd=cwd)
+
+    def fetch(self, meta: dict, dest: Path) -> Path:
+        dest = Path(dest)
+        self._invoke(["git", "clone", "--quiet", meta["repo_url"], str(dest)])
+        self._invoke(["git", "-C", str(dest), "checkout", "--quiet", meta["sha"]])
+        return dest
+
+    def run(self, meta, src, cfg, raw_dir, sarif, context_dir):
+        lang, name = meta["lang"], meta["name"]
+        eng = self.root / "output" / lang / name
+        if context_dir and Path(context_dir).is_dir():
+            dst = eng / "context"
+            if dst.exists():
+                shutil.rmtree(dst)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(context_dir, dst)
+        vr = eng / "verification_results"
+        if vr.exists():
+            for old in vr.glob("*.json"):
+                old.unlink()
+        cmd = [sys.executable, "-m", "vuln_hunter_x.cli.main", "verify",
+               "--sarif", str(sarif), "--local-path", str(src),
+               "--name", name, "--lang", lang,
+               "--provider", cfg["provider"], "--model", cfg["model"],
+               "--temperature", str(cfg["temperature"]),
+               "--max-iterations", str(cfg["max_iterations"]), "-q"]
+        self._invoke(cmd, cwd=str(self.root))
+        raw_dir = Path(raw_dir)
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        cost = 0.0
+        for jf in sorted(vr.glob("*.json")):
+            if jf.name.startswith(("summary_", "report")):
+                continue
+            j = json.loads(jf.read_text())
+            (raw_dir / jf.name).write_text(json.dumps(j, indent=2))
+            cost += j.get("cost_usd") or 0.0
+        return round(cost, 4)
+
+
+class Scorer(scoring.Scorer):
+    def score(self, raw_dir, real_keys, meta):
+        return build_score(raw_dir, real_keys, meta)
+
+    def compare(self, previous, current, timestamp):
+        return compare_scores(previous, current, timestamp)
+
+    def render_score(self, score):
+        return render_score_md(score)
+
+    def render_compare(self, churn):
+        return render_compare_md(churn)
