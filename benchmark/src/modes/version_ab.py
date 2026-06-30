@@ -1,6 +1,10 @@
 """versionab — version-A/B verifier benchmark mode."""
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
+
 
 def normalize_verdict(v: str) -> str:
     s = (v or "").strip().lower()
@@ -43,3 +47,40 @@ def classify_flip(prev_v: str, cur_v: str, truth: str) -> str:
     if pc == "CORRECT" and cc != "CORRECT":
         return "REGRESS"
     return "neutral"
+
+
+def load_real_keys(gt_path: Path) -> set:
+    real = set()
+    for k in json.loads(Path(gt_path).read_text()):
+        rule, rest = k.rsplit("@", 1)
+        file, line = rest.rsplit(":", 1)
+        real.add((rule.strip(), file.strip(), int(line)))
+    return real
+
+
+def panel_hash(test_case_dir: Path) -> str:
+    h = hashlib.sha256()
+    for f in sorted(Path(test_case_dir).rglob("*")):
+        if f.is_file() and f.name != "ground_truth.json":
+            h.update(str(f.relative_to(test_case_dir)).encode())
+            h.update(f.read_bytes())
+    return "sha256:" + h.hexdigest()[:32]
+
+
+def build_score(raw_dir: Path, real_keys: set, meta: dict) -> dict:
+    findings = []
+    for jf in sorted(Path(raw_dir).glob("*.json")):
+        if jf.name.startswith(("summary_", "report")):
+            continue
+        j = json.loads(jf.read_text())
+        f = j["finding"]
+        rule, file, line = f["rule_id"].strip(), str(f["file"]).strip(), int(f["start_line"])
+        truth = "real" if (rule, file, line) in real_keys else "not-real"
+        nv = normalize_verdict(j.get("verdict", "?"))
+        findings.append({
+            "rule": rule, "file": file, "line": line,
+            "verdict": nv, "confidence": j.get("confidence"),
+            "cost_usd": j.get("cost_usd") or 0.0,
+            "truth": truth, "grade": grade(nv, truth),
+        })
+    return {"meta": meta, "findings": findings, "aggregates": aggregate(findings, len(real_keys))}
