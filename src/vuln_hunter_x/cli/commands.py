@@ -12,7 +12,7 @@ from pathlib import Path
 
 from vuln_hunter_x import __version__
 from vuln_hunter_x.core.config import Config, load_config
-from vuln_hunter_x.core.types import Finding, Verdict
+from vuln_hunter_x.core.types import Finding, Verdict, VerificationResult
 
 
 _SUPPORTED_LANGS = {"c", "cpp", "python", "javascript", "php", "java", "go", "csharp"}
@@ -1040,6 +1040,33 @@ def _run_context_extraction(
     return _print_extraction_results(all_results, total_skip)
 
 
+def _generate_verify_reports(
+    result: VerificationResult,
+    results_dir: Path,
+    translate_report: bool,
+) -> list[tuple[str, Path]]:
+    """Generate verify reports: English always; Vietnamese only when opted in.
+
+    The Vietnamese report requires a batched LLM translation call, so it is
+    skipped unless ``translate_report`` is set (``--translate-report``).
+
+    Returns a list of ``(label, path)`` for each report written; empty when
+    there are no verdicts to report on.
+    """
+    if not result.verdicts:
+        return []
+
+    from vuln_hunter_x.reporting.markdown import MarkdownReportGenerator
+
+    generator = MarkdownReportGenerator()
+    reports = [("EN", generator.generate(result, results_dir / "report.md", report_lang="en"))]
+    if translate_report:
+        reports.append(
+            ("VI", generator.generate(result, results_dir / "report_vi.md", report_lang="vi"))
+        )
+    return reports
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     """Execute the verify command."""
     from vuln_hunter_x.verification.engine import VerificationEngine
@@ -1203,15 +1230,11 @@ def cmd_verify(args: argparse.Namespace) -> int:
     print(f"\nResults saved to: {results_dir}")
     print(f"Summary: {summary_path}")
 
-    # Generate reports (EN + VI) automatically
-    if result.verdicts:
-        from vuln_hunter_x.reporting.markdown import MarkdownReportGenerator
-
-        generator = MarkdownReportGenerator()
-        en_path = generator.generate(result, results_dir / "report.md", report_lang="en")
-        print(f"Report (EN): {en_path}")
-        vi_path = generator.generate(result, results_dir / "report_vi.md", report_lang="vi")
-        print(f"Report (VI): {vi_path}")
+    # Generate reports: English always; Vietnamese only with --translate-report
+    for label, report_path in _generate_verify_reports(
+        result, results_dir, getattr(args, "translate_report", False)
+    ):
+        print(f"Report ({label}): {report_path}")
 
     return 0
 
