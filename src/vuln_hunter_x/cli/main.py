@@ -454,6 +454,12 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     output_group.add_argument("-q", "--quiet", action="store_true", help="Minimal output")
     output_group.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     output_group.add_argument("--log-file", type=Path, help="Save LLM conversations to file")
+    output_group.add_argument(
+        "--translate-report",
+        action="store_true",
+        help="Also generate the translated (Vietnamese) report — off by default "
+        "(the English report is always written)",
+    )
     output_group.add_argument("--dry-run", action="store_true", help="Show what would be processed")
 
 
