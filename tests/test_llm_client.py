@@ -259,3 +259,17 @@ class TestLLMClientKwargs:
         kwargs = client._build_completion_kwargs([{"role": "user", "content": "ok"}])
 
         assert kwargs["enable_thinking"] is True
+
+    def test_build_completion_kwargs_sets_request_timeout(self):
+        client = LLMClient(provider="openai", model="gpt-4o", request_timeout=42.0)
+
+        kwargs = client._build_completion_kwargs([{"role": "user", "content": "ok"}])
+
+        assert kwargs["timeout"] == 42.0
+
+    def test_build_completion_kwargs_defaults_request_timeout(self):
+        client = LLMClient(provider="openai", model="gpt-4o")
+
+        kwargs = client._build_completion_kwargs([{"role": "user", "content": "ok"}])
+
+        assert kwargs["timeout"] == 180.0

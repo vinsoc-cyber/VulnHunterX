@@ -247,6 +247,11 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
             "model": llm_model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": min(8000, len(numbered) * 3),
+            # Bound the call so the worker terminates; otherwise the wall-clock
+            # guard below fires but shutdown(wait=True) re-blocks on a worker
+            # still waiting on litellm's default timeout (~600s, or forever on a
+            # byte-trickling proxy) — deadlocking verify (#127).
+            "timeout": 120,
         }
         if api_base:
             kwargs["api_base"] = api_base

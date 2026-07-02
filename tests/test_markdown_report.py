@@ -144,3 +144,36 @@ class TestFindingsOverviewSection:
         severity_pos = body.find("## Severity Breakdown")
         exec_pos = body.find("## Executive Summary")
         assert exec_pos < overview_pos < severity_pos
+
+
+def test_translate_dynamic_text_bounds_litellm_call_with_timeout(monkeypatch):
+    """#127: the opt-in translation path must pass an explicit timeout to
+    litellm.completion. Otherwise the wall-clock guard fires but the still-running
+    worker keeps litellm's default timeout, and shutdown(wait=True) re-blocks —
+    deadlocking verify."""
+    from types import SimpleNamespace
+
+    import litellm
+
+    from vuln_hunter_x.reporting.markdown import _translate_dynamic_text
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+
+    captured: dict = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="[1] xin chào"))]
+        )
+
+    monkeypatch.setattr(litellm, "completion", fake_completion)
+
+    result = _translate_dynamic_text(["hello"], "vi")
+
+    assert captured.get("timeout") is not None
+    assert result == ["xin chào"]

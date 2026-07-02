@@ -400,3 +400,19 @@ class TestDowngradeLocalPrototypePollution:
         )
         out = _downgrade_local_prototype_pollution(v)
         assert out.confidence == "High"
+
+
+class TestRequestTimeoutWiring:
+    """Regression (#127): the engine must thread the configured request_timeout
+    down to the LLM client so one stuck completion is bounded instead of
+    hanging the entire verification run."""
+
+    def test_engine_passes_request_timeout_to_client(self):
+        from vuln_hunter_x.core.config import load_config
+
+        config = load_config()
+        config.llm.request_timeout = 77.0
+
+        engine = VerificationEngine(config)
+
+        assert engine.llm_client.request_timeout == 77.0

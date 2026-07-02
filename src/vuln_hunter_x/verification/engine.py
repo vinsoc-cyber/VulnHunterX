@@ -753,6 +753,7 @@ class VerificationEngine:
             temperature=config.llm.temperature,
             max_tokens=config.llm.max_tokens,
             num_retries=config.llm.num_retries,
+            request_timeout=config.llm.request_timeout,
             ollama_api_keys=config.llm.ollama_api_keys,
             ollama_key_state_path=config.paths.output_dir / ".ollama_key_state.json",
         )
