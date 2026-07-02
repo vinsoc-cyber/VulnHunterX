@@ -1,0 +1,80 @@
+name: Tech debt / Refactor
+description: Internal code-quality work — a refactor, cleanup, dead-code removal, or latent-defect hardening with no new user-facing behavior
+title: "[Tech Debt] "
+labels: ["tech-debt"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for **internal code-quality work** — a refactor, cleanup, dead-code removal, or hardening of a latent/internal defect where the goal is a healthier codebase rather than new user-facing behavior.
+
+        > Something is **visibly broken** for users? Use the **Bug report** form.
+        > Want a **new capability** or detection the tool lacks? Use the **Feature request** form.
+        > VulnHunterX **mis-triaged a finding**? Use the **Verdict / false-positive report** or **Verdict pattern** form.
+  - type: textarea
+    id: current-state
+    attributes:
+      label: Current state / smell
+      description: What is wrong with the code today, and where? Cite file:line.
+      placeholder: e.g. `ContextExtractor._resolve_path` (src/vuln_hunter_x/context/extractor.py:141) ignores `repo_name` and returns the FIRST repo dir whose relative path matches — a cross-repo collision when two repos under one language share a path.
+    validations:
+      required: true
+  - type: dropdown
+    id: motivation
+    attributes:
+      label: Primary motivation
+      description: Why does this matter?
+      options:
+        - "Correctness — fixes a latent / edge-case defect"
+        - "Maintainability — clarity, coupling, file size, naming"
+        - "Performance"
+        - "Dead code / cleanup"
+        - "Testability — make the code easier to test"
+    validations:
+      required: true
+  - type: textarea
+    id: why-it-matters
+    attributes:
+      label: Why it matters
+      description: The concrete cost of leaving it — the bug it can cause, the change it slows down, or the confusion it creates.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-change
+    attributes:
+      label: Proposed change
+      description: The refactor / cleanup you propose. Behavior should be preserved unless this is correctness-hardening — if behavior changes, say so explicitly.
+    validations:
+      required: false
+  - type: textarea
+    id: blast-radius
+    attributes:
+      label: Blast radius / risk
+      description: What does this touch — files, call sites, public interfaces? Any backward-compatibility concerns?
+      placeholder: e.g. only `_resolve_path` + its two callers; thread `repo_name` into the lookup and cache key. No public API change.
+    validations:
+      required: false
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification plan
+      description: How will we confirm behavior is preserved (or correctly changed)? Name the tests to add or run.
+      placeholder: e.g. unit test — two repos under `python/` sharing `app.py` resolve to the one matching `repo_name`; existing extractor tests stay green.
+    validations:
+      required: false
+  - type: input
+    id: target-files
+    attributes:
+      label: Affected files / area
+      placeholder: e.g. src/vuln_hunter_x/context/extractor.py
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Please confirm
+      options:
+        - label: I have searched existing issues for this refactor / tech-debt item.
+          required: true
+        - label: This is internal code quality — no new user-facing feature is intended (or I noted the behavior change above).
+          required: true

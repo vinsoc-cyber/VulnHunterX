@@ -324,6 +324,7 @@ class LLMClient:
         force_decision: bool = True,
         prefetched_context: dict[str, str] | None = None,
         temperature: float | None = None,
+        context_start_line: int = 1,
     ) -> Verdict:
         """
         Analyze a finding and return a verdict.
@@ -349,7 +350,7 @@ class LLMClient:
         Returns:
             Verdict with the analysis result (includes confidence_score 0.0-1.0)
         """
-        user_prompt = self.prompt_builder.build_user_prompt(finding, context, questions, func_name)
+        user_prompt = self.prompt_builder.build_user_prompt(finding, context, questions, func_name, context_start_line)
 
         # Append pre-fetched context to initial prompt
         if prefetched_context:
@@ -743,6 +744,7 @@ class LLMClient:
         quiet: bool = False,
         force_decision: bool = True,
         prefetched_context: dict[str, str] | None = None,
+        context_start_line: int = 1,
     ) -> Verdict:
         """Self-consistency (CISC-style) voting over N independent analyses.
 
@@ -789,6 +791,7 @@ class LLMClient:
                 quiet=quiet,
                 force_decision=force_decision,
                 prefetched_context=prefetched_context,
+                context_start_line=context_start_line,
             )
 
         # Sample N runs at the elevated voting temperature. Threaded through
@@ -809,6 +812,7 @@ class LLMClient:
                 force_decision=force_decision,
                 prefetched_context=prefetched_context,
                 temperature=voting_temperature,
+                context_start_line=context_start_line,
             )
             verdicts.append(v)
 
@@ -967,6 +971,7 @@ class LLMClient:
         log_file: Any | None = None,
         prefetched_context: dict[str, str] | None = None,
         challenge_prompt: str | None = None,
+        context_start_line: int = 1,
     ) -> Verdict:
         """One-shot re-prompt for a previously committed verdict.
 
@@ -983,7 +988,7 @@ class LLMClient:
         re-decides on a thinner prompt and can overturn a correct verdict.
         """
         user_prompt = self.prompt_builder.build_user_prompt(
-            finding, context, questions, func_name
+            finding, context, questions, func_name, context_start_line
         )
         if prefetched_context:
             prefetch_parts = [

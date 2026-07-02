@@ -1219,6 +1219,7 @@ class VerificationEngine:
             verdict = self.llm_client.analyze_with_voting(
                 finding=finding,
                 context=context_result.code,
+                context_start_line=context_result.start_line,
                 questions=questions,
                 func_name=context_result.function_name,
                 samples=sc_samples,
@@ -1244,6 +1245,7 @@ class VerificationEngine:
             verdict = self.llm_client.analyze(
                 finding=finding,
                 context=context_result.code,
+                context_start_line=context_result.start_line,
                 questions=questions,
                 func_name=context_result.function_name,
                 context_provider=effective_provider,
@@ -1322,6 +1324,7 @@ class VerificationEngine:
                 verdict = self.llm_client.request_second_opinion(
                     finding=finding,
                     context=context_result.code,
+                    context_start_line=context_result.start_line,
                     questions=questions,
                     func_name=context_result.function_name,
                     previous_verdict=verdict,

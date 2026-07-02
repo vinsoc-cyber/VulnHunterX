@@ -1,0 +1,126 @@
+name: Bug report
+description: Something isn't working
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+
+        **Before you file, please check:**
+        - The [Quick Start](https://github.com/vinsoc-cyber/VulnHunterX#quick-start) and [Troubleshooting](https://github.com/vinsoc-cyber/VulnHunterX#troubleshooting) sections.
+        - [Existing issues](https://github.com/vinsoc-cyber/VulnHunterX/issues) and [discussions](https://github.com/vinsoc-cyber/VulnHunterX/discussions).
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is. Add screenshots if they help.
+      placeholder: When I run ... VulnHunterX does ...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run '...'
+        2. With config '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command run
+      description: The exact VulnHunterX command you ran.
+      render: bash
+      placeholder: vuln-hunter-x scan --repo ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output
+      description: Console error output and any relevant SARIF or verdict output.
+      render: bash
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which component does this affect? A best guess is fine.
+      options:
+        - CodeQL
+        - Semgrep
+        - OpenGrep
+        - Custom detection rules
+        - LLM verification / triage
+        - SARIF parsing
+        - CLI
+        - Fuzzing
+        - Reporting
+        - Configuration
+        - Other / not sure
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: VulnHunterX version / commit
+      description: Run `pip show vulnhunterx` for the version, or paste the git commit.
+      placeholder: e.g. 0.1.0 (commit eda2fd0)
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: e.g. 3.12.3
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: e.g. Ubuntu 24.04
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: SAST engine
+      description: Which static-analysis engine was in use?
+      options:
+        - CodeQL
+        - Semgrep
+        - OpenGrep
+        - Multiple
+        - N/A
+    validations:
+      required: true
+  - type: input
+    id: llm
+    attributes:
+      label: LLM provider + model
+      description: The provider and model used for verification, if reached.
+      placeholder: e.g. anthropic / claude-opus-4-8
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Please confirm
+      options:
+        - label: I have searched existing issues and discussions for this problem.
+          required: true
+        - label: I have updated the title above with a concise description.
+          required: true

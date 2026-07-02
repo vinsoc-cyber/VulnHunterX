@@ -2,7 +2,6 @@
 repos/
 output/
 .codeql_build.sh
-.github/
 # Env and build
 .env
 .mypy_cache/
@@ -35,3 +34,4 @@ benchmarks/config/models.yaml
 CLAUDE.md
 .ruff_cache/
 docs/paper/
+docs/superpowers/
