@@ -45,7 +45,12 @@ class LLMConfig:
     temperature: float = DEFAULT_LLM_TEMPERATURE
     max_tokens: int = DEFAULT_LLM_MAX_TOKENS
     ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
-    num_retries: int = 5
+    num_retries: int = 1
+    # Per-request LLM timeout (seconds) forwarded to litellm.completion so a
+    # stuck call is bounded instead of hanging the whole run (#127). litellm
+    # retries a Timeout up to num_retries times, so the worst-case wall-clock
+    # per call-site is roughly request_timeout * (num_retries + 1).
+    request_timeout: float = 180.0
     # Ollama Cloud key pool. When two or more keys are configured (via
     # OLLAMA_API_KEYS=k1,k2,k3) LLMClient round-robins across them and parks
     # any key that returns 429. A single key is used directly without rotation.
@@ -188,7 +193,8 @@ class Config:
             temperature=data.get("temperature", DEFAULT_LLM_TEMPERATURE),
             max_tokens=data.get("max_tokens", DEFAULT_LLM_MAX_TOKENS),
             ollama_base_url=ollama_url,
-            num_retries=int(data.get("num_retries", 5)),
+            num_retries=int(data.get("num_retries", 1)),
+            request_timeout=float(data.get("request_timeout", 180.0)),
             ollama_api_keys=_load_ollama_api_keys(),
         )
 
@@ -279,6 +285,8 @@ class Config:
             temperature=kwargs.get("temperature", self.llm.temperature),
             max_tokens=kwargs.get("max_tokens", self.llm.max_tokens),
             ollama_base_url=kwargs.get("ollama_base_url", self.llm.ollama_base_url),
+            num_retries=kwargs.get("num_retries", self.llm.num_retries),
+            request_timeout=kwargs.get("request_timeout", self.llm.request_timeout),
             ollama_api_keys=kwargs.get("ollama_api_keys", self.llm.ollama_api_keys),
         )
 
