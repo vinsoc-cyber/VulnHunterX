@@ -37,6 +37,14 @@ TIMEOUT_CODEQL_FINALIZE = 120  # 2 minutes
 TIMEOUT_SEMGREP_ANALYSIS = 3600  # 1 hour
 TIMEOUT_SANITIZED_BUILD = 1800  # 30 minutes
 
+# ── LLM request timeouts (seconds, forwarded to litellm.completion) ───
+# Distinct from the subprocess timeouts above. The verify path is bounded by
+# the configurable LLMConfig.request_timeout (#127); these bound the direct
+# litellm.completion calls that do NOT go through LLMClient, so a stalled
+# backend can't hang the process (#131).
+TIMEOUT_LLM_HEALTH_CHECK = 30  # `vhx check` connectivity pings (max_tokens=10) — fail fast
+TIMEOUT_LLM_REQUEST = 180  # CodeQL build-help + fuzz driver-fix; mirrors LLMConfig.request_timeout default
+
 # ── CodeQL resource defaults ──────────────────────────────────────────
 CODEQL_THREADS = min(max(1, multiprocessing.cpu_count()), 8)  # cap at 8 to limit memory pressure
 CODEQL_RAM_MB = 8192  # 8 GB — gives JVM ~3.6 GB heap for caching query stages

@@ -107,7 +107,22 @@ class TestConfig:
         assert config.llm.provider == "ollama"
         assert config.llm.model == "ollama/llama3.2"
         assert config.verification.max_iterations == 5
-    
+
+    def test_default_request_timeout(self):
+        config = Config()
+
+        assert config.llm.request_timeout == 180.0
+
+    def test_default_num_retries(self):
+        config = Config()
+
+        assert config.llm.num_retries == 1
+
+    def test_request_timeout_from_dict(self):
+        config = Config.from_dict({"request_timeout": 90})
+
+        assert config.llm.request_timeout == 90.0
+
     def test_config_merge(self):
         config = Config()
         merged = config.merge_with_args(provider="ollama", max_iterations=7)
@@ -116,6 +131,48 @@ class TestConfig:
         assert merged.verification.max_iterations == 7
         # Original unchanged
         assert config.llm.provider == "openai"
+
+    def test_merge_with_args_preserves_request_timeout(self):
+        config = Config.from_dict({"request_timeout": 90})
+
+        merged = config.merge_with_args(provider="ollama")
+
+        assert merged.llm.request_timeout == 90.0
+
+    def test_merge_with_args_preserves_num_retries(self):
+        config = Config.from_dict({"num_retries": 3})
+
+        merged = config.merge_with_args(provider="ollama")
+
+        assert merged.llm.num_retries == 3
+
+    def test_merge_with_args_preserves_self_consistency_samples(self):
+        config = Config.from_dict({"self_consistency_samples": 5})
+
+        merged = config.merge_with_args(provider="ollama")
+
+        assert merged.verification.self_consistency_samples == 5
+
+    def test_merge_with_args_preserves_self_consistency_temperature(self):
+        config = Config.from_dict({"self_consistency_temperature": 0.2})
+
+        merged = config.merge_with_args(provider="ollama")
+
+        assert merged.verification.self_consistency_temperature == 0.2
+
+    def test_merge_with_args_preserves_self_consistency_tie_break(self):
+        config = Config.from_dict({"self_consistency_tie_break": "tp"})
+
+        merged = config.merge_with_args(provider="ollama")
+
+        assert merged.verification.self_consistency_tie_break == "tp"
+
+    def test_merge_with_args_preserves_jobs(self):
+        config = Config.from_dict({"jobs": 8})
+
+        merged = config.merge_with_args(provider="ollama")
+
+        assert merged.verification.jobs == 8
 
 
 class TestQuestionsLoader:

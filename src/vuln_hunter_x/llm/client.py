@@ -91,7 +91,8 @@ class LLMClient:
         model: str = DEFAULT_LLM_MODEL,
         temperature: float = DEFAULT_LLM_TEMPERATURE,
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
-        num_retries: int = 5,
+        num_retries: int = 1,
+        request_timeout: float = 180.0,
         ollama_api_keys: list[str] | None = None,
         ollama_key_state_path: str | os.PathLike[str] | None = None,
     ):
@@ -105,6 +106,9 @@ class LLMClient:
             num_retries: Times LiteLLM will retry transient failures
                 (RateLimitError, APIConnectionError, Timeout, InternalServerError)
                 with exponential backoff and Retry-After honored. 0 disables.
+            request_timeout: Per-request timeout (seconds) forwarded to
+                litellm.completion so a stuck call raises Timeout instead of
+                hanging the run (#127). Retries multiply the effective ceiling.
             ollama_api_keys: Optional list of Ollama Cloud API keys (sourced
                 from ``OLLAMA_API_KEYS`` as comma-separated values). When 2+
                 keys are provided and the model targets Ollama Cloud, requests
@@ -116,6 +120,7 @@ class LLMClient:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.num_retries = num_retries
+        self.request_timeout = request_timeout
         self.prompt_builder = PromptBuilder()
 
         # Configure provider-specific settings
@@ -214,6 +219,7 @@ class LLMClient:
             "messages": messages,
             "temperature": self.temperature if temperature is None else temperature,
             "max_tokens": self.max_tokens,
+            "timeout": self.request_timeout,
         }
         if api_base:
             kwargs["api_base"] = api_base

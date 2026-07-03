@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from vuln_hunter_x.core.constants import TIMEOUT_CODEQL_DB_CREATE
+from vuln_hunter_x.core.constants import TIMEOUT_CODEQL_DB_CREATE, TIMEOUT_LLM_REQUEST
 from vuln_hunter_x.core.validation import (
     normalize_ollama_model,
     openai_compat_kwargs,
@@ -215,6 +215,7 @@ Be specific and actionable. Include exact commands to run."""
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 1200,
+            "timeout": TIMEOUT_LLM_REQUEST,
         }
         if use_ollama and api_base:
             kwargs["api_base"] = api_base.rstrip("/")

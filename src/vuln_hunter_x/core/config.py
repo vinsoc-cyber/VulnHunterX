@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +45,12 @@ class LLMConfig:
     temperature: float = DEFAULT_LLM_TEMPERATURE
     max_tokens: int = DEFAULT_LLM_MAX_TOKENS
     ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
-    num_retries: int = 5
+    num_retries: int = 1
+    # Per-request LLM timeout (seconds) forwarded to litellm.completion so a
+    # stuck call is bounded instead of hanging the whole run (#127). litellm
+    # retries a Timeout up to num_retries times, so the worst-case wall-clock
+    # per call-site is roughly request_timeout * (num_retries + 1).
+    request_timeout: float = 180.0
     # Ollama Cloud key pool. When two or more keys are configured (via
     # OLLAMA_API_KEYS=k1,k2,k3) LLMClient round-robins across them and parks
     # any key that returns 429. A single key is used directly without rotation.
@@ -188,7 +193,8 @@ class Config:
             temperature=data.get("temperature", DEFAULT_LLM_TEMPERATURE),
             max_tokens=data.get("max_tokens", DEFAULT_LLM_MAX_TOKENS),
             ollama_base_url=ollama_url,
-            num_retries=int(data.get("num_retries", 5)),
+            num_retries=int(data.get("num_retries", 1)),
+            request_timeout=float(data.get("request_timeout", 180.0)),
             ollama_api_keys=_load_ollama_api_keys(),
         )
 
@@ -271,42 +277,27 @@ class Config:
         return cls.from_dict(data, base_path)
 
     def merge_with_args(self, **kwargs) -> Config:
-        """Merge config with command-line arguments."""
-        # Create a copy with updated values
-        llm = LLMConfig(
-            provider=kwargs.get("provider", self.llm.provider),
-            model=kwargs.get("model", self.llm.model),
-            temperature=kwargs.get("temperature", self.llm.temperature),
-            max_tokens=kwargs.get("max_tokens", self.llm.max_tokens),
-            ollama_base_url=kwargs.get("ollama_base_url", self.llm.ollama_base_url),
-            ollama_api_keys=kwargs.get("ollama_api_keys", self.llm.ollama_api_keys),
-        )
+        """Merge config with command-line arguments.
 
-        verification = VerificationConfig(
-            max_iterations=kwargs.get("max_iterations", self.verification.max_iterations),
-            force_decision=kwargs.get("force_decision", self.verification.force_decision),
-        )
+        Copy every field of each sub-config, overlaying only the overrides
+        actually passed. ``kwargs`` is a flat dict mixing keys for all
+        sub-configs, so each ``replace`` is filtered to that sub-config's own
+        field names — a blind ``replace(sub, **kwargs)`` raises TypeError on a
+        foreign key, and hand-listing fields silently drops any not listed (the
+        regression this replaced, #132). Field names don't currently collide
+        across sub-configs; route by explicit key lists if that ever changes.
+        """
 
-        output = OutputConfig(
-            verbosity=kwargs.get("verbosity", self.output.verbosity),
-            log_file=kwargs.get("log_file", self.output.log_file),
-        )
-
-        fuzz = FuzzConfig(
-            max_fix_iterations=kwargs.get("max_fix_iterations", self.fuzz.max_fix_iterations),
-            extra_include_dirs=kwargs.get("extra_include_dirs", self.fuzz.extra_include_dirs),
-            extra_lib_dirs=kwargs.get("extra_lib_dirs", self.fuzz.extra_lib_dirs),
-            extra_link_libs=kwargs.get("extra_link_libs", self.fuzz.extra_link_libs),
-            extra_cflags=kwargs.get("extra_cflags", self.fuzz.extra_cflags),
-            extra_ldflags=kwargs.get("extra_ldflags", self.fuzz.extra_ldflags),
-        )
+        def _own(sub) -> dict[str, Any]:
+            names = {f.name for f in fields(sub)}
+            return {k: v for k, v in kwargs.items() if k in names}
 
         return Config(
-            llm=llm,
-            verification=verification,
+            llm=replace(self.llm, **_own(self.llm)),
+            verification=replace(self.verification, **_own(self.verification)),
             paths=self.paths,
-            output=output,
-            fuzz=fuzz,
+            output=replace(self.output, **_own(self.output)),
+            fuzz=replace(self.fuzz, **_own(self.fuzz)),
             limit=kwargs.get("limit", self.limit),
             languages=kwargs.get("languages", self.languages),
             repositories=kwargs.get("repositories", self.repositories),

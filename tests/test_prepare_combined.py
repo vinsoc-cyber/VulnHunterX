@@ -12,7 +12,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vuln_hunter_x.cli.commands import _run_context_extraction, cmd_prepare
-from vuln_hunter_x.codeql.repository import RepositoryManager, _has_source_files, detect_build_command
+from vuln_hunter_x.codeql.repository import (
+    RepositoryManager,
+    _has_source_files,
+    ask_llm_for_build_help,
+    detect_build_command,
+)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -514,3 +519,30 @@ class TestCloneAndCreateDbPreFlight:
 
         assert ok is False
         assert "go mod download" in msg or "go mod vendor" in msg
+
+
+def test_ask_llm_for_build_help_bounds_completion_with_timeout(monkeypatch):
+    """#131: the CodeQL build-help request must pass an explicit timeout so a
+    stalled backend can't hang database prep."""
+    import sys
+    from types import SimpleNamespace
+
+    captured: dict = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="do X"))]
+        )
+
+    monkeypatch.setitem(sys.modules, "litellm", SimpleNamespace(completion=fake_completion))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+
+    result = ask_llm_for_build_help("myrepo", "cpp", "make", "error text")
+
+    assert result == "do X"
+    assert captured.get("timeout") is not None
+    assert captured["timeout"] > 0

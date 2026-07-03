@@ -24,7 +24,7 @@ from vuln_hunter_x.fuzz.driver_generator import (
 )
 from vuln_hunter_x.fuzz.fuzz_context import get_target_context, load_enums, load_typedefs
 from vuln_hunter_x.fuzz.target_selection import score_target
-from vuln_hunter_x.fuzz.driver_fix_loop import classify_errors
+from vuln_hunter_x.fuzz.driver_fix_loop import classify_errors, make_llm_fix_fn
 
 
 def _write_csv(path: Path, rows: list[dict], fieldnames: list[str] | None = None) -> None:
@@ -373,3 +373,29 @@ class TestGetTargetContextEnriched:
             ctx_dir,
         )
         assert "Config" in ctx["struct_defs"]
+
+
+def test_make_llm_fix_fn_bounds_completion_with_timeout(monkeypatch):
+    """#131: the fuzz driver-fix completer must pass an explicit timeout so a
+    stalled backend can't wedge the fix loop."""
+    import sys
+    from types import SimpleNamespace
+
+    captured: dict = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[{"message": {"content": "```cpp\nint main(){}\n```"}}]
+        )
+
+    monkeypatch.setitem(sys.modules, "litellm", SimpleNamespace(completion=fake_completion))
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+
+    complete = make_llm_fix_fn(provider="openai", model="gpt-4o")
+    result = complete("int main(){}", "some error", "clang++ x.cpp")
+
+    assert captured.get("timeout") is not None
+    assert captured["timeout"] > 0
+    assert "int main" in result
