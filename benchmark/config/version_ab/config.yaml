@@ -4,6 +4,12 @@ temperature: 0
 max_cost: 25
 max_iterations: 5
 
+# Concurrent findings verified per target (engine ThreadPoolExecutor workers).
+# Findings are I/O-bound on the LLM endpoint, so this scales wall-clock almost
+# linearly until the provider rate-limits. Verdict-neutral (safe to change
+# between A/B runs). Engine default is 4 when unset.
+jobs: 10
+
 # Engine working directory: the verifier writes its raw output/ tree, repos/
 # symlinks, and LLM logs here. The scored verdicts are also copied (flat) into
 # benchmark/output/version_ab/<version>/<target>/.

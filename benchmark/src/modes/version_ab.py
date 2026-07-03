@@ -127,6 +127,54 @@ def build_score(raw_dir: Path, real_keys: set, meta: dict) -> dict:
     return {"meta": meta, "findings": findings, "aggregates": aggregate(findings, len(real_keys))}
 
 
+def render_verdict_md(j: dict, truth: str, g: str) -> str:
+    """One finding's LLM reasoning as readable, diffable markdown."""
+    f = j["finding"]
+    nv = normalize_verdict(j.get("verdict", "?"))
+    cs = j.get("confidence_score")
+    conf = f"{j.get('confidence')}" + (f" ({cs})" if cs is not None else "")
+    lines = [
+        f"# {f['rule_id']} @ {f['file']}:{f['start_line']}", "",
+        f"**Verdict:** {nv} · **Confidence:** {conf} · **Truth:** {truth} · "
+        f"**Grade:** {g} · **Iterations:** {j.get('iterations')}", "",
+        "## Reasoning", "", (j.get("reasoning") or "_(none)_"),
+    ]
+    if j.get("data_flow"):
+        lines += ["", "## Data flow", "", j["data_flow"]]
+    if j.get("answers"):
+        lines += ["", "## Answers", ""] + [f"{i}. {a}" for i, a in enumerate(j["answers"], 1)]
+    if j.get("context_needed"):
+        lines += ["", "## Context needed", ""] + [f"- {c}" for c in j["context_needed"]]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_verdicts(raw_dir: Path, real_keys: set, dest: Path) -> int:
+    """Persist each graded finding's reasoning as one markdown file under dest/.
+    Skips error stubs (e.g. provider 503s, which carry no real reasoning); when
+    every finding errored, leaves any prior verdicts untouched. Returns count."""
+    raw_dir, dest = Path(raw_dir), Path(dest)
+    out = []
+    for jf in sorted(raw_dir.glob("*.json")):
+        if jf.name.startswith(("summary_", "report")):
+            continue
+        j = json.loads(jf.read_text())
+        nv = normalize_verdict(j.get("verdict", "?"))
+        if nv not in ("TP", "FP", "NMD"):  # error stub — not real reasoning
+            continue
+        f = j["finding"]
+        key = (f["rule_id"].strip(), str(f["file"]).strip(), int(f["start_line"]))
+        truth = "real" if key in real_keys else "not-real"
+        out.append((jf.stem, render_verdict_md(j, truth, grade(nv, truth))))
+    if not out:
+        return 0
+    dest.mkdir(parents=True, exist_ok=True)
+    for old in dest.glob("*.md"):  # replace stale reasoning from a prior run
+        old.unlink()
+    for stem, md in out:
+        (dest / f"{stem}.md").write_text(md)
+    return len(out)
+
+
 CONFOUND_KEYS = ("provider", "model", "temperature", "panel_hash")
 
 
@@ -298,6 +346,10 @@ class Harness(harness.Harness):
         work = self._work_dir(cfg, raw_dir)
         work.mkdir(parents=True, exist_ok=True)
         eng = work / "output" / lang / name
+        # The engine opens its log (output/llm_conversations.md) and writes results
+        # under this tree relative to cwd; it must exist even for a target with no
+        # context dir (e.g. dvwa), which otherwise never triggers the mkdir below.
+        eng.mkdir(parents=True, exist_ok=True)
         if context_dir and Path(context_dir).is_dir():
             dst = eng / "context"
             if dst.exists():
@@ -314,6 +366,8 @@ class Harness(harness.Harness):
                "--provider", cfg["provider"], "--model", cfg["model"],
                "--temperature", str(cfg["temperature"]),
                "--max-iterations", str(cfg["max_iterations"]), "-q"]
+        if cfg.get("jobs"):  # concurrent findings per target; engine defaults to 4 when unset
+            cmd += ["--jobs", str(cfg["jobs"])]
         self._invoke(cmd, cwd=str(work))
         raw_dir.mkdir(parents=True, exist_ok=True)
         cost = 0.0
@@ -462,6 +516,7 @@ def run(args, bench_root) -> int:
                     tdir.mkdir(parents=True, exist_ok=True)
                     (tdir / "score.json").write_text(json.dumps(score, indent=2))
                     (tdir / "score.md").write_text(scorer.render_score(score))
+                    write_verdicts(raw_dir, real_keys, tdir / "verdicts")
                     a = score["aggregates"]
                     print(f"[{target}] precision={_pct(a['precision'])} recall={_pct(a['recall'])} ${cost}")
                 finally:  # always reclaim temp clone + (when discarding) temp raw_dir
