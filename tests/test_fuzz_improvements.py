@@ -399,3 +399,30 @@ def test_make_llm_fix_fn_bounds_completion_with_timeout(monkeypatch):
     assert captured.get("timeout") is not None
     assert captured["timeout"] > 0
     assert "int main" in result
+
+
+def test_make_llm_fix_fn_gemini_routes_natively(monkeypatch):
+    """Gemini gets the gemini/ prefix, an explicitly injected key (GEMINI wins
+    over GOOGLE), and no OpenAI-compat kwargs."""
+    import sys
+    from types import SimpleNamespace
+
+    captured: dict = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[{"message": {"content": "```cpp\nint main(){}\n```"}}]
+        )
+
+    monkeypatch.setitem(sys.modules, "litellm", SimpleNamespace(completion=fake_completion))
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
+
+    complete = make_llm_fix_fn(provider="gemini", model="gemini-2.5-flash")
+    result = complete("int main(){}", "some error", "clang++ x.cpp")
+
+    assert captured["model"] == "gemini/gemini-2.5-flash"
+    assert captured["api_key"] == "gemini-key"
+    assert "enable_thinking" not in captured
+    assert "int main" in result

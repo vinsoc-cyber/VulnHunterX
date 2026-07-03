@@ -177,3 +177,36 @@ def test_translate_dynamic_text_bounds_litellm_call_with_timeout(monkeypatch):
 
     assert captured.get("timeout") is not None
     assert result == ["xin chào"]
+
+
+def test_translate_dynamic_text_gemini_uses_native_route_and_key(monkeypatch):
+    """provider=gemini must route via gemini/<model> with the Gemini key — not
+    fall into the OpenAI-compat path just because OPENAI_API_KEY is also set."""
+    from types import SimpleNamespace
+
+    import litellm
+
+    from vuln_hunter_x.reporting.markdown import _translate_dynamic_text
+
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("LLM_MODEL", "gemini-2.5-flash")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.delenv("GEMINI_API_BASE", raising=False)
+
+    captured: dict = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="[1] xin chào"))]
+        )
+
+    monkeypatch.setattr(litellm, "completion", fake_completion)
+
+    result = _translate_dynamic_text(["hello"], "vi")
+
+    assert captured["model"] == "gemini/gemini-2.5-flash"
+    assert captured["api_key"] == "gemini-key"
+    assert "api_base" not in captured
+    assert result == ["xin chào"]

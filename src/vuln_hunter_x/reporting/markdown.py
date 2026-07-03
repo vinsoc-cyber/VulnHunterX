@@ -180,6 +180,10 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
     # Use same LLM config as the verification engine
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    gemini_key = (
+        os.environ.get("GEMINI_API_KEY", "").strip()
+        or os.environ.get("GOOGLE_API_KEY", "").strip()
+    )
     model = os.environ.get("LLM_MODEL", "")
     provider = os.environ.get("LLM_PROVIDER", "openai").lower()
 
@@ -223,6 +227,13 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
 
         if api_base:
             api_base = api_base.rstrip("/")
+    elif provider == "gemini" and gemini_key:
+        llm_model = model or "gemini-2.5-flash"
+        if not llm_model.startswith("gemini/"):
+            llm_model = "gemini/" + llm_model
+        api_base = (os.environ.get("GEMINI_API_BASE", "").strip() or None)
+        if api_base:
+            api_base = api_base.rstrip("/")
     elif api_key:
         raw = model or "gpt-4o-mini"
         # OpenAI-compatible custom endpoint (e.g. DashScope, Azure)
@@ -257,6 +268,10 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
             kwargs["api_base"] = api_base
         if provider == "anthropic":
             kwargs["api_key"] = anthropic_key
+        elif provider == "gemini" and gemini_key:
+            # Before the generic api_key catch-all so a stray OPENAI_API_KEY
+            # is never attached to a Gemini call.
+            kwargs["api_key"] = gemini_key
         elif provider == "ollama" and ollama_cloud_key:
             kwargs["api_key"] = ollama_cloud_key
         elif api_key and provider != "ollama":
