@@ -1,0 +1,23 @@
+# js/polynomial-redos @ app/routes/session.js:181
+
+**Verdict:** TP · **Confidence:** High (0.88) · **Truth:** real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The additional context does not change the core finding: user-controlled `req.body.email` reaches the flagged regex test at line 181 without any visible length bound, sanitizer, safe-regex replacement, or framework mitigation. Although route binding was not found, no visible defense was provided, and the shown signup handler contains a direct exploitable ReDoS path if invoked.
+
+## Data flow
+
+source `req.body` in `handleSignup` (app/routes/session.js:191-198) → destructured `email` (app/routes/session.js:192) → optional sibling copy to `errors.email` (app/routes/session.js:203) → passed to `validateSignup(..., email, ...)` (app/routes/session.js:206) → `email` parameter in `validateSignup` (app/routes/session.js:138) → regex `EMAIL_RE` defined as `/^[\S]+@[\S]+\.[\S]+$/` (app/routes/session.js:143) → non-empty check only (app/routes/session.js:180) → sink `EMAIL_RE.test(email)` (app/routes/session.js:181)
+
+## Answers
+
+1. Step 0 / flagged line: The flagged line is present in the provided code. Exact text at app/routes/session.js:181 is `if (!EMAIL_RE.test(email)) {`. It is inside the nested helper function `validateSignup` defined within `SessionHandler` at app/routes/session.js:138-187. The construct described by the rule is present: a regular expression test is performed on `email` using `EMAIL_RE` defined at app/routes/session.js:143.
+2. Step 1: The potentially dangerous data originates from user-controlled HTTP request body data. In `handleSignup`, `req.body` is destructured at app/routes/session.js:191-198, and the `email` field is bound at app/routes/session.js:192. The additional context repeats this same caller path and does not show any earlier source transformation.
+3. Step 2: Data flow with additional context: `req.body` at app/routes/session.js:191-198 → destructured variable `email` at app/routes/session.js:192 → copied to `errors.email` at app/routes/session.js:203, which is a sibling flow but not needed for the regex sink → passed as the sixth argument to `validateSignup(userName, firstName, lastName, password, verify, email, errors)` at app/routes/session.js:206 → received as the `email` parameter of `validateSignup` at app/routes/session.js:138 → checked only for non-empty string at app/routes/session.js:180 → used in `EMAIL_RE.test(email)` at app/routes/session.js:181.
+4. Step 3: No adequate validation, sanitization, encoding, or length bound is visible before the regex operation. `EMAIL_RE` is defined at app/routes/session.js:143 as `/^[\S]+@[\S]+\.[\S]+$/`. The checks on username, first name, last name, and password at app/routes/session.js:159-178 do not constrain `email`. The only email-specific precondition is `if (email !== "")` at app/routes/session.js:180, which does not bound the input length or prevent polynomial regex behavior.
+5. Step 4: The sink is app/routes/session.js:181: `if (!EMAIL_RE.test(email)) {`. The unsafe operation is applying the JavaScript regular expression `/^[\S]+@[\S]+\.[\S]+$/` from app/routes/session.js:143 to user-controlled `email`. For this rule, the danger is polynomial-time regular expression matching that can consume excessive CPU on crafted input.
+6. Step 5: No framework or library automatic protection is visible. The requested `global:Express app/body-parser configuration` returned `[Global variable not found: Express app/body-parser configuration]`, and no route setup/body-size-limit context was provided. Therefore, there is no visible request-size limit, regex timeout, safe-regex engine, or middleware validation that would mitigate the ReDoS path.
+7. Step 6: The visible code contains no authentication, authorization, or admin check before `handleSignup` calls `validateSignup` at app/routes/session.js:206. The requested `caller:handleSignup` returned no recorded callers, so the exact route binding is not visible; however, within the shown handler there is no authentication gate before the sink.
+8. Step 7: The concrete security impact is denial of service. A crafted long `email` value can cause slow regex evaluation at app/routes/session.js:181, consuming CPU in the Node.js process and potentially blocking the event loop.
+9. Step 8: The weakest link is the absence of a visible maximum length or safe email parser before the vulnerable regex. The non-empty check at app/routes/session.js:180 is not a meaningful ReDoS defense, and the additional context did not reveal any upstream middleware or body-size constraint.

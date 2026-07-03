@@ -1,0 +1,23 @@
+# php.lang.security.injection.tainted-filename.tainted-filename @ vulnerabilities/view_help.php:20
+
+**Verdict:** FP · **Confidence:** Medium (0.8) · **Truth:** real · **Grade:** MISS · **Iterations:** 3
+
+## Reasoning
+
+The tainted filename pattern is present, but the specific reported vulnerability is CWE-918 SSRF. In the visible code, attacker-controlled `$id` cannot make the `file_get_contents` argument begin with a remote URL scheme because line 20 always prefixes it with the local path `../vulnerabilities/` from lines 3 and 20; remaining path traversal/eval risks are different vulnerability classes, not this SSRF finding.
+
+## Data flow
+
+`$_GET['id']` source in `vulnerabilities/view_help.php` line 14, after only an existence check at line 11 → assigned to `$id` on line 14 → `$locale` from `$_GET['locale']` on line 16 selects the `en` branch at line 19 → `$id` interpolated into `DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/{$id}/help/help.php"` on line 20, with `DVWA_WEB_PAGE_TO_ROOT` defined as `'../'` on line 3 → `file_get_contents(...)` sink on line 20 → returned contents passed to `eval(...)` on line 20. Additional requested context was unavailable and does not alter this visible chain.
+
+## Answers
+
+1. Step 0 / flagged line location: The flagged line is line 20 in `vulnerabilities/view_help.php`: `eval( '?>' . file_get_contents( DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/{$id}/help/help.php" ) . '<?php ' );`. It appears in top-level PHP script scope; no enclosing named function is visible. The rule construct is present: `$id` is interpolated into a filename passed to `file_get_contents(...)`.
+2. Step 1: The dangerous data originates from HTTP query-string user input, specifically `$_GET['id']` assigned to `$id` on line 14. `$_GET['locale']` is also user-controlled on line 16 and affects branch/path selection, though the flagged line 20 uses the `locale == 'en'` branch.
+3. Step 2: Data flow: line 11 checks only that `id` exists in `$_GET`; line 14 assigns `$_GET['id']` to `$id`; line 19 checks whether `$locale == 'en'`; line 20 interpolates `$id` into `"vulnerabilities/{$id}/help/help.php"`; line 20 concatenates that with `DVWA_WEB_PAGE_TO_ROOT`, defined as `'../'` on line 3; line 20 passes the final string to `file_get_contents(...)`; line 20 passes returned contents to `eval(...)`.
+4. Step 3: There is no direct validation, sanitization, allowlist, basename restriction, or canonical-path check applied to `$id` in the visible code. Lines 11-13 are only key-existence checks. However, for the specific CWE-918 SSRF issue, the visible path construction prepends a fixed local relative prefix: `DVWA_WEB_PAGE_TO_ROOT` is `'../'` on line 3 and `"vulnerabilities/"` is prepended before `$id` on line 20. This prevents the complete `file_get_contents` argument from beginning with a URL scheme such as `http://` or `https://`.
+5. Step 4: The sink is `file_get_contents(...)` on line 20. The dangerous operation for this rule is reading a filename/URL influenced by user input; PHP can perform SSRF when `file_get_contents` is given an attacker-controlled remote URL. The same line also uses `eval(...)`, but that is a separate issue from the reported SSRF/tainted-filename finding.
+6. Step 5: The additional context for `function:dvwaPageStartup`, `global:allow_url_fopen`, and `global:DVWA_WEB_PAGE_TO_ROOT` was unavailable, so no framework/library automatic protection can be confirmed from it. The visible protection relevant to this specific SSRF claim is not framework-based; it is the hardcoded local prefix in the filename construction on lines 3 and 20.
+7. Step 6: Line 6 calls `dvwaPageStartup(array('authenticated'))`, suggesting the page requires an authenticated user. The implementation is unavailable, so the exact enforcement details are not visible. No admin-only check is shown.
+8. Step 7: If an attacker controls `$id`, the visible code may create local path traversal / local file inclusion and possibly code execution concerns because file contents are passed to `eval(...)` on line 20. But for the specific reported CWE-918 SSRF issue, the visible argument to `file_get_contents(...)` is forced to start with a local relative path prefix, so attacker control of `$id` does not clearly allow fetching an arbitrary remote URL.
+9. Step 8: The weakest link overall is the lack of validation of `$id` before using it in a filesystem path and evaluating the file contents on line 20. For the reported SSRF class, however, the defense that prevents exploitation is the fixed prefix `../vulnerabilities/` before attacker-controlled `$id`, visible from lines 3 and 20, which prevents attacker input from controlling the URL scheme at the beginning of the `file_get_contents` argument.

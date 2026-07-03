@@ -1,0 +1,23 @@
+# javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp @ vulnerabilities/javascript/source/high.js:1
+
+**Verdict:** FP · **Confidence:** High (0.88) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The non-literal RegExp construct is present, but the dynamic regex component is not attacker-controlled in the visible code: it is generated from a hardcoded numeric loop counter through an alphanumeric-only conversion function on line 1. The resulting pattern is a simple word-boundary token replacement, so the specific CWE-1333/ReDoS path from user-controlled regex syntax is not established.
+
+## Data flow
+
+vulnerabilities/javascript/source/high.js:1 local/static `a` array → line 1 array-rotation IIFE with constant `0x1f4` → line 1 local decoder `b(c,d)` → line 1 unpacker call `eval(function(d,e,f,g,h,i){...}(b('0x7'),0x3e,0x137,b('0x8')[b('0x9')]('|'),0x0,{}))` → line 1 local `h(j)` converts numeric `f` into deterministic alphanumeric token → line 1 sink `new RegExp('\x5cb'+h(f)+'\x5cb','g')`; additional requested context for `global:a`, `function:b`, and `all_callers:<unknown>` was unavailable and adds no new source
+
+## Answers
+
+1. Step 0 / flagged line: The flagged line is present at `vulnerabilities/javascript/source/high.js:1`. It is the single minified line beginning `var a=['fromCharCode','toString','replace','BeJ',...` and it contains the exact reported construct `new RegExp('\x5cb'+h(f)+'\x5cb','g')` inside `d=d[b('0x2')](new RegExp('\x5cb'+h(f)+'\x5cb','g'),g[f]);`. The enclosing function is not named in the snippet; the construct lives inside the immediately invoked unpacker function passed to `eval(...)` on line 1.
+2. Step 1: The new context does not change the source analysis because `global:a`, `function:b`, and `all_callers:<unknown>` are unavailable/out-of-snippet. In the visible code, the regex pattern component originates from local hardcoded unpacker state on line 1: `f` is passed as the constant `0x137`, `e` as `0x3e`, and the replacement table as `b('0x8')[b('0x9')]('|')`. No user input, file, network, or database source is visible.
+3. Step 2: Data flow with additional context included: `a` is initialized as a local/static array on line 1 → an IIFE rotates `a` using hardcoded `0x1f4` on line 1 → local helper `b(c,d)` reads from `a` on line 1 → the unpacker is invoked on line 1 as `eval(function(d,e,f,g,h,i){...}(b('0x7'),0x3e,0x137,b('0x8')[b('0x9')]('|'),0x0,{}))` → inside the unpacker, `h=function(j){...}` is defined on line 1 → `while(f--)` uses the local numeric loop counter `f` on line 1 → `h(f)` is concatenated into `new RegExp('\x5cb'+h(f)+'\x5cb','g')` on line 1.
+4. Step 3: No regex-safety library is used, but the visible transformation is sufficient for this specific reported ReDoS-by-attacker-controlled-pattern issue. `h(j)` derives tokens from a numeric loop counter and base conversion on line 1; for `j % e`, values `0..35` use `toString(0x24)` and values above `0x23` use `String.fromCharCode(j+0x1d)`, producing alphanumeric token characters rather than regex metacharacters. Also, `f` is initialized from hardcoded `0x137`, not visible attacker input.
+5. Step 4: The sink is `new RegExp('\x5cb'+h(f)+'\x5cb','g')` at `vulnerabilities/javascript/source/high.js:1`. The dangerous operation in the abstract is dynamic RegExp construction. In this instance, the generated pattern is structurally `\b` + deterministic alphanumeric token + `\b`, which does not expose attacker-controlled catastrophic-backtracking regex syntax in the visible code.
+6. Step 5: No framework or library automatic protection is visible or relevant. This is direct JavaScript `RegExp` construction and string replacement on line 1.
+7. Step 6: The required privilege/authentication state is not visible in the provided context. The code appears top-level and would execute when the script is loaded, but no route, caller, or authentication boundary is shown.
+8. Step 7: If an attacker controlled the regex pattern, the impact for CWE-1333 would be denial of service by causing expensive regex evaluation on the main thread. In the visible code, attacker control of the pattern is not present, and the pattern component is constrained to deterministic alphanumeric tokens.
+9. Step 8: The weakest-looking point is the dynamic `RegExp` construction on line 1. However, the defense chain is complete for the reported issue in the visible code: the dynamic component comes from a hardcoded bounded loop counter and an alphanumeric-only token generator, so regex metacharacters or attacker-supplied vulnerable regexes cannot reach the sink.

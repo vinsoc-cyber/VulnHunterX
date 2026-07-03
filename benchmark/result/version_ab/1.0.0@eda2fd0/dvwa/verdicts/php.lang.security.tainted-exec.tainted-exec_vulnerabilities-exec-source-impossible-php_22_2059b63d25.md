@@ -1,0 +1,22 @@
+# php.lang.security.tainted-exec.tainted-exec @ vulnerabilities/exec/source/impossible.php:22
+
+**Verdict:** FP · **Confidence:** High (0.87) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The exact flagged construct is present: request-derived data is concatenated into `shell_exec()` on line 22. However, the visible path includes a specific defense: line 15 numerically validates exactly four dot-separated components, and line 17 reconstructs the command argument only from those components, preventing shell metacharacters or arbitrary command strings from reaching the sink for this command-injection rule.
+
+## Data flow
+
+vulnerabilities/exec/source/impossible.php: top-level script/function `<unknown>`: gate `isset($_POST['Submit'])` (line 3) → anti-CSRF call `checkToken(...)` (line 5; body unavailable) → source `$_REQUEST['ip']` assigned to `$target` (line 8) → transform `stripslashes($target)` (line 9) → split `explode('.', $target)` into `$octet` (line 12) → validation `is_numeric($octet[0..3])` and `sizeof($octet) == 4` (line 15) → reconstruction `$target = $octet[0] . '.' . $octet[1] . '.' . $octet[2] . '.' . $octet[3]` (line 17) → flagged sink `$cmd = shell_exec( 'ping  ' . $target );` (line 22)
+
+## Answers
+
+1. Step 1: The potentially dangerous data originates from user-controlled request input: `$_REQUEST['ip']` assigned to `$target` on line 8. The code path is gated by `isset($_POST['Submit'])` on line 3. The additional requested context for PHP globals was unavailable and does not change this source identification.
+2. Step 2: Data flow is: `$_REQUEST['ip']` → `$target` on line 8 → `stripslashes($target)` on line 9 → `explode('.', $target)` into `$octet` on line 12 → numeric checks on `$octet[0]`, `$octet[1]`, `$octet[2]`, `$octet[3]` plus `sizeof($octet) == 4` on line 15 → `$target` reconstructed from those four octets on line 17 → concatenated into the Windows `shell_exec()` sink on line 22, and into the Unix `shell_exec()` sink on line 26. The exact flagged line is line 22: `$cmd = shell_exec( 'ping  ' . $target );`. It lives in top-level script context / function `<unknown>`; no named function is visible.
+3. Step 3: Validation/transformation is visible. `stripslashes()` on line 9 is not sufficient command-injection sanitization. However, line 15 requires all four dot-separated components to be numeric and requires exactly four components, and line 17 reconstructs `$target` only from those checked components. This is not full IPv4 validation because it does not enforce 0–255 integer octets, but for command injection it acts as a whitelist that excludes shell metacharacters such as `;`, `&`, `|`, backticks, `$()`, quotes, and alphabetic payloads needed to append arbitrary commands.
+4. Step 4: The sink is command execution via `shell_exec('ping  ' . $target)` on line 22. A similar command-execution sink exists at `shell_exec('ping  -c 4 ' . $target)` on line 26. The dangerous operation is constructing a shell command string with request-derived data.
+5. Step 5: No automatic framework/library protection for `shell_exec()` is visible. PHP does not automatically escape shell arguments. `checkToken()` on line 5 is an anti-CSRF check, not command-injection sanitization; its implementation was unavailable. The relevant visible defense is the numeric-octet validation on line 15 followed by reconstruction on line 17.
+6. Step 6: The privilege/authentication state required to trigger the code is not visible in provided context. An attacker must be able to send a request with `$_POST['Submit']` set on line 3 and must pass the token check on line 5. Whether that requires authentication or merely a valid session is not visible.
+7. Step 7: If arbitrary shell metacharacters could reach `$target`, the impact would be OS command injection / possible RCE as the PHP web server process. In the shown path, arbitrary command text is blocked by the numeric validation and reconstruction before the `shell_exec()` call.
+8. Step 8: The weakest link is the use of `is_numeric()` instead of strict IPv4 validation, because it can allow non-canonical IP components such as signs, exponent notation, whitespace, or out-of-range values. However, for the specific reported tainted command-execution issue, the defense is sufficient in the visible code because attacker-controlled shell metacharacters and command payloads cannot pass the validation and reconstruction chain.

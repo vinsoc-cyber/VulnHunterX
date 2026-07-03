@@ -1,0 +1,16 @@
+{
+  "previous": "1.0.0@eda2fd0",
+  "current": "1.0.0@795e4fd",
+  "flips": [],
+  "totals": {
+    "flips": 0,
+    "improve": 0,
+    "regress": 0,
+    "neutral": 0
+  },
+  "deltas": {
+    "precision": 0.0,
+    "recall": 0.0
+  },
+  "timestamp": "2026-07-03T12:17:58"
+}
