@@ -228,19 +228,24 @@ def check_gemini(api_key: str | None = None, model: str | None = None) -> tuple[
     """
     Verify Google Gemini (AI Studio) via LiteLLM.
 
+    With a key pool configured (comma-separated GEMINI_API_KEY(S)), each key
+    is probed individually so dead keys are visible before a long run.
+
     Args:
-        api_key: Gemini API key (defaults to GEMINI_API_KEY, then GOOGLE_API_KEY)
+        api_key: Gemini API key (defaults to the GEMINI_API_KEYS /
+            GEMINI_API_KEY pool, then GOOGLE_API_KEY)
         model: Model name to test (defaults to gemini-2.5-flash-lite)
 
     Returns:
         Tuple of (success, message)
     """
-    api_key = (
-        api_key
-        or os.environ.get("GEMINI_API_KEY", "").strip()
-        or os.environ.get("GOOGLE_API_KEY", "").strip()
-    )
-    if not api_key:
+    if api_key:
+        keys = [api_key]
+    else:
+        from vuln_hunter_x.core.config import _load_gemini_api_keys
+
+        keys = _load_gemini_api_keys()
+    if not keys:
         return False, "GEMINI_API_KEY (or GOOGLE_API_KEY) not set"
 
     try:
@@ -253,18 +258,35 @@ def check_gemini(api_key: str | None = None, model: str | None = None) -> tuple[
     if not test_model.startswith("gemini/"):
         test_model = "gemini/" + test_model
 
-    try:
-        resp = litellm.completion(
+    def _ping(key: str):
+        return litellm.completion(
             model=test_model,
             messages=[{"role": "user", "content": "Reply with exactly: OK"}],
-            api_key=api_key,
+            api_key=key,
             max_tokens=10,
             timeout=TIMEOUT_LLM_HEALTH_CHECK,
         )
-        text = (resp.choices[0].message.content or "").strip()
-        return True, f"Gemini ({test_model}): {text[:50]}"
-    except Exception as e:
-        return False, f"Gemini error: {e}"
+
+    if len(keys) == 1:
+        try:
+            resp = _ping(keys[0])
+            text = (resp.choices[0].message.content or "").strip()
+            return True, f"Gemini ({test_model}): {text[:50]}"
+        except Exception as e:
+            return False, f"Gemini error: {e}"
+
+    failures = 0
+    per_key: list[str] = []
+    for key in keys:
+        tail = key[-4:]
+        try:
+            _ping(key)
+            per_key.append(f"…{tail}=OK")
+        except Exception as e:
+            failures += 1
+            per_key.append(f"…{tail}=FAIL ({e})")
+    summary = f"Gemini ({test_model}): {len(keys)} key(s); " + "; ".join(per_key)
+    return failures == 0, summary
 
 
 def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
@@ -492,7 +514,11 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
     # Deliberately does NOT trigger on GOOGLE_API_KEY alone: that variable is
     # commonly set for unrelated Google tooling and the probe costs a request.
     # (check_gemini itself still falls back to GOOGLE_API_KEY when it runs.)
-    if provider == "gemini" or os.environ.get("GEMINI_API_KEY"):
+    if (
+        provider == "gemini"
+        or os.environ.get("GEMINI_API_KEYS")
+        or os.environ.get("GEMINI_API_KEY")
+    ):
         gemini_model = model if provider == "gemini" else None
         ok, msg = check_gemini(model=gemini_model)
         results["gemini"] = (ok, msg)

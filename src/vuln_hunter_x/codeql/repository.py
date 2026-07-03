@@ -182,11 +182,11 @@ def ask_llm_for_build_help(
     ollama_model = os.environ.get("OLLAMA_MODEL", "ollama/llama3.2")
     api_base = os.environ.get("OLLAMA_API_BASE", "").strip()
 
+    from vuln_hunter_x.core.config import _load_gemini_api_keys
+
     provider = os.environ.get("LLM_PROVIDER", "").lower()
-    gemini_key = (
-        os.environ.get("GEMINI_API_KEY", "").strip()
-        or os.environ.get("GOOGLE_API_KEY", "").strip()
-    )
+    _gemini_keys = _load_gemini_api_keys()
+    gemini_key = _gemini_keys[0] if _gemini_keys else ""
     use_gemini = provider == "gemini" and bool(gemini_key)
     use_ollama = not use_gemini and (not api_key or provider == "ollama")
     if use_gemini:

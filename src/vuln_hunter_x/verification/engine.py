@@ -756,6 +756,8 @@ class VerificationEngine:
             request_timeout=config.llm.request_timeout,
             ollama_api_keys=config.llm.ollama_api_keys,
             ollama_key_state_path=config.paths.output_dir / ".ollama_key_state.json",
+            gemini_api_keys=config.llm.gemini_api_keys,
+            gemini_key_state_path=config.paths.output_dir / ".gemini_key_state.json",
         )
 
         # Wire CWE → question mapping if rule_categories.yaml is available.

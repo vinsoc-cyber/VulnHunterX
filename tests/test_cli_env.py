@@ -158,6 +158,7 @@ def test_check_gemini_probe_uses_cheap_model_and_native_route(monkeypatch):
     bounded by a timeout (#131), and never gets OpenAI-compat kwargs."""
     captured: dict = {}
     monkeypatch.setitem(sys.modules, "litellm", _capturing_litellm(captured))
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
 
@@ -174,6 +175,7 @@ def test_check_gemini_probe_uses_cheap_model_and_native_route(monkeypatch):
 def test_check_gemini_prefixes_configured_model(monkeypatch):
     captured: dict = {}
     monkeypatch.setitem(sys.modules, "litellm", _capturing_litellm(captured))
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
 
     ok, _ = check_gemini(model="gemini-2.5-flash")
@@ -187,6 +189,7 @@ def test_check_gemini_key_precedence(monkeypatch):
     reverse, which is why the key is injected explicitly)."""
     captured: dict = {}
     monkeypatch.setitem(sys.modules, "litellm", _capturing_litellm(captured))
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
 
@@ -199,6 +202,7 @@ def test_check_gemini_key_precedence(monkeypatch):
 def test_check_gemini_falls_back_to_google_api_key(monkeypatch):
     captured: dict = {}
     monkeypatch.setitem(sys.modules, "litellm", _capturing_litellm(captured))
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
 
@@ -209,6 +213,7 @@ def test_check_gemini_falls_back_to_google_api_key(monkeypatch):
 
 
 def test_check_gemini_without_keys_fails_with_actionable_message(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
 
@@ -216,6 +221,28 @@ def test_check_gemini_without_keys_fails_with_actionable_message(monkeypatch):
 
     assert ok is False
     assert msg == "GEMINI_API_KEY (or GOOGLE_API_KEY) not set"
+
+
+def test_check_gemini_probes_each_pooled_key(monkeypatch):
+    """A comma-separated key pool gets a per-key probe so dead keys surface."""
+    probed: list[str] = []
+
+    def fake_completion(**kwargs):
+        probed.append(kwargs["api_key"])
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))]
+        )
+
+    monkeypatch.setitem(sys.modules, "litellm", SimpleNamespace(completion=fake_completion))
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "aaaa1111,bbbb2222")
+
+    ok, msg = check_gemini()
+
+    assert ok is True
+    assert probed == ["aaaa1111", "bbbb2222"]
+    assert "2 key(s)" in msg
+    assert "…1111=OK" in msg and "…2222=OK" in msg
 
 
 def _stub_non_llm_checks(monkeypatch):

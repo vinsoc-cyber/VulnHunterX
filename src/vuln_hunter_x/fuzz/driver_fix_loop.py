@@ -298,10 +298,14 @@ def make_llm_fix_fn(
     elif provider == "anthropic":
         model_id = model if model.startswith("anthropic/") else "anthropic/" + model
     elif provider == "gemini":
+        from vuln_hunter_x.core.config import _load_gemini_api_keys
+
         model_id = model if model.startswith("gemini/") else "gemini/" + model
         # Explicit injection: LiteLLM's auto-read is GOOGLE-first, which would
-        # invert the expected GEMINI_API_KEY precedence.
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        # invert the expected GEMINI_API_KEY precedence. The loader also splits
+        # comma-separated pools; the fix loop is sequential, first key suffices.
+        gemini_keys = _load_gemini_api_keys()
+        api_key = gemini_keys[0] if gemini_keys else None
     else:
         model_id = model
 

@@ -36,6 +36,23 @@ def _load_ollama_api_keys() -> list[str]:
     return [k.strip() for k in raw.split(",") if k.strip()]
 
 
+def _load_gemini_api_keys() -> list[str]:
+    """Parse the Gemini (AI Studio) API-key pool.
+
+    ``GEMINI_API_KEYS`` takes precedence; ``GEMINI_API_KEY`` is also accepted
+    and may itself be comma-separated (a real key never contains a comma).
+    ``GOOGLE_API_KEY`` is a single-key fallback. Returns an empty list when
+    nothing is set. With 2+ keys ``LLMClient`` round-robins across them and
+    parks any key that returns 429.
+    """
+    raw = os.environ.get("GEMINI_API_KEYS", "") or os.environ.get("GEMINI_API_KEY", "")
+    keys = [k.strip() for k in raw.split(",") if k.strip()]
+    if keys:
+        return keys
+    single = os.environ.get("GOOGLE_API_KEY", "").strip()
+    return [single] if single else []
+
+
 @dataclass
 class LLMConfig:
     """LLM provider configuration."""
@@ -55,6 +72,9 @@ class LLMConfig:
     # OLLAMA_API_KEYS=k1,k2,k3) LLMClient round-robins across them and parks
     # any key that returns 429. A single key is used directly without rotation.
     ollama_api_keys: list[str] = field(default_factory=list)
+    # Gemini key pool, same semantics (GEMINI_API_KEYS or comma-separated
+    # GEMINI_API_KEY; GOOGLE_API_KEY as single-key fallback).
+    gemini_api_keys: list[str] = field(default_factory=list)
 
     @property
     def is_openai(self) -> bool:
@@ -196,6 +216,7 @@ class Config:
             num_retries=int(data.get("num_retries", 1)),
             request_timeout=float(data.get("request_timeout", 180.0)),
             ollama_api_keys=_load_ollama_api_keys(),
+            gemini_api_keys=_load_gemini_api_keys(),
         )
 
         verification = VerificationConfig(

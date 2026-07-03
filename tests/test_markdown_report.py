@@ -190,6 +190,7 @@ def test_translate_dynamic_text_gemini_uses_native_route_and_key(monkeypatch):
 
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setenv("LLM_MODEL", "gemini-2.5-flash")
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
     monkeypatch.delenv("GEMINI_API_BASE", raising=False)

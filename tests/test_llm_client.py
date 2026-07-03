@@ -287,6 +287,7 @@ class TestLLMClientKwargs:
     def test_gemini_key_precedence_gemini_wins_over_google(self, monkeypatch):
         # LiteLLM's own auto-read is GOOGLE-first; we inject explicitly so the
         # provider-specific GEMINI_API_KEY wins when both are set.
+        monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
         monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
         monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
         client = LLMClient(provider="gemini", model="gemini-2.5-flash")
@@ -296,6 +297,7 @@ class TestLLMClientKwargs:
         assert kwargs["api_key"] == "gemini-key"
 
     def test_gemini_falls_back_to_google_api_key(self, monkeypatch):
+        monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
         client = LLMClient(provider="gemini", model="gemini-2.5-flash")
@@ -304,9 +306,23 @@ class TestLLMClientKwargs:
 
         assert kwargs["api_key"] == "google-key"
 
+    def test_gemini_comma_separated_key_builds_pool(self, monkeypatch):
+        monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
+        monkeypatch.setenv("GEMINI_API_KEY", "k1,k2,k3")
+        client = LLMClient(provider="gemini", model="gemini-2.5-flash")
+
+        kwargs = client._build_completion_kwargs([{"role": "user", "content": "ok"}])
+
+        assert client._key_pool is not None
+        assert len(client._key_pool) == 3
+        assert kwargs["api_key"] in {"k1", "k2", "k3"}
+        # Pool drives retry; LiteLLM's own retry loop is disabled.
+        assert "num_retries" not in kwargs
+
     def test_gemini_kwargs_stay_native(self, monkeypatch):
         # gemini is not OpenAI-compatible: no enable_thinking injection, and
         # no api_base unless GEMINI_API_BASE is explicitly set.
+        monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
         monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
         monkeypatch.delenv("GEMINI_API_BASE", raising=False)
         client = LLMClient(provider="gemini", model="gemini-2.5-flash")

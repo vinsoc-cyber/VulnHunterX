@@ -178,12 +178,12 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
     )
 
     # Use same LLM config as the verification engine
+    from vuln_hunter_x.core.config import _load_gemini_api_keys
+
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    gemini_key = (
-        os.environ.get("GEMINI_API_KEY", "").strip()
-        or os.environ.get("GOOGLE_API_KEY", "").strip()
-    )
+    _gemini_keys = _load_gemini_api_keys()
+    gemini_key = _gemini_keys[0] if _gemini_keys else ""
     model = os.environ.get("LLM_MODEL", "")
     provider = os.environ.get("LLM_PROVIDER", "openai").lower()
 

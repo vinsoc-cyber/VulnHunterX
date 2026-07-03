@@ -416,6 +416,7 @@ def test_make_llm_fix_fn_gemini_routes_natively(monkeypatch):
         )
 
     monkeypatch.setitem(sys.modules, "litellm", SimpleNamespace(completion=fake_completion))
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
 
