@@ -113,3 +113,35 @@ def test_llm_failure_offers_skip_verify(monkeypatch, tmp_path):
 
     assert rc == 0
     assert captured["ns"].skip_verify is True
+
+
+def test_gemini_provider_selection_live_tests_and_propagates(monkeypatch, tmp_path):
+    """Explicitly picking gemini live-tests it via check_gemini and sets ns.provider."""
+    _patch_tools(monkeypatch, semgrep=True)
+    monkeypatch.setattr(envmod, "check_gemini", lambda *a, **k: (True, "Gemini OK"))
+    (tmp_path / "a.py").write_text("x = 1\n")
+    captured = _capture_scan(monkeypatch)
+
+    _feed(
+        monkeypatch,
+        [
+            "2",            # source: local
+            str(tmp_path),  # valid path
+            "3",            # language: python
+            "",             # name
+            "1",            # profile
+            "3",            # analyzer: semgrep
+            "6",            # provider: gemini (appended last in _PROVIDERS)
+            "",             # model (optional, keep default)
+            "",             # limit
+            "y",            # proceed
+        ],
+    )
+
+    rc = interactive.cmd_interactive(argparse.Namespace())
+
+    assert rc == 0
+    ns = captured["ns"]
+    assert ns.provider == "gemini"
+    assert ns.model is None
+    assert ns.skip_verify is False
