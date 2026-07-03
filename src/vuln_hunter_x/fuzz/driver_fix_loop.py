@@ -17,7 +17,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from vuln_hunter_x.core.constants import BUILD_LOG_LLM_PREVIEW_CHARS, DEFAULT_MAX_FIX_ITERATIONS
+from vuln_hunter_x.core.constants import (
+    BUILD_LOG_LLM_PREVIEW_CHARS,
+    DEFAULT_MAX_FIX_ITERATIONS,
+    TIMEOUT_LLM_REQUEST,
+)
 from vuln_hunter_x.core.validation import normalize_ollama_model, openai_compat_kwargs
 
 logger = logging.getLogger(__name__)
@@ -334,6 +338,7 @@ Respond with the corrected full C++ source only (use a ```cpp ... ``` block or p
                 "model": model_id,
                 "messages": list(message_history),
                 "max_tokens": max_tokens,
+                "timeout": TIMEOUT_LLM_REQUEST,
             }
             if api_base:
                 kwargs["api_base"] = api_base
