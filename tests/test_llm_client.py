@@ -273,3 +273,55 @@ class TestLLMClientKwargs:
         kwargs = client._build_completion_kwargs([{"role": "user", "content": "ok"}])
 
         assert kwargs["timeout"] == 180.0
+
+    def test_gemini_model_gets_prefixed(self):
+        client = LLMClient(provider="gemini", model="gemini-2.5-flash")
+
+        assert client.model == "gemini/gemini-2.5-flash"
+
+    def test_gemini_model_not_double_prefixed(self):
+        client = LLMClient(provider="gemini", model="gemini/gemini-2.5-flash")
+
+        assert client.model == "gemini/gemini-2.5-flash"
+
+    def test_gemini_key_precedence_gemini_wins_over_google(self, monkeypatch):
+        # LiteLLM's own auto-read is GOOGLE-first; we inject explicitly so the
+        # provider-specific GEMINI_API_KEY wins when both are set.
+        monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+        monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
+        client = LLMClient(provider="gemini", model="gemini-2.5-flash")
+
+        kwargs = client._build_completion_kwargs([{"role": "user", "content": "ok"}])
+
+        assert kwargs["api_key"] == "gemini-key"
+
+    def test_gemini_falls_back_to_google_api_key(self, monkeypatch):
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
+        client = LLMClient(provider="gemini", model="gemini-2.5-flash")
+
+        kwargs = client._build_completion_kwargs([{"role": "user", "content": "ok"}])
+
+        assert kwargs["api_key"] == "google-key"
+
+    def test_gemini_kwargs_stay_native(self, monkeypatch):
+        # gemini is not OpenAI-compatible: no enable_thinking injection, and
+        # no api_base unless GEMINI_API_BASE is explicitly set.
+        monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+        monkeypatch.delenv("GEMINI_API_BASE", raising=False)
+        client = LLMClient(provider="gemini", model="gemini-2.5-flash")
+
+        kwargs = client._build_completion_kwargs([{"role": "user", "content": "ok"}])
+
+        assert kwargs["model"] == "gemini/gemini-2.5-flash"
+        assert "enable_thinking" not in kwargs
+        assert "api_base" not in kwargs
+
+    def test_gemini_api_base_override(self, monkeypatch):
+        monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+        monkeypatch.setenv("GEMINI_API_BASE", "https://proxy.example/gemini/")
+        client = LLMClient(provider="gemini", model="gemini-2.5-flash")
+
+        kwargs = client._build_completion_kwargs([{"role": "user", "content": "ok"}])
+
+        assert kwargs["api_base"] == "https://proxy.example/gemini"

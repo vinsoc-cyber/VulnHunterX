@@ -27,6 +27,7 @@ from vuln_hunter_x.cli.commands import (
     cmd_verify,
 )
 from vuln_hunter_x.cli.interactive import cmd_interactive
+from vuln_hunter_x.core.constants import SUPPORTED_PROVIDERS
 
 # Language choices shared across subcommand --lang flags, ordered for help text.
 _LANG_CHOICES = ["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"]
@@ -70,7 +71,10 @@ Examples:
     # Check-env command
     subparsers.add_parser(
         "check-env",
-        help="Check tools (CodeQL, Semgrep, OpenGrep) and LLM providers (OpenAI, Anthropic, Ollama)",
+        help=(
+            "Check tools (CodeQL, Semgrep, OpenGrep) and LLM providers "
+            "(OpenAI, Anthropic, Ollama, DeepSeek, Gemini)"
+        ),
     )
 
     # Prepare command (clone + create DB)
@@ -406,7 +410,7 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     llm_group = parser.add_argument_group("LLM Settings")
     llm_group.add_argument(
         "--provider",
-        choices=["openai", "ollama", "anthropic", "deepseek"],
+        choices=list(SUPPORTED_PROVIDERS),
         help="LLM provider",
     )
     llm_group.add_argument("--model", help="LLM model name")
@@ -504,7 +508,7 @@ def _add_scan_args(parser: argparse.ArgumentParser) -> None:
     # LLM / verify settings (mirrors verify)
     llm_group = parser.add_argument_group("LLM Settings")
     llm_group.add_argument(
-        "--provider", choices=["openai", "ollama", "anthropic", "deepseek"], help="LLM provider"
+        "--provider", choices=list(SUPPORTED_PROVIDERS), help="LLM provider"
     )
     llm_group.add_argument("--model", help="LLM model name")
     llm_group.add_argument("--limit", type=int, help="Maximum findings to verify")

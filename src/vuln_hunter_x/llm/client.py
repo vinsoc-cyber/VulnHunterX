@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
-"""LLM client abstraction for OpenAI, Anthropic, and Ollama (local + cloud) via LiteLLM."""
+"""LLM client abstraction for OpenAI, Anthropic, Ollama (local + cloud), DeepSeek, and Gemini via LiteLLM."""
 
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ def _extract_cached_input_tokens(usage: Any) -> int:
 
 class LLMClient:
     """
-    Unified LLM client using LiteLLM for OpenAI and Ollama.
+    Unified LLM client using LiteLLM for OpenAI, Anthropic, Ollama, DeepSeek, and Gemini.
 
     Uses LLM mode only (multi-turn with context expansion).
     """
@@ -99,7 +99,8 @@ class LLMClient:
         """Initialize the LLM client.
 
         Args:
-            provider: LLM provider ("openai", "anthropic", or "ollama").
+            provider: LLM provider ("openai", "anthropic", "ollama",
+                "deepseek", or "gemini").
             model: Model name (e.g. "gpt-4o", "claude-sonnet-4-20250514").
             temperature: Sampling temperature for LLM responses.
             max_tokens: Maximum tokens in LLM response.
@@ -157,6 +158,13 @@ class LLMClient:
             # immediately; newer ids report $0 until LiteLLM's table includes them.
             if not self.model.startswith("deepseek/"):
                 self.model = "deepseek/" + self.model
+        elif provider == "gemini":
+            # Google AI Studio via LiteLLM's native gemini/ route (Vertex AI
+            # out of scope). Auth is injected in _build_completion_kwargs from
+            # GEMINI_API_KEY (GOOGLE_API_KEY fallback) — NOT left to LiteLLM's
+            # auto-read, whose precedence is GOOGLE-first and would invert ours.
+            if not self.model.startswith("gemini/"):
+                self.model = "gemini/" + self.model
 
         # Build key pool only when there's something to rotate. A single key
         # is stashed on the client and sent directly.
@@ -213,6 +221,10 @@ class LLMClient:
                 or os.environ.get("OPENAI_API_BASE")
                 or ""
             ).strip()
+            api_base = api_base.rstrip("/") if api_base else None
+        elif self.provider == "gemini":
+            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            api_base = (os.environ.get("GEMINI_API_BASE") or "").strip()
             api_base = api_base.rstrip("/") if api_base else None
         kwargs: dict[str, Any] = {
             "model": model,

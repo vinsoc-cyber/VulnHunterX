@@ -318,8 +318,9 @@ def load_config(
     3. Defaults
 
     Environment variables:
-    - OPENAI_API_KEY: OpenAI API key (secret)
-    - LLM_PROVIDER: LLM provider (openai or ollama)
+    - OPENAI_API_KEY / ANTHROPIC_API_KEY / DEEPSEEK_API_KEY: provider keys (secrets)
+    - GEMINI_API_KEY: Gemini (AI Studio) key; GOOGLE_API_KEY accepted as fallback
+    - LLM_PROVIDER: LLM provider (openai, ollama, anthropic, deepseek, or gemini)
     - LLM_MODEL: LLM model name
     - OLLAMA_API_BASE: Ollama server URL (environment-specific)
     - CODEQL_PATH: CodeQL CLI path (environment-specific)
