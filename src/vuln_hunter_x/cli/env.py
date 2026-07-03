@@ -12,6 +12,7 @@ from pathlib import Path
 
 import yaml
 
+from vuln_hunter_x.core.constants import TIMEOUT_LLM_HEALTH_CHECK
 from vuln_hunter_x.core.validation import openai_compat_kwargs
 
 
@@ -215,6 +216,7 @@ def check_anthropic(api_key: str | None = None, model: str | None = None) -> tup
             messages=[{"role": "user", "content": "Reply with exactly: OK"}],
             api_key=api_key,
             max_tokens=10,
+            timeout=TIMEOUT_LLM_HEALTH_CHECK,
         )
         text = (resp.choices[0].message.content or "").strip()
         return True, f"Anthropic ({test_model}): {text[:50]}"
@@ -259,6 +261,7 @@ def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[
             "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
             "api_key": api_key,
             "max_tokens": 10,
+            "timeout": TIMEOUT_LLM_HEALTH_CHECK,
         }
         if api_base:
             kwargs["api_base"] = api_base
@@ -329,6 +332,7 @@ def check_ollama(
         "model": model,
         "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
         "max_tokens": 10,
+        "timeout": TIMEOUT_LLM_HEALTH_CHECK,
     }
     if api_base:
         base_kwargs["api_base"] = api_base.rstrip("/")
