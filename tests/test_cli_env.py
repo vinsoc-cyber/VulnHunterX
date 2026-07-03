@@ -8,7 +8,8 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
-from vuln_hunter_x.cli.env import check_anthropic, check_ollama, check_openai
+import vuln_hunter_x.cli.env as envmod
+from vuln_hunter_x.cli.env import check_anthropic, check_gemini, check_ollama, check_openai
 
 
 def test_check_openai_sets_enable_thinking_false(monkeypatch):
@@ -150,3 +151,108 @@ def test_check_ollama_bounds_completion_with_timeout(monkeypatch):
     assert ok is True
     assert captured.get("timeout") is not None
     assert captured["timeout"] > 0
+
+
+def test_check_gemini_probe_uses_cheap_model_and_native_route(monkeypatch):
+    """The Gemini ping defaults to flash-lite, injects the key explicitly, is
+    bounded by a timeout (#131), and never gets OpenAI-compat kwargs."""
+    captured: dict = {}
+    monkeypatch.setitem(sys.modules, "litellm", _capturing_litellm(captured))
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    ok, msg = check_gemini()
+
+    assert ok is True
+    assert "Gemini" in msg
+    assert captured["model"] == "gemini/gemini-2.5-flash-lite"
+    assert captured["api_key"] == "test-key"
+    assert captured["timeout"] > 0
+    assert "enable_thinking" not in captured
+
+
+def test_check_gemini_prefixes_configured_model(monkeypatch):
+    captured: dict = {}
+    monkeypatch.setitem(sys.modules, "litellm", _capturing_litellm(captured))
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    ok, _ = check_gemini(model="gemini-2.5-flash")
+
+    assert ok is True
+    assert captured["model"] == "gemini/gemini-2.5-flash"
+
+
+def test_check_gemini_key_precedence(monkeypatch):
+    """GEMINI_API_KEY wins over GOOGLE_API_KEY (LiteLLM auto-read is the
+    reverse, which is why the key is injected explicitly)."""
+    captured: dict = {}
+    monkeypatch.setitem(sys.modules, "litellm", _capturing_litellm(captured))
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
+
+    ok, _ = check_gemini()
+
+    assert ok is True
+    assert captured["api_key"] == "gemini-key"
+
+
+def test_check_gemini_falls_back_to_google_api_key(monkeypatch):
+    captured: dict = {}
+    monkeypatch.setitem(sys.modules, "litellm", _capturing_litellm(captured))
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
+
+    ok, _ = check_gemini()
+
+    assert ok is True
+    assert captured["api_key"] == "google-key"
+
+
+def test_check_gemini_without_keys_fails_with_actionable_message(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    ok, msg = check_gemini()
+
+    assert ok is False
+    assert msg == "GEMINI_API_KEY (or GOOGLE_API_KEY) not set"
+
+
+def _stub_non_llm_checks(monkeypatch):
+    """Stub the tool checks so run_env_check tests stay fast and offline."""
+    for name in ("check_codeql", "check_semgrep", "check_opengrep", "check_treesitter"):
+        monkeypatch.setattr(envmod, name, lambda *a, **k: (True, "stubbed"))
+
+
+def test_run_env_check_reports_gemini_when_provider_selected(monkeypatch):
+    """LLM_PROVIDER=gemini must yield a "gemini" results key — the exact gap
+    deepseek shipped with (accepted by --provider, invisible to check-env)."""
+    _stub_non_llm_checks(monkeypatch)
+    monkeypatch.setattr(envmod, "check_gemini", lambda **k: (True, "Gemini OK"))
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("LLM_MODEL", "gemini-2.5-flash")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    results = envmod.run_env_check(quiet=True)
+
+    assert results["gemini"] == (True, "Gemini OK")
+
+
+def test_run_env_check_skips_gemini_on_google_key_alone(monkeypatch):
+    """GOOGLE_API_KEY alone must NOT trigger a billed probe — it is commonly
+    set for unrelated Google tooling."""
+    _stub_non_llm_checks(monkeypatch)
+    monkeypatch.setattr(
+        envmod, "check_gemini", lambda **k: (_ for _ in ()).throw(AssertionError("probed"))
+    )
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(envmod, "check_openai", lambda **k: (True, "stubbed"))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    results = envmod.run_env_check(quiet=True)
+
+    assert results["gemini"] == (False, "Not configured")

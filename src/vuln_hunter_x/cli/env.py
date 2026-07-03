@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
-"""Environment check command for CodeQL, OpenAI, and Ollama."""
+"""Environment check command for CodeQL and LLM providers (OpenAI, Anthropic, Ollama, DeepSeek, Gemini)."""
 
 from __future__ import annotations
 
@@ -224,6 +224,49 @@ def check_anthropic(api_key: str | None = None, model: str | None = None) -> tup
         return False, f"Anthropic error: {e}"
 
 
+def check_gemini(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
+    """
+    Verify Google Gemini (AI Studio) via LiteLLM.
+
+    Args:
+        api_key: Gemini API key (defaults to GEMINI_API_KEY, then GOOGLE_API_KEY)
+        model: Model name to test (defaults to gemini-2.5-flash-lite)
+
+    Returns:
+        Tuple of (success, message)
+    """
+    api_key = (
+        api_key
+        or os.environ.get("GEMINI_API_KEY", "").strip()
+        or os.environ.get("GOOGLE_API_KEY", "").strip()
+    )
+    if not api_key:
+        return False, "GEMINI_API_KEY (or GOOGLE_API_KEY) not set"
+
+    try:
+        import litellm
+    except ImportError:
+        return False, "litellm not installed; run: pip install litellm"
+
+    # Use the cheapest Gemini tier for the connectivity check
+    test_model = model or "gemini/gemini-2.5-flash-lite"
+    if not test_model.startswith("gemini/"):
+        test_model = "gemini/" + test_model
+
+    try:
+        resp = litellm.completion(
+            model=test_model,
+            messages=[{"role": "user", "content": "Reply with exactly: OK"}],
+            api_key=api_key,
+            max_tokens=10,
+            timeout=TIMEOUT_LLM_HEALTH_CHECK,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        return True, f"Gemini ({test_model}): {text[:50]}"
+    except Exception as e:
+        return False, f"Gemini error: {e}"
+
+
 def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
     """
     Verify OpenAI API via LiteLLM.
@@ -444,6 +487,22 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
         results["anthropic"] = (False, "Not configured")
         if not quiet:
             print("  Anthropic: [SKIP] Not configured")
+
+    # Gemini - test if provider is gemini or a dedicated key is present.
+    # Deliberately does NOT trigger on GOOGLE_API_KEY alone: that variable is
+    # commonly set for unrelated Google tooling and the probe costs a request.
+    # (check_gemini itself still falls back to GOOGLE_API_KEY when it runs.)
+    if provider == "gemini" or os.environ.get("GEMINI_API_KEY"):
+        gemini_model = model if provider == "gemini" else None
+        ok, msg = check_gemini(model=gemini_model)
+        results["gemini"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  Gemini: [{status}] {msg}")
+    else:
+        results["gemini"] = (False, "Not configured")
+        if not quiet:
+            print("  Gemini: [SKIP] Not configured")
 
     # Ollama - test if provider is ollama or model starts with ollama/
     if provider == "ollama" or model.startswith("ollama/"):
