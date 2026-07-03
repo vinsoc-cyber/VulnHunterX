@@ -146,6 +146,34 @@ class TestConfig:
 
         assert merged.llm.num_retries == 3
 
+    def test_merge_with_args_preserves_self_consistency_samples(self):
+        config = Config.from_dict({"self_consistency_samples": 5})
+
+        merged = config.merge_with_args(provider="ollama")
+
+        assert merged.verification.self_consistency_samples == 5
+
+    def test_merge_with_args_preserves_self_consistency_temperature(self):
+        config = Config.from_dict({"self_consistency_temperature": 0.2})
+
+        merged = config.merge_with_args(provider="ollama")
+
+        assert merged.verification.self_consistency_temperature == 0.2
+
+    def test_merge_with_args_preserves_self_consistency_tie_break(self):
+        config = Config.from_dict({"self_consistency_tie_break": "tp"})
+
+        merged = config.merge_with_args(provider="ollama")
+
+        assert merged.verification.self_consistency_tie_break == "tp"
+
+    def test_merge_with_args_preserves_jobs(self):
+        config = Config.from_dict({"jobs": 8})
+
+        merged = config.merge_with_args(provider="ollama")
+
+        assert merged.verification.jobs == 8
+
 
 class TestQuestionsLoader:
     """Tests for QuestionsLoader."""
