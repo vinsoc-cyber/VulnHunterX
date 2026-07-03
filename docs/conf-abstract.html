@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>conf-abstract.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> or <div class="page"></div> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="from-noise-to-0-day-llm-guided-sast-triage-that-cut-false-positives-91-and-found-real-bugs-in-libraries">From Noise to 0-Day: LLM-Guided SAST Triage That Cut False Positives 91% and Found Real Bugs in Libraries</h1>
+<!-- Alternative titles:
+  - "Your Scanner Cried Wolf 600 Times: Teaching an LLM to Find the Bugs Hiding in SAST Noise"
+  - "1,400 Questions Later: Multi-Turn LLM Triage, an 87% Precision Jump, and 5 Confirmed Vulnerabilities"
+  - "The 62% You Ignore: LLM Triage That Turned a Wall of SAST Alerts into 5 Real Bugs"
+  - "From 38% to 87% Precision: What Guided LLM Triage Does, and Doesn't Do, for Static Analysis" (understated / academic)
+-->
+<h2 id="abstract">Abstract</h2>
+<p>Static analysis at scale runs into the same problem everywhere: the tools work, but a large fraction of what they report is noise. On the OWASP Python Benchmark, raw CodeQL and Semgrep output sits at 37.7% precision, so roughly two of every three alerts are false. Teams learn to stop reading, and genuine bugs get lost in the queue.</p>
+<p>VulnHunterX is an open-source pipeline that puts an LLM behind the SAST tools to triage each finding. Rather than asking the model &quot;is this a bug,&quot; it routes the finding to a set of about 1,400 CWE-specific questions, lets the model pull in more context on demand (callers, callees, struct definitions, sanitizers) over several conversational turns from a pre-extracted context store, and requires a calibrated verdict: true positive, false positive, or an explicit &quot;needs more data.&quot;</p>
+<p>We measured it on five public benchmarks (Juliet, OWASP Python, OWASP Java, SecLLMHolmes, DiverseVul) across six models. With DeepSeek doing the reasoning, OWASP-Python precision goes from 37.7% to 87.3%, OWASP-Java from 61% to 87.6%, and SecLLMHolmes from 52% to 82%, while recall stays between 95% and 98%. False positives drop by 78–91% without losing real findings.</p>
+<p>We then ran it against widely deployed software in C and Python: the FLAC and Vorbis audio codecs, libevent, and two Python tools, Gradio and Safety. It surfaced five previously-unreported vulnerabilities that we confirmed with proof-of-concept, including a TOCTOU race in FLAC, an unbounded <code>alloca()</code> stack overflow in libvorbis, and a full SSRF in Gradio 6.9.0. Each started as a single line in a large pile of SAST output. We walk the FLAC race through in full, from raw alert to a working exploit.</p>
+<p>The talk is not a highlight reel. We also show where the approach underperforms: guided questions beat zero-shot on real web code, a $16 GPT-5 run was no more accurate than a $0.40 DeepSeek run, and the same pipeline moves 22 precision points on model choice alone.</p>
+<hr>
+<h2 id="what-attendees-will-learn">What attendees will learn</h2>
+<ul>
+<li>How to wire the pipeline together: SAST to SARIF to context extraction to multi-turn guided verification to a calibrated verdict. The code is released.</li>
+<li>A repeatable way to hunt bugs in real projects. Point the pipeline at a target and get back a short, evidence-backed list instead of thousands of raw alerts. This is the same workflow that produced five confirmed vulnerabilities in FLAC, Vorbis, libevent, Gradio, and Safety.</li>
+<li>Where guided questions help and where they hurt. On synthetic Juliet, DeepSeek scored 81% with the full pipeline versus 89–94% zero-shot or generic; on realistic OWASP-Python the ordering reverses.</li>
+<li>The cost picture. GPT-5 gave no accuracy gain over DeepSeek at roughly 40x the cost ($16.75 vs $0.40 per run); local Ollama models cost nothing to run but trail on precision (65% vs 87%).</li>
+<li>Why &quot;needs more data&quot; matters. An abstaining triager beats a confident wrong one, and the confidence labels calibrate: high-confidence verdicts were 92% accurate on Juliet, low-confidence 81%.</li>
+<li>Where it breaks: cross-file context loss, framework sanitizers the model can't see, over-scoped questions, and the failure modes we're working on next.</li>
+</ul>
+<hr>
+<h2 id="confirmed-vulnerabilities-well-disclose">Confirmed vulnerabilities we'll disclose</h2>
+<p>Five previously-unreported vulnerabilities the pipeline surfaced from raw SAST output and we confirmed with working PoCs, across C libraries and Python tooling. All are under coordinated disclosure with upstream maintainers, and on-stage detail respects fix and embargo timelines.</p>
+<table>
+<thead>
+<tr>
+<th>Project</th>
+<th>Confirmed bug</th>
+<th>CWE</th>
+<th>Key location / pattern</th>
+<th>Impact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>flac</td>
+<td>TOCTOU race condition</td>
+<td>CWE-367</td>
+<td><code>grabbag__file_change_stats(filename, ...)</code>: <code>stat(filename, &amp;st)</code> checks the file, then <code>flac_chmod(filename, mode)</code> acts on the name without holding an fd</td>
+<td>Local attacker controlling the parent directory swaps the file for a symlink, causing chmod of arbitrary files (e.g. <code>/etc/shadow</code>) as the elevated user. Reachable from 2 production paths. PoC succeeded on attempt 7.</td>
+</tr>
+<tr>
+<td>vorbis</td>
+<td>Stack overflow via <code>alloca()</code> in loop</td>
+<td>CWE-770</td>
+<td><code>ov_crosslap()</code> in <code>lib/vorbisfile.c</code>: loop does <code>lappcm[i] = alloca(...)</code>; <code>channels</code> comes from the file header with no upper bound</td>
+<td>Crafted <code>.ogg</code> (<code>channels=255</code>, <code>blocksize=8192</code>) allocates about 4.17 MB onto a 1 MB worker stack, a DoS in small-stack decode contexts such as media players and game engines.</td>
+</tr>
+<tr>
+<td>libevent</td>
+<td>Compiler-elided <code>memset()</code></td>
+<td>CWE-14</td>
+<td><code>sha1.c</code>: <code>memset(block, 0, sizeof(block))</code> and <code>memset(context, 0, sizeof(*context))</code> on buffers never read again, so dead-store elimination removes them at <code>-O1+</code></td>
+<td>SHA-1 input blocks, hash state, and counters persist on the stack after return. A memory-read primitive (core dump, <code>/proc/pid/mem</code>, swap) can recover secrets. Higher impact in nginx, memcached, Tor.</td>
+</tr>
+<tr>
+<td>gradio</td>
+<td>Full SSRF via user-controlled URL</td>
+<td>CWE-918</td>
+<td><code>gradio/image_utils.py</code> <code>extract_svg_content()</code>: <code>httpx.get(image_file)</code> on an HTTP-like URL with no SSRF guard; the sibling path uses <code>safehttpx</code>, but this one was missed</td>
+<td>User-controlled <code>.svg</code> URL on a Gallery/Image component makes the server fetch arbitrary addresses, including internal IPs and the cloud metadata endpoint <code>169.254.169.254</code>. Confirmed on Gradio 6.9.0.</td>
+</tr>
+<tr>
+<td>safety</td>
+<td>Credential leak via URL sanitization</td>
+<td>CWE-295</td>
+<td><code>safety/tool/uv/command.py</code> <code>before()</code> (l.72): prefix check is only <code>startswith(&quot;https://pkgs.safetycli.com&quot;)</code>, bypassable by a lookalike attacker domain</td>
+<td>Bypassed check embeds a live JWT into an attacker URL and leaks it via the <code>Authorization</code> header on a <code>uv</code> request. CI/CD argument injection can harvest roughly 24-hour Safety Platform tokens.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="confirmation-methodology">Confirmation methodology</h3>
+<p>Triage produces a lead; confirmation makes it a fact. For each candidate worth pursuing we did three things. First, the pipeline emitted a machine-readable evidence trail: source, sink, the missing guard, and the conditions needed to trigger. Second, we reviewed that trail against the code by hand and dropped anything that wasn't reachable. Third, we built a minimal proof-of-concept: a crafted input file (the <code>channels=255</code> <code>.ogg</code> for Vorbis), a local filesystem race harness (FLAC), a compiled binary inspected at <code>-O1+</code> to confirm the dead-store elimination (libevent), or a live request against a running instance (Gradio, Safety). PoC generation was LLM-assisted and iterative; the FLAC race reproduced on the seventh attempt. A finding is only called confirmed once a PoC reproduces the impact. Anything short of that stays a candidate. The dynamic-harness internals are out of scope here.</p>
+<hr>
+<h2 id="responsible-disclosure-and-honesty">Responsible disclosure and honesty</h2>
+<ul>
+<li>The five vulnerabilities above are confirmed with PoCs and under coordinated disclosure. We present them within maintainer-agreed timelines. Anything else surfaced in third-party code is labelled a triaged candidate with an evidence trail, not a confirmed CVE, and we keep that distinction clear.</li>
+<li>The talk is about the triage and discovery pipeline, the part that turns thousands of alerts into a short list worth reviewing. PoC confirmation is shown as the result, not as a tutorial on dynamic testing.</li>
+<li>Every benchmark number is reproducible from the released harness. We show confidence intervals and the runs where the tool did worse.</li>
+</ul>
+<hr>
+<h2 id="talk-outline-40-min">Talk outline (40 min)</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Section</th>
+<th>Backed by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–5</td>
+<td>The SAST false-positive problem (37.7% precision baseline)</td>
+<td><code>matrix_20260604_151302</code>, <code>20260519_141614</code></td>
+</tr>
+<tr>
+<td>5–15</td>
+<td>Architecture: guided questions, multi-turn context expansion, calibration</td>
+<td>pipeline stages</td>
+</tr>
+<tr>
+<td>15–25</td>
+<td>Benchmarks: 5 datasets, 6 models; precision 37→87%, recall 95–98%, FP reduction 78–91%</td>
+<td>all <code>matrix_*</code> + <code>summary.json</code></td>
+</tr>
+<tr>
+<td>25–32</td>
+<td>Bugs in real software: 5 confirmed vulns (FLAC, Vorbis, libevent, Gradio, Safety); FLAC TOCTOU walked through</td>
+<td><code>output/*</code>, disclosure set</td>
+</tr>
+<tr>
+<td>32–37</td>
+<td>Ablations: guided vs generic vs zero-shot; model and cost trade-offs; the Juliet reversal</td>
+<td><code>matrix_20260601_232426</code>, <code>matrix_20260531_180948</code></td>
+</tr>
+<tr>
+<td>37–40</td>
+<td>Failure modes, roadmap, tool and data release</td>
+<td><code>output/</code>, roadmap</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="supporting-data-for-reviewers-and-speaker-reference">Supporting data (for reviewers and speaker reference)</h2>
+<h3 id="precision-lift-vulnhunterx-deepseek-vs-raw-sast">Precision lift, VulnHunterX (DeepSeek) vs raw SAST</h3>
+<table>
+<thead>
+<tr>
+<th>Dataset</th>
+<th>Raw SAST precision</th>
+<th>VulnHunterX precision</th>
+<th>FP reduction</th>
+<th>Recall (held)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OWASP-Python</td>
+<td>37.7%</td>
+<td>87.3%</td>
+<td>91.4%</td>
+<td>98.2%</td>
+</tr>
+<tr>
+<td>OWASP-Java</td>
+<td>61.0%</td>
+<td>87.6%</td>
+<td>78.6%</td>
+<td>96.7%</td>
+</tr>
+<tr>
+<td>SecLLMHolmes</td>
+<td>52.3%</td>
+<td>82.1%</td>
+<td>79.4%</td>
+<td>87.5%</td>
+</tr>
+<tr>
+<td>Juliet (C/C++)</td>
+<td>50.0%</td>
+<td>81.4–86.3%</td>
+<td>78–82%</td>
+<td>95.0%</td>
+</tr>
+</tbody>
+</table>
+<h3 id="model-spread-on-one-dataset-owasp-python-full-pipeline">Model spread on one dataset (OWASP-Python, full pipeline)</h3>
+<p>DeepSeek 87.3%, GPT-4.1-mini 82.7%, Qwen3-Coder-480b 65.3%. Same pipeline, a 22-point precision swing on model choice alone.</p>
+<h3 id="ablation-full-pipeline-vs-generic-questions-vs-zero-shot-deepseek">Ablation: full pipeline vs generic questions vs zero-shot (DeepSeek)</h3>
+<table>
+<thead>
+<tr>
+<th>Dataset</th>
+<th>zero-shot</th>
+<th>full (guided)</th>
+<th>Takeaway</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Juliet (synthetic)</td>
+<td>89.4%</td>
+<td>81.4%</td>
+<td>Guided questions over-scope on pattern data</td>
+</tr>
+<tr>
+<td>OWASP-Python (realistic)</td>
+<td>77.3%</td>
+<td>87.3%</td>
+<td>Guided context wins on real web code</td>
+</tr>
+</tbody>
+</table>
+<h3 id="aggregate-workload-reduction">Aggregate workload reduction</h3>
+<p>Across 17 real codebases and 1,203 static findings: 334 true positive, 670 false positive, 199 needs-more-data. Raw SAST would have handed all 1,203 to an analyst. The pipeline returns a 334-item queue and sets aside 199 for human review, cutting items needing any attention by about 44% and confident-review load by about 72%.</p>
+<h3 id="cost-and-latency">Cost and latency</h3>
+<p>About 10k tokens per finding, roughly $0.40 per benchmark run and p95 of 46–62s per finding with DeepSeek; $0 on local Ollama; GPT-5 about $16.75 per run for no measurable accuracy gain.</p>
+
+</body>
+</html>
