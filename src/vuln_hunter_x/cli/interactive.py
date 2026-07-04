@@ -127,11 +127,7 @@ def _provider_live_check(provider: str, model: str | None) -> tuple[bool, str]:
         )
         return envmod.check_ollama(model=eff_model)
     if provider == "deepseek":
-        # No dedicated checker — DeepSeek is OpenAI-compatible and LiteLLM reads
-        # DEEPSEEK_API_KEY (falling back to OPENAI_API_KEY). Presence-check only.
-        if os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"):
-            return True, "DeepSeek key present (connectivity not live-tested)"
-        return False, "DEEPSEEK_API_KEY (or OPENAI_API_KEY) not set"
+        return envmod.check_deepseek(model=model or None)
     if provider == "gemini":
         return envmod.check_gemini(model=model or None)
     return False, f"Unknown provider: {provider}"

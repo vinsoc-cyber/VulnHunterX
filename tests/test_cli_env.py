@@ -9,7 +9,13 @@ import sys
 from types import SimpleNamespace
 
 import vuln_hunter_x.cli.env as envmod
-from vuln_hunter_x.cli.env import check_anthropic, check_gemini, check_ollama, check_openai
+from vuln_hunter_x.cli.env import (
+    check_anthropic,
+    check_deepseek,
+    check_gemini,
+    check_ollama,
+    check_openai,
+)
 
 
 def test_check_openai_sets_enable_thinking_false(monkeypatch):
@@ -260,11 +266,93 @@ def test_run_env_check_reports_gemini_when_provider_selected(monkeypatch):
     monkeypatch.setenv("LLM_MODEL", "gemini-2.5-flash")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     results = envmod.run_env_check(quiet=True)
 
     assert results["gemini"] == (True, "Gemini OK")
+
+
+def test_check_deepseek_probe_routes_natively(monkeypatch):
+    """The DeepSeek ping uses the deepseek/ prefix, injects the key, and is
+    bounded by a timeout (#131)."""
+    captured: dict = {}
+    monkeypatch.setitem(sys.modules, "litellm", _capturing_litellm(captured))
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "ds-key")
+    monkeypatch.delenv("DEEPSEEK_API_BASE", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+
+    ok, msg = check_deepseek()
+
+    assert ok is True
+    assert "DeepSeek" in msg
+    assert captured["model"] == "deepseek/deepseek-chat"
+    assert captured["api_key"] == "ds-key"
+    assert captured["timeout"] > 0
+
+
+def test_check_deepseek_falls_back_to_openai_key(monkeypatch):
+    """Mirrors LLMClient: an OpenAI-keyed DeepSeek .env keeps working."""
+    captured: dict = {}
+    monkeypatch.setitem(sys.modules, "litellm", _capturing_litellm(captured))
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.delenv("DEEPSEEK_API_BASE", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+
+    ok, _ = check_deepseek(model="deepseek-chat")
+
+    assert ok is True
+    assert captured["api_key"] == "openai-key"
+
+
+def test_check_deepseek_without_keys_fails_with_actionable_message(monkeypatch):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    ok, msg = check_deepseek()
+
+    assert ok is False
+    assert msg == "DEEPSEEK_API_KEY (or OPENAI_API_KEY) not set"
+
+
+def test_run_env_check_reports_deepseek_when_provider_selected(monkeypatch):
+    """LLM_PROVIDER=deepseek must yield a "deepseek" results key — closes the
+    gap where check-env always reported deepseek "not ready"."""
+    _stub_non_llm_checks(monkeypatch)
+    monkeypatch.setattr(envmod, "check_deepseek", lambda **k: (True, "DeepSeek OK"))
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    results = envmod.run_env_check(quiet=True)
+
+    assert results["deepseek"] == (True, "DeepSeek OK")
+
+
+def test_run_env_check_skips_deepseek_on_openai_key_alone(monkeypatch):
+    """OPENAI_API_KEY alone must NOT double-probe every OpenAI setup."""
+    _stub_non_llm_checks(monkeypatch)
+    monkeypatch.setattr(
+        envmod, "check_deepseek", lambda **k: (_ for _ in ()).throw(AssertionError("probed"))
+    )
+    monkeypatch.setattr(envmod, "check_openai", lambda **k: (True, "stubbed"))
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    results = envmod.run_env_check(quiet=True)
+
+    assert results["deepseek"] == (False, "Not configured")
 
 
 def test_run_env_check_skips_gemini_on_google_key_alone(monkeypatch):
@@ -277,8 +365,10 @@ def test_run_env_check_skips_gemini_on_google_key_alone(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "openai")
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
     monkeypatch.setattr(envmod, "check_openai", lambda **k: (True, "stubbed"))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
 
     results = envmod.run_env_check(quiet=True)
 

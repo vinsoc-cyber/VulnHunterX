@@ -289,6 +289,62 @@ def check_gemini(api_key: str | None = None, model: str | None = None) -> tuple[
     return failures == 0, summary
 
 
+def check_deepseek(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
+    """
+    Verify DeepSeek via LiteLLM's native deepseek/ route.
+
+    Args:
+        api_key: DeepSeek API key (defaults to DEEPSEEK_API_KEY, then
+            OPENAI_API_KEY — mirroring LLMClient's fallback so an existing
+            OpenAI-keyed DeepSeek .env keeps working)
+        model: Model name to test (defaults to deepseek-chat)
+
+    Returns:
+        Tuple of (success, message)
+    """
+    api_key = (
+        api_key
+        or os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        or os.environ.get("OPENAI_API_KEY", "").strip()
+    )
+    if not api_key:
+        return False, "DEEPSEEK_API_KEY (or OPENAI_API_KEY) not set"
+
+    try:
+        import litellm
+    except ImportError:
+        return False, "litellm not installed; run: pip install litellm"
+
+    test_model = model or "deepseek/deepseek-chat"
+    if not test_model.startswith("deepseek/"):
+        test_model = "deepseek/" + test_model
+
+    # Mirror LLMClient's base-URL fallback chain
+    api_base = (
+        os.environ.get("DEEPSEEK_API_BASE")
+        or os.environ.get("OPENAI_BASE_URL")
+        or os.environ.get("OPENAI_API_BASE")
+        or ""
+    ).strip()
+    api_base = api_base.rstrip("/") if api_base else None
+
+    try:
+        kwargs = {
+            "model": test_model,
+            "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+            "api_key": api_key,
+            "max_tokens": 10,
+            "timeout": TIMEOUT_LLM_HEALTH_CHECK,
+        }
+        if api_base:
+            kwargs["api_base"] = api_base
+        resp = litellm.completion(**kwargs)
+        text = (resp.choices[0].message.content or "").strip()
+        return True, f"DeepSeek ({test_model}): {text[:50]}"
+    except Exception as e:
+        return False, f"DeepSeek error: {e}"
+
+
 def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
     """
     Verify OpenAI API via LiteLLM.
@@ -509,6 +565,21 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
         results["anthropic"] = (False, "Not configured")
         if not quiet:
             print("  Anthropic: [SKIP] Not configured")
+
+    # DeepSeek - test if provider is deepseek or a dedicated key is present.
+    # Deliberately does NOT trigger on OPENAI_API_KEY alone (the client-side
+    # fallback), which would double-probe every OpenAI setup.
+    if provider == "deepseek" or os.environ.get("DEEPSEEK_API_KEY"):
+        deepseek_model = model if provider == "deepseek" else None
+        ok, msg = check_deepseek(model=deepseek_model)
+        results["deepseek"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  DeepSeek: [{status}] {msg}")
+    else:
+        results["deepseek"] = (False, "Not configured")
+        if not quiet:
+            print("  DeepSeek: [SKIP] Not configured")
 
     # Gemini - test if provider is gemini or a dedicated key is present.
     # Deliberately does NOT trigger on GOOGLE_API_KEY alone: that variable is
