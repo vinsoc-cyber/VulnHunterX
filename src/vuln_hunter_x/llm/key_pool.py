@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -39,7 +40,7 @@ class _Entry:
 class KeyPool:
     """Thread-safe round-robin pool with per-key cooldown."""
 
-    def __init__(self, keys: list[str], state_path: str | Path | None = None):
+    def __init__(self, keys: list[str], state_path: str | os.PathLike[str] | None = None):
         self._entries = [_Entry(k) for k in keys]
         self._lock = threading.Lock()
         self._cursor = 0

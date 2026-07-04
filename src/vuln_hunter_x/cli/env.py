@@ -320,13 +320,13 @@ def check_deepseek(api_key: str | None = None, model: str | None = None) -> tupl
         test_model = "deepseek/" + test_model
 
     # Mirror LLMClient's base-URL fallback chain
-    api_base = (
+    raw_base = (
         os.environ.get("DEEPSEEK_API_BASE")
         or os.environ.get("OPENAI_BASE_URL")
         or os.environ.get("OPENAI_API_BASE")
         or ""
     ).strip()
-    api_base = api_base.rstrip("/") if api_base else None
+    api_base = raw_base.rstrip("/") if raw_base else None
 
     try:
         kwargs = {
