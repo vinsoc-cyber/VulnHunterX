@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
-"""LLM client abstraction for OpenAI, Anthropic, and Ollama (local + cloud) via LiteLLM."""
+"""LLM client abstraction for OpenAI, Anthropic, Ollama (local + cloud), DeepSeek, and Gemini via LiteLLM."""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ litellm.suppress_debug_info = True
 litellm.drop_params = True
 
 from vuln_hunter_x.context.provider import ContextProvider
+from vuln_hunter_x.core.config import _load_gemini_api_keys
 from vuln_hunter_x.core.constants import (
     DEFAULT_LLM_MAX_TOKENS,
     DEFAULT_LLM_MODEL,
@@ -80,7 +81,7 @@ def _extract_cached_input_tokens(usage: Any) -> int:
 
 class LLMClient:
     """
-    Unified LLM client using LiteLLM for OpenAI and Ollama.
+    Unified LLM client using LiteLLM for OpenAI, Anthropic, Ollama, DeepSeek, and Gemini.
 
     Uses LLM mode only (multi-turn with context expansion).
     """
@@ -95,11 +96,14 @@ class LLMClient:
         request_timeout: float = 180.0,
         ollama_api_keys: list[str] | None = None,
         ollama_key_state_path: str | os.PathLike[str] | None = None,
+        gemini_api_keys: list[str] | None = None,
+        gemini_key_state_path: str | os.PathLike[str] | None = None,
     ):
         """Initialize the LLM client.
 
         Args:
-            provider: LLM provider ("openai", "anthropic", or "ollama").
+            provider: LLM provider ("openai", "anthropic", "ollama",
+                "deepseek", or "gemini").
             model: Model name (e.g. "gpt-4o", "claude-sonnet-4-20250514").
             temperature: Sampling temperature for LLM responses.
             max_tokens: Maximum tokens in LLM response.
@@ -114,6 +118,10 @@ class LLMClient:
                 keys are provided and the model targets Ollama Cloud, requests
                 round-robin across them and a 429 parks the offending key
                 until ``Retry-After`` elapses. A single key is sent verbatim.
+            gemini_api_keys: Optional list of Gemini (AI Studio) API keys,
+                same pool semantics as ``ollama_api_keys``. Defaults to
+                ``GEMINI_API_KEYS`` / comma-separated ``GEMINI_API_KEY``
+                (``GOOGLE_API_KEY`` single-key fallback) when omitted.
         """
         self.provider = provider
         self.model = model
@@ -157,25 +165,40 @@ class LLMClient:
             # immediately; newer ids report $0 until LiteLLM's table includes them.
             if not self.model.startswith("deepseek/"):
                 self.model = "deepseek/" + self.model
+        elif provider == "gemini":
+            # Google AI Studio via LiteLLM's native gemini/ route (Vertex AI
+            # out of scope). Auth is injected in _build_completion_kwargs from
+            # GEMINI_API_KEY (GOOGLE_API_KEY fallback) — NOT left to LiteLLM's
+            # auto-read, whose precedence is GOOGLE-first and would invert ours.
+            if not self.model.startswith("gemini/"):
+                self.model = "gemini/" + self.model
 
         # Build key pool only when there's something to rotate. A single key
-        # is stashed on the client and sent directly.
-        self._ollama_pool: KeyPool | None = None
-        self._ollama_single_key: str | None = None
+        # is stashed on the client and sent directly. Ollama Cloud and Gemini
+        # support pools; other providers rely on env-based auth.
+        pool_keys: list[str] = []
+        pool_state_path: str | os.PathLike[str] | None = None
+        pool_label = ""
         if self.provider == "ollama" and self._is_ollama_cloud and ollama_api_keys:
-            if len(ollama_api_keys) == 1:
-                self._ollama_single_key = ollama_api_keys[0]
-        if (
-            self.provider == "ollama"
-            and self._is_ollama_cloud
-            and ollama_api_keys
-            and len(ollama_api_keys) >= 2
-        ):
-            self._ollama_pool = KeyPool(ollama_api_keys, state_path=ollama_key_state_path)
-            status = self._ollama_pool.status()
+            pool_keys = ollama_api_keys
+            pool_state_path = ollama_key_state_path
+            pool_label = "Ollama Cloud"
+        elif self.provider == "gemini":
+            pool_keys = gemini_api_keys if gemini_api_keys is not None else _load_gemini_api_keys()
+            pool_state_path = gemini_key_state_path
+            pool_label = "Gemini"
+
+        self._key_pool: KeyPool | None = None
+        self._single_key: str | None = None
+        if len(pool_keys) == 1:
+            self._single_key = pool_keys[0]
+        elif len(pool_keys) >= 2:
+            self._key_pool = KeyPool(pool_keys, state_path=pool_state_path)
+            status = self._key_pool.status()
             cooling = [(tail, secs) for tail, secs in status if secs > 0]
             logger.info(
-                "Ollama Cloud key pool: %d key(s) [%s]%s",
+                "%s key pool: %d key(s) [%s]%s",
+                pool_label,
                 len(status),
                 ", ".join(f"…{tail}" for tail, _ in status),
                 (
@@ -214,6 +237,13 @@ class LLMClient:
                 or ""
             ).strip()
             api_base = api_base.rstrip("/") if api_base else None
+        elif self.provider == "gemini":
+            # api_key is injected from the pool / single key below (parsed from
+            # GEMINI_API_KEYS / comma-separated GEMINI_API_KEY, GOOGLE_API_KEY
+            # fallback) — NOT left to LiteLLM's auto-read, whose precedence is
+            # GOOGLE-first and would invert ours.
+            api_base = (os.environ.get("GEMINI_API_BASE") or "").strip()
+            api_base = api_base.rstrip("/") if api_base else None
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -227,13 +257,13 @@ class LLMClient:
             kwargs["api_key"] = api_key
         if self.provider == "ollama" and self._is_ollama_cloud:
             kwargs["api_base"] = os.environ["OLLAMA_API_BASE"].rstrip("/")
-            if self._ollama_pool is not None:
-                pooled = self._ollama_pool.acquire()
-                if pooled:
-                    kwargs["api_key"] = pooled
-            elif self._ollama_single_key:
-                kwargs["api_key"] = self._ollama_single_key
-        if self.num_retries and self._ollama_pool is None:
+        if self._key_pool is not None:
+            pooled = self._key_pool.acquire()
+            if pooled:
+                kwargs["api_key"] = pooled
+        elif self._single_key:
+            kwargs["api_key"] = self._single_key
+        if self.num_retries and self._key_pool is None:
             # LiteLLM retries RateLimitError / APIConnectionError / Timeout /
             # InternalServerError with exponential backoff and honors Retry-After.
             # When the pool is active our wrapper rotates keys instead, so we
@@ -273,18 +303,18 @@ class LLMClient:
 
         Without a pool this is a pass-through and LiteLLM's own retry layer
         (``num_retries``, exponential backoff) handles transient errors.
-        With a pool, LiteLLM retries are disabled in
+        With a pool (Ollama Cloud or Gemini), LiteLLM retries are disabled in
         ``_build_completion_kwargs`` and we rotate to a fresh key after each
-        ``RateLimitError`` (parked for ``Retry-After``, 60s fallback) or
-        Ollama Cloud per-account quota exhaustion surfaced as
+        ``RateLimitError`` (parked for ``Retry-After``, 60s fallback) or —
+        Ollama only — per-account quota exhaustion surfaced as
         ``APIConnectionError`` (parked for several hours since quota resets
         don't happen in seconds). Other ``APIConnectionError``s are genuine
         network failures and propagate untouched.
         """
-        if self._ollama_pool is None:
+        if self._key_pool is None:
             return litellm.completion(**kwargs)
 
-        max_attempts = max(len(self._ollama_pool), (self.num_retries or 0) + 1)
+        max_attempts = max(len(self._key_pool), (self.num_retries or 0) + 1)
         last_err: Exception | None = None
         for _ in range(max_attempts):
             try:
@@ -292,16 +322,16 @@ class LLMClient:
             except litellm.RateLimitError as exc:
                 key = kwargs.get("api_key")
                 if key:
-                    self._ollama_pool.cooldown(key, extract_retry_after(exc))
+                    self._key_pool.cooldown(key, extract_retry_after(exc))
                 last_err = exc
             except litellm.APIConnectionError as exc:
-                if not self._is_ollama_quota_error(exc):
+                if self.provider != "ollama" or not self._is_ollama_quota_error(exc):
                     raise
                 key = kwargs.get("api_key")
                 if key:
                     # cooldown() returns True only for the first parker — dedups
                     # warnings when concurrent workers both held the same key.
-                    fresh = self._ollama_pool.cooldown(key, self._OLLAMA_QUOTA_COOLDOWN_S)
+                    fresh = self._key_pool.cooldown(key, self._OLLAMA_QUOTA_COOLDOWN_S)
                     if fresh:
                         logger.warning(
                             "Ollama Cloud quota exhausted on key ending …%s; "
@@ -310,7 +340,7 @@ class LLMClient:
                             int(self._OLLAMA_QUOTA_COOLDOWN_S),
                         )
                 last_err = exc
-            next_key = self._ollama_pool.acquire()
+            next_key = self._key_pool.acquire()
             if next_key:
                 kwargs["api_key"] = next_key
         assert last_err is not None

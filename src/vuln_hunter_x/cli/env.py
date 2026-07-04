@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
-"""Environment check command for CodeQL, OpenAI, and Ollama."""
+"""Environment check command for CodeQL and LLM providers (OpenAI, Anthropic, Ollama, DeepSeek, Gemini)."""
 
 from __future__ import annotations
 
@@ -224,6 +224,127 @@ def check_anthropic(api_key: str | None = None, model: str | None = None) -> tup
         return False, f"Anthropic error: {e}"
 
 
+def check_gemini(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
+    """
+    Verify Google Gemini (AI Studio) via LiteLLM.
+
+    With a key pool configured (comma-separated GEMINI_API_KEY(S)), each key
+    is probed individually so dead keys are visible before a long run.
+
+    Args:
+        api_key: Gemini API key (defaults to the GEMINI_API_KEYS /
+            GEMINI_API_KEY pool, then GOOGLE_API_KEY)
+        model: Model name to test (defaults to gemini-2.5-flash-lite)
+
+    Returns:
+        Tuple of (success, message)
+    """
+    if api_key:
+        keys = [api_key]
+    else:
+        from vuln_hunter_x.core.config import _load_gemini_api_keys
+
+        keys = _load_gemini_api_keys()
+    if not keys:
+        return False, "GEMINI_API_KEY (or GOOGLE_API_KEY) not set"
+
+    try:
+        import litellm
+    except ImportError:
+        return False, "litellm not installed; run: pip install litellm"
+
+    # Use the cheapest Gemini tier for the connectivity check
+    test_model = model or "gemini/gemini-2.5-flash-lite"
+    if not test_model.startswith("gemini/"):
+        test_model = "gemini/" + test_model
+
+    def _ping(key: str):
+        return litellm.completion(
+            model=test_model,
+            messages=[{"role": "user", "content": "Reply with exactly: OK"}],
+            api_key=key,
+            max_tokens=10,
+            timeout=TIMEOUT_LLM_HEALTH_CHECK,
+        )
+
+    if len(keys) == 1:
+        try:
+            resp = _ping(keys[0])
+            text = (resp.choices[0].message.content or "").strip()
+            return True, f"Gemini ({test_model}): {text[:50]}"
+        except Exception as e:
+            return False, f"Gemini error: {e}"
+
+    failures = 0
+    per_key: list[str] = []
+    for key in keys:
+        tail = key[-4:]
+        try:
+            _ping(key)
+            per_key.append(f"…{tail}=OK")
+        except Exception as e:
+            failures += 1
+            per_key.append(f"…{tail}=FAIL ({e})")
+    summary = f"Gemini ({test_model}): {len(keys)} key(s); " + "; ".join(per_key)
+    return failures == 0, summary
+
+
+def check_deepseek(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
+    """
+    Verify DeepSeek via LiteLLM's native deepseek/ route.
+
+    Args:
+        api_key: DeepSeek API key (defaults to DEEPSEEK_API_KEY, then
+            OPENAI_API_KEY — mirroring LLMClient's fallback so an existing
+            OpenAI-keyed DeepSeek .env keeps working)
+        model: Model name to test (defaults to deepseek-chat)
+
+    Returns:
+        Tuple of (success, message)
+    """
+    api_key = (
+        api_key
+        or os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        or os.environ.get("OPENAI_API_KEY", "").strip()
+    )
+    if not api_key:
+        return False, "DEEPSEEK_API_KEY (or OPENAI_API_KEY) not set"
+
+    try:
+        import litellm
+    except ImportError:
+        return False, "litellm not installed; run: pip install litellm"
+
+    test_model = model or "deepseek/deepseek-chat"
+    if not test_model.startswith("deepseek/"):
+        test_model = "deepseek/" + test_model
+
+    # Mirror LLMClient's base-URL fallback chain
+    raw_base = (
+        os.environ.get("DEEPSEEK_API_BASE")
+        or os.environ.get("OPENAI_BASE_URL")
+        or os.environ.get("OPENAI_API_BASE")
+        or ""
+    ).strip()
+    api_base = raw_base.rstrip("/") if raw_base else None
+
+    try:
+        kwargs = {
+            "model": test_model,
+            "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+            "api_key": api_key,
+            "max_tokens": 10,
+            "timeout": TIMEOUT_LLM_HEALTH_CHECK,
+        }
+        if api_base:
+            kwargs["api_base"] = api_base
+        resp = litellm.completion(**kwargs)
+        text = (resp.choices[0].message.content or "").strip()
+        return True, f"DeepSeek ({test_model}): {text[:50]}"
+    except Exception as e:
+        return False, f"DeepSeek error: {e}"
+
+
 def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
     """
     Verify OpenAI API via LiteLLM.
@@ -444,6 +565,41 @@ def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
         results["anthropic"] = (False, "Not configured")
         if not quiet:
             print("  Anthropic: [SKIP] Not configured")
+
+    # DeepSeek - test if provider is deepseek or a dedicated key is present.
+    # Deliberately does NOT trigger on OPENAI_API_KEY alone (the client-side
+    # fallback), which would double-probe every OpenAI setup.
+    if provider == "deepseek" or os.environ.get("DEEPSEEK_API_KEY"):
+        deepseek_model = model if provider == "deepseek" else None
+        ok, msg = check_deepseek(model=deepseek_model)
+        results["deepseek"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  DeepSeek: [{status}] {msg}")
+    else:
+        results["deepseek"] = (False, "Not configured")
+        if not quiet:
+            print("  DeepSeek: [SKIP] Not configured")
+
+    # Gemini - test if provider is gemini or a dedicated key is present.
+    # Deliberately does NOT trigger on GOOGLE_API_KEY alone: that variable is
+    # commonly set for unrelated Google tooling and the probe costs a request.
+    # (check_gemini itself still falls back to GOOGLE_API_KEY when it runs.)
+    if (
+        provider == "gemini"
+        or os.environ.get("GEMINI_API_KEYS")
+        or os.environ.get("GEMINI_API_KEY")
+    ):
+        gemini_model = model if provider == "gemini" else None
+        ok, msg = check_gemini(model=gemini_model)
+        results["gemini"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  Gemini: [{status}] {msg}")
+    else:
+        results["gemini"] = (False, "Not configured")
+        if not quiet:
+            print("  Gemini: [SKIP] Not configured")
 
     # Ollama - test if provider is ollama or model starts with ollama/
     if provider == "ollama" or model.startswith("ollama/"):

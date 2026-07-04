@@ -182,8 +182,18 @@ def ask_llm_for_build_help(
     ollama_model = os.environ.get("OLLAMA_MODEL", "ollama/llama3.2")
     api_base = os.environ.get("OLLAMA_API_BASE", "").strip()
 
-    use_ollama = not api_key or os.environ.get("LLM_PROVIDER", "").lower() == "ollama"
-    if use_ollama:
+    from vuln_hunter_x.core.config import _load_gemini_api_keys
+
+    provider = os.environ.get("LLM_PROVIDER", "").lower()
+    _gemini_keys = _load_gemini_api_keys()
+    gemini_key = _gemini_keys[0] if _gemini_keys else ""
+    use_gemini = provider == "gemini" and bool(gemini_key)
+    use_ollama = not use_gemini and (not api_key or provider == "ollama")
+    if use_gemini:
+        model = os.environ.get("LLM_MODEL", "").strip() or "gemini-2.5-flash"
+        if not model.startswith("gemini/"):
+            model = "gemini/" + model
+    elif use_ollama:
         model = normalize_ollama_model(ollama_model)
     elif not api_key:
         return None
@@ -219,7 +229,9 @@ Be specific and actionable. Include exact commands to run."""
         }
         if use_ollama and api_base:
             kwargs["api_base"] = api_base.rstrip("/")
-        if api_key and not use_ollama:
+        if use_gemini:
+            kwargs["api_key"] = gemini_key
+        elif api_key and not use_ollama:
             kwargs["api_key"] = api_key
             kwargs.update(
                 openai_compat_kwargs(

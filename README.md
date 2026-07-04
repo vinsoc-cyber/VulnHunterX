@@ -50,7 +50,7 @@ The **Vulnhalla** methodology forces the LLM to:
 | **SAST engines** | CodeQL, Semgrep (live `registry.semgrep.dev` packs), OpenGrep (registry-free, runs the vendored offline [config/opengrep-rules/](config/opengrep-rules/)) — `--tool codeql\|semgrep\|opengrep\|both\|all` |
 | **Security rule profiles** | `standard` → `extended` → `maximum` → `extended-registry` → `full` (see [config/RULES.md](config/RULES.md)) |
 | **Guided questions** | 394 rule-specific templates across 7 per-language banks plus a fallback |
-| **LLM providers** | OpenAI, Anthropic, Ollama (local or [Ollama Cloud](https://ollama.com)) — via [LiteLLM](https://github.com/BerriAI/litellm) |
+| **LLM providers** | OpenAI, Anthropic, Gemini, DeepSeek, Ollama (local or [Ollama Cloud](https://ollama.com)) — via [LiteLLM](https://github.com/BerriAI/litellm) |
 | **Multi-turn verification** | Dynamic context expansion (callers, structs, globals, macros, free-sites) |
 | **Inputs** | Git URL, local directory, or batch list (`repos.yaml`) |
 | **Reports** | Markdown, EN/VI, executive summary + per-finding detail |
@@ -66,7 +66,7 @@ The **Vulnhalla** methodology forces the LLM to:
 - Python 3.12+
 - [CodeQL CLI 2.15+](https://codeql.github.com/docs/codeql-cli/getting-started-with-the-codeql-cli/)
 - [Semgrep](https://semgrep.dev/docs/getting-started/) and/or [OpenGrep](https://github.com/opengrep/opengrep#installation) — optional
-- An LLM provider: OpenAI, Anthropic, or local Ollama
+- An LLM provider: OpenAI, Anthropic, Gemini (AI Studio), DeepSeek, or local Ollama
 
 ### Install
 
@@ -75,7 +75,7 @@ git clone https://github.com/vinsoc-cyber/VulnHunterX.git && cd VulnHunterX
 uv venv --python python3.12 .venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-cp env.example .env       # add OPENAI_API_KEY / ANTHROPIC_API_KEY / OLLAMA_API_BASE
+cp env.example .env       # add OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY / OLLAMA_API_BASE
 vuln-hunter-x check-env   # verify toolchain
 ```
 
@@ -263,6 +263,7 @@ Verify SARIF findings using multi-turn LLM reasoning.
 vuln-hunter-x verify --repo libucl
 vuln-hunter-x verify --repo c-ares --lang c --category memory-safety
 vuln-hunter-x verify --provider ollama --model ollama/llama3.2 --repo libucl
+vuln-hunter-x verify --provider gemini --model gemini-2.5-flash --repo libucl
 vuln-hunter-x verify --local-path /path/to/project --lang python --limit 20
 ```
 
@@ -273,7 +274,7 @@ vuln-hunter-x verify --local-path /path/to/project --lang python --limit 20
 | `--name NAME` | Repository name | auto-derived |
 | `--repo NAME` / `--lang LANG` | Filters | All |
 | `--sarif PATH` | Process a specific SARIF file | — |
-| `--provider {openai,anthropic,ollama}` | LLM provider | from config |
+| `--provider {openai,anthropic,ollama,deepseek,gemini}` | LLM provider | from config |
 | `--model NAME` | Model name | from config |
 | `--temperature F` / `--max-tokens N` | LLM tuning | from config |
 | `--max-iterations N` | Max conversation rounds per finding | 3 |
@@ -425,6 +426,7 @@ Priority: **CLI args > environment variables > config file > defaults**.
 |---|---|
 | `OPENAI_API_KEY` | OpenAI API key |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
+| `GEMINI_API_KEY` | Google Gemini (AI Studio) API key. Comma-separated for a pool (`k1,k2,k3`); 2+ keys enable round-robin rotation with per-key 429 cooldown. `GEMINI_API_KEYS` is accepted as an alias; `GOOGLE_API_KEY` as a single-key fallback. Vertex AI is not supported (future work). |
 | `OLLAMA_API_BASE` | Ollama server URL (`http://localhost:11434` for local, `https://ollama.com` for cloud) |
 | `OLLAMA_API_KEYS` | Ollama Cloud bearer token(s). Comma-separated for a pool (`k1,k2,k3`); 2+ keys enable round-robin rotation with per-key 429 cooldown. Required when `OLLAMA_API_BASE` points at `ollama.com` or the model carries a `:cloud` / `-cloud` tag. |
 | `LLM_PROVIDER` / `LLM_MODEL` | Override default provider / model |
@@ -433,7 +435,7 @@ Priority: **CLI args > environment variables > config file > defaults**.
 ### LLM / verification settings (`config/confirm_findings.yaml`)
 
 ```yaml
-provider: openai          # openai | anthropic | ollama
+provider: openai          # openai | anthropic | ollama | deepseek | gemini
 model: gpt-4o
 temperature: 0.2
 max_tokens: 1500

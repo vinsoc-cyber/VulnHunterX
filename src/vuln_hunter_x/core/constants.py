@@ -10,6 +10,9 @@ should be defined here so they can be easily found and updated.
 import multiprocessing
 
 # ── LLM defaults ──────────────────────────────────────────────────────
+# Providers accepted by --provider and LLM_PROVIDER. Keep in sync with the
+# per-provider branches in llm/client.py and cli/env.py.
+SUPPORTED_PROVIDERS = ("openai", "ollama", "anthropic", "deepseek", "gemini")
 DEFAULT_LLM_PROVIDER = "openai"
 DEFAULT_LLM_MODEL = "gpt-4o"
 DEFAULT_LLM_TEMPERATURE = 0.2

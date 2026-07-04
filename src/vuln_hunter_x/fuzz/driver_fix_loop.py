@@ -275,7 +275,7 @@ def make_llm_fix_fn(
     """Build a multi-turn completion function that maintains conversation history.
 
     Args:
-        provider: LLM provider (openai, anthropic, ollama).
+        provider: LLM provider (openai, anthropic, ollama, gemini).
         model: Model identifier.
         max_tokens: Max tokens for LLM response.
         type_context: Struct/enum/typedef definitions.
@@ -283,8 +283,9 @@ def make_llm_fix_fn(
     """
     import litellm
 
-    # Normalize model ID and resolve api_base — mirrors LLMClient._build_completion_kwargs()
+    # Normalize model ID and resolve api_base/api_key — mirrors LLMClient._build_completion_kwargs()
     api_base: str | None = None
+    api_key: str | None = None
     if provider == "ollama":
         model_id = normalize_ollama_model(model)
     elif provider == "openai":
@@ -296,6 +297,15 @@ def make_llm_fix_fn(
             model_id = "openai/" + model_id
     elif provider == "anthropic":
         model_id = model if model.startswith("anthropic/") else "anthropic/" + model
+    elif provider == "gemini":
+        from vuln_hunter_x.core.config import _load_gemini_api_keys
+
+        model_id = model if model.startswith("gemini/") else "gemini/" + model
+        # Explicit injection: LiteLLM's auto-read is GOOGLE-first, which would
+        # invert the expected GEMINI_API_KEY precedence. The loader also splits
+        # comma-separated pools; the fix loop is sequential, first key suffices.
+        gemini_keys = _load_gemini_api_keys()
+        api_key = gemini_keys[0] if gemini_keys else None
     else:
         model_id = model
 
@@ -342,6 +352,8 @@ Respond with the corrected full C++ source only (use a ```cpp ... ``` block or p
             }
             if api_base:
                 kwargs["api_base"] = api_base
+            if api_key:
+                kwargs["api_key"] = api_key
             kwargs.update(
                 openai_compat_kwargs(
                     provider=provider,
