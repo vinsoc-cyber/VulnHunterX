@@ -1,0 +1,14 @@
+# version_ab verifier config. Filename = the result-affecting knobs:
+#   <provider>-<model>-temp<temperature>-iter<max_iterations>.yaml
+# (filename sanitizes the model's "/" and ":"; model: below is the literal id)
+
+# result-affecting — required, no default (stamped into score meta + confound guard)
+provider: ollama
+model: ollama/qwen3-coder:480b-cloud
+temperature: 0
+max_iterations: 5
+
+# operational — verdict-neutral, safe to differ between A/B runs
+jobs: 10          # concurrent findings per target (engine default 4)
+max_cost: null    # cumulative-$ circuit breaker; null = no cap
+output_dir: null  # engine working tree; null = an _engine dir beside the verdicts

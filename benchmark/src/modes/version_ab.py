@@ -175,7 +175,9 @@ def write_verdicts(raw_dir: Path, real_keys: set, dest: Path) -> int:
     return len(out)
 
 
-CONFOUND_KEYS = ("provider", "model", "temperature", "panel_hash")
+CONFOUND_KEYS = ("provider", "model", "temperature", "max_iterations", "panel_hash")
+REQUIRED_KEYS = ("provider", "model", "temperature", "max_iterations")  # result-affecting; no default
+DEFAULT_CONFIG = "openai-gpt-5.5-temp0-iter5"
 
 
 class ConfoundError(Exception):
@@ -397,7 +399,9 @@ class Scorer(scoring.Scorer):
 
 def add_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--targets", default=None, help="comma list; default = all of test_case/")
-    p.add_argument("--config", default=None, help="path to config.yaml")
+    p.add_argument("--config", default=None,
+                   help=f"config name under config/ (e.g. {DEFAULT_CONFIG}) or a path "
+                        f"(default: {DEFAULT_CONFIG})")
     p.add_argument("--previous", default=None, help="baseline VER@SHA (default: most recent other)")
     p.add_argument("--current", default=None, help="current label (default: {__version__}@{short-sha})")
     p.add_argument("--compare-only", action="store_true", help="recompute churn from existing score.json")
@@ -407,10 +411,30 @@ def add_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--timestamp", default=None, help=argparse.SUPPRESS)  # test determinism
 
 
+def config_path(arg, bench_root) -> Path:
+    """Resolve --config. A bare name -> config/<name>.yaml; anything with a
+    directory part or suffix -> that literal path; nothing -> the default."""
+    cfg_dir = Path(bench_root) / "config"
+    if not arg:
+        return cfg_dir / f"{DEFAULT_CONFIG}.yaml"
+    p = Path(arg)
+    # bare name -> config/<name>.yaml. A dotted model id (gpt-5.5) makes .suffix
+    # non-empty, so key off "no dir part and not a .yaml/.yml path" instead.
+    if p.parent == Path(".") and p.suffix not in (".yaml", ".yml"):
+        return cfg_dir / f"{arg}.yaml"
+    return p
+
+
 def load_config(path) -> dict:
     import yaml
-    cfg = yaml.safe_load(Path(path).read_text())
-    cfg.setdefault("max_iterations", 5)
+    path = Path(path)
+    if not path.exists():
+        sys.exit(f"ERROR: config not found: {path}")
+    cfg = yaml.safe_load(path.read_text()) or {}
+    missing = [k for k in REQUIRED_KEYS if cfg.get(k) is None]
+    if missing:
+        sys.exit(f"ERROR: config {path} missing required result-affecting key(s): "
+                 f"{', '.join(missing)}")
     cfg.setdefault("max_cost", None)
     return cfg
 
@@ -455,7 +479,7 @@ def run(args, bench_root) -> int:
     test_case = bench_root / "test_case"
     result_root = bench_root / "result" / "version_ab"
     output_root = bench_root / "output" / "version_ab"
-    cfg_path = Path(args.config) if args.config else bench_root / "config" / "version_ab" / "config.yaml"
+    cfg_path = config_path(args.config, bench_root)
     cfg = load_config(cfg_path)
 
     if not test_case.is_dir():
@@ -486,7 +510,8 @@ def run(args, bench_root) -> int:
         meta_t = json.loads((tc / "metadata.json").read_text())
         real_keys = load_real_keys(tc / "ground_truth.json")
         score_meta = {"version": current, "provider": cfg["provider"], "model": cfg["model"],
-                      "temperature": cfg["temperature"], "panel_hash": panel_hash(tc), "timestamp": now}
+                      "temperature": cfg["temperature"], "max_iterations": cfg["max_iterations"],
+                      "panel_hash": panel_hash(tc), "timestamp": now}
         tdir = cur_dir / target
 
         try:
@@ -555,7 +580,7 @@ def run(args, bench_root) -> int:
     if scores:
         roll = rollup_score(scores, {"version": current, "provider": cfg["provider"],
                                      "model": cfg["model"], "temperature": cfg["temperature"],
-                                     "timestamp": now})
+                                     "max_iterations": cfg["max_iterations"], "timestamp": now})
         cur_dir.mkdir(parents=True, exist_ok=True)
         (cur_dir / "score.json").write_text(json.dumps(roll, indent=2))
         (cur_dir / "score.md").write_text(scorer.render_score(roll))

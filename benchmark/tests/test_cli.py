@@ -21,9 +21,9 @@ def _panel(bench, target="dvcp"):
     (sr / f"{target}.sarif").write_text(json.dumps({"runs": [{"results": [
         {"ruleId": "r", "locations": [{"physicalLocation": {
             "artifactLocation": {"uri": "f.c"}, "region": {"startLine": 1}}}]}]}]}))
-    cfg = bench / "config" / "version_ab"
+    cfg = bench / "config"
     cfg.mkdir(parents=True, exist_ok=True)
-    (cfg / "config.yaml").write_text(
+    (cfg / f"{v.DEFAULT_CONFIG}.yaml").write_text(
         "provider: openai\nmodel: gpt-5.5\ntemperature: 0\nmax_cost: 25\nmax_iterations: 5\n")
 
 
@@ -43,7 +43,7 @@ def test_run_scores_target(tmp_path, monkeypatch):
     monkeypatch.setattr(v.Harness, "fetch", lambda self, meta, dest: dest)
     monkeypatch.setattr(v.Harness, "run", fake_run)
 
-    rc = v.run(_args(config=str(bench / "config" / "version_ab" / "config.yaml")), bench)
+    rc = v.run(_args(), bench)   # config=None -> default config/<DEFAULT_CONFIG>.yaml
     assert rc == 0
     score = json.loads((bench / "result" / "version_ab" / "1.0.0@test" / "dvcp" / "score.json").read_text())
     assert score["aggregates"]["recall"] == 1.0
@@ -57,7 +57,7 @@ def test_collision_refused(tmp_path):
     _panel(bench)
     (bench / "result" / "version_ab" / "1.0.0@test").mkdir(parents=True)
     with pytest.raises(SystemExit):
-        v.run(_args(config=str(bench / "config" / "version_ab" / "config.yaml"), no_compare=True), bench)
+        v.run(_args(no_compare=True), bench)
 
 
 def test_dry_run_skips_collision_guard(tmp_path):
@@ -65,8 +65,7 @@ def test_dry_run_skips_collision_guard(tmp_path):
     (bench / "src").mkdir(parents=True)
     _panel(bench)
     (bench / "result" / "version_ab" / "1.0.0@test").mkdir(parents=True)  # would collide
-    rc = v.run(_args(config=str(bench / "config" / "version_ab" / "config.yaml"),
-                     dry_run=True, no_compare=True), bench)
+    rc = v.run(_args(dry_run=True, no_compare=True), bench)
     assert rc == 0  # dry-run is exempt from the collision guard
 
 
@@ -88,9 +87,30 @@ def test_run_isolates_target_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(v.Harness, "fetch", lambda self, meta, dest: dest)
     monkeypatch.setattr(v.Harness, "run", fake_run)
 
-    rc = v.run(_args(config=str(bench / "config" / "version_ab" / "config.yaml"),
-                     no_compare=True), bench)
+    rc = v.run(_args(no_compare=True), bench)
     assert rc == 1  # a target failed → non-zero exit
     base = bench / "result" / "version_ab" / "1.0.0@test"
     assert (base / "b_good" / "score.json").exists()      # other target still scored
     assert not (base / "a_bad" / "score.json").exists()   # failed target wrote no score
+
+
+def test_config_path_resolution(tmp_path):
+    bench = tmp_path / "benchmark"
+    assert v.config_path(None, bench) == bench / "config" / f"{v.DEFAULT_CONFIG}.yaml"  # default
+    assert v.config_path("codex-mini-temp0-iter3", bench) == bench / "config" / "codex-mini-temp0-iter3.yaml"
+    # dotted model id (gpt-5.5) -> .suffix is non-empty but it's still a bare name
+    assert v.config_path("openai-gpt-5.5-temp0-iter5", bench) == bench / "config" / "openai-gpt-5.5-temp0-iter5.yaml"
+    assert v.config_path("sub/dir.yaml", bench) == Path("sub/dir.yaml")   # path part -> literal
+    assert v.config_path("/abs/x.yaml", bench) == Path("/abs/x.yaml")     # absolute -> literal
+
+
+def test_load_config_requires_result_knobs(tmp_path):
+    good = tmp_path / "good.yaml"
+    good.write_text("provider: openai\nmodel: m\ntemperature: 0\nmax_iterations: 5\n")
+    assert v.load_config(good)["max_cost"] is None        # operational default still filled in
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("provider: openai\nmodel: m\ntemperature: 0\n")   # missing max_iterations
+    with pytest.raises(SystemExit):
+        v.load_config(bad)
+    with pytest.raises(SystemExit):
+        v.load_config(tmp_path / "missing.yaml")           # not found
