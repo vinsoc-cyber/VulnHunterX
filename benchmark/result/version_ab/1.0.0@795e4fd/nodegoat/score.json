@@ -1,0 +1,192 @@
+{
+  "meta": {
+    "version": "1.0.0@795e4fd",
+    "provider": "openai",
+    "model": "gpt-5.5",
+    "temperature": 0,
+    "panel_hash": "sha256:1179d560740b78792516c6aead103d2d",
+    "timestamp": "2026-07-03T12:00:08"
+  },
+  "findings": [
+    {
+      "rule": "js/clear-text-cookie",
+      "file": "server.js",
+      "line": 78,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.20486100000000002,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/code-injection",
+      "file": "app/data/allocations-dao.js",
+      "line": 78,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.334845,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/code-injection",
+      "file": "app/routes/contributions.js",
+      "line": 32,
+      "verdict": "TP",
+      "confidence": "Medium",
+      "cost_usd": 0.316421,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/code-injection",
+      "file": "app/routes/contributions.js",
+      "line": 33,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.129248,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/code-injection",
+      "file": "app/routes/contributions.js",
+      "line": 34,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.148049,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/indirect-command-line-injection",
+      "file": "Gruntfile.js",
+      "line": 166,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.367992,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "js/log-injection",
+      "file": "app/routes/session.js",
+      "line": 64,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.05103200000000001,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/missing-rate-limiting",
+      "file": "app/routes/index.js",
+      "line": 34,
+      "verdict": "TP",
+      "confidence": "Medium",
+      "cost_usd": 0.21805000000000002,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/missing-token-validation",
+      "file": "server.js",
+      "line": 78,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.21460100000000004,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/polynomial-redos",
+      "file": "app/routes/profile.js",
+      "line": 61,
+      "verdict": "NMD",
+      "confidence": "Medium",
+      "cost_usd": 0.230856,
+      "truth": "real",
+      "grade": "abstain"
+    },
+    {
+      "rule": "js/polynomial-redos",
+      "file": "app/routes/session.js",
+      "line": 181,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.163118,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/redos",
+      "file": "app/routes/profile.js",
+      "line": 59,
+      "verdict": "TP",
+      "confidence": "Medium",
+      "cost_usd": 0.313293,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/request-forgery",
+      "file": "app/routes/research.js",
+      "line": 16,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.131588,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/server-side-unvalidated-url-redirection",
+      "file": "app/routes/index.js",
+      "line": 72,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.08283499999999999,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/session-fixation",
+      "file": "app/routes/index.js",
+      "line": 34,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.13641599999999998,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/sql-injection",
+      "file": "app/data/user-dao.js",
+      "line": 104,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.347302,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "js/sql-injection",
+      "file": "app/data/user-dao.js",
+      "line": 91,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.298452,
+      "truth": "real",
+      "grade": "CORRECT"
+    }
+  ],
+  "aggregates": {
+    "tp_total": 16,
+    "tp_real": 15,
+    "false_alarm": 1,
+    "precision": 0.9375,
+    "recall": 0.9375,
+    "n_real": 16,
+    "n_not_real": 1,
+    "cost_usd": 3.689
+  }
+}

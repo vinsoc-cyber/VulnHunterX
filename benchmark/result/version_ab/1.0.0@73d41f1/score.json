@@ -1,0 +1,89 @@
+{
+  "meta": {
+    "version": "1.0.0@73d41f1",
+    "provider": "openai",
+    "model": "gpt-5.5",
+    "temperature": 0,
+    "timestamp": "2026-06-30T08:11:34"
+  },
+  "targets": {
+    "dvcp": {
+      "tp_total": 5,
+      "tp_real": 4,
+      "false_alarm": 1,
+      "precision": 0.8,
+      "recall": 1.0,
+      "n_real": 4,
+      "n_not_real": 1,
+      "cost_usd": 0.3068,
+      "panel_hash": "sha256:eebf118bd1d28123bd79695ebc489cca"
+    }
+  },
+  "findings": [
+    {
+      "rule": "cpp/double-free",
+      "file": "imgRead.c",
+      "line": 62,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.06485,
+      "truth": "real",
+      "grade": "CORRECT",
+      "target": "dvcp"
+    },
+    {
+      "rule": "cpp/invalid-pointer-deref",
+      "file": "imgRead.c",
+      "line": 91,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.05931,
+      "truth": "real",
+      "grade": "CORRECT",
+      "target": "dvcp"
+    },
+    {
+      "rule": "cpp/invalid-pointer-deref",
+      "file": "imgRead.c",
+      "line": 95,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.054037,
+      "truth": "real",
+      "grade": "CORRECT",
+      "target": "dvcp"
+    },
+    {
+      "rule": "cpp/path-injection",
+      "file": "imgRead.c",
+      "line": 132,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.086275,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM",
+      "target": "dvcp"
+    },
+    {
+      "rule": "cpp/use-after-free",
+      "file": "imgRead.c",
+      "line": 67,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.042317,
+      "truth": "real",
+      "grade": "CORRECT",
+      "target": "dvcp"
+    }
+  ],
+  "aggregates": {
+    "tp_total": 5,
+    "tp_real": 4,
+    "false_alarm": 1,
+    "precision": 0.8,
+    "recall": 1.0,
+    "n_real": 4,
+    "n_not_real": 1,
+    "cost_usd": 0.3068
+  }
+}

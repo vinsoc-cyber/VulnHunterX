@@ -1,0 +1,6 @@
+[
+  "cpp/double-free@imgRead.c:62",
+  "cpp/use-after-free@imgRead.c:67",
+  "cpp/invalid-pointer-deref@imgRead.c:91",
+  "cpp/invalid-pointer-deref@imgRead.c:95"
+]

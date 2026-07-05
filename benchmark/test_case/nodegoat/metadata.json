@@ -1,0 +1,7 @@
+{
+  "repo_url": "https://github.com/OWASP/NodeGoat.git",
+  "sha": "c5cb68a7084e4ae7dcc60e6a98768720a81841e8",
+  "lang": "javascript",
+  "name": "nodegoat",
+  "scanner": "codeql"
+}

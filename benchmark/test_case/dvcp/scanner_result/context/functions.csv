@@ -1,0 +1,4 @@
+"name","file","start_line","end_line","param_count","is_static"
+"main","imgRead.c",126,134,2,"false"
+"ProcessImage","imgRead.c",29,124,1,"false"
+"stack_operation","imgRead.c",22,27,0,"false"

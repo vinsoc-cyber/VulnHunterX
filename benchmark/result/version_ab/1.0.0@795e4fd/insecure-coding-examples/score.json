@@ -1,0 +1,342 @@
+{
+  "meta": {
+    "version": "1.0.0@795e4fd",
+    "provider": "openai",
+    "model": "gpt-5.5",
+    "temperature": 0,
+    "panel_hash": "sha256:9cdeda155a51f5c5c57e5e3a4fde09e3",
+    "timestamp": "2026-07-01T10:48:19"
+  },
+  "findings": [
+    {
+      "rule": "cpp/dangerous-cin",
+      "file": "exploit/wargames/launch_bigger.cpp",
+      "line": 19,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.039907,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/dangerous-cin",
+      "file": "exploit/wargames/launch.cpp",
+      "line": 19,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.032387,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/dangerous-function-overflow",
+      "file": "exploit/wargames/launch.c",
+      "line": 19,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.03951,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/dangerous-function-overflow",
+      "file": "exploitable/stack_buffer_overflow.c",
+      "line": 13,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.025952,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/double-free",
+      "file": "exploitable/double_free.c",
+      "line": 15,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.029427000000000002,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/non-constant-format",
+      "file": "exploit/format/direct_access.c",
+      "line": 7,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.030206999999999998,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/non-constant-format",
+      "file": "exploit/format/exploitable.c",
+      "line": 66,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.033937,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/non-constant-format",
+      "file": "exploit/format/exploitable_simple.c",
+      "line": 12,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.03138200000000001,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/non-constant-format",
+      "file": "exploitable/uncontrolled_format_string.c",
+      "line": 14,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.029612000000000003,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/overflow-buffer",
+      "file": "exploitable/global_buffer_overflow.c",
+      "line": 9,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.07838400000000001,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/overflow-buffer",
+      "file": "practice/if_constexpr.cpp",
+      "line": 15,
+      "verdict": "FP",
+      "confidence": "Medium",
+      "cost_usd": 0.07885700000000001,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "cpp/signed-overflow-check",
+      "file": "exploitable/signed_integer_overflow.c",
+      "line": 16,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.099275,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/signed-overflow-check",
+      "file": "exploitable/undefined_behavior.cpp",
+      "line": 11,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.08934900000000001,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "cpp/signed-overflow-check",
+      "file": "exploitable/undefined_behavior.cpp",
+      "line": 15,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.09301000000000001,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "cpp/signed-overflow-check",
+      "file": "practice/if_constexpr.cpp",
+      "line": 14,
+      "verdict": "FP",
+      "confidence": "Medium",
+      "cost_usd": 0.136549,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "cpp/static-buffer-overflow",
+      "file": "practice/if_constexpr.cpp",
+      "line": 15,
+      "verdict": "FP",
+      "confidence": "Medium",
+      "cost_usd": 0.071035,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "cpp/suspicious-sizeof",
+      "file": "practice/decay.cpp",
+      "line": 5,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.10251000000000002,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/suspicious-sizeof",
+      "file": "practice/guidelines/expressions_and_statements/cautious_pointer_use_decay.cpp",
+      "line": 10,
+      "verdict": "FP",
+      "confidence": "Medium",
+      "cost_usd": 0.10629,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/tainted-format-string",
+      "file": "exploit/format/direct_access.c",
+      "line": 7,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.027932,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/tainted-format-string",
+      "file": "exploit/format/exploitable.c",
+      "line": 66,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.04578,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/tainted-format-string",
+      "file": "exploit/format/exploitable_simple.c",
+      "line": 12,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.028807,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/tainted-format-string",
+      "file": "exploitable/uncontrolled_format_string.c",
+      "line": 14,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.032257,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/type-confusion",
+      "file": "practice/guidelines/expressions_and_statements/use_named_cast.cpp",
+      "line": 13,
+      "verdict": "FP",
+      "confidence": "Medium",
+      "cost_usd": 0.046252,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/type-confusion",
+      "file": "practice/guidelines/expressions_and_statements/use_named_cast.cpp",
+      "line": 16,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.11311900000000003,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "cpp/unbounded-write",
+      "file": "exploit/format/exploitable.c",
+      "line": 64,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.030812,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/unbounded-write",
+      "file": "exploit/format/exploitable_simple.c",
+      "line": 11,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.030657,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/unbounded-write",
+      "file": "exploit/wargames/launch.c",
+      "line": 19,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.031527,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/unbounded-write",
+      "file": "exploitable/heap_buffer_overflow.c",
+      "line": 14,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.031532000000000004,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/unbounded-write",
+      "file": "exploitable/heap_buffer_overflow_cwe.c",
+      "line": 14,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.041971999999999995,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/unbounded-write",
+      "file": "exploitable/stack_buffer_overflow.c",
+      "line": 13,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.026747,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/unbounded-write",
+      "file": "exploitable/stack_buffer_overflow_cwe.c",
+      "line": 13,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.029252,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/use-after-free",
+      "file": "exploitable/use_after_free.c",
+      "line": 19,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.043785000000000004,
+      "truth": "real",
+      "grade": "CORRECT"
+    }
+  ],
+  "aggregates": {
+    "tp_total": 26,
+    "tp_real": 23,
+    "false_alarm": 3,
+    "precision": 0.8846153846153846,
+    "recall": 0.8846153846153846,
+    "n_real": 26,
+    "n_not_real": 6,
+    "cost_usd": 1.708
+  }
+}

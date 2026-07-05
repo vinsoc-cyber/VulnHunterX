@@ -1,0 +1,732 @@
+{
+  "meta": {
+    "version": "1.0.0@eda2fd0",
+    "provider": "openai",
+    "model": "gpt-5.5",
+    "temperature": 0,
+    "panel_hash": "sha256:7d1c6808c951a50434e970548b0de013",
+    "timestamp": "2026-07-01T02:56:44"
+  },
+  "findings": [
+    {
+      "rule": "javascript.browser.security.eval-detected.eval-detected",
+      "file": "vulnerabilities/javascript/source/high.js",
+      "line": 1,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.19649400000000003,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp",
+      "file": "vulnerabilities/javascript/source/high.js",
+      "line": 1,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.16995400000000002,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp",
+      "file": "vulnerabilities/javascript/source/high.js",
+      "line": 1,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.17705400000000002,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.audit.openssl-decrypt-validate.openssl-decrypt-validate",
+      "file": "vulnerabilities/api/src/Token.php",
+      "line": 39,
+      "verdict": "TP",
+      "confidence": "Medium",
+      "cost_usd": 0.229809,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "php.lang.security.eval-use.eval-use",
+      "file": "vulnerabilities/view_help.php",
+      "line": 20,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.370036,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.eval-use.eval-use",
+      "file": "vulnerabilities/view_help.php",
+      "line": 22,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.166602,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.exec-use.exec-use",
+      "file": "vulnerabilities/api/src/HealthController.php",
+      "line": 88,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.13279200000000002,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.exec-use.exec-use",
+      "file": "vulnerabilities/exec/source/high.php",
+      "line": 26,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.15640700000000002,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.exec-use.exec-use",
+      "file": "vulnerabilities/exec/source/high.php",
+      "line": 30,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.12306,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.exec-use.exec-use",
+      "file": "vulnerabilities/exec/source/impossible.php",
+      "line": 22,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.139405,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.exec-use.exec-use",
+      "file": "vulnerabilities/exec/source/impossible.php",
+      "line": 26,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.15443600000000002,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.exec-use.exec-use",
+      "file": "vulnerabilities/exec/source/low.php",
+      "line": 10,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.12031100000000002,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.exec-use.exec-use",
+      "file": "vulnerabilities/exec/source/low.php",
+      "line": 14,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.095809,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.exec-use.exec-use",
+      "file": "vulnerabilities/exec/source/medium.php",
+      "line": 19,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.12085699999999999,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.exec-use.exec-use",
+      "file": "vulnerabilities/exec/source/medium.php",
+      "line": 23,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.13383,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/api/src/HealthController.php",
+      "line": 88,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.139812,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/high.php",
+      "line": 26,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.13002,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/high.php",
+      "line": 30,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.12516,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/impossible.php",
+      "line": 22,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.14815499999999998,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/impossible.php",
+      "line": 26,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.15430700000000003,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/low.php",
+      "line": 10,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.11829200000000001,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/low.php",
+      "line": 14,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.103482,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/medium.php",
+      "line": 19,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.107901,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/medium.php",
+      "line": 23,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.124521,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "instructions.php",
+      "line": 26,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.13564500000000002,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/fi/source/high.php",
+      "line": 7,
+      "verdict": "FP",
+      "confidence": "Medium",
+      "cost_usd": 0.125251,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_help.php",
+      "line": 20,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.15593200000000002,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_help.php",
+      "line": 22,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.17175600000000002,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source_all.php",
+      "line": 14,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.138668,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source_all.php",
+      "line": 18,
+      "verdict": "FP",
+      "confidence": "Medium",
+      "cost_usd": 0.13872,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source_all.php",
+      "line": 22,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.16423800000000002,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source_all.php",
+      "line": 26,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.155418,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source.php",
+      "line": 63,
+      "verdict": "FP",
+      "confidence": "Medium",
+      "cost_usd": 0.319682,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source.php",
+      "line": 67,
+      "verdict": "FP",
+      "confidence": "Medium",
+      "cost_usd": 0.184861,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source.php",
+      "line": 68,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.3595790000000001,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/bac/source/low.php",
+      "line": 22,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.14045600000000003,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/bac/source/low.php",
+      "line": 35,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.275017,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/bac/source/low.php",
+      "line": 79,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.22676400000000002,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/bac/source/medium.php",
+      "line": 21,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.148881,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/bac/source/medium.php",
+      "line": 28,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.248662,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/bac/source/medium.php",
+      "line": 71,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.23090500000000003,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/brute/source/low.php",
+      "line": 12,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.120971,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/sqli_blind/source/high.php",
+      "line": 11,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.130208,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/sqli_blind/source/high.php",
+      "line": 33,
+      "verdict": "FP",
+      "confidence": "Low",
+      "cost_usd": 0.23439200000000002,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/sqli_blind/source/low.php",
+      "line": 11,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.133641,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/sqli_blind/source/low.php",
+      "line": 32,
+      "verdict": "FP",
+      "confidence": "Low",
+      "cost_usd": 0.23055599999999998,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/sqli_blind/source/medium.php",
+      "line": 34,
+      "verdict": "FP",
+      "confidence": "Low",
+      "cost_usd": 0.19639700000000002,
+      "truth": "real",
+      "grade": "MISS"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/sqli/source/low.php",
+      "line": 10,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.120927,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/sqli/source/low.php",
+      "line": 31,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.12505500000000003,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "login.php",
+      "line": 41,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.108882,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/brute/source/high.php",
+      "line": 22,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.09002100000000002,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/brute/source/low.php",
+      "line": 15,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.091949,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/brute/source/medium.php",
+      "line": 17,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.07805400000000001,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/captcha/source/impossible.php",
+      "line": 46,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.053607,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/cryptography/source/ecb_attack.php",
+      "line": 92,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.065761,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/csrf/test_credentials.php",
+      "line": 23,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.09836400000000001,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/javascript/index.php",
+      "line": 43,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.28344800000000003,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/javascript/index.php",
+      "line": 57,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.30047,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "php.lang.security.php-permissive-cors.php-permissive-cors",
+      "file": "vulnerabilities/api/gen_openapi.php",
+      "line": 6,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.037952,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "php.lang.security.php-permissive-cors.php-permissive-cors",
+      "file": "vulnerabilities/api/public/index.php",
+      "line": 11,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.084741,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "php.lang.security.phpinfo-use.phpinfo-use",
+      "file": "phpinfo.php",
+      "line": 8,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.135435,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/high.php",
+      "line": 26,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.12167700000000001,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/high.php",
+      "line": 30,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.125853,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/impossible.php",
+      "line": 22,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.175378,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/impossible.php",
+      "line": 26,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.14782,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/low.php",
+      "line": 10,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.104454,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/low.php",
+      "line": 14,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.11000700000000001,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/medium.php",
+      "line": 19,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.125921,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.tainted-exec.tainted-exec",
+      "file": "vulnerabilities/exec/source/medium.php",
+      "line": 23,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.111151,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "php.lang.security.unlink-use.unlink-use",
+      "file": "vulnerabilities/upload/source/impossible.php",
+      "line": 54,
+      "verdict": "FP",
+      "confidence": "Low",
+      "cost_usd": 0.28142100000000003,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
+      "file": ".github/workflows/docker-image.yml",
+      "line": 29,
+      "verdict": "TP",
+      "confidence": "Medium",
+      "cost_usd": 0.308068,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    }
+  ],
+  "aggregates": {
+    "tp_total": 40,
+    "tp_real": 31,
+    "false_alarm": 9,
+    "precision": 0.775,
+    "recall": 0.7380952380952381,
+    "n_real": 42,
+    "n_not_real": 29,
+    "cost_usd": 11.2915
+  }
+}

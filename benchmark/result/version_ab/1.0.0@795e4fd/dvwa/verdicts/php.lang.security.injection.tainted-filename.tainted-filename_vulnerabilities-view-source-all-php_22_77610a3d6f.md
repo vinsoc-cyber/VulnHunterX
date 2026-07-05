@@ -1,0 +1,23 @@
+# php.lang.security.injection.tainted-filename.tainted-filename @ vulnerabilities/view_source_all.php:22
+
+**Verdict:** FP · **Confidence:** High (0.88) · **Truth:** real · **Grade:** MISS · **Iterations:** 3
+
+## Reasoning
+
+The new context is unavailable and does not change the visible data flow: user input reaches `file_get_contents` without validation. However, the reported vulnerability is SSRF/CWE-918, and the flagged argument is visibly forced to start with the literal `./` on line 22, so attacker input cannot supply a leading URL scheme for a remote fetch; any remaining concern would be a different file/path traversal class, not this SSRF finding.
+
+## Data flow
+
+HTTP query parameter `$_GET['id']` checked for existence at vulnerabilities/view_source_all.php:11 → assigned directly to `$id` at vulnerabilities/view_source_all.php:12 → interpolated into the relative path string `"./{$id}/source/high.php"` at vulnerabilities/view_source_all.php:22 → passed to `file_get_contents` at vulnerabilities/view_source_all.php:22 → returned contents assigned to `$highsrc` and post-processed by `str_replace` at line 23 and `highlight_string` at line 24
+
+## Answers
+
+1. Step 0 / flagged line: The flagged line is present at `vulnerabilities/view_source_all.php:22`, exact text: `$highsrc = @file_get_contents("./{$id}/source/high.php");`. The rule-described construct is present on that line: a filename passed to `file_get_contents` includes user-derived `$id`. The code context says Function: `<unknown>`, so this appears to be top-level script code rather than a named function.
+2. Step 1 / source: The potentially dangerous data originates from HTTP user input: `$_GET['id']`. The code checks only whether the key exists on line 11 and assigns it directly to `$id` on line 12.
+3. Step 2 / trace: `array_key_exists("id", $_GET)` checks presence on line 11 → `$_GET['id']` is assigned directly to `$id` on line 12 → `$id` is interpolated into the string `"./{$id}/source/high.php"` on line 22 → that string is passed to `file_get_contents` on line 22 and the result is assigned to `$highsrc`. The resulting file contents are then passed to `str_replace` on line 23 and `highlight_string` on line 24, but those occur after the file read and do not affect the filename.
+4. Step 3 / validation, sanitization, encoding: No validation, sanitization, canonicalization, or allowlist is visible before the `file_get_contents` call on line 22. The `switch ($id)` starts at line 30, after the file reads on lines 14, 18, 22, and 26, so it is not a pre-sink defense for the flagged call. The unavailable additional context does not add any visible validation.
+5. Step 4 / sink: The sink is `file_get_contents("./{$id}/source/high.php")` on line 22. The dangerous operation is reading a file whose path includes user input. For the specific reported CWE-918 SSRF class, however, the visible filename is forced to begin with the literal relative-path prefix `./` and end with `/source/high.php`, so the user input does not control the leading URL scheme position needed for a PHP URL stream-wrapper fetch such as `http://...`.
+6. Step 5 / framework/library protections: The body of `dvwaPageStartup` is unavailable, so any framework-level protections are not visible. PHP `file_get_contents` itself can support URL wrappers in some configurations, but the visible string construction on line 22 starts with `./`, making the argument a relative local path rather than a remotely fetchable URL. The requested PHP configuration context for `allow_url_fopen` and `allow_url_include` was unavailable, but it does not change that the scheme is not at the start of the string in the shown code.
+7. Step 6 / required privilege: Line 6 calls `dvwaPageStartup(array('authenticated'))`, which suggests the code path requires an authenticated user. The implementation is unavailable, so exact enforcement and role level are not visible in the provided context.
+8. Step 7 / impact: For the specific reported impact, SSRF, the shown code does not demonstrate a way for attacker-controlled input to cause a server-side request to an arbitrary URL because of the literal `./` prefix on line 22. A separate local file/path traversal concern may exist because `$id` is not validated before use in filesystem paths, but that is not the CWE-918 SSRF issue reported by this finding.
+9. Step 8 / weakest link: The weakest link is the lack of pre-sink validation or allowlisting of `$id` before it is used in file paths on lines 14, 18, 22, and 26. For the reported SSRF class specifically, the visible defense is structural: line 22 hardcodes the filename to start with `./`, preventing attacker input from becoming the URL scheme at the beginning of the `file_get_contents` argument.

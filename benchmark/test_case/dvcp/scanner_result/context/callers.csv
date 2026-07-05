@@ -1,0 +1,4 @@
+"callee_name","callee_file","caller_name","caller_file","caller_start_line","caller_end_line"
+"ProcessImage","imgRead.c","main","imgRead.c",126,134
+"stack_operation","imgRead.c","ProcessImage","imgRead.c",29,124
+"stack_operation","imgRead.c","stack_operation","imgRead.c",22,27

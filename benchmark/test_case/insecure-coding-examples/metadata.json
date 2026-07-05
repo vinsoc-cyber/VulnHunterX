@@ -1,0 +1,7 @@
+{
+  "repo_url": "https://github.com/patricia-gallardo/insecure-coding-examples.git",
+  "sha": "774fe3f3057ace26d2c249e568d946eed080697c",
+  "lang": "cpp",
+  "name": "insecure-coding-examples",
+  "scanner": "codeql"
+}

@@ -1,0 +1,72 @@
+{
+  "meta": {
+    "version": "1.0.0@eda2fd0",
+    "provider": "openai",
+    "model": "gpt-5.5",
+    "temperature": 0,
+    "panel_hash": "sha256:eebf118bd1d28123bd79695ebc489cca",
+    "timestamp": "2026-07-01T02:56:44"
+  },
+  "findings": [
+    {
+      "rule": "cpp/double-free",
+      "file": "imgRead.c",
+      "line": 62,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.049657,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/invalid-pointer-deref",
+      "file": "imgRead.c",
+      "line": 91,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.055925,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/invalid-pointer-deref",
+      "file": "imgRead.c",
+      "line": 95,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.048822000000000004,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/path-injection",
+      "file": "imgRead.c",
+      "line": 132,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.07822000000000001,
+      "truth": "not-real",
+      "grade": "FALSE-ALARM"
+    },
+    {
+      "rule": "cpp/use-after-free",
+      "file": "imgRead.c",
+      "line": 67,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.06427,
+      "truth": "real",
+      "grade": "CORRECT"
+    }
+  ],
+  "aggregates": {
+    "tp_total": 5,
+    "tp_real": 4,
+    "false_alarm": 1,
+    "precision": 0.8,
+    "recall": 1.0,
+    "n_real": 4,
+    "n_not_real": 1,
+    "cost_usd": 0.2969
+  }
+}
