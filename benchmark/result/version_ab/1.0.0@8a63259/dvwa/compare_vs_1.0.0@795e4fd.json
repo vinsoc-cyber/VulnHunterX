@@ -1,0 +1,39 @@
+{
+  "previous": "1.0.0@795e4fd",
+  "current": "1.0.0@8a63259",
+  "flips": [
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/cryptography/source/ecb_attack.php",
+      "line": 92,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "Low",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.unlink-use.unlink-use",
+      "file": "vulnerabilities/upload/source/impossible.php",
+      "line": 54,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "Low",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    }
+  ],
+  "totals": {
+    "flips": 2,
+    "improve": 2,
+    "regress": 0,
+    "neutral": 0
+  },
+  "deltas": {
+    "precision": 0.0368,
+    "recall": 0.0
+  },
+  "timestamp": "2026-07-08T21:16:47"
+}

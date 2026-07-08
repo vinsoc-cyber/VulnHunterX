@@ -1,12 +1,12 @@
 {
   "meta": {
-    "version": "1.0.0@795e4fd",
+    "version": "1.0.0@8a63259",
     "provider": "openai",
     "model": "gpt-5.5",
     "temperature": 0,
     "max_iterations": 5,
     "panel_hash": "sha256:7d1c6808c951a50434e970548b0de013",
-    "timestamp": "2026-07-01T06:47:34"
+    "timestamp": "2026-07-08T21:16:47"
   },
   "findings": [
     {
@@ -15,7 +15,7 @@
       "line": 1,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.198916,
+      "cost_usd": 0.201376,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -25,7 +25,7 @@
       "line": 1,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.195156,
+      "cost_usd": 0.18985100000000005,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -35,7 +35,7 @@
       "line": 1,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.193181,
+      "cost_usd": 0.22395500000000002,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -45,7 +45,7 @@
       "line": 39,
       "verdict": "TP",
       "confidence": "Low",
-      "cost_usd": 0.30894499999999997,
+      "cost_usd": 0.284185,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -54,8 +54,8 @@
       "file": "vulnerabilities/view_help.php",
       "line": 20,
       "verdict": "TP",
-      "confidence": "Medium",
-      "cost_usd": 0.37704800000000005,
+      "confidence": "High",
+      "cost_usd": 0.263872,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -65,7 +65,7 @@
       "line": 22,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.152843,
+      "cost_usd": 0.161647,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -75,7 +75,7 @@
       "line": 88,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.10994200000000001,
+      "cost_usd": 0.12577400000000002,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -85,7 +85,7 @@
       "line": 26,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.13831500000000002,
+      "cost_usd": 0.12463199999999999,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -95,7 +95,7 @@
       "line": 30,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.131225,
+      "cost_usd": 0.11235200000000001,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -105,7 +105,7 @@
       "line": 22,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.182776,
+      "cost_usd": 0.15350600000000003,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -115,7 +115,7 @@
       "line": 26,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.16494799999999998,
+      "cost_usd": 0.17580600000000002,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -125,7 +125,7 @@
       "line": 10,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.114166,
+      "cost_usd": 0.114471,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -135,7 +135,7 @@
       "line": 14,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.12225300000000001,
+      "cost_usd": 0.11496600000000001,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -145,7 +145,7 @@
       "line": 19,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.131941,
+      "cost_usd": 0.11896200000000001,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -155,7 +155,7 @@
       "line": 23,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.11463000000000001,
+      "cost_usd": 0.11586199999999999,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -165,7 +165,7 @@
       "line": 88,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.11451700000000001,
+      "cost_usd": 0.118462,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -175,7 +175,7 @@
       "line": 26,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.12115800000000002,
+      "cost_usd": 0.124687,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -185,7 +185,7 @@
       "line": 30,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.132083,
+      "cost_usd": 0.13344699999999998,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -195,7 +195,7 @@
       "line": 22,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.17711000000000002,
+      "cost_usd": 0.166355,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -205,7 +205,7 @@
       "line": 26,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.149975,
+      "cost_usd": 0.15859700000000002,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -215,7 +215,7 @@
       "line": 10,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.11398900000000002,
+      "cost_usd": 0.10889599999999999,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -225,7 +225,7 @@
       "line": 14,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.101856,
+      "cost_usd": 0.117471,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -235,7 +235,7 @@
       "line": 19,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.112367,
+      "cost_usd": 0.120957,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -245,7 +245,7 @@
       "line": 23,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.10528499999999999,
+      "cost_usd": 0.12171699999999999,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -255,7 +255,7 @@
       "line": 26,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.159724,
+      "cost_usd": 0.122366,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -264,8 +264,8 @@
       "file": "vulnerabilities/fi/source/high.php",
       "line": 7,
       "verdict": "FP",
-      "confidence": "Medium",
-      "cost_usd": 0.137291,
+      "confidence": "High",
+      "cost_usd": 0.13805,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -274,8 +274,8 @@
       "file": "vulnerabilities/view_help.php",
       "line": 20,
       "verdict": "FP",
-      "confidence": "Medium",
-      "cost_usd": 0.162557,
+      "confidence": "High",
+      "cost_usd": 0.161487,
       "truth": "real",
       "grade": "MISS"
     },
@@ -285,7 +285,7 @@
       "line": 22,
       "verdict": "FP",
       "confidence": "Medium",
-      "cost_usd": 0.166446,
+      "cost_usd": 0.19709100000000002,
       "truth": "real",
       "grade": "MISS"
     },
@@ -294,8 +294,8 @@
       "file": "vulnerabilities/view_source_all.php",
       "line": 14,
       "verdict": "FP",
-      "confidence": "High",
-      "cost_usd": 0.145524,
+      "confidence": "Medium",
+      "cost_usd": 0.11719399999999999,
       "truth": "real",
       "grade": "MISS"
     },
@@ -305,7 +305,7 @@
       "line": 18,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.12413900000000001,
+      "cost_usd": 0.158659,
       "truth": "real",
       "grade": "MISS"
     },
@@ -315,7 +315,7 @@
       "line": 22,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.159209,
+      "cost_usd": 0.16848600000000002,
       "truth": "real",
       "grade": "MISS"
     },
@@ -325,7 +325,7 @@
       "line": 26,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.148124,
+      "cost_usd": 0.150116,
       "truth": "real",
       "grade": "MISS"
     },
@@ -335,7 +335,7 @@
       "line": 63,
       "verdict": "FP",
       "confidence": "Medium",
-      "cost_usd": 0.18956900000000002,
+      "cost_usd": 0.307834,
       "truth": "real",
       "grade": "MISS"
     },
@@ -345,7 +345,7 @@
       "line": 67,
       "verdict": "TP",
       "confidence": "Low",
-      "cost_usd": 0.30772499999999997,
+      "cost_usd": 0.35078000000000004,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -354,8 +354,8 @@
       "file": "vulnerabilities/view_source.php",
       "line": 68,
       "verdict": "FP",
-      "confidence": "Low",
-      "cost_usd": 0.34005199999999997,
+      "confidence": "Medium",
+      "cost_usd": 0.21363300000000002,
       "truth": "real",
       "grade": "MISS"
     },
@@ -365,7 +365,7 @@
       "line": 22,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.139131,
+      "cost_usd": 0.129429,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -375,7 +375,7 @@
       "line": 35,
       "verdict": "TP",
       "confidence": "Low",
-      "cost_usd": 0.21643700000000002,
+      "cost_usd": 0.20694200000000001,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -384,8 +384,8 @@
       "file": "vulnerabilities/bac/source/low.php",
       "line": 79,
       "verdict": "TP",
-      "confidence": "Low",
-      "cost_usd": 0.233859,
+      "confidence": "High",
+      "cost_usd": 0.137914,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -395,7 +395,7 @@
       "line": 21,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.159616,
+      "cost_usd": 0.128754,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -405,7 +405,7 @@
       "line": 28,
       "verdict": "TP",
       "confidence": "Low",
-      "cost_usd": 0.21585200000000004,
+      "cost_usd": 0.256409,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -414,8 +414,8 @@
       "file": "vulnerabilities/bac/source/medium.php",
       "line": 71,
       "verdict": "TP",
-      "confidence": "Low",
-      "cost_usd": 0.203587,
+      "confidence": "High",
+      "cost_usd": 0.144789,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -425,7 +425,7 @@
       "line": 12,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.12412300000000001,
+      "cost_usd": 0.13101800000000002,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -435,7 +435,7 @@
       "line": 11,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.12123300000000001,
+      "cost_usd": 0.113639,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -444,8 +444,8 @@
       "file": "vulnerabilities/sqli_blind/source/high.php",
       "line": 33,
       "verdict": "TP",
-      "confidence": "Low",
-      "cost_usd": 0.214916,
+      "confidence": "High",
+      "cost_usd": 0.115288,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -455,7 +455,7 @@
       "line": 11,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.114098,
+      "cost_usd": 0.130204,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -464,8 +464,8 @@
       "file": "vulnerabilities/sqli_blind/source/low.php",
       "line": 32,
       "verdict": "TP",
-      "confidence": "Low",
-      "cost_usd": 0.19351899999999997,
+      "confidence": "High",
+      "cost_usd": 0.11178800000000001,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -474,8 +474,8 @@
       "file": "vulnerabilities/sqli_blind/source/medium.php",
       "line": 34,
       "verdict": "TP",
-      "confidence": "Low",
-      "cost_usd": 0.21268199999999998,
+      "confidence": "High",
+      "cost_usd": 0.121305,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -485,7 +485,7 @@
       "line": 10,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.12013400000000002,
+      "cost_usd": 0.125351,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -495,7 +495,7 @@
       "line": 31,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.119244,
+      "cost_usd": 0.11982299999999999,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -505,7 +505,7 @@
       "line": 41,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.10971600000000001,
+      "cost_usd": 0.09864200000000001,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -515,7 +515,7 @@
       "line": 22,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.08840700000000001,
+      "cost_usd": 0.080427,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -525,7 +525,7 @@
       "line": 15,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.09074600000000002,
+      "cost_usd": 0.091714,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -535,7 +535,7 @@
       "line": 17,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.08263400000000001,
+      "cost_usd": 0.076529,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -545,7 +545,7 @@
       "line": 46,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.057416999999999996,
+      "cost_usd": 0.055227,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -553,11 +553,11 @@
       "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
       "file": "vulnerabilities/cryptography/source/ecb_attack.php",
       "line": 92,
-      "verdict": "TP",
-      "confidence": "Low",
-      "cost_usd": 0.208579,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.108851,
       "truth": "not-real",
-      "grade": "FALSE-ALARM"
+      "grade": "CORRECT"
     },
     {
       "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
@@ -565,7 +565,7 @@
       "line": 23,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.086587,
+      "cost_usd": 0.095532,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -575,7 +575,7 @@
       "line": 43,
       "verdict": "TP",
       "confidence": "Low",
-      "cost_usd": 0.28373000000000004,
+      "cost_usd": 0.28135000000000004,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -585,7 +585,7 @@
       "line": 57,
       "verdict": "FP",
       "confidence": "High",
-      "cost_usd": 0.08777399999999999,
+      "cost_usd": 0.096071,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -594,8 +594,8 @@
       "file": "vulnerabilities/api/gen_openapi.php",
       "line": 6,
       "verdict": "TP",
-      "confidence": "High",
-      "cost_usd": 0.040037,
+      "confidence": "Medium",
+      "cost_usd": 0.053434999999999996,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -605,7 +605,7 @@
       "line": 11,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.045417,
+      "cost_usd": 0.043227,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -615,7 +615,7 @@
       "line": 8,
       "verdict": "TP",
       "confidence": "Medium",
-      "cost_usd": 0.168248,
+      "cost_usd": 0.18525200000000003,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -625,7 +625,7 @@
       "line": 26,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.12482100000000002,
+      "cost_usd": 0.140992,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -635,7 +635,7 @@
       "line": 30,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.125795,
+      "cost_usd": 0.11421700000000001,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -644,8 +644,8 @@
       "file": "vulnerabilities/exec/source/impossible.php",
       "line": 22,
       "verdict": "FP",
-      "confidence": "Medium",
-      "cost_usd": 0.17109600000000003,
+      "confidence": "High",
+      "cost_usd": 0.155008,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -655,7 +655,7 @@
       "line": 26,
       "verdict": "FP",
       "confidence": "Medium",
-      "cost_usd": 0.18383500000000003,
+      "cost_usd": 0.169801,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -665,7 +665,7 @@
       "line": 10,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.10602600000000001,
+      "cost_usd": 0.108836,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -675,7 +675,7 @@
       "line": 14,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.084946,
+      "cost_usd": 0.106069,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -685,7 +685,7 @@
       "line": 19,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.1152,
+      "cost_usd": 0.11343800000000001,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -695,7 +695,7 @@
       "line": 23,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.11333499999999999,
+      "cost_usd": 0.11802700000000002,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -703,11 +703,11 @@
       "rule": "php.lang.security.unlink-use.unlink-use",
       "file": "vulnerabilities/upload/source/impossible.php",
       "line": 54,
-      "verdict": "TP",
-      "confidence": "Low",
-      "cost_usd": 0.19548100000000002,
+      "verdict": "FP",
+      "confidence": "High",
+      "cost_usd": 0.152789,
       "truth": "not-real",
-      "grade": "FALSE-ALARM"
+      "grade": "CORRECT"
     },
     {
       "rule": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
@@ -715,19 +715,19 @@
       "line": 29,
       "verdict": "TP",
       "confidence": "Medium",
-      "cost_usd": 0.330062,
+      "cost_usd": 0.249106,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     }
   ],
   "aggregates": {
-    "tp_total": 44,
+    "tp_total": 42,
     "tp_real": 34,
-    "false_alarm": 10,
-    "precision": 0.7727272727272727,
+    "false_alarm": 8,
+    "precision": 0.8095238095238095,
     "recall": 0.8095238095238095,
     "n_real": 42,
     "n_not_real": 29,
-    "cost_usd": 11.0933
+    "cost_usd": 10.4047
   }
 }

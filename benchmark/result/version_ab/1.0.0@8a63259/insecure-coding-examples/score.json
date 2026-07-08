@@ -1,12 +1,12 @@
 {
   "meta": {
-    "version": "1.0.0@795e4fd",
+    "version": "1.0.0@8a63259",
     "provider": "openai",
     "model": "gpt-5.5",
     "temperature": 0,
     "max_iterations": 5,
     "panel_hash": "sha256:9cdeda155a51f5c5c57e5e3a4fde09e3",
-    "timestamp": "2026-07-01T10:48:19"
+    "timestamp": "2026-07-08T21:16:47"
   },
   "findings": [
     {
@@ -15,7 +15,7 @@
       "line": 19,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.039907,
+      "cost_usd": 0.043045,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -25,7 +25,7 @@
       "line": 19,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.032387,
+      "cost_usd": 0.043835,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -45,7 +45,7 @@
       "line": 13,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.025952,
+      "cost_usd": 0.026312,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -55,7 +55,7 @@
       "line": 15,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.029427000000000002,
+      "cost_usd": 0.029006999999999998,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -65,7 +65,7 @@
       "line": 7,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.030206999999999998,
+      "cost_usd": 0.030837000000000003,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -75,7 +75,7 @@
       "line": 66,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.033937,
+      "cost_usd": 0.031087,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -85,7 +85,7 @@
       "line": 12,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.03138200000000001,
+      "cost_usd": 0.031652,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -95,7 +95,7 @@
       "line": 14,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.029612000000000003,
+      "cost_usd": 0.030362000000000004,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -105,7 +105,7 @@
       "line": 9,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.07838400000000001,
+      "cost_usd": 0.073035,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -115,7 +115,7 @@
       "line": 15,
       "verdict": "FP",
       "confidence": "Medium",
-      "cost_usd": 0.07885700000000001,
+      "cost_usd": 0.074777,
       "truth": "real",
       "grade": "MISS"
     },
@@ -125,7 +125,7 @@
       "line": 16,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.099275,
+      "cost_usd": 0.09716,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -135,7 +135,7 @@
       "line": 11,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.08934900000000001,
+      "cost_usd": 0.078845,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -145,7 +145,7 @@
       "line": 15,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.09301000000000001,
+      "cost_usd": 0.075405,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -155,7 +155,7 @@
       "line": 14,
       "verdict": "FP",
       "confidence": "Medium",
-      "cost_usd": 0.136549,
+      "cost_usd": 0.047727000000000006,
       "truth": "real",
       "grade": "MISS"
     },
@@ -165,7 +165,7 @@
       "line": 15,
       "verdict": "FP",
       "confidence": "Medium",
-      "cost_usd": 0.071035,
+      "cost_usd": 0.079837,
       "truth": "real",
       "grade": "MISS"
     },
@@ -173,11 +173,11 @@
       "rule": "cpp/suspicious-sizeof",
       "file": "practice/decay.cpp",
       "line": 5,
-      "verdict": "FP",
-      "confidence": "High",
-      "cost_usd": 0.10251000000000002,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.09645400000000001,
       "truth": "not-real",
-      "grade": "CORRECT"
+      "grade": "FALSE-ALARM"
     },
     {
       "rule": "cpp/suspicious-sizeof",
@@ -185,7 +185,7 @@
       "line": 10,
       "verdict": "FP",
       "confidence": "Medium",
-      "cost_usd": 0.10629,
+      "cost_usd": 0.11712900000000001,
       "truth": "not-real",
       "grade": "CORRECT"
     },
@@ -195,7 +195,7 @@
       "line": 7,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.027932,
+      "cost_usd": 0.029612,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -205,7 +205,7 @@
       "line": 66,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.04578,
+      "cost_usd": 0.033792,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -215,7 +215,7 @@
       "line": 12,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.028807,
+      "cost_usd": 0.038857,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -225,7 +225,7 @@
       "line": 14,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.032257,
+      "cost_usd": 0.030247000000000003,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -233,11 +233,11 @@
       "rule": "cpp/type-confusion",
       "file": "practice/guidelines/expressions_and_statements/use_named_cast.cpp",
       "line": 13,
-      "verdict": "FP",
-      "confidence": "Medium",
-      "cost_usd": 0.046252,
+      "verdict": "TP",
+      "confidence": "Low",
+      "cost_usd": 0.09380500000000001,
       "truth": "not-real",
-      "grade": "CORRECT"
+      "grade": "FALSE-ALARM"
     },
     {
       "rule": "cpp/type-confusion",
@@ -245,7 +245,7 @@
       "line": 16,
       "verdict": "TP",
       "confidence": "Low",
-      "cost_usd": 0.11311900000000003,
+      "cost_usd": 0.102539,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -255,7 +255,7 @@
       "line": 64,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.030812,
+      "cost_usd": 0.032852,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -265,7 +265,7 @@
       "line": 11,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.030657,
+      "cost_usd": 0.033807000000000004,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -275,7 +275,7 @@
       "line": 19,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.031527,
+      "cost_usd": 0.027567,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -285,7 +285,7 @@
       "line": 14,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.031532000000000004,
+      "cost_usd": 0.030452,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -295,7 +295,7 @@
       "line": 14,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.041971999999999995,
+      "cost_usd": 0.030932,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -305,7 +305,7 @@
       "line": 13,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.026747,
+      "cost_usd": 0.026806999999999997,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -315,7 +315,7 @@
       "line": 13,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.029252,
+      "cost_usd": 0.030632,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -325,19 +325,19 @@
       "line": 19,
       "verdict": "TP",
       "confidence": "High",
-      "cost_usd": 0.043785000000000004,
+      "cost_usd": 0.034137,
       "truth": "real",
       "grade": "CORRECT"
     }
   ],
   "aggregates": {
-    "tp_total": 26,
+    "tp_total": 28,
     "tp_real": 23,
-    "false_alarm": 3,
-    "precision": 0.8846153846153846,
+    "false_alarm": 5,
+    "precision": 0.8214285714285714,
     "recall": 0.8846153846153846,
     "n_real": 26,
     "n_not_real": 6,
-    "cost_usd": 1.708
+    "cost_usd": 1.6221
   }
 }

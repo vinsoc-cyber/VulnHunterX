@@ -1,0 +1,72 @@
+{
+  "previous": "1.0.0@795e4fd",
+  "current": "1.0.0@8a63259",
+  "flips": [
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/cryptography/source/ecb_attack.php",
+      "line": 92,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "Low",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.unlink-use.unlink-use",
+      "file": "vulnerabilities/upload/source/impossible.php",
+      "line": 54,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "Low",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "cpp/suspicious-sizeof",
+      "file": "practice/decay.cpp",
+      "line": 5,
+      "truth": "not-real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "High",
+      "cur_conf": "Low",
+      "direction": "REGRESS"
+    },
+    {
+      "rule": "cpp/type-confusion",
+      "file": "practice/guidelines/expressions_and_statements/use_named_cast.cpp",
+      "line": 13,
+      "truth": "not-real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "Medium",
+      "cur_conf": "Low",
+      "direction": "REGRESS"
+    },
+    {
+      "rule": "js/polynomial-redos",
+      "file": "app/routes/profile.js",
+      "line": 61,
+      "truth": "real",
+      "previous": "NMD",
+      "current": "TP",
+      "prev_conf": "Medium",
+      "cur_conf": "Medium",
+      "direction": "IMPROVE"
+    }
+  ],
+  "totals": {
+    "flips": 5,
+    "improve": 3,
+    "regress": 2,
+    "neutral": 0
+  },
+  "deltas": {
+    "precision": 0.0018,
+    "recall": 0.0114
+  },
+  "timestamp": "2026-07-08T21:16:47"
+}

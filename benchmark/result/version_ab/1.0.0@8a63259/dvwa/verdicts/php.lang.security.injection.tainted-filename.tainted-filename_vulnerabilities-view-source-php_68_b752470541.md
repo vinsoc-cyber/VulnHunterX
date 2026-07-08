@@ -1,0 +1,23 @@
+# php.lang.security.injection.tainted-filename.tainted-filename @ vulnerabilities/view_source.php:68
+
+**Verdict:** FP · **Confidence:** Medium (0.7) · **Truth:** real · **Grade:** MISS · **Iterations:** 4
+
+## Reasoning
+
+The flagged dynamic `file_get_contents()` call is present, but the specific reported issue is SSRF. In the visible code, `$id` and `$security` are embedded inside a fixed path rather than at the beginning of the filename, so they cannot create a PHP URL-wrapper scheme/host for SSRF; any remaining concern would be local path traversal, which is outside this rule’s stated vulnerability class.
+
+## Data flow
+
+unknown source for $id/$security outside provided context → use in switch/label logic shown at lines 18-61 → interpolation into local-looking path at line 63 → interpolation into file_exists() path at line 67 → interpolation into file_get_contents() path at line 68, after fixed prefix `DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/` and before fixed `/source/{$security}.js` → $js_source passed to highlight_string() at line 74 → output assembled into $page['body'] lines 81-99
+
+## Answers
+
+1. Step 0 / flagged line: The flagged line is present at line 68: `$js_source = @file_get_contents( DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/{$id}/source/{$security}.js" );`. The construct described by the rule is present: `file_get_contents()` is called with a dynamically constructed filename/path containing `$id` and `$security`.
+2. Step 1: The ultimate source of `$id` and `$security` is not visible in the provided context. The snippet does not show assignments from `$_GET`, `$_POST`, cookies, headers, files, database, or any other source. Therefore, user control is not established by the visible code.
+3. Step 2: Visible data flow: `$id` appears to be used in the switch/case logic shown at lines 18-61 to determine `$vuln`, though the switch expression itself is outside the visible slice. `$id` and `$security` are interpolated into a PHP source filename at line 63, into a JavaScript source filename checked by `file_exists()` at line 67, and into the JavaScript source filename read by `file_get_contents()` at line 68. The resulting `$js_source` is passed to `highlight_string($js_source, true)` at line 74 and embedded in `$js_html` lines 69-78, then `$js_html` is included in `$page['body']` lines 81-99.
+4. Step 3: No validation, sanitization, allowlist check, canonicalization, or basename filtering for `$id` or `$security` is visible before line 68. `file_exists()` at line 67 is only an existence check and is not a sanitizer. However, for the specific reported vulnerability class, SSRF via PHP stream wrappers, the visible path structure places user-controlled variables after fixed path text: `DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/` before `$id`, and `/source/` before `$security` at line 68. PHP URL stream wrappers require the URL scheme to appear at the start of the filename string, so `$id` or `$security` cannot by themselves make the argument become `http://...` or another wrapper URL from the visible construction.
+5. Step 4: The sink is `file_get_contents()` at line 68. The dangerous operation alleged by the rule is using a tainted filename in a file read that could cause SSRF. In the visible code, the variables can affect path components, but they are not placed at the beginning of the filename where a PHP stream-wrapper scheme would be interpreted.
+6. Step 5: No framework-level automatic protection is visible. The relevant protection for the reported SSRF class is instead the PHP filename parsing behavior combined with the fixed prefix in the constructed filename at line 68: attacker-controlled `$id` and `$security` are not positioned to control the scheme/host of a URL wrapper.
+7. Step 6: The privilege or authentication state needed to trigger this code path is not visible. Lines 18-106 show no authentication, authorization, or route configuration.
+8. Step 7: If an attacker controlled `$id` or `$security`, the visible code might raise a separate concern such as local path manipulation/path traversal depending on earlier validation and filesystem layout. But for the reported CWE-918 SSRF issue, the visible construction does not allow the attacker-controlled variables to become the URL scheme or host passed to `file_get_contents()`.
+9. Step 8: For the reported SSRF class, the defense is the fixed filename structure at line 68 and PHP’s requirement that stream-wrapper schemes occur at the start of the filename. The weaker point would be lack of visible validation for local path traversal, but that is a different vulnerability class than the reported SSRF/tainted-filename finding.
