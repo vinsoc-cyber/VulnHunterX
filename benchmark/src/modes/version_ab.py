@@ -299,8 +299,26 @@ def _panel_short(h) -> str:
     return (s[:16] + "…") if s else "—"
 
 
+def _fmt_tokens(n) -> str:
+    n = n or 0
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.2f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}k"
+    return str(n)
+
+
+def _res_summary(res: dict) -> str:
+    return (f"{_fmt_tokens(res.get('input_tokens'))} in / "
+            f"{_fmt_tokens(res.get('output_tokens'))} out · "
+            f"cache {_pct(res.get('cache_hit_ratio'))} · "
+            f"{res.get('elapsed_seconds', 0)}s model-time · "
+            f"iters μ{res.get('iterations_mean', 0)}")
+
+
 def render_score_md(score: dict) -> str:
     m, a = score["meta"], score["aggregates"]
+    res = score.get("resources") or {}
     is_roll = "targets" in score
     meta_line = f"Model `{m.get('model')}` · temp `{m.get('temperature')}` · "
     if not is_roll:  # a rollup spans many panels — no single hash (per-target table below)
@@ -310,7 +328,9 @@ def render_score_md(score: dict) -> str:
         f"# Score — {m['version']}", "", meta_line, "",
         f"precision **{_pct(a['precision'])}** · recall **{_pct(a['recall'])}** · "
         f"TP {a['tp_total']} (real {a['tp_real']}, false-alarm {a['false_alarm']}) · "
-        f"real {a['n_real']} · not-real {a['n_not_real']} · ${a['cost_usd']}", "",
+        f"real {a['n_real']} · not-real {a['n_not_real']} · NMD {a.get('n_abstain', 0)} · "
+        f"err {a.get('n_error', 0)} · ${a['cost_usd']}",
+        f"_resources:_ {_res_summary(res)}", "",
     ]
     if is_roll:
         lines += ["| target | finding | truth | verdict | grade | conf |",
@@ -318,15 +338,25 @@ def render_score_md(score: dict) -> str:
         for f in score["findings"]:
             lines.append(f"| {f.get('target', '')} | {f['rule']}@{f['file']}:{f['line']} | "
                          f"{f['truth']} | {f['verdict']} | {f['grade']} | {f['confidence']} |")
-        lines += ["", "## Per target",
-                  "| target | precision | recall | TP (real/FA) | real | not-real | cost | panel |",
-                  "|---|---|---|---|---|---|---|---|"]
+        lines += ["", "## Per target — correctness",
+                  "| target | precision | recall | TP (real/FA) | real | not-real | NMD | err | panel |",
+                  "|---|---|---|---|---|---|---|---|---|"]
         for t, ta in score["targets"].items():
             lines.append(
                 f"| {t} | {_pct(ta.get('precision'))} | {_pct(ta.get('recall'))} | "
                 f"{ta.get('tp_total')} ({ta.get('tp_real')}/{ta.get('false_alarm')}) | "
-                f"{ta.get('n_real')} | {ta.get('n_not_real')} | ${ta.get('cost_usd')} | "
-                f"{_panel_short(ta.get('panel_hash'))} |")
+                f"{ta.get('n_real')} | {ta.get('n_not_real')} | {ta.get('n_abstain', 0)} | "
+                f"{ta.get('n_error', 0)} | {_panel_short(ta.get('panel_hash'))} |")
+        lines += ["", "## Per target — resources",
+                  "| target | in-tok | out-tok | cache% | time(s) | itersμ | cost |",
+                  "|---|---|---|---|---|---|---|"]
+        for t, ta in score["targets"].items():
+            tr = ta.get("resources") or {}
+            lines.append(
+                f"| {t} | {_fmt_tokens(tr.get('input_tokens'))} | "
+                f"{_fmt_tokens(tr.get('output_tokens'))} | {_pct(tr.get('cache_hit_ratio'))} | "
+                f"{tr.get('elapsed_seconds', 0)} | {tr.get('iterations_mean', 0)} | "
+                f"${ta.get('cost_usd')} |")
     else:
         lines += ["| finding | truth | verdict | grade | conf |", "|---|---|---|---|---|"]
         for f in score["findings"]:

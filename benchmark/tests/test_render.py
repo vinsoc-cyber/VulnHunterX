@@ -70,3 +70,40 @@ def test_render_rollup_md():
     assert "## Per target" in md and "dvcp" in md
     assert "sha256:" in md          # real per-target panel hash, not a placeholder
     assert "panel `?…`" not in md   # rollup header must not show a bogus single panel
+
+
+def test_render_score_resources_line():
+    score = {
+        "meta": {"version": "1.0.0@a", "model": "gpt-5.5", "temperature": 0,
+                 "panel_hash": "sha256:xxxx", "timestamp": "T"},
+        "findings": [],
+        "aggregates": {"precision": 1.0, "recall": 1.0, "tp_total": 1, "tp_real": 1,
+                       "false_alarm": 0, "n_real": 1, "n_not_real": 0, "n_abstain": 2,
+                       "n_error": 1, "cost_usd": 0.1},
+        "resources": {"input_tokens": 1_250_000, "output_tokens": 84_000,
+                      "cached_input_tokens": 900_000, "cache_hit_ratio": 0.72,
+                      "elapsed_seconds": 640.2, "iterations_mean": 3.1, "iterations_total": 92},
+    }
+    md = v.render_score_md(score)
+    assert "NMD 2" in md and "err 1" in md
+    assert "1.25M in" in md and "72%" in md and "μ3.1" in md
+
+
+def test_render_rollup_resources_table():
+    s1 = {"meta": {"panel_hash": "sha256:" + "a" * 32, "version": "1.0.0@x"},
+          "findings": [{"rule": "r", "file": "f.c", "line": 1, "truth": "real",
+                        "verdict": "TP", "grade": "CORRECT", "confidence": "High",
+                        "cost_usd": 1.0, "input_tokens": 1000, "output_tokens": 100,
+                        "cached_input_tokens": 800, "elapsed_seconds": 5.0, "iterations": 3}],
+          "aggregates": {"precision": 1.0, "recall": 1.0, "tp_total": 1, "tp_real": 1,
+                         "false_alarm": 0, "n_real": 1, "n_not_real": 0, "n_abstain": 0,
+                         "n_error": 0, "cost_usd": 1.0},
+          "resources": {"input_tokens": 1000, "output_tokens": 100, "cached_input_tokens": 800,
+                        "cache_hit_ratio": 0.8, "elapsed_seconds": 5.0, "iterations_mean": 3.0,
+                        "iterations_total": 3}}
+    roll = v.rollup_score({"dvcp": s1}, {"version": "1.0.0@x", "model": "gpt-5.5",
+                                         "temperature": 0, "timestamp": "T"})
+    md = v.render_score_md(roll)
+    assert "## Per target — correctness" in md
+    assert "## Per target — resources" in md
+    assert "1k" in md   # 1000 input tokens formatted
