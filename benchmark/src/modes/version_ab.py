@@ -343,11 +343,13 @@ def render_compare_md(churn: dict) -> str:
 
 def rollup_score(scores: dict, meta: dict) -> dict:
     findings = [{**f, "target": t} for t, s in scores.items() for f in s["findings"]]
-    targets = {t: {**s["aggregates"], "panel_hash": s.get("meta", {}).get("panel_hash")}
+    targets = {t: {**s["aggregates"], "panel_hash": s.get("meta", {}).get("panel_hash"),
+                   "resources": s.get("resources", {})}
                for t, s in scores.items()}
     n_real = sum(s["aggregates"]["n_real"] for s in scores.values())
     return {"meta": meta, "targets": targets, "findings": findings,
-            "aggregates": aggregate(findings, n_real)}
+            "aggregates": aggregate(findings, n_real),
+            "resources": summarize_resources(findings)}
 
 
 def rollup_compare(churns: list, prev_label: str, cur_label: str, deltas: dict, timestamp: str) -> dict:

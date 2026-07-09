@@ -44,6 +44,19 @@ def test_rollup_score():
     assert all(f["target"] in {"a", "b"} for f in roll["findings"])
 
 
+def test_rollup_resources():
+    s1 = {"meta": {"panel_hash": "sha256:aaaa"},
+          "findings": [{"rule": "r", "file": "f.c", "line": 1, "truth": "real",
+                        "verdict": "TP", "cost_usd": 1.0, "input_tokens": 1000,
+                        "output_tokens": 100, "cached_input_tokens": 800,
+                        "elapsed_seconds": 5.0, "iterations": 3}],
+          "aggregates": {"n_real": 1},
+          "resources": {"input_tokens": 1000}}
+    roll = v.rollup_score({"a": s1}, {"version": "1.0.0@a"})
+    assert roll["resources"]["input_tokens"] == 1000
+    assert roll["targets"]["a"]["resources"]["input_tokens"] == 1000
+
+
 def test_render_rollup_md():
     s1 = {"meta": {"panel_hash": "sha256:" + "a" * 32, "version": "1.0.0@x"},
           "findings": [{"rule": "r", "file": "f.c", "line": 1, "truth": "real",
