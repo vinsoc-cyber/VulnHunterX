@@ -159,9 +159,16 @@ def build_score(raw_dir: Path, real_keys: set, meta: dict) -> dict:
             "rule": rule, "file": file, "line": line,
             "verdict": nv, "confidence": j.get("confidence"),
             "cost_usd": j.get("cost_usd") or 0.0,
+            "input_tokens": j.get("input_tokens") or 0,
+            "output_tokens": j.get("output_tokens") or 0,
+            "cached_input_tokens": j.get("cached_input_tokens") or 0,
+            "elapsed_seconds": j.get("elapsed_seconds") or 0.0,
+            "iterations": j.get("iterations") or 0,
             "truth": truth, "grade": grade(nv, truth),
         })
-    return {"meta": meta, "findings": findings, "aggregates": aggregate(findings, len(real_keys))}
+    return {"meta": meta, "findings": findings,
+            "aggregates": aggregate(findings, len(real_keys)),
+            "resources": summarize_resources(findings)}
 
 
 def render_verdict_md(j: dict, truth: str, g: str) -> str:
