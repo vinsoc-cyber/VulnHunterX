@@ -223,6 +223,23 @@ CONFOUND_KEYS = ("provider", "model", "temperature", "max_iterations", "panel_ha
 REQUIRED_KEYS = ("provider", "model", "temperature", "max_iterations")  # result-affecting; no default
 DEFAULT_CONFIG = "openai-gpt-5.5-temp0-iter5"
 
+RESOURCE_DELTA_KEYS = ("input_tokens", "output_tokens", "cached_input_tokens",
+                       "cache_hit_ratio", "elapsed_seconds", "iterations_mean")
+COUNT_DELTA_KEYS = ("cost_usd", "n_error", "n_abstain")  # read from aggregates
+
+
+def resource_deltas(previous: dict, current: dict) -> dict:
+    """Non-gating info deltas for resource + count metrics. A key missing on
+    either side (e.g. an older score.json with no resources block) -> None."""
+    pr, cr = previous.get("resources") or {}, current.get("resources") or {}
+    pa, ca = previous.get("aggregates") or {}, current.get("aggregates") or {}
+
+    def d(a, b):
+        return None if (a is None or b is None) else round(b - a, 4)
+    out = {k: d(pr.get(k), cr.get(k)) for k in RESOURCE_DELTA_KEYS}
+    out.update({k: d(pa.get(k), ca.get(k)) for k in COUNT_DELTA_KEYS})
+    return out
+
 
 class ConfoundError(Exception):
     pass
@@ -268,6 +285,7 @@ def compare_scores(previous: dict, current: dict, timestamp: str) -> dict:
         "previous": previous["meta"]["version"], "current": current["meta"]["version"],
         "flips": flips, "totals": totals,
         "deltas": {"precision": delta("precision"), "recall": delta("recall")},
+        "resource_deltas": resource_deltas(previous, current),
         "timestamp": timestamp,
     }
 
@@ -352,7 +370,8 @@ def rollup_score(scores: dict, meta: dict) -> dict:
             "resources": summarize_resources(findings)}
 
 
-def rollup_compare(churns: list, prev_label: str, cur_label: str, deltas: dict, timestamp: str) -> dict:
+def rollup_compare(churns: list, prev_label: str, cur_label: str, deltas: dict,
+                   res_deltas: dict, timestamp: str) -> dict:
     flips = [f for c in churns for f in c["flips"]]
     totals = {
         "flips": len(flips),
@@ -361,7 +380,8 @@ def rollup_compare(churns: list, prev_label: str, cur_label: str, deltas: dict, 
         "neutral": sum(1 for f in flips if f["direction"] == "neutral"),
     }
     return {"previous": prev_label, "current": cur_label, "flips": flips,
-            "totals": totals, "deltas": deltas, "timestamp": timestamp}
+            "totals": totals, "deltas": deltas, "resource_deltas": res_deltas,
+            "timestamp": timestamp}
 
 
 class Harness(harness.Harness):
@@ -633,7 +653,10 @@ def run(args, bench_root) -> int:
         if churns:
             deltas = {"precision": _rollup_delta(roll, prev_label, result_root, "precision"),
                       "recall": _rollup_delta(roll, prev_label, result_root, "recall")}
-            rc = rollup_compare(list(churns.values()), prev_label, current, deltas, now)
+            prev_roll_path = result_root / prev_label / "score.json"
+            prev_roll = json.loads(prev_roll_path.read_text()) if prev_roll_path.exists() else {}
+            rc = rollup_compare(list(churns.values()), prev_label, current, deltas,
+                                resource_deltas(prev_roll, roll), now)
             (cur_dir / f"compare_vs_{prev_label}.json").write_text(json.dumps(rc, indent=2))
             (cur_dir / f"compare_vs_{prev_label}.md").write_text(scorer.render_compare(rc))
     return 1 if failed_targets else 0
