@@ -140,3 +140,11 @@ def test_system_prompt_has_locate_and_quote_guard():
 def test_default_system_prompt_constant_has_guard():
     assert "LOCATE the flagged line" in DEFAULT_SYSTEM_PROMPT
     assert "Needs More Data" in DEFAULT_SYSTEM_PROMPT
+
+
+def test_force_decision_prompt_is_consequence_first():
+    from vuln_hunter_x.llm.client import LLMClient
+    fd = LLMClient._FORCE_DECISION_PROMPT
+    assert "lean toward True Positive" not in fd  # old absence-of-defense thumb gone
+    assert "decide by CONSEQUENCE at the flagged sink" in fd  # new impact-first guideline
+    assert "EXCEPTION for correctness" in fd  # correctness-rule carve-out preserved
