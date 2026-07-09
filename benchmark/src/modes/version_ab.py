@@ -26,8 +26,15 @@ def normalize_verdict(v: str) -> str:
     return (v or "?").strip().upper()
 
 
+def is_real_verdict(nv: str) -> bool:
+    """True when the finding produced a real verdict (not an error stub)."""
+    return nv in ("TP", "FP", "NMD")
+
+
 def grade(verdict: str, truth: str) -> str:
     n = normalize_verdict(verdict)
+    if not is_real_verdict(n):
+        return "error"
     if truth == "real":
         return "CORRECT" if n == "TP" else ("MISS" if n == "FP" else "abstain")
     if truth == "not-real":
@@ -159,7 +166,7 @@ def write_verdicts(raw_dir: Path, real_keys: set, dest: Path) -> int:
             continue
         j = json.loads(jf.read_text())
         nv = normalize_verdict(j.get("verdict", "?"))
-        if nv not in ("TP", "FP", "NMD"):  # error stub — not real reasoning
+        if not is_real_verdict(nv):  # error stub — not real reasoning
             continue
         f = j["finding"]
         key = (f["rule_id"].strip(), str(f["file"]).strip(), int(f["start_line"]))

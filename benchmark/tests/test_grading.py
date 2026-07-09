@@ -41,3 +41,16 @@ def test_classify_flip():
     assert v.classify_flip("TP", "NMD", "real") == "REGRESS"
     assert v.classify_flip("NMD", "FP", "not-real") == "IMPROVE"
     assert v.classify_flip("FP", "NMD", "real") == "neutral"
+
+
+def test_is_real_verdict():
+    assert v.is_real_verdict("TP") and v.is_real_verdict("FP") and v.is_real_verdict("NMD")
+    assert not v.is_real_verdict("ERROR")
+    assert not v.is_real_verdict("?")
+
+
+def test_grade_error_stub():
+    # a verdict that isn't TP/FP/NMD is an error stub -> "error", NOT "abstain"
+    assert v.grade("ERROR", "real") == "error"
+    assert v.grade("", "not-real") == "error"
+    assert v.grade("503 Service Unavailable", "real") == "error"
