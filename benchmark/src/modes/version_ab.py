@@ -65,7 +65,7 @@ def aggregate(findings: list[dict], n_real: int) -> dict:
 
 
 def summarize_resources(findings: list[dict]) -> dict:
-    """Roll up non-deterministic resource metrics. Tokens/time/cost sum over all
+    """Roll up non-deterministic resource metrics. Tokens and time sum over all
     findings (errors still consume resources); iterations only over completed
     (non-error) findings, whose loop count is meaningful. elapsed_seconds is a
     sum of per-finding model time, NOT wall-clock (findings may run concurrently)."""
@@ -308,6 +308,12 @@ def _fmt_tokens(n) -> str:
     return str(n)
 
 
+def _signed_tokens(n) -> str:
+    if n is None:
+        return "n/a"
+    return ("+" if n >= 0 else "-") + _fmt_tokens(abs(n))
+
+
 def _res_summary(res: dict) -> str:
     return (f"{_fmt_tokens(res.get('input_tokens'))} in / "
             f"{_fmt_tokens(res.get('output_tokens'))} out · "
@@ -392,8 +398,8 @@ def render_compare_md(churn: dict) -> str:
             return "n/a" if x is None else f"{x:+g}"
         lines += ["", "## Resource deltas", "",
                   "_Informational, non-gating — run-to-run variance is expected._", "",
-                  f"Δcost `{sd(rd.get('cost_usd'))}` · Δin-tok `{sd(rd.get('input_tokens'))}` · "
-                  f"Δout-tok `{sd(rd.get('output_tokens'))}` · "
+                  f"Δcost `{sd(rd.get('cost_usd'))}` · Δin-tok `{_signed_tokens(rd.get('input_tokens'))}` · "
+                  f"Δout-tok `{_signed_tokens(rd.get('output_tokens'))}` · "
                   f"Δcache-ratio `{sd(rd.get('cache_hit_ratio'))}` · "
                   f"Δtime `{sd(rd.get('elapsed_seconds'))}` · "
                   f"Δitersμ `{sd(rd.get('iterations_mean'))}` · "

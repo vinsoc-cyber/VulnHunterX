@@ -123,6 +123,21 @@ def test_render_compare_resource_deltas():
     assert "+500" in md and "+0.5" in md and "-2" in md
 
 
+def test_render_compare_resource_deltas_large_tokens_humanized():
+    churn = {"previous": "1.0.0@a", "current": "1.0.0@b", "flips": [],
+             "totals": {"flips": 0, "improve": 0, "regress": 0, "neutral": 0},
+             "deltas": {"precision": 0.0, "recall": 0.0},
+             "resource_deltas": {"cost_usd": 1.0, "input_tokens": 2_500_000,
+                                 "output_tokens": -1_200_000, "cached_input_tokens": 0,
+                                 "cache_hit_ratio": 0.0, "elapsed_seconds": 3.0,
+                                 "iterations_mean": None, "n_error": 0, "n_abstain": 0},
+             "timestamp": "T"}
+    md = v.render_compare_md(churn)
+    assert "+2.50M" in md and "-1.20M" in md   # token deltas humanized, not scientific
+    assert "e+" not in md                        # no scientific notation anywhere
+    assert "n/a" in md                           # None delta (Δitersμ) -> n/a
+
+
 def test_render_compare_no_resource_deltas():
     churn = {"previous": "1.0.0@a", "current": "1.0.0@b", "flips": [],
              "totals": {"flips": 0, "improve": 0, "regress": 0, "neutral": 0},
