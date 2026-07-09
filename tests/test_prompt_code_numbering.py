@@ -148,3 +148,20 @@ def test_force_decision_prompt_is_consequence_first():
     assert "lean toward True Positive" not in fd  # old absence-of-defense thumb gone
     assert "decide by CONSEQUENCE at the flagged sink" in fd  # new impact-first guideline
     assert "EXCEPTION for correctness" in fd  # correctness-rule carve-out preserved
+
+
+def test_system_prompt_rule_is_locator_not_straitjacket():
+    sp = PromptBuilder().get_system_prompt(tool_name="Semgrep", lang="php")  # live (YAML)
+    assert "LOCATES a suspicious sink" in sp
+    assert 'NEVER return "True Positive" for a vulnerability class other than' not in sp
+    assert "LOCATE the flagged line" in sp and "Needs More Data" in sp  # #118 guards preserved
+
+
+def test_rule_scope_reframe_synced_yaml_and_fallback():
+    # Both the live YAML prompt and the Python fallback carry the locator reframe,
+    # and neither keeps the old cross-class prohibition.
+    sp = PromptBuilder().get_system_prompt(tool_name="Semgrep", lang="php")
+    for text in (sp, DEFAULT_SYSTEM_PROMPT):
+        assert "LOCATES a suspicious sink" in text
+        assert "do not relabel" not in text
+        assert 'NEVER return "True Positive" for a vulnerability class other than' not in text
