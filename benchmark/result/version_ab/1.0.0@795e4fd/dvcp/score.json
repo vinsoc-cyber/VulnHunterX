@@ -4,6 +4,7 @@
     "provider": "openai",
     "model": "gpt-5.5",
     "temperature": 0,
+    "max_iterations": 5,
     "panel_hash": "sha256:eebf118bd1d28123bd79695ebc489cca",
     "timestamp": "2026-07-01T06:47:34"
   },

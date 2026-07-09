@@ -4,6 +4,7 @@
     "provider": "openai",
     "model": "gpt-5.5",
     "temperature": 0,
+    "max_iterations": 5,
     "timestamp": "2026-07-03T12:17:58"
   },
   "targets": {

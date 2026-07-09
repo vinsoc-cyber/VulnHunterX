@@ -1183,71 +1183,14 @@ class LLMClient:
         except Exception:
             logger.debug("Could not compute completion cost for force decision", exc_info=True)
         parsed = self._parse_response(raw)
-        # If still NMD, try to infer direction from reasoning before defaulting
-        if parsed.get("verdict") == "Needs More Data":
-            # Never keyword-force a verdict out of unparseable text. A parse
-            # failure carries no real opinion — the "reasoning" is just the
-            # truncated raw JSON, which is saturated with overflow/taint words
-            # ("unsafe", "no validation") that the heuristic below would miscount
-            # as a TP. Leave it as NMD/parse_failed (confidence_score 0.0) so the
-            # downstream evaluator counts it as its own mode instead of a TP.
-            if parsed.get("parse_failed"):
-                return (
-                    parsed,
-                    raw,
-                    total_tokens_used,
-                    total_cost_usd,
-                    total_input_tokens,
-                    total_output_tokens,
-                    total_cached_input_tokens,
-                )
-            reasoning = (parsed.get("reasoning") or "").lower()
-            raw_lower = raw.lower()
-            # Check for signals leaning toward vulnerable. The access-control
-            # patterns (no authorization / no permission check / unprotected)
-            # were added 2026-05-15 after the diversevul benchmark showed
-            # `dvul_58f5580c074a` correctly identifying a missing capability
-            # check in its reasoning but defaulting to FP because the signal
-            # vocabulary did not cover this CWE class.
-            tp_signals = [
-                # Generic
-                "likely vulnerable", "probably vulnerable", "appears vulnerable",
-                "no sanitization", "no validation", "no bounds check",
-                "unsafe", "exploitable",
-                # Access-control / authorization (CWE-264/285/287/306/862/863)
-                "no authorization", "no access control", "no permission check",
-                "no capability check", "no auth check", "no authn", "no authz",
-                "missing authorization", "missing authentication",
-                "missing access control", "unauthenticated",
-                "unprotected", "directly callable", "no caller restriction",
-                "no privilege check", "without privilege", "without permission",
-            ]
-            fp_signals = [
-                # Generic
-                "likely safe", "probably safe", "appears safe",
-                "properly sanitized", "properly validated", "bounds checked",
-                "protected", "mitigated", "not exploitable",
-                # Access-control / authorization
-                "properly authorized", "capability check passes",
-                "permission check passes", "requires admin", "requires root",
-                "requires authentication", "requires permission",
-                "capable() check", "ns_capable", "checks privilege",
-            ]
-            tp_score = sum(1 for s in tp_signals if s in reasoning or s in raw_lower)
-            fp_score = sum(1 for s in fp_signals if s in reasoning or s in raw_lower)
-
-            if tp_score > fp_score:
-                parsed["verdict"] = "True Positive"
-                parsed["confidence"] = "Low"
-                parsed["reasoning"] = (
-                    parsed.get("reasoning") or ""
-                ) + " [Forced decision: evidence leans toward TP]"
-            else:
-                parsed["verdict"] = "False Positive"
-                parsed["confidence"] = "Low"
-                parsed["reasoning"] = (
-                    parsed.get("reasoning") or ""
-                ) + " [Forced decision: defaulted to FP]"
+        # The force-decision prompt already asked the model to commit to TP or
+        # FP. Respect whatever it returns: a committed verdict, or — if it still
+        # answers Needs More Data (or the response was unparseable) — the
+        # abstention. We deliberately do NOT keyword-count the reasoning into a
+        # verdict: promoting NMD to TP on taint vocabulary ("no validation",
+        # "unsafe") systematically over-confirms findings the model could not
+        # actually decide (#119). See
+        # docs/design/2026-07-08-issue118-followup-slice-containment-design.md.
         return (
             parsed,
             raw,

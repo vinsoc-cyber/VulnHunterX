@@ -1291,6 +1291,9 @@ class VerificationEngine:
         is_fp = verdict.verdict in ("False Positive", "FP")
         is_tp = verdict.verdict in ("True Positive", "TP")
         arm_a = is_fp and verdict.confidence == "High" and verdict.iterations == 1
+        # NOTE (2026-07-08): arm_b is now practically dead — _force_decision_turn
+        # no longer emits the "[Forced decision:" sentinel after the #118 follow-up
+        # (honest NMD). Kept intentionally; removal is a separate follow-up.
         arm_b = is_fp and "[Forced decision:" in reasoning_text
         arm_c = (
             is_tp

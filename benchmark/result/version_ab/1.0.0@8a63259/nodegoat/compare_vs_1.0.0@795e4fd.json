@@ -1,0 +1,28 @@
+{
+  "previous": "1.0.0@795e4fd",
+  "current": "1.0.0@8a63259",
+  "flips": [
+    {
+      "rule": "js/polynomial-redos",
+      "file": "app/routes/profile.js",
+      "line": 61,
+      "truth": "real",
+      "previous": "NMD",
+      "current": "TP",
+      "prev_conf": "Medium",
+      "cur_conf": "Medium",
+      "direction": "IMPROVE"
+    }
+  ],
+  "totals": {
+    "flips": 1,
+    "improve": 1,
+    "regress": 0,
+    "neutral": 0
+  },
+  "deltas": {
+    "precision": 0.0037,
+    "recall": 0.0625
+  },
+  "timestamp": "2026-07-08T21:16:47"
+}

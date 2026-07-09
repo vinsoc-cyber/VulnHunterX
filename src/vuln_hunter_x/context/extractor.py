@@ -102,7 +102,18 @@ class ContextExtractor:
             file_path=file_path,
         )
 
-        if func_start is not None and func_end is not None:
+        # Use the enclosing-function slice only when it actually contains the
+        # flagged line. The regex fallback in _find_function_bounds can match a
+        # control-flow keyword (if/while/switch) as a "function" whose block ends
+        # before the flagged line, and unlisted languages (e.g. PHP) borrow the C
+        # patterns — either way the slice would omit the very line under review,
+        # forcing the verifier to guess. Fall through to the window otherwise.
+        # See docs/design/2026-07-08-issue118-followup-slice-containment-design.md.
+        if (
+            func_start is not None
+            and func_end is not None
+            and func_start + 1 <= line <= func_end + 1
+        ):
             code = "\n".join(lines[func_start : func_end + 1])
             return CodeContext(
                 code=code,
@@ -207,7 +218,9 @@ class ContextExtractor:
         func_start: int | None = None
         func_name: str | None = None
 
-        for i in range(target_line, -1, -1):
+        # Clamp the start index: a flagged line past EOF (stale SARIF / wrong
+        # revision) would otherwise index out of range and crash the verify.
+        for i in range(min(target_line, len(lines) - 1), -1, -1):
             line = lines[i]
             for pattern in patterns:
                 match = pattern.match(line)

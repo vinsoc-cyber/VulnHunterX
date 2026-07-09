@@ -1,0 +1,23 @@
+# php.lang.security.injection.tainted-exec.tainted-exec @ vulnerabilities/exec/source/impossible.php:22
+
+**Verdict:** FP · **Confidence:** High (0.87) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The flagged `shell_exec()` sink is real, but the provided code shows a specific defense on the same path: line 15 requires four numeric components and line 17 reconstructs the value only from those components and literal dots before line 22. The additional context was unavailable and does not change the visible local data flow or remove that defense.
+
+## Data flow
+
+HTTP request source `$_REQUEST['ip']` in vulnerabilities/exec/source/impossible.php:8 → `$target` assignment at line 8 → `stripslashes($target)` at line 9 → `explode('.', $target)` into `$octet` at line 12 → validation `is_numeric($octet[0..3]) && sizeof($octet) == 4` at line 15 → reconstruction `$octet[0] . '.' . $octet[1] . '.' . $octet[2] . '.' . $octet[3]` at line 17 → OS branch check `stristr(php_uname('s'), 'Windows NT')` at line 20 → sink `shell_exec('ping  ' . $target)` at line 22. Additional requested contexts `function:checkToken` and `global:$_REQUEST` were unavailable and do not add any visible new flow.
+
+## Answers
+
+1. Step 0 / flagged-line check: The flagged line 22 is present and reads exactly: `$cmd = shell_exec( 'ping  ' . $target );`. The construct described by the rule is present on that line: `$target` is concatenated into a `shell_exec()` command. The snippet is labeled Function: `<unknown>`, and the code appears to be top-level PHP script code rather than a named function.
+2. Step 1 / source: The potentially dangerous data originates from HTTP request input: `$_REQUEST['ip']` is assigned to `$target` on line 8. The code path is gated by `isset($_POST['Submit'])` on line 3. The additional requested context for `global:$_REQUEST` is unavailable, so no custom request preprocessing is visible.
+3. Step 2 / trace: `$_REQUEST['ip']` flows to `$target` on line 8; `$target` is passed through `stripslashes($target)` on line 9; `$target` is split into `$octet` with `explode('.', $target)` on line 12; `$octet[0]` through `$octet[3]` are validated with `is_numeric()` and `sizeof($octet) == 4` on line 15; `$target` is reconstructed from those four octets and literal dots on line 17; the reconstructed `$target` is concatenated into `shell_exec('ping  ' . $target)` on line 22 in the Windows branch selected at line 20.
+4. Step 3 / validation, sanitization, encoding: `stripslashes()` on line 9 is not command-injection sanitization. However, line 15 validates that exactly four dot-separated components exist and that all four are numeric, and line 17 reconstructs the command argument only from those validated components plus literal `.` characters. This visible validation/reconstruction blocks typical shell metacharacters needed for CWE-78 payloads, such as `;`, `&`, `|`, backticks, `$()`, and command names.
+5. Step 4 / sink: The sink is `shell_exec()` on line 22. It is dangerous in general because PHP executes the provided string as a shell command, and unsafe concatenation of attacker-controlled data can lead to OS command injection.
+6. Step 5 / framework or library protections: No framework-level automatic command-injection protection is visible. The CSRF helper `checkToken($_REQUEST['user_token'], $_SESSION['session_token'], 'index.php')` on line 5 is not a shell-injection defense, and its body remains unavailable in the additional context. The relevant visible defense is the local numeric-octet validation and reconstruction at lines 15-17.
+7. Step 6 / privilege or authentication state: Not visible in the provided context. The attacker needs to reach this PHP script with `$_POST['Submit']` set on line 3 and satisfy or bypass the CSRF token check on line 5, but authentication or authorization requirements are not shown. The requested `function:checkToken` context was unavailable.
+8. Step 7 / security impact: If an attacker-controlled value reached `shell_exec()` unsanitized, the concrete impact would be OS command injection / remote code execution with the privileges of the PHP/web-server process. In the shown path, the reconstructed `$target` at line 17 is limited to numeric octets and dots before reaching line 22, so the RCE payload characters are not visible as reaching the sink.
+9. Step 8 / weakest link: The weakest part of the defense chain is that the code uses `shell_exec()` with string concatenation at line 22 instead of safer argument handling. However, for the specific reported CWE-78 path, the visible numeric validation at line 15 plus reconstruction at line 17 is a concrete defense that prevents shell metacharacter injection into the flagged command.

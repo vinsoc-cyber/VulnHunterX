@@ -1,0 +1,19 @@
+# js/code-injection @ app/data/allocations-dao.js:78
+
+**Verdict:** TP · **Confidence:** Low (0.65) · **Truth:** real · **Grade:** CORRECT · **Iterations:** 6
+
+## Reasoning
+
+Although caller/source context was not found, the flagged DAO method directly embeds the `threshold` parameter into a MongoDB `$where` JavaScript string and then executes the query, with no visible sanitization or framework protection. Because no specific defense is visible and this is a code-injection rule rather than a type-hygiene pattern, the balance of evidence leans True Positive.
+
+## Answers
+
+1. Step 0 / flagged line location: The flagged line is present in `app/data/allocations-dao.js` at line 78, inside the `AllocationsDAO` constructor function, in the method `this.getByUserIdAndThreshold` defined at line 57. Exact flagged line: `$where: `this.userId == ${parsedUserId} && this.stocks > '${threshold}'``. The `js/code-injection` construct is present because `threshold` is interpolated into a JavaScript code string used as a MongoDB `$where` predicate.
+2. Step 1: The dangerous data visible in the provided code originates as the `threshold` parameter to `this.getByUserIdAndThreshold(userId, threshold, callback)` at line 57. The ultimate external source is not visible; all requested caller/export context reported no recorded callers or missing route/controller context. However, the method is a DAO API method accepting a caller-supplied `threshold` value.
+3. Step 2: The data flow is: `threshold` enters `getByUserIdAndThreshold` at line 57 → it is captured by the nested `searchCriteria` closure declared at line 60 → it is checked only for truthiness at line 62 → commented-out validation appears at lines 63-76 but does not execute → `threshold` is directly interpolated into the `$where` JavaScript string at line 78 → the generated criteria is passed to `allocationsCol.find(searchCriteria()).toArray(...)` at line 86.
+4. Step 3: No active validation, sanitization, or encoding is applied to `threshold`. The only active check is `if (threshold)` at line 62, which does not restrict quotes, operators, JavaScript syntax, or numeric range. The apparent intended mitigation using `parseInt(threshold, 10)` and range checks is inside a block comment at lines 63-76 and is therefore ineffective.
+5. Step 4: The sink is line 78, where untrusted or caller-controlled data is embedded into a MongoDB `$where` JavaScript expression, and line 86, where that criteria object is used in `allocationsCol.find(...)`. The dangerous operation is dynamic JavaScript-code construction for a MongoDB query predicate.
+6. Step 5: No visible framework or library protection prevents the issue. The bodies of `collection` and `find` are not in scope, but the query object explicitly uses `$where` with a string at line 78. Normal MongoDB structured-query safety is bypassed by using a JavaScript predicate string, and no parameterization or escaping is visible.
+7. Step 6: The required privilege level or authentication state is not visible. Additional context found no direct callers, no `module.exports`, no `exports`, and no route/controller. Therefore, the exact trigger path is unknown, but no visible guard limits this method to trusted/admin-only use.
+8. Step 7: If an attacker or untrusted caller controls `threshold`, they can inject JavaScript into the MongoDB `$where` predicate. Concrete impact can include query predicate manipulation, unauthorized data exposure, and denial of service through injected expensive or non-terminating JavaScript; broader server-side JavaScript impact depends on MongoDB configuration/version.
+9. Step 8: The weakest link is the direct interpolation of `threshold` into executable query code at line 78 with no active validation or escaping. No complete defense is visible in the provided code or additional context.

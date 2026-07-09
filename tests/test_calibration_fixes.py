@@ -455,21 +455,21 @@ class TestRebalanceNegatives:
         assert n_neg == 20  # 50% of 40
 
 
-class TestForcedDecisionAccessControlSignals:
-    """The _force_decision_turn signal vocabulary must cover access-control
-    CWE language. The 2026-05-15 16:45 diversevul run showed a CWE-264 case
-    correctly enumerating 'No authorization check ... is present' in its
-    reasoning but defaulting to FP because the old signal list did not match."""
+class TestForcedDecisionPreservesAbstention:
+    """After the explicit force-decision prompt, _force_decision_turn respects
+    the model's answer: a committed TP/FP passes through unchanged, and a
+    persistent Needs-More-Data is preserved as abstention. It must NOT keyword-
+    count the reasoning into a verdict — promoting NMD to TP on taint vocabulary
+    ('no validation', 'unsafe') systematically over-confirmed findings the model
+    could not actually decide (#119)."""
 
     def setup_method(self):
         self.client = LLMClient(provider="openai", model="gpt-4o")
 
     @patch("vuln_hunter_x.llm.client.litellm.completion")
-    def test_no_authorization_in_reasoning_promotes_tp(self, mock_completion):
-        # Force-decision turn: the LLM returns text whose extracted verdict
-        # is NMD, but the reasoning explicitly says no authorization check
-        # is present. The signal-detection branch should promote this to
-        # True Positive (Low) rather than defaulting to False Positive.
+    def test_persistent_nmd_is_preserved_not_forced_to_tp(self, mock_completion):
+        # The forced turn still returns NMD with taint-flavored reasoning. Old
+        # behavior promoted this to TP; new behavior keeps it NMD.
         nmd_response = (
             '{"verdict": "Needs More Data", "confidence": "Low",'
             ' "reasoning": "No authorization check (e.g., capability test,'
@@ -484,16 +484,31 @@ class TestForcedDecisionAccessControlSignals:
             total_tokens_used=0,
             total_cost_usd=0.0,
         )
-        assert parsed["verdict"] == "True Positive"
-        assert "evidence leans toward TP" in parsed.get("reasoning", "")
+        assert parsed["verdict"] == "Needs More Data"
+        assert "[Forced decision:" not in parsed.get("reasoning", "")
 
     @patch("vuln_hunter_x.llm.client.litellm.completion")
-    def test_parse_failure_not_keyword_forced_to_tp(self, mock_completion):
-        # A truncated / unparseable forced-decision response must NOT be
-        # keyword-counted into a verdict. Its "reasoning" is just raw JSON
-        # saturated with overflow words ("unsafe", "no validation") that would
-        # otherwise be miscounted as TP signals. Regression: libjpeg-turbo
-        # jidctint.c entries became TP at confidence_score 0.0 this way.
+    def test_committed_verdict_is_respected(self, mock_completion):
+        # When the forced turn commits to a side, it is passed through unchanged.
+        fp_response = (
+            '{"verdict": "False Positive", "confidence": "Medium",'
+            ' "reasoning": "The id is cast with intval() before the query, so the'
+            ' tainted-string construct is neutralized.", "answers": []}'
+        )
+        mock_completion.return_value = _make_litellm_response(fp_response)
+        parsed, *_ = self.client._force_decision_turn(
+            messages=[{"role": "user", "content": "x"}],
+            all_raw_responses=[],
+            total_tokens_used=0,
+            total_cost_usd=0.0,
+        )
+        assert parsed["verdict"] == "False Positive"
+        assert "[Forced decision:" not in parsed.get("reasoning", "")
+
+    @patch("vuln_hunter_x.llm.client.litellm.completion")
+    def test_parse_failure_stays_nmd(self, mock_completion):
+        # A truncated / unparseable forced-decision response must stay NMD and
+        # never be keyword-counted into a verdict.
         truncated = (
             '{"verdict": "True Positive", "reasoning": "the multiplication is '
             'unsafe, there is no validation and no bounds check, exploitable'

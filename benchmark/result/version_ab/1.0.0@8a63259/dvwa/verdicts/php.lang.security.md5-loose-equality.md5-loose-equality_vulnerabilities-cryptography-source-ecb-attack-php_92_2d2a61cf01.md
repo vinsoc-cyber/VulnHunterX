@@ -1,0 +1,22 @@
+# php.lang.security.md5-loose-equality.md5-loose-equality @ vulnerabilities/cryptography/source/ecb_attack.php:92
+
+**Verdict:** FP · **Confidence:** High (0.9) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 2
+
+## Reasoning
+
+The flagged line is present and contains loose equality, but the reported rule is specifically for loose equality involving MD5 values. Because line 92 has no `md5()` call, MD5 digest, or visible MD5-derived variable, the rule-specific construct is absent rather than merely defended by an unseen check. [second-opinion pass after 1-iter high-conf FP]
+
+## Answers
+
+1. Step 0 / flagged line location: The flagged line is present at line 92: `if ($user->user == "sweep" && $user->ex > time() && $user->level == "admin") {`. The line contains PHP loose equality comparisons using `==`, but it does not contain `md5()`, an MD5 digest, or any visible comparison involving an MD5 value.
+2. (a) Specific defense observed: No specific sanitizer or defense for MD5 loose equality is observed in the provided code. The reason this is not the reported issue is not a defense; it is that the rule's required construct is absent at the flagged line. Line 92 compares `$user->user` to `"sweep"` and `$user->level` to `"admin"`, not MD5 values.
+3. (b) Coverage of reachable paths: No defense coverage claim is being made. The visible path reaches line 92 through `$c` construction on lines 55-60, decryption on line 81, `json_decode()` on line 84, and a null check on lines 85-87. However, the sink reached on line 92 is not an MD5 loose comparison sink. Therefore, all visible reachable paths to the flagged line lack the specific MD5 construct the rule reports.
+4. (c) Why the SAST tool flagged this: The rule `php.lang.security.md5-loose-equality.md5-loose-equality` looks for loose comparisons involving MD5 values, because PHP type juggling can make certain hashes such as `0e...` compare equal under `==`. The flagged line 92 likely matched because it contains `==`, but the visible expression is `$user->user == "sweep"` and `$user->level == "admin"`; the rule-specific MD5 element is not present. No cited defense is checking MD5 type juggling because no MD5 comparison is visible.
+5. Guided Q1 source: The ultimate source is not visible in the provided context. `$user` comes from `$hacked_deciphered` via `json_decode()` on line 84; `$hacked_deciphered` comes from `decrypt($c, $key)` on line 81; `$c` comes from ciphertext block manipulation on lines 55-60.
+6. Guided Q2 trace: `$sweep_ciphered` is converted/sliced into `$p1` and `$p4` on lines 55 and 58; `$soo_ciphered` is converted/sliced into `$p2` on line 56; `$sooty_ciphered` is converted/sliced into `$p3` on line 57; these are concatenated and passed to `hex2bin()` into `$c` on line 60; `$c` is decrypted into `$hacked_deciphered` on line 81; `$hacked_deciphered` is decoded into `$user` on line 84; `$user` properties are compared on line 92.
+7. Guided Q3 validation/sanitization: The only visible validation is the null check for JSON decoding failure on lines 85-87. It does not sanitize for PHP loose comparison issues. No MD5-specific validation is visible, but no MD5 value is visible either.
+8. Guided Q4 sink: For the reported rule, the unsafe sink would be a loose comparison involving an MD5 digest. The actual visible operation on line 92 is loose comparison of object properties to string literals and a numeric time comparison, not MD5 comparison.
+9. Guided Q5 framework/library protections: No framework protection is visible. `json_decode()` on line 84 only parses JSON, and the null check on lines 85-87 only rejects decode failure. No automatic protection for MD5 loose equality is shown or needed for the reported construct because no MD5 comparison is shown.
+10. Guided Q6 privilege/authentication: Not visible in provided context. The snippet does not show routing, caller, session, or authentication requirements.
+11. Guided Q7 impact: The impact of a true MD5 loose equality issue could be authentication or authorization bypass via PHP type juggling. In this snippet, that MD5-specific impact is not established because line 92 does not compare MD5 values.
+12. Guided Q8 weakest link: For the reported rule, the weak link is not demonstrated. The visible code may have other loose-comparison concerns, but the specific MD5 loose-equality finding is unsupported because the flagged line contains no MD5 value or `md5()` result.
