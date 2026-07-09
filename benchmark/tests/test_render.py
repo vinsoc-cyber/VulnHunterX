@@ -107,3 +107,25 @@ def test_render_rollup_resources_table():
     assert "## Per target — correctness" in md
     assert "## Per target — resources" in md
     assert "1k" in md   # 1000 input tokens formatted
+
+
+def test_render_compare_resource_deltas():
+    churn = {"previous": "1.0.0@a", "current": "1.0.0@b", "flips": [],
+             "totals": {"flips": 0, "improve": 0, "regress": 0, "neutral": 0},
+             "deltas": {"precision": 0.0, "recall": 0.0},
+             "resource_deltas": {"cost_usd": 0.5, "input_tokens": 500, "output_tokens": 20,
+                                 "cached_input_tokens": 400, "cache_hit_ratio": 0.1,
+                                 "elapsed_seconds": 4.0, "iterations_mean": 0.5,
+                                 "n_error": 1, "n_abstain": -2},
+             "timestamp": "T"}
+    md = v.render_compare_md(churn)
+    assert "## Resource deltas" in md and "non-gating" in md
+    assert "+500" in md and "+0.5" in md and "-2" in md
+
+
+def test_render_compare_no_resource_deltas():
+    churn = {"previous": "1.0.0@a", "current": "1.0.0@b", "flips": [],
+             "totals": {"flips": 0, "improve": 0, "regress": 0, "neutral": 0},
+             "deltas": {"precision": 0.0, "recall": 0.0}, "timestamp": "T"}
+    md = v.render_compare_md(churn)
+    assert "## Resource deltas" not in md   # absent section, no crash

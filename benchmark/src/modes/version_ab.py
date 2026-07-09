@@ -386,6 +386,18 @@ def render_compare_md(churn: dict) -> str:
                          f"{f['prev_conf']}→{f['cur_conf']} |")
     else:
         lines.append("_No verdict changed._")
+    rd = churn.get("resource_deltas") or {}
+    if rd:
+        def sd(x):
+            return "n/a" if x is None else f"{x:+g}"
+        lines += ["", "## Resource deltas", "",
+                  "_Informational, non-gating — run-to-run variance is expected._", "",
+                  f"Δcost `{sd(rd.get('cost_usd'))}` · Δin-tok `{sd(rd.get('input_tokens'))}` · "
+                  f"Δout-tok `{sd(rd.get('output_tokens'))}` · "
+                  f"Δcache-ratio `{sd(rd.get('cache_hit_ratio'))}` · "
+                  f"Δtime `{sd(rd.get('elapsed_seconds'))}` · "
+                  f"Δitersμ `{sd(rd.get('iterations_mean'))}` · "
+                  f"Δn_error `{sd(rd.get('n_error'))}` · Δn_abstain `{sd(rd.get('n_abstain'))}`"]
     return "\n".join(lines) + "\n"
 
 
