@@ -1,0 +1,23 @@
+# php.lang.security.injection.tainted-sql-string.tainted-sql-string @ vulnerabilities/bac/source/medium.php:71
+
+**Verdict:** TP · **Confidence:** High (0.9) · **Truth:** real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The flagged line begins a manually constructed SQL query, and line 72 directly embeds `$ip`, which is sourced from request-controlled `$_SERVER` data on line 69. The query is executed with raw `mysqli_query` on line 73 with no visible escaping, validation, or prepared statement, so the flagged SQL injection path is clearly present.
+
+## Data flow
+
+vulnerabilities/bac/source/medium.php:69 `$_SERVER['HTTP_X_FORWARDED_FOR']` / `$_SERVER['REMOTE_ADDR']` → `$ip` assigned at line 69 → `$ip` interpolated into `$log_query` at vulnerabilities/bac/source/medium.php:71-72 → `$log_query` executed by `mysqli_query($GLOBALS["___mysqli_ston"], $log_query)` at vulnerabilities/bac/source/medium.php:73. Additional requested context for function/global declarations was unavailable and adds no visible sanitizer or guard.
+
+## Answers
+
+1. Step 0 / flagged line location: The exact flagged line is line 71: `$log_query = "INSERT INTO bac_log (user_id, target_id, ip_address) VALUES `. This line begins a manually constructed SQL string, and the string continues on line 72 with interpolated variables: `({$current_user_id}, {$target_id}, '{$ip}')`. The enclosing function remains identified only as `<unknown>`; the requested `function:<unknown>` context was unavailable.
+2. Step 1: The dangerous data visibly originates from HTTP request/server input on line 69: `$ip = isset($_SERVER['HTTP_X_FORWARDED_FOR']) ? $_SERVER['HTTP_X_FORWARDED_FOR'] : $_SERVER['REMOTE_ADDR'];`. In particular, `$_SERVER['HTTP_X_FORWARDED_FOR']` is derived from an HTTP header and can be attacker-controlled. The sources of `$id` and `$current_user_id` remain not visible because the requested global/function context was unavailable.
+3. Step 2: The primary visible data flow is: `$_SERVER['HTTP_X_FORWARDED_FOR']` or `$_SERVER['REMOTE_ADDR']` at line 69 → assigned to `$ip` at line 69 → interpolated directly into `$log_query` on lines 71-72 → executed by `mysqli_query($GLOBALS["___mysqli_ston"], $log_query)` on line 73. A secondary visible flow is: `$id` is embedded in `$check_query` on line 21 → queried on line 22 → used to compute `$user_exists` on line 23 → `$target_id = $user_exists ? $id : 0` on line 70 → `$target_id` interpolated into SQL on line 72. The additional context supplied was unavailable and does not add any new transformations or defenses.
+4. Step 3: No validation, sanitization, escaping, encoding, prepared-statement binding, or numeric casting is visible for `$ip` between line 69 and line 72. No SQL escaping such as `mysqli_real_escape_string` is visible. No prepared statement is used before execution on line 73. For `$target_id`, the comment on line 68 says `only log numeric target_id`, but line 70 does not cast or validate `$id`; however, the `$ip` flow alone is sufficient for the flagged SQL-string issue.
+5. Step 4: The sink is `mysqli_query($GLOBALS["___mysqli_ston"], $log_query)` on line 73. The dangerous operation is executing a manually constructed SQL string that contains attacker-controlled `$ip` embedded inside single quotes on line 72.
+6. Step 5: No framework or library automatic protection is visible. The code uses raw `mysqli_query` on line 73 rather than an ORM or prepared statement. The requested global context for `___mysqli_ston` was unavailable, but there is no visible evidence of parameterization or escaping on the flagged path.
+7. Step 6: The exact route-level privilege or authentication state remains not visible because the enclosing function/caller context is unavailable. In the visible snippet, the token check on lines 26-47 controls whether profile data is displayed, but the logging block on lines 49-73 appears to execute regardless once this code is reached. At minimum, an attacker who can trigger this code path and supply an `X-Forwarded-For` header can influence `$ip`.
+8. Step 7: The concrete security impact is SQL injection into the `INSERT INTO bac_log` statement on lines 71-73. An attacker controlling `$ip` can break out of the quoted string in line 72 and alter the SQL statement, potentially modifying log entries, corrupting database state, or escalating to broader data manipulation depending on database permissions and SQL driver settings.
+9. Step 8: The weakest link is direct string interpolation of request-derived `$ip` into a SQL statement on line 72 followed by raw execution with `mysqli_query` on line 73. No visible defense interrupts this flow; the additional requested context was unavailable and therefore does not change the prior analysis.

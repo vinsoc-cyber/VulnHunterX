@@ -1,0 +1,22 @@
+# js/session-fixation @ app/routes/index.js:34
+
+**Verdict:** TP · **Confidence:** High (0.92) · **Truth:** real · **Grade:** CORRECT · **Iterations:** 2
+
+## Reasoning
+
+The flagged login route at original line 34 reaches a successful-login path that assigns `req.session.userId = user._id` on the existing session without calling `req.session.regenerate` or destroying the prior session. Because the route is unauthenticated and the session ID is not rotated during privilege elevation, the CodeQL session-fixation finding is a real vulnerability.
+
+## Data flow
+
+Unauthenticated HTTP POST /login with existing session cookie and body credentials → original line 34 routes request to `sessionHandler.handleLoginRequest` → `handleLoginRequest` reads `userName` and `password` from `req.body` → `userDAO.validateLogin(userName, password, callback)` authenticates the user → on success, existing `req.session` is reused → `req.session.userId = user._id` elevates that existing session without `req.session.regenerate` → redirect to authenticated area
+
+## Answers
+
+1. Step 0/1: The flagged line is present at original line 34: `app.post("/login", sessionHandler.handleLoginRequest);`. It is an Express POST login route registration. The dangerous input/state originates from an unauthenticated HTTP request to `/login`, specifically the existing session identifier carried by the user's session cookie, plus credentials from `req.body` destructured as `userName` and `password` in `handleLoginRequest`.
+2. Step 2: Data/control flow is: `sessionHandler` is created at original line 15 with `new SessionHandler(db)`; the unauthenticated login route is registered at original line 34 as `app.post("/login", sessionHandler.handleLoginRequest)`; inside `handleLoginRequest`, `userName` and `password` are read from `req.body`; those credentials flow into `userDAO.validateLogin(userName, password, callback)`; on successful validation, the existing `req.session` object is reused and elevated by assigning `req.session.userId = user._id`; then the response redirects to `/benefits` for admins or `/dashboard` for normal users.
+3. Step 3: Credential validation occurs through `userDAO.validateLogin(userName, password, ...)`, but that validates identity, not the session identifier. There is no visible session invalidation or session ID rotation on the successful login path. The comments explicitly describe the intended fix as wrapping the login-success code in `req.session.regenerate(() => {})`, but the actual successful login code directly executes `req.session.userId = user._id` without `req.session.regenerate`.
+4. Step 4: The sink is the successful-login session mutation in `handleLoginRequest`: `req.session.userId = user._id`. This is dangerous because it grants authenticated privileges to the already-existing session associated with the pre-login session ID instead of creating a fresh session ID after authentication. The flagged route at original line 34 exposes this sink as the `/login` POST handler.
+5. Step 5: No automatic framework protection is visible that would regenerate the session ID after login. Express route registration at original line 34 does not do this by itself. The provided session middleware configuration was not found, and the handler itself does not call `req.session.regenerate` on the login path. In contrast, signup visibly does call `req.session.regenerate(() => { req.session.userId = user._id; ... })`, showing the expected protection is absent from login.
+6. Step 6: An attacker needs no prior authentication to trigger this code path. The `/login` POST route at original line 34 is registered without `isLoggedIn` or `isAdmin`, unlike protected routes such as `/dashboard` at original line 44 and `/profile` at original line 47.
+7. Step 7: The concrete impact is session fixation / session hijacking. If an attacker can cause a victim to use a session ID known to the attacker before login, the victim's successful login binds `user._id` to that existing session via `req.session.userId = user._id`, allowing the attacker to reuse the fixed session ID to access the victim's authenticated session.
+8. Step 8: The weakest link is the successful-login path in `handleLoginRequest`: after `userDAO.validateLogin` succeeds, the code directly assigns `req.session.userId = user._id` without first regenerating or destroying the session. The defense chain is incomplete because identity validation is present, but session ID rotation after privilege elevation is missing.

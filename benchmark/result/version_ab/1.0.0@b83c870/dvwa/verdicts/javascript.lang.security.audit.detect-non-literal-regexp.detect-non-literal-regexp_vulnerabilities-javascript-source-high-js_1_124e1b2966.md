@@ -1,0 +1,23 @@
+# javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp @ vulnerabilities/javascript/source/high.js:1
+
+**Verdict:** FP · **Confidence:** High (0.9) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The additional requested context was unavailable and does not change the visible data flow: the flagged `new RegExp(...)` on line 1 is fed by a local helper `h(f)` where `f` is initialized from the literal `0x137`. Because the resulting regex is a bounded, alphanumeric `\bTOKEN\b` replacement pattern with no visible attacker-controlled input or ReDoS-prone structure, this specific finding is a false positive.
+
+## Data flow
+
+vulnerabilities/javascript/source/high.js:1 local constant table `var a=[...]` → line 1 constant rotation `(function(c,d){...}(a,0x1f4))` → line 1 local decoder `var b=function(c,d){...return e;}` → line 1 unpacker call `function(d,e,f,g,h,i){...}(b('0x7'),0x3e,0x137,b('0x8')[b('0x9')]('|'),0x0,{})` → line 1 local token generator `h=function(j){...}` → line 1 bounded loop `while(f--)` with `f` initialized to literal `0x137` → line 1 pattern construction `'\x5cb'+h(f)+'\x5cb'` → line 1 sink `new RegExp(...,'g')` inside `replace(...)`
+
+## Answers
+
+1. Step 0 / flagged line location: The flagged line is present at vulnerabilities/javascript/source/high.js:1. The relevant exact flagged sink construct on that line is `d=d[b('0x2')](new RegExp('\x5cb'+h(f)+'\x5cb','g'),g[f]);`. This confirms the rule-described construct, a dynamic `new RegExp(...)`, is present on the flagged line. It lives inside an anonymous unpacking function passed directly to `eval(...)`, not inside a named function.
+2. Q1 Source: The additional context for `global:a` and `global:b` is unavailable and does not change the visible source analysis. In the provided code, `a` is locally declared on line 1 as `var a=[...]`, and `b` is locally declared on line 1 as `var b=function(c,d){...}`. The RegExp pattern component comes from `h(f)`, where `f` is passed as the literal constant `0x137` in the same line, not from visible user input, file, network, or database.
+3. Q2 Data trace: On line 1, `var a=[...]` defines a local string table. Also on line 1, `(function(c,d){...}(a,0x1f4));` rotates that local array by a constant amount. Then `var b=function(c,d){c=c-0x0;var e=a[c];return e;};` reads from that local table. The unpacker is invoked on line 1 as `eval(function(d,e,f,g,h,i){...}(b('0x7'),0x3e,0x137,b('0x8')[b('0x9')]('|'),0x0,{}));`. Inside that unpacker on line 1, `h=function(j){...}` converts numeric values to token strings, `while(f--)` iterates the constant-derived counter, and `h(f)` is concatenated into `'\x5cb'+h(f)+'\x5cb'` before reaching `new RegExp(...)`.
+4. Q3 Validation/sanitization: No explicit regex sanitizer or ReDoS checker is visible on line 1. However, a specific visible defense exists: the pattern passed to `new RegExp` is generated from a bounded numeric loop counter initialized with the constant `0x137` on line 1. The helper `h(j)` on line 1 produces alphanumeric token strings using `toString(0x24)` or `String.fromCharCode(...)`, and the final regex shape is `\b` + token + `\b`, which does not introduce nested quantifiers or attacker-controlled regex metacharacters.
+5. Q4 Sink: The sink is `new RegExp('\x5cb'+h(f)+'\x5cb','g')` at vulnerabilities/javascript/source/high.js:1, used as the first argument to a dynamically indexed `replace` call: `d=d[b('0x2')](...,g[f]);`. The dangerous operation in general is dynamic RegExp construction, but here the dynamic portion is constant-derived and alphanumeric.
+6. Q5 Framework/library protections: No framework or library protection is visible or relevant. This is native JavaScript `RegExp` and string replacement on line 1.
+7. Q6 Required privilege/authentication: Not visible in provided context. The code appears to be top-level JavaScript in vulnerabilities/javascript/source/high.js:1, but no route, caller, authentication state, or loading context is shown.
+8. Q7 Concrete impact if attacker controlled it: If an attacker controlled the regex pattern, ReDoS could be possible in principle. In this specific visible code path, attacker control is not shown, and the generated regex pattern is a simple bounded word-boundary token match, so a concrete ReDoS impact is not demonstrated.
+9. Q8 Weakest link: No exploitable weak link is visible for this flagged sink. The defense is the visible constant-derived and bounded construction of the regex pattern on line 1: `f` is a literal argument, `h(f)` generates only token text, and the regex is a simple `\bTOKEN\b` global replacement pattern.

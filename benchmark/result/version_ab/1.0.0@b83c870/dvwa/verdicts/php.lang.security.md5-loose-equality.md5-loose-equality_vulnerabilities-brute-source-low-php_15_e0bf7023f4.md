@@ -1,0 +1,21 @@
+# php.lang.security.md5-loose-equality.md5-loose-equality @ vulnerabilities/brute/source/low.php:15
+
+**Verdict:** FP · **Confidence:** High (0.9) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 2
+
+## Reasoning
+
+The flagged line is present and contains loose equality, but the compared value is a database row count from `mysqli_num_rows($result)`, not an md5 digest. The md5 value created on line 9 is used in SQL construction on line 12 and never reaches the loose comparison on line 15, so the specific md5 type-juggling finding is not exploitable at this sink. [second-opinion pass after 1-iter high-conf FP]
+
+## Answers
+
+1. Step 1: The visible user-controlled sources are `$_GET['Login']` on line 3, `$_GET['username']` assigned to `$user` on line 5, and `$_GET['password']` assigned to `$pass` on line 8.
+2. Step 2: Password flow: `$_GET['password']` line 8 → `$pass` line 8 → `md5($pass)` line 9 → interpolated into `$query` line 12 → submitted to `mysqli_query(...)` line 13 → result handle/boolean stored in `$result` line 13 → row-count comparison `mysqli_num_rows($result) == 1` line 15. Username flow: `$_GET['username']` line 5 → `$user` line 5 → interpolated into SQL on line 12 → reflected into `$html` on line 21.
+3. Step 3: No validation, sanitization, escaping, prepared statement, or output encoding is visible for `$user` or `$pass` before line 12 or line 21. `md5($pass)` on line 9 is hashing, not SQL sanitization. For the specific md5-loose-equality finding, the relevant observation is that the md5 value from line 9 is not an operand of the loose equality on line 15.
+4. Step 4: The flagged line is present: line 15 is exactly `if( $result && mysqli_num_rows( $result ) == 1 ) {`. The sink reported by the rule is the loose equality operator `==`. However, the operation on line 15 compares the return value of `mysqli_num_rows($result)` to integer literal `1`; it does not compare an md5 digest or md5-derived variable.
+5. Step 5: No framework or library protection such as ORM parameterization or template auto-escaping is visible. The relevant library behavior at the flagged sink is that `mysqli_num_rows($result)` on line 15 is a row-count API call; the expression being compared is not `$pass`, `md5(...)`, or a database password hash.
+6. Step 6: Based only on the snippet, an unauthenticated requester can reach this code by supplying `Login` in `$_GET` so the condition on line 3 is true. No prior authentication or authorization check is visible.
+7. Step 7: For the specific flagged md5 loose-comparison issue, no concrete security impact is demonstrated because the md5 digest created on line 9 is not loosely compared on line 15. Separately, the raw SQL interpolation on line 12 may allow SQL injection/authentication bypass, but that is a different sink than the flagged line.
+8. Step 8: The weakest link for the application code appears to be raw SQL construction on line 12, but for this Semgrep finding the claimed weak link is absent at the flagged sink. The loose equality on line 15 is present, but its left operand is `mysqli_num_rows($result)`, not the md5 value from line 9.
+9. (a) Specific defense/benign mechanism observed: line 15 compares `mysqli_num_rows($result)` to integer literal `1`; the md5 value `$pass` created on line 9 is not used in that comparison. This is not an external assumed defense; it is visible directly in the flagged expression on line 15.
+10. (b) Why it covers all reachable paths to the flagged sink: every visible path to the flagged line executes the same expression on line 15 after `$result` is assigned by `mysqli_query(...)` on line 13. There is no alternate branch or variable assignment in the snippet that changes the operands of `==`; the only operands at the flagged sink are `mysqli_num_rows($result)` and `1`.
+11. (c) Why the SAST tool flagged this: the rule `php.lang.security.md5-loose-equality.md5-loose-equality` looks for loose comparisons involving md5 values because PHP type juggling can make strings like `0e...` compare equal numerically. The rule likely correlated the nearby `md5($pass)` on line 9 with the loose equality operator on line 15. The visible code does not satisfy the dangerous pattern because the loose equality does not involve `$pass` or `md5($pass)`.
