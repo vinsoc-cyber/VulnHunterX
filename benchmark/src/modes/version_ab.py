@@ -64,6 +64,28 @@ def aggregate(findings: list[dict], n_real: int) -> dict:
     }
 
 
+def summarize_resources(findings: list[dict]) -> dict:
+    """Roll up non-deterministic resource metrics. Tokens/time/cost sum over all
+    findings (errors still consume resources); iterations only over completed
+    (non-error) findings, whose loop count is meaningful. elapsed_seconds is a
+    sum of per-finding model time, NOT wall-clock (findings may run concurrently)."""
+    def s(key):
+        return sum((f.get(key) or 0) for f in findings)
+    input_tokens = s("input_tokens")
+    cached = s("cached_input_tokens")
+    completed = [f for f in findings if is_real_verdict(normalize_verdict(f["verdict"]))]
+    iters_total = sum((f.get("iterations") or 0) for f in completed)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": s("output_tokens"),
+        "cached_input_tokens": cached,
+        "cache_hit_ratio": round(cached / input_tokens, 4) if input_tokens else 0.0,
+        "elapsed_seconds": round(sum((f.get("elapsed_seconds") or 0.0) for f in findings), 1),
+        "iterations_total": iters_total,
+        "iterations_mean": round(iters_total / len(completed), 2) if completed else 0.0,
+    }
+
+
 def classify_flip(prev_v: str, cur_v: str, truth: str) -> str:
     pc, cc = grade(prev_v, truth), grade(cur_v, truth)
     if cc == "CORRECT" and pc != "CORRECT":
