@@ -54,3 +54,17 @@ def test_grade_error_stub():
     assert v.grade("ERROR", "real") == "error"
     assert v.grade("", "not-real") == "error"
     assert v.grade("503 Service Unavailable", "real") == "error"
+
+
+def test_aggregate_excludes_errors_from_recall():
+    findings = [
+        {"truth": "real", "verdict": "TP", "cost_usd": 1.0},
+        {"truth": "real", "verdict": "ERROR", "cost_usd": 0.0},    # errored real
+        {"truth": "not-real", "verdict": "NMD", "cost_usd": 1.0},  # genuine abstain
+    ]
+    a = v.aggregate(findings, n_real=2)
+    assert a["n_error"] == 1 and a["n_error_real"] == 1
+    assert a["n_abstain"] == 1
+    assert a["n_real"] == 2          # oracle total unchanged
+    assert a["recall"] == 1.0        # tp_real 1 / (n_real 2 - 1 errored real)
+    assert a["precision"] == 1.0     # tp_real 1 / tp_total 1

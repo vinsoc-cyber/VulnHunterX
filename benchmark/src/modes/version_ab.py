@@ -43,16 +43,24 @@ def grade(verdict: str, truth: str) -> str:
 
 
 def aggregate(findings: list[dict], n_real: int) -> dict:
-    tp_total = sum(1 for f in findings if normalize_verdict(f["verdict"]) == "TP")
-    tp_real = sum(1 for f in findings if f["truth"] == "real" and normalize_verdict(f["verdict"]) == "TP")
-    false_alarm = sum(1 for f in findings if f["truth"] == "not-real" and normalize_verdict(f["verdict"]) == "TP")
+    def nv(f):
+        return normalize_verdict(f["verdict"])
+    tp_total = sum(1 for f in findings if nv(f) == "TP")
+    tp_real = sum(1 for f in findings if f["truth"] == "real" and nv(f) == "TP")
+    false_alarm = sum(1 for f in findings if f["truth"] == "not-real" and nv(f) == "TP")
     n_not_real = sum(1 for f in findings if f["truth"] == "not-real")
+    n_abstain = sum(1 for f in findings if nv(f) == "NMD")
+    n_error = sum(1 for f in findings if not is_real_verdict(nv(f)))
+    n_error_real = sum(1 for f in findings if f["truth"] == "real" and not is_real_verdict(nv(f)))
+    recall_denom = n_real - n_error_real
     cost = round(sum((f.get("cost_usd") or 0.0) for f in findings), 4)
     return {
         "tp_total": tp_total, "tp_real": tp_real, "false_alarm": false_alarm,
         "precision": (tp_real / tp_total) if tp_total else None,
-        "recall": (tp_real / n_real) if n_real else None,
-        "n_real": n_real, "n_not_real": n_not_real, "cost_usd": cost,
+        "recall": (tp_real / recall_denom) if recall_denom > 0 else None,
+        "n_real": n_real, "n_not_real": n_not_real,
+        "n_abstain": n_abstain, "n_error": n_error, "n_error_real": n_error_real,
+        "cost_usd": cost,
     }
 
 
