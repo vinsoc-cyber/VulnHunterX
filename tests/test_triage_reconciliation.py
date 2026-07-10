@@ -83,6 +83,33 @@ def test_memory_safety_cwe_cross_rule_reconciles() -> None:
     assert [v.verdict for v in out] == ["Needs More Data", "True Positive"]
 
 
+def test_buffer_overflow_family_cross_rule_reconciles() -> None:
+    # insecure-coding-examples if_constexpr.cpp:15 — CodeQL cpp/static-buffer-overflow
+    # (CWE-119, CWE-131) = TP vs cpp/overflow-buffer (CWE-119, CWE-121/122/126) = FP at
+    # the SAME memcpy line. Both rules flag the same buffer overflow, but they share
+    # only the BROAD CWE-119 parent (excluded from _RECONCILE_SPECIFIC_CWES), not a
+    # specific CWE — so reconciliation used to leave the contradiction standing. With
+    # a specific buffer CWE on each side, the FP must resolve to Needs More Data (safe
+    # direction); the TP is untouched.
+    out = _reconcile_conflicting_verdicts([
+        _mk("cpp/static-buffer-overflow", "practice/if_constexpr.cpp", 15,
+            "True Positive", ["CWE-119", "CWE-131"]),
+        _mk("cpp/overflow-buffer", "practice/if_constexpr.cpp", 15,
+            "False Positive", ["CWE-119", "CWE-121", "CWE-122", "CWE-126"]),
+    ])
+    assert [v.verdict for v in out] == ["True Positive", "Needs More Data"]
+
+
+def test_broad_buffer_parent_alone_not_merged() -> None:
+    # Sharing ONLY the broad CWE-119 parent (no specific buffer CWE on at least one
+    # side) is too generic to fuse — the guard mirrors the CWE-20 exclusion.
+    out = _reconcile_conflicting_verdicts([
+        _mk("cpp/a-buffer-rule", _REL, 12, "True Positive", ["CWE-119", "CWE-787"]),
+        _mk("cpp/some-other-rule", _REL, 12, "False Positive", ["CWE-119"]),
+    ])
+    assert [v.verdict for v in out] == ["True Positive", "False Positive"]
+
+
 def test_broad_cwe_cross_rule_not_merged() -> None:
     # CWE-20 is broad/structural and excluded from cross-rule clustering, so two
     # different rules sharing only CWE-20 are NOT fused.
