@@ -1136,9 +1136,16 @@ class LLMClient:
         "which direction does the balance of evidence lean? You MUST choose True Positive or "
         "False Positive. Low confidence is acceptable. Needs More Data is NOT an acceptable "
         "final response.\n\n"
-        "GUIDELINE: If the code handles untrusted input and you see NO clear sanitization, "
-        "bounds checking, or framework protection, lean toward True Positive (conservative for "
-        "security). Only choose False Positive if you can point to a specific defense.\n\n"
+        "GUIDELINE (decide by CONSEQUENCE at the flagged sink, not by absence of a defense): "
+        "choose True Positive only when you can name a concrete, attacker-reachable consequence "
+        "at the flagged sink — a real exploit path with real impact (code/command execution, "
+        "data disclosure, memory corruption, auth bypass). The mere ABSENCE of a visible "
+        "sanitizer, guard, or framework protection is NOT sufficient for True Positive. Choose "
+        "False Positive when a specific defense makes the path safe, OR when the flagged construct "
+        "carries no real security consequence even though it matches the rule — e.g. a permissive "
+        "header with nothing sensitive behind it, a loose comparison with no secret operand, a "
+        "value that is only logged or printed, or an operator/CLI-controlled source with no trust "
+        "boundary.\n\n"
         "EXCEPTION for correctness / type-hygiene rules (integer-overflow, "
         "multiplication-cast-to-wider, sign-conversion, truncation): the rule fires on a "
         "code PATTERN, not a proven bug. Here, choose True Positive ONLY if the operands can "
@@ -1189,8 +1196,7 @@ class LLMClient:
         # abstention. We deliberately do NOT keyword-count the reasoning into a
         # verdict: promoting NMD to TP on taint vocabulary ("no validation",
         # "unsafe") systematically over-confirms findings the model could not
-        # actually decide (#119). See
-        # docs/design/2026-07-08-issue118-followup-slice-containment-design.md.
+        # actually decide (#119).
         return (
             parsed,
             raw,

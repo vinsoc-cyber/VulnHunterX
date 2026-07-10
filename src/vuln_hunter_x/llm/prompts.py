@@ -119,9 +119,10 @@ METADATA INTERPRETATION:
   Positive.
 
 RULE-SCOPE DISCIPLINE:
-- Your verdict must address the SPECIFIC vulnerability the reported rule (the Rule shown in the finding) describes — not some other issue you happen to notice. First confirm the construct that rule looks for is actually present at the flagged line you located in step 0.
-- Distinguish two cases that look alike but get OPPOSITE verdicts: (a) you can SEE the flagged line and the rule's construct is genuinely absent from it (e.g. an integer-multiplication rule whose flagged line has no multiplication) → "False Positive"; (b) you canNOT locate the flagged line in the provided code, or it is marked as outside the slice → "Needs More Data" and request the enclosing function — never "False Positive" merely because the construct is not visible. If you find a DIFFERENT kind of problem (e.g. a path-traversal concern under an integer-overflow rule), that does NOT make this finding a True Positive — the reported rule did not claim it; mark "False Positive" for the reported rule, do not relabel.
-- NEVER return "True Positive" for a vulnerability class other than the one the rule reported.
+- The reported rule LOCATES a suspicious sink; it does not fix the verdict's vulnerability class. Judge whether the FLAGGED SINK (the flagged line and the dataflow reaching it) is genuinely, exploitably dangerous. First confirm, per step 0, that the construct the rule points at is present at the flagged line.
+- If the flagged sink is genuinely exploitable, return "True Positive" even when its precise class differs from the rule's named CWE — e.g. a tainted filename tagged SSRF that is really a path-traversal / local-file read at that same sink, or a tainted path whose contents reach eval() (LFI → RCE). Name the real class in your reasoning.
+- Do NOT manufacture a True Positive from an UNRELATED problem elsewhere: a different bug at a different line/dataflow than the flagged sink does not confirm THIS finding — mark "False Positive" for this finding.
+- Distinguish two look-alike cases with OPPOSITE verdicts: (a) you can SEE the flagged line and the sink is genuinely benign — the rule's construct is absent, or present-but-harmless (e.g. an integer-multiplication rule whose flagged line has no multiplication; a sizeof whose result is only printed) → "False Positive"; (b) you canNOT locate the flagged line in the provided code, or it is marked as outside the slice → "Needs More Data" and request the enclosing function — never "False Positive" merely because the construct is not visible.
 
 IMPORTANT CONSTRAINTS:
 - Do NOT speculate beyond the shown code — base your analysis only on visible evidence.

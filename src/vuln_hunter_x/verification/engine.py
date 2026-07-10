@@ -511,65 +511,6 @@ def _downgrade_cli_path_injection(verdict: Verdict) -> Verdict:
     return verdict
 
 
-# Signature terms per CWE class, used to detect when a TP verdict's reasoning
-# argues a DIFFERENT vulnerability class than the rule actually reported. Keep
-# terms specific enough to avoid incidental matches.
-_CWE_CLASS_MARKERS: dict[str, tuple[str, ...]] = {
-    "CWE-22": ("path traversal", "directory traversal", "../", "path injection"),
-    "CWE-79": ("xss", "cross-site script", "html injection"),
-    "CWE-89": ("sql injection", "sql inject"),
-    "CWE-78": ("command injection", "os command", "shell injection"),
-    "CWE-190": ("integer overflow", "wraparound", "wrap around", "exceeds int_max",
-                "exceeds int max", "overflow before"),
-    "CWE-416": ("use-after-free", "use after free", "double-free", "double free"),
-    "CWE-476": ("null pointer", "null dereference", "null deref", "nullptr deref"),
-    "CWE-611": ("xxe", "xml external entity", "external entity expansion"),
-    "CWE-918": ("ssrf", "server-side request forgery", "server side request forgery"),
-}
-
-
-def _cwe_classes_in_text(text: str) -> set[str]:
-    return {cwe for cwe, kws in _CWE_CLASS_MARKERS.items() if any(k in text for k in kws)}
-
-
-def _check_rule_construct_presence(verdict: Verdict) -> Verdict:
-    """Downgrade a TP whose reasoning argues a DIFFERENT CWE class than reported.
-
-    Rule-scope discipline: a verdict must address the vulnerability the reported
-    rule describes. If the model's reasoning argues an off-scope CWE class
-    (e.g. path traversal under an integer-overflow rule) and does NOT argue the
-    reported class, the True Positive is for a self-identified finding the rule
-    never made — downgrade it. Conservative: requires positive off-scope
-    evidence AND absence of on-scope evidence, so correctly-scoped verdicts and
-    findings whose reported CWE isn't in the marker map are untouched. Mirrors
-    the other calibrators (downgrade + marker, never a hard flip).
-    """
-    if verdict.verdict not in ("True Positive", "TP"):
-        return verdict
-    if verdict.confidence not in ("High", "Medium"):
-        return verdict
-    finding = getattr(verdict, "finding", None)
-    reported = set(getattr(finding, "cwe_ids", None) or []) & set(_CWE_CLASS_MARKERS)
-    if not reported:
-        return verdict  # reported CWE class not in our map — don't guess
-    text = (verdict.reasoning or "").lower()
-    argued = _cwe_classes_in_text(text)
-    if not argued:
-        return verdict
-    off_scope = argued - reported
-    on_scope = argued & reported
-    if off_scope and not on_scope:
-        verdict.confidence = "Low"
-        verdict.confidence_score = min(verdict.confidence_score, 0.3)
-        verdict.reasoning = (
-            (verdict.reasoning or "")
-            + f" [rule-scope: reasoning argues {', '.join(sorted(off_scope))} but the"
-            f" reported rule is {', '.join(sorted(reported))} — verdict must address the"
-            " reported rule, not a self-identified finding]"
-        )
-    return verdict
-
-
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.context.repo_signals import (
@@ -1356,9 +1297,6 @@ class VerificationEngine:
         # Path-injection trust-boundary calibration: a TP whose path source is a
         # CLI argv (operator-controlled, no privilege boundary) is not CWE-22.
         verdict = _downgrade_cli_path_injection(verdict)
-        # Rule-scope discipline: a TP whose reasoning argues a CWE class other
-        # than the one the rule reported is out of scope — downgrade it.
-        verdict = _check_rule_construct_presence(verdict)
 
         return verdict
 

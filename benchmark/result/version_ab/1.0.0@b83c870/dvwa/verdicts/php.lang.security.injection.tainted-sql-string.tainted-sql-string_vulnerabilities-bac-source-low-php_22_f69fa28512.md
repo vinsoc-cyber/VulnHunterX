@@ -1,0 +1,23 @@
+# php.lang.security.injection.tainted-sql-string.tainted-sql-string @ vulnerabilities/bac/source/low.php:22
+
+**Verdict:** FP · **Confidence:** High (0.9) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The flagged line is indeed a manually constructed SQL string, but the only visible tainted source reaching it is `$_GET['user_id']`, which is constrained by a digit-only regex at line 16 and converted to an integer at line 19 before use in a numeric SQL context. Because these specific defenses are visible on the flagged path, SQL injection at line 22 is prevented despite the use of raw `mysqli_query` at line 23.
+
+## Data flow
+
+source `$_GET['user_id']` (line 15) → validation `preg_match('/^\d+$/', $_GET['user_id'])` (line 16) → integer conversion `$id = intval($_GET['user_id'])` (line 19) → SQL string construction `$check_query = "SELECT user_id FROM users WHERE user_id = $id";` (line 22) → SQL execution `mysqli_query($GLOBALS["___mysqli_ston"], $check_query)` (line 23). Additional requested context `global:___mysqli_ston` and `function:<unknown>` was unavailable and does not reveal any new flow.
+
+## Answers
+
+1. Step 0 / flagged line location: The flagged line is present at line 22 and reads exactly: `$check_query = "SELECT user_id FROM users WHERE user_id = $id";`. It is a manually constructed SQL string containing interpolated variable `$id`, so the construct described by the rule is present on the flagged line. The function remains `<unknown>` / top-level context not identified; the requested `function:<unknown>` context was unavailable.
+2. Step 1: The potentially dangerous data originates from user-controlled HTTP GET input: `$_GET['user_id']`, checked for existence at line 15. The additional context for `global:___mysqli_ston` was unavailable and does not change this source analysis.
+3. Step 2: Data flow is: `$_GET['user_id']` is checked along with `$_GET['action']` at line 15 → `$_GET['user_id']` is validated by `preg_match('/^\d+$/', $_GET['user_id'])` at line 16 → if validation passes, it is assigned to `$id` after integer conversion with `$id = intval($_GET['user_id']);` at line 19 → `$id` is interpolated into the SQL string at line 22 → `$check_query` is executed by `mysqli_query($GLOBALS["___mysqli_ston"], $check_query)` at line 23.
+4. Step 3: Yes. There is explicit validation at line 16 using the regex `/^\d+$/`, which allows only one or more decimal digits. There is also explicit conversion at line 19 using `intval()`. For the specific SQL injection risk at line 22, where `$id` is inserted into an unquoted numeric SQL context, these visible defenses are sufficient because SQL metacharacters, quotes, whitespace, operators, and comments cannot pass the regex, and the value actually interpolated is an integer.
+5. Step 4: The sink is the call to `mysqli_query($GLOBALS["___mysqli_ston"], $check_query)` at line 23, using the manually constructed SQL string from line 22. The operation would be dangerous if attacker-controlled SQL syntax could reach it. On the visible path, attacker input is constrained to a numeric integer before reaching this sink.
+6. Step 5: No automatic framework or ORM protection is visible. The code uses raw `mysqli_query` at line 23 rather than prepared statements. The additional requested global context for `___mysqli_ston` was unavailable, but the protection relevant to this flagged data path is visible in the snippet: regex validation at line 16 and integer conversion at line 19.
+7. Step 6: The visible conditions to trigger the flagged path are that `$_GET['action']` and `$_GET['user_id']` are set at line 15 and that `$_GET['user_id']` passes the digit-only regex at line 16. The authentication state required is not visible in the provided context. Lines 7-11 query the current user, but no explicit authentication or role guard for reaching line 22 is shown.
+8. Step 7: If an attacker could inject SQL syntax into `$check_query`, the impact could include database data theft or manipulation. However, for the flagged line 22 path, the visible validation and integer conversion prevent SQL syntax injection. Other issues, such as authorization weaknesses involving cookies later at lines 30-35, are separate from this specific flagged SQL string.
+9. Step 8: For this specific CWE-89 finding, the defense chain is complete in the visible code: user input from line 15 must pass digit-only validation at line 16 and is converted with `intval()` at line 19 before interpolation into the numeric SQL expression at line 22. The weakest general practice is using raw SQL instead of prepared statements, but the specific flagged sink is not exploitable as SQL injection given the visible defenses.

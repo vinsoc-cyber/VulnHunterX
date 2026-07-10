@@ -108,7 +108,6 @@ class ContextExtractor:
         # before the flagged line, and unlisted languages (e.g. PHP) borrow the C
         # patterns — either way the slice would omit the very line under review,
         # forcing the verifier to guess. Fall through to the window otherwise.
-        # See docs/design/2026-07-08-issue118-followup-slice-containment-design.md.
         if (
             func_start is not None
             and func_end is not None

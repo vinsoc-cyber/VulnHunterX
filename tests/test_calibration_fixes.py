@@ -26,7 +26,6 @@ from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
 from vuln_hunter_x.llm.client import LLMClient
 from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.verification.engine import (
-    _check_rule_construct_presence,
     _downgrade_cli_path_injection,
     _downgrade_unsupported_confidence,
 )
@@ -647,45 +646,13 @@ class TestCliPathInjectionCalibration:
         assert out.confidence == "High"
 
 
-class TestRuleScopeConstructPresence:
-    """_check_rule_construct_presence: a TP whose reasoning argues an off-scope
-    CWE class than the reported rule must be downgraded."""
-
-    def test_offscope_reasoning_downgraded(self):
-        v = _verdict_with(
-            "cpp/integer-multiplication-cast-to-long", ["CWE-190"], "True Positive",
-            "High",
-            "This is a classic path traversal: argv flows to fopen and an attacker "
-            "could use ../ to escape the directory.",
-        )
-        out = _check_rule_construct_presence(v)
-        assert out.confidence == "Low"
-        assert "rule-scope" in out.reasoning
-
-    def test_onscope_reasoning_untouched(self):
-        v = _verdict_with(
-            "cpp/integer-multiplication-cast-to-long", ["CWE-190"], "True Positive",
-            "High",
-            "The int multiplication overflows before the cast; product exceeds INT_MAX.",
-        )
-        out = _check_rule_construct_presence(v)
-        assert out.confidence == "High"
-
-    def test_reported_cwe_not_in_map_untouched(self):
-        v = _verdict_with(
-            "cpp/world-writable-file-creation", ["CWE-732"], "True Positive", "High",
-            "This is path traversal via ../ in the filename.",
-        )
-        out = _check_rule_construct_presence(v)
-        assert out.confidence == "High"  # CWE-732 not in marker map → don't guess
-
-    def test_fp_untouched(self):
-        v = _verdict_with(
-            "cpp/integer-multiplication-cast-to-long", ["CWE-190"], "False Positive",
-            "High", "path traversal noticed but operands bounded",
-        )
-        out = _check_rule_construct_presence(v)
-        assert out.verdict == "False Positive" and out.confidence == "High"
+def test_rule_scope_enforcer_is_retired():
+    # #120: the rule locates a sink, it is not a straitjacket. The CWE-class
+    # enforcer that downgraded any cross-class TP is retired, with its helpers.
+    import vuln_hunter_x.verification.engine as engine
+    assert not hasattr(engine, "_check_rule_construct_presence")
+    assert not hasattr(engine, "_CWE_CLASS_MARKERS")
+    assert not hasattr(engine, "_cwe_classes_in_text")
 
 
 class TestParseFallbackTruncation:
