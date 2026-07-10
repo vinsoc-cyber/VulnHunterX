@@ -1,7 +1,7 @@
 # Impact-first verdict (#119 + #120) — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:test-driven-development. Every production
-> change gets a failing test first (RED), watched fail, then minimal code (GREEN). Steps use `- [ ]`.
+> **For implementers:** follow test-driven development — every production change gets a failing test
+> first (RED), watched fail, then minimal code (GREEN). Steps use `- [ ]` checkboxes for tracking.
 
 **Goal:** Make the verifier decide by *concrete consequence at the flagged sink* — not by construct
 presence (#119, over-confirm) nor by CWE-name match (#120, over-dismiss).
