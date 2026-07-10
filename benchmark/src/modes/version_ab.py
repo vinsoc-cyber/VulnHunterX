@@ -394,16 +394,35 @@ def render_compare_md(churn: dict) -> str:
         lines.append("_No verdict changed._")
     rd = churn.get("resource_deltas") or {}
     if rd:
-        def sd(x):
+        def money(x):
+            return "n/a" if x is None else f"{'+' if x >= 0 else '-'}${abs(x):.2f}"
+
+        def pp(x):
+            return "n/a" if x is None else f"{x * 100:+.1f}pp"
+
+        def secs(x):
+            return "n/a" if x is None else f"{x:+.1f}s"
+
+        def num(x):
             return "n/a" if x is None else f"{x:+g}"
+
+        rows = [
+            ("cost", money(rd.get("cost_usd"))),
+            ("input tokens", _signed_tokens(rd.get("input_tokens"))),
+            ("output tokens", _signed_tokens(rd.get("output_tokens"))),
+            ("cache hit ratio", pp(rd.get("cache_hit_ratio"))),
+            ("model time", secs(rd.get("elapsed_seconds"))),
+            ("iterations (mean)", num(rd.get("iterations_mean"))),
+            ("errors", num(rd.get("n_error"))),
+            ("abstentions", num(rd.get("n_abstain"))),
+        ]
+        mw = max(len("metric"), *(len(m) for m, _ in rows))
+        vw = max(len("Δ (cur - prev)"), *(len(val) for _, val in rows))
         lines += ["", "## Resource deltas", "",
                   "_Informational, non-gating — run-to-run variance is expected._", "",
-                  f"Δcost `{sd(rd.get('cost_usd'))}` · Δin-tok `{_signed_tokens(rd.get('input_tokens'))}` · "
-                  f"Δout-tok `{_signed_tokens(rd.get('output_tokens'))}` · "
-                  f"Δcache-ratio `{sd(rd.get('cache_hit_ratio'))}` · "
-                  f"Δtime `{sd(rd.get('elapsed_seconds'))}` · "
-                  f"Δitersμ `{sd(rd.get('iterations_mean'))}` · "
-                  f"Δn_error `{sd(rd.get('n_error'))}` · Δn_abstain `{sd(rd.get('n_abstain'))}`"]
+                  f"| {'metric'.ljust(mw)} | {'Δ (cur - prev)'.ljust(vw)} |",
+                  f"|{'-' * (mw + 2)}|{'-' * (vw + 2)}|"]
+        lines += [f"| {m.ljust(mw)} | {val.ljust(vw)} |" for m, val in rows]
     return "\n".join(lines) + "\n"
 
 

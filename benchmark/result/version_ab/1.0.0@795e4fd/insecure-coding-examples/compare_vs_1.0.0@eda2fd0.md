@@ -17,4 +17,13 @@
 
 _Informational, non-gating — run-to-run variance is expected._
 
-Δcost `+0.077` · Δin-tok `+13k` · Δout-tok `+3k` · Δcache-ratio `+0.0595` · Δtime `+822` · Δitersμ `+0.03` · Δn_error `+0` · Δn_abstain `+0`
+| metric            | Δ (cur - prev) |
+|-------------------|----------------|
+| cost              | +$0.08         |
+| input tokens      | +13k           |
+| output tokens     | +3k            |
+| cache hit ratio   | +5.9pp         |
+| model time        | +822.0s        |
+| iterations (mean) | +0.03          |
+| errors            | +0             |
+| abstentions       | +0             |

@@ -144,3 +144,24 @@ def test_render_compare_no_resource_deltas():
              "deltas": {"precision": 0.0, "recall": 0.0}, "timestamp": "T"}
     md = v.render_compare_md(churn)
     assert "## Resource deltas" not in md   # absent section, no crash
+
+
+def test_render_compare_resource_deltas_table():
+    churn = {"previous": "1.0.0@a", "current": "1.0.0@b", "flips": [],
+             "totals": {"flips": 0, "improve": 0, "regress": 0, "neutral": 0},
+             "deltas": {"precision": 0.0, "recall": 0.0},
+             "resource_deltas": {"cost_usd": 0.8081, "input_tokens": 114_000,
+                                 "output_tokens": 12_000, "cached_input_tokens": 90_000,
+                                 "cache_hit_ratio": -0.05, "elapsed_seconds": 382.0,
+                                 "iterations_mean": None, "n_error": 0, "n_abstain": 1},
+             "timestamp": "T"}
+    md = v.render_compare_md(churn)
+    # rendered as a two-column markdown table, not a run-on inline line
+    assert "| metric" in md and "Δ (cur - prev)" in md
+    assert "| cost" in md and "+$0.81" in md            # currency, $ sign, 2 dp
+    assert "| model time" in md and "+382.0s" in md     # unit on time
+    assert "| cache hit ratio" in md and "-5.0pp" in md  # ratio in percentage points
+    assert "| iterations (mean)" in md and "n/a" in md   # None -> n/a
+    assert "| errors" in md and "| abstentions" in md    # full-word labels
+    # the cryptic inline format is gone
+    assert "Δitersμ" not in md and "Δin-tok" not in md and "Δcache-ratio" not in md
