@@ -1196,8 +1196,7 @@ class LLMClient:
         # abstention. We deliberately do NOT keyword-count the reasoning into a
         # verdict: promoting NMD to TP on taint vocabulary ("no validation",
         # "unsafe") systematically over-confirms findings the model could not
-        # actually decide (#119). See
-        # docs/design/2026-07-08-issue118-followup-slice-containment-design.md.
+        # actually decide (#119).
         return (
             parsed,
             raw,
