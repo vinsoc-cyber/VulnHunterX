@@ -1,6 +1,6 @@
 # Compare — 1.0.0@eda2fd0 → 1.0.0@795e4fd
 
-Δprecision **+1%** · Δrecall **+6%** · 2026-07-03T12:17:58
+Δprecision **+1%** · Δrecall **+6%** · 2026-07-10T01:45:04
 
 ## Flips: 21 (improve 13 · regress 8 · neutral 0)
 
@@ -27,3 +27,9 @@
 | js/redos@app/routes/profile.js:59 | real | NMD → TP | IMPROVE | Medium→Medium |
 | js/sql-injection@app/data/user-dao.js:91 | real | NMD → TP | IMPROVE | High→Low |
 | js/sql-injection@app/data/user-dao.js:104 | real | NMD → TP | IMPROVE | High→Low |
+
+## Resource deltas
+
+_Informational, non-gating — run-to-run variance is expected._
+
+Δcost `-0.2479` · Δin-tok `+173k` · Δout-tok `-16k` · Δcache-ratio `+0.0192` · Δtime `+231.9` · Δitersμ `+0.02` · Δn_error `+0` · Δn_abstain `-4`
