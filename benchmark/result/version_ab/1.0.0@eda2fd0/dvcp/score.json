@@ -5,7 +5,8 @@
     "model": "gpt-5.5",
     "temperature": 0,
     "panel_hash": "sha256:eebf118bd1d28123bd79695ebc489cca",
-    "timestamp": "2026-07-01T02:56:44"
+    "timestamp": "2026-07-01T02:56:44",
+    "max_iterations": 5
   },
   "findings": [
     {
@@ -15,6 +16,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.049657,
+      "input_tokens": 3719,
+      "output_tokens": 1381,
+      "cached_input_tokens": 2304,
+      "elapsed_seconds": 52.689314126968384,
+      "iterations": 1,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -25,6 +31,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.055925,
+      "input_tokens": 3781,
+      "output_tokens": 1234,
+      "cached_input_tokens": 0,
+      "elapsed_seconds": 46.18222951889038,
+      "iterations": 1,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -35,6 +46,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.048822000000000004,
+      "input_tokens": 3780,
+      "output_tokens": 1343,
+      "cached_input_tokens": 2304,
+      "elapsed_seconds": 49.46773052215576,
+      "iterations": 1,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -45,6 +61,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.07822000000000001,
+      "input_tokens": 7634,
+      "output_tokens": 2103,
+      "cached_input_tokens": 5120,
+      "elapsed_seconds": 82.57525277137756,
+      "iterations": 2,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -55,6 +76,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.06427,
+      "input_tokens": 3710,
+      "output_tokens": 1524,
+      "cached_input_tokens": 0,
+      "elapsed_seconds": 58.03020191192627,
+      "iterations": 1,
       "truth": "real",
       "grade": "CORRECT"
     }
@@ -67,6 +93,18 @@
     "recall": 1.0,
     "n_real": 4,
     "n_not_real": 1,
+    "n_abstain": 0,
+    "n_error": 0,
+    "n_error_real": 0,
     "cost_usd": 0.2969
+  },
+  "resources": {
+    "input_tokens": 22624,
+    "output_tokens": 7585,
+    "cached_input_tokens": 9728,
+    "cache_hit_ratio": 0.43,
+    "elapsed_seconds": 288.9,
+    "iterations_total": 6,
+    "iterations_mean": 1.2
   }
 }

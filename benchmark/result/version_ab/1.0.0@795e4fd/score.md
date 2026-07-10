@@ -2,7 +2,8 @@
 
 Model `gpt-5.5` · temp `0` · 2026-07-03T12:17:58
 
-precision **84%** · recall **86%** · TP 91 (real 76, false-alarm 15) · real 88 · not-real 37 · $16.8058
+precision **84%** · recall **86%** · TP 91 (real 76, false-alarm 15) · real 88 · not-real 37 · NMD 1 · err 0 · $16.8058
+_resources:_ 2.00M in / 414k out · cache 62% · 16441.4s model-time · iters μ2.92
 
 | target | finding | truth | verdict | grade | conf |
 |---|---|---|---|---|---|
@@ -132,10 +133,18 @@ precision **84%** · recall **86%** · TP 91 (real 76, false-alarm 15) · real 8
 | nodegoat | js/sql-injection@app/data/user-dao.js:104 | real | TP | CORRECT | Low |
 | nodegoat | js/sql-injection@app/data/user-dao.js:91 | real | TP | CORRECT | Low |
 
-## Per target
-| target | precision | recall | TP (real/FA) | real | not-real | cost | panel |
-|---|---|---|---|---|---|---|---|
-| dvcp | 80% | 100% | 5 (4/1) | 4 | 1 | $0.3155 | sha256:eebf118bd… |
-| dvwa | 77% | 81% | 44 (34/10) | 42 | 29 | $11.0933 | sha256:7d1c6808c… |
-| insecure-coding-examples | 88% | 88% | 26 (23/3) | 26 | 6 | $1.708 | sha256:9cdeda155… |
-| nodegoat | 94% | 94% | 16 (15/1) | 16 | 1 | $3.689 | sha256:1179d5607… |
+## Per target — correctness
+| target | precision | recall | TP (real/FA) | real | not-real | NMD | err | panel |
+|---|---|---|---|---|---|---|---|---|
+| dvcp | 80% | 100% | 5 (4/1) | 4 | 1 | 0 | 0 | sha256:eebf118bd… |
+| dvwa | 77% | 81% | 44 (34/10) | 42 | 29 | 0 | 0 | sha256:7d1c6808c… |
+| insecure-coding-examples | 88% | 88% | 26 (23/3) | 26 | 6 | 0 | 0 | sha256:9cdeda155… |
+| nodegoat | 94% | 94% | 16 (15/1) | 16 | 1 | 1 | 0 | sha256:1179d5607… |
+
+## Per target — resources
+| target | in-tok | out-tok | cache% | time(s) | itersμ | cost |
+|---|---|---|---|---|---|---|
+| dvcp | 26k | 8k | 38% | 289.9 | 1.2 | $0.3155 |
+| dvwa | 1.34M | 275k | 64% | 10450.4 | 3.45 | $11.0933 |
+| insecure-coding-examples | 141k | 46k | 60% | 2457.4 | 1.25 | $1.708 |
+| nodegoat | 492k | 85k | 59% | 3243.7 | 4.35 | $3.689 |

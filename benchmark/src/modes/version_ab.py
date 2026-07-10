@@ -26,8 +26,15 @@ def normalize_verdict(v: str) -> str:
     return (v or "?").strip().upper()
 
 
+def is_real_verdict(nv: str) -> bool:
+    """True when the finding produced a real verdict (not an error stub)."""
+    return nv in ("TP", "FP", "NMD")
+
+
 def grade(verdict: str, truth: str) -> str:
     n = normalize_verdict(verdict)
+    if not is_real_verdict(n):
+        return "error"
     if truth == "real":
         return "CORRECT" if n == "TP" else ("MISS" if n == "FP" else "abstain")
     if truth == "not-real":
@@ -36,16 +43,46 @@ def grade(verdict: str, truth: str) -> str:
 
 
 def aggregate(findings: list[dict], n_real: int) -> dict:
-    tp_total = sum(1 for f in findings if normalize_verdict(f["verdict"]) == "TP")
-    tp_real = sum(1 for f in findings if f["truth"] == "real" and normalize_verdict(f["verdict"]) == "TP")
-    false_alarm = sum(1 for f in findings if f["truth"] == "not-real" and normalize_verdict(f["verdict"]) == "TP")
+    def nv(f):
+        return normalize_verdict(f["verdict"])
+    tp_total = sum(1 for f in findings if nv(f) == "TP")
+    tp_real = sum(1 for f in findings if f["truth"] == "real" and nv(f) == "TP")
+    false_alarm = sum(1 for f in findings if f["truth"] == "not-real" and nv(f) == "TP")
     n_not_real = sum(1 for f in findings if f["truth"] == "not-real")
+    n_abstain = sum(1 for f in findings if nv(f) == "NMD")
+    n_error = sum(1 for f in findings if not is_real_verdict(nv(f)))
+    n_error_real = sum(1 for f in findings if f["truth"] == "real" and not is_real_verdict(nv(f)))
+    recall_denom = n_real - n_error_real
     cost = round(sum((f.get("cost_usd") or 0.0) for f in findings), 4)
     return {
         "tp_total": tp_total, "tp_real": tp_real, "false_alarm": false_alarm,
         "precision": (tp_real / tp_total) if tp_total else None,
-        "recall": (tp_real / n_real) if n_real else None,
-        "n_real": n_real, "n_not_real": n_not_real, "cost_usd": cost,
+        "recall": (tp_real / recall_denom) if recall_denom > 0 else None,
+        "n_real": n_real, "n_not_real": n_not_real,
+        "n_abstain": n_abstain, "n_error": n_error, "n_error_real": n_error_real,
+        "cost_usd": cost,
+    }
+
+
+def summarize_resources(findings: list[dict]) -> dict:
+    """Roll up non-deterministic resource metrics. Tokens and time sum over all
+    findings (errors still consume resources); iterations only over completed
+    (non-error) findings, whose loop count is meaningful. elapsed_seconds is a
+    sum of per-finding model time, NOT wall-clock (findings may run concurrently)."""
+    def s(key):
+        return sum((f.get(key) or 0) for f in findings)
+    input_tokens = s("input_tokens")
+    cached = s("cached_input_tokens")
+    completed = [f for f in findings if is_real_verdict(normalize_verdict(f["verdict"]))]
+    iters_total = sum((f.get("iterations") or 0) for f in completed)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": s("output_tokens"),
+        "cached_input_tokens": cached,
+        "cache_hit_ratio": round(cached / input_tokens, 4) if input_tokens else 0.0,
+        "elapsed_seconds": round(sum((f.get("elapsed_seconds") or 0.0) for f in findings), 1),
+        "iterations_total": iters_total,
+        "iterations_mean": round(iters_total / len(completed), 2) if completed else 0.0,
     }
 
 
@@ -122,9 +159,16 @@ def build_score(raw_dir: Path, real_keys: set, meta: dict) -> dict:
             "rule": rule, "file": file, "line": line,
             "verdict": nv, "confidence": j.get("confidence"),
             "cost_usd": j.get("cost_usd") or 0.0,
+            "input_tokens": j.get("input_tokens") or 0,
+            "output_tokens": j.get("output_tokens") or 0,
+            "cached_input_tokens": j.get("cached_input_tokens") or 0,
+            "elapsed_seconds": j.get("elapsed_seconds") or 0.0,
+            "iterations": j.get("iterations") or 0,
             "truth": truth, "grade": grade(nv, truth),
         })
-    return {"meta": meta, "findings": findings, "aggregates": aggregate(findings, len(real_keys))}
+    return {"meta": meta, "findings": findings,
+            "aggregates": aggregate(findings, len(real_keys)),
+            "resources": summarize_resources(findings)}
 
 
 def render_verdict_md(j: dict, truth: str, g: str) -> str:
@@ -159,7 +203,7 @@ def write_verdicts(raw_dir: Path, real_keys: set, dest: Path) -> int:
             continue
         j = json.loads(jf.read_text())
         nv = normalize_verdict(j.get("verdict", "?"))
-        if nv not in ("TP", "FP", "NMD"):  # error stub — not real reasoning
+        if not is_real_verdict(nv):  # error stub — not real reasoning
             continue
         f = j["finding"]
         key = (f["rule_id"].strip(), str(f["file"]).strip(), int(f["start_line"]))
@@ -178,6 +222,23 @@ def write_verdicts(raw_dir: Path, real_keys: set, dest: Path) -> int:
 CONFOUND_KEYS = ("provider", "model", "temperature", "max_iterations", "panel_hash")
 REQUIRED_KEYS = ("provider", "model", "temperature", "max_iterations")  # result-affecting; no default
 DEFAULT_CONFIG = "openai-gpt-5.5-temp0-iter5"
+
+RESOURCE_DELTA_KEYS = ("input_tokens", "output_tokens", "cached_input_tokens",
+                       "cache_hit_ratio", "elapsed_seconds", "iterations_mean")
+COUNT_DELTA_KEYS = ("cost_usd", "n_error", "n_abstain")  # read from aggregates
+
+
+def resource_deltas(previous: dict, current: dict) -> dict:
+    """Non-gating info deltas for resource + count metrics. A key missing on
+    either side (e.g. an older score.json with no resources block) -> None."""
+    pr, cr = previous.get("resources") or {}, current.get("resources") or {}
+    pa, ca = previous.get("aggregates") or {}, current.get("aggregates") or {}
+
+    def d(a, b):
+        return None if (a is None or b is None) else round(b - a, 4)
+    out = {k: d(pr.get(k), cr.get(k)) for k in RESOURCE_DELTA_KEYS}
+    out.update({k: d(pa.get(k), ca.get(k)) for k in COUNT_DELTA_KEYS})
+    return out
 
 
 class ConfoundError(Exception):
@@ -224,6 +285,7 @@ def compare_scores(previous: dict, current: dict, timestamp: str) -> dict:
         "previous": previous["meta"]["version"], "current": current["meta"]["version"],
         "flips": flips, "totals": totals,
         "deltas": {"precision": delta("precision"), "recall": delta("recall")},
+        "resource_deltas": resource_deltas(previous, current),
         "timestamp": timestamp,
     }
 
@@ -237,8 +299,32 @@ def _panel_short(h) -> str:
     return (s[:16] + "…") if s else "—"
 
 
+def _fmt_tokens(n) -> str:
+    n = n or 0
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.2f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}k"
+    return str(n)
+
+
+def _signed_tokens(n) -> str:
+    if n is None:
+        return "n/a"
+    return ("+" if n >= 0 else "-") + _fmt_tokens(abs(n))
+
+
+def _res_summary(res: dict) -> str:
+    return (f"{_fmt_tokens(res.get('input_tokens'))} in / "
+            f"{_fmt_tokens(res.get('output_tokens'))} out · "
+            f"cache {_pct(res.get('cache_hit_ratio'))} · "
+            f"{res.get('elapsed_seconds', 0)}s model-time · "
+            f"iters μ{res.get('iterations_mean', 0)}")
+
+
 def render_score_md(score: dict) -> str:
     m, a = score["meta"], score["aggregates"]
+    res = score.get("resources") or {}
     is_roll = "targets" in score
     meta_line = f"Model `{m.get('model')}` · temp `{m.get('temperature')}` · "
     if not is_roll:  # a rollup spans many panels — no single hash (per-target table below)
@@ -248,7 +334,9 @@ def render_score_md(score: dict) -> str:
         f"# Score — {m['version']}", "", meta_line, "",
         f"precision **{_pct(a['precision'])}** · recall **{_pct(a['recall'])}** · "
         f"TP {a['tp_total']} (real {a['tp_real']}, false-alarm {a['false_alarm']}) · "
-        f"real {a['n_real']} · not-real {a['n_not_real']} · ${a['cost_usd']}", "",
+        f"real {a['n_real']} · not-real {a['n_not_real']} · NMD {a.get('n_abstain', 0)} · "
+        f"err {a.get('n_error', 0)} · ${a['cost_usd']}",
+        f"_resources:_ {_res_summary(res)}", "",
     ]
     if is_roll:
         lines += ["| target | finding | truth | verdict | grade | conf |",
@@ -256,15 +344,25 @@ def render_score_md(score: dict) -> str:
         for f in score["findings"]:
             lines.append(f"| {f.get('target', '')} | {f['rule']}@{f['file']}:{f['line']} | "
                          f"{f['truth']} | {f['verdict']} | {f['grade']} | {f['confidence']} |")
-        lines += ["", "## Per target",
-                  "| target | precision | recall | TP (real/FA) | real | not-real | cost | panel |",
-                  "|---|---|---|---|---|---|---|---|"]
+        lines += ["", "## Per target — correctness",
+                  "| target | precision | recall | TP (real/FA) | real | not-real | NMD | err | panel |",
+                  "|---|---|---|---|---|---|---|---|---|"]
         for t, ta in score["targets"].items():
             lines.append(
                 f"| {t} | {_pct(ta.get('precision'))} | {_pct(ta.get('recall'))} | "
                 f"{ta.get('tp_total')} ({ta.get('tp_real')}/{ta.get('false_alarm')}) | "
-                f"{ta.get('n_real')} | {ta.get('n_not_real')} | ${ta.get('cost_usd')} | "
-                f"{_panel_short(ta.get('panel_hash'))} |")
+                f"{ta.get('n_real')} | {ta.get('n_not_real')} | {ta.get('n_abstain', 0)} | "
+                f"{ta.get('n_error', 0)} | {_panel_short(ta.get('panel_hash'))} |")
+        lines += ["", "## Per target — resources",
+                  "| target | in-tok | out-tok | cache% | time(s) | itersμ | cost |",
+                  "|---|---|---|---|---|---|---|"]
+        for t, ta in score["targets"].items():
+            tr = ta.get("resources") or {}
+            lines.append(
+                f"| {t} | {_fmt_tokens(tr.get('input_tokens'))} | "
+                f"{_fmt_tokens(tr.get('output_tokens'))} | {_pct(tr.get('cache_hit_ratio'))} | "
+                f"{tr.get('elapsed_seconds', 0)} | {tr.get('iterations_mean', 0)} | "
+                f"${ta.get('cost_usd')} |")
     else:
         lines += ["| finding | truth | verdict | grade | conf |", "|---|---|---|---|---|"]
         for f in score["findings"]:
@@ -294,19 +392,34 @@ def render_compare_md(churn: dict) -> str:
                          f"{f['prev_conf']}→{f['cur_conf']} |")
     else:
         lines.append("_No verdict changed._")
+    rd = churn.get("resource_deltas") or {}
+    if rd:
+        def sd(x):
+            return "n/a" if x is None else f"{x:+g}"
+        lines += ["", "## Resource deltas", "",
+                  "_Informational, non-gating — run-to-run variance is expected._", "",
+                  f"Δcost `{sd(rd.get('cost_usd'))}` · Δin-tok `{_signed_tokens(rd.get('input_tokens'))}` · "
+                  f"Δout-tok `{_signed_tokens(rd.get('output_tokens'))}` · "
+                  f"Δcache-ratio `{sd(rd.get('cache_hit_ratio'))}` · "
+                  f"Δtime `{sd(rd.get('elapsed_seconds'))}` · "
+                  f"Δitersμ `{sd(rd.get('iterations_mean'))}` · "
+                  f"Δn_error `{sd(rd.get('n_error'))}` · Δn_abstain `{sd(rd.get('n_abstain'))}`"]
     return "\n".join(lines) + "\n"
 
 
 def rollup_score(scores: dict, meta: dict) -> dict:
     findings = [{**f, "target": t} for t, s in scores.items() for f in s["findings"]]
-    targets = {t: {**s["aggregates"], "panel_hash": s.get("meta", {}).get("panel_hash")}
+    targets = {t: {**s["aggregates"], "panel_hash": s.get("meta", {}).get("panel_hash"),
+                   "resources": s.get("resources", {})}
                for t, s in scores.items()}
     n_real = sum(s["aggregates"]["n_real"] for s in scores.values())
     return {"meta": meta, "targets": targets, "findings": findings,
-            "aggregates": aggregate(findings, n_real)}
+            "aggregates": aggregate(findings, n_real),
+            "resources": summarize_resources(findings)}
 
 
-def rollup_compare(churns: list, prev_label: str, cur_label: str, deltas: dict, timestamp: str) -> dict:
+def rollup_compare(churns: list, prev_label: str, cur_label: str, deltas: dict,
+                   res_deltas: dict, timestamp: str) -> dict:
     flips = [f for c in churns for f in c["flips"]]
     totals = {
         "flips": len(flips),
@@ -315,7 +428,8 @@ def rollup_compare(churns: list, prev_label: str, cur_label: str, deltas: dict, 
         "neutral": sum(1 for f in flips if f["direction"] == "neutral"),
     }
     return {"previous": prev_label, "current": cur_label, "flips": flips,
-            "totals": totals, "deltas": deltas, "timestamp": timestamp}
+            "totals": totals, "deltas": deltas, "resource_deltas": res_deltas,
+            "timestamp": timestamp}
 
 
 class Harness(harness.Harness):
@@ -587,7 +701,10 @@ def run(args, bench_root) -> int:
         if churns:
             deltas = {"precision": _rollup_delta(roll, prev_label, result_root, "precision"),
                       "recall": _rollup_delta(roll, prev_label, result_root, "recall")}
-            rc = rollup_compare(list(churns.values()), prev_label, current, deltas, now)
+            prev_roll_path = result_root / prev_label / "score.json"
+            prev_roll = json.loads(prev_roll_path.read_text()) if prev_roll_path.exists() else {}
+            rc = rollup_compare(list(churns.values()), prev_label, current, deltas,
+                                resource_deltas(prev_roll, roll), now)
             (cur_dir / f"compare_vs_{prev_label}.json").write_text(json.dumps(rc, indent=2))
             (cur_dir / f"compare_vs_{prev_label}.md").write_text(scorer.render_compare(rc))
     return 1 if failed_targets else 0

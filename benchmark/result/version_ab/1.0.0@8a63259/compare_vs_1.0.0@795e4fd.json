@@ -68,5 +68,16 @@
     "precision": 0.0018,
     "recall": 0.0114
   },
-  "timestamp": "2026-07-08T21:16:47"
+  "resource_deltas": {
+    "input_tokens": -196841,
+    "output_tokens": -16425,
+    "cached_input_tokens": -55296,
+    "cache_hit_ratio": 0.0373,
+    "elapsed_seconds": -8821.9,
+    "iterations_mean": -0.26,
+    "cost_usd": -1.2282,
+    "n_error": 0,
+    "n_abstain": -1
+  },
+  "timestamp": "2026-07-10T01:45:04"
 }

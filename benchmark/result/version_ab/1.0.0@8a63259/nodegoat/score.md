@@ -2,7 +2,8 @@
 
 Model `gpt-5.5` · temp `0` · panel `sha256:1179d5607…` · 2026-07-08T21:16:47
 
-precision **94%** · recall **100%** · TP 17 (real 16, false-alarm 1) · real 16 · not-real 1 · $3.3012
+precision **94%** · recall **100%** · TP 17 (real 16, false-alarm 1) · real 16 · not-real 1 · NMD 0 · err 0 · $3.3012
+_resources:_ 463k in / 81k out · cache 70% · 1563.3s model-time · iters μ3.88
 
 | finding | truth | verdict | grade | conf |
 |---|---|---|---|---|
