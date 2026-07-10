@@ -19,3 +19,9 @@
 | php.lang.security.md5-loose-equality.md5-loose-equality@vulnerabilities/cryptography/source/ecb_attack.php:92 | not-real | FP → NMD | REGRESS | High→Medium |
 | php.lang.security.md5-loose-equality.md5-loose-equality@vulnerabilities/javascript/index.php:43 | not-real | TP → FP | IMPROVE | Low→Low |
 | php.lang.security.php-permissive-cors.php-permissive-cors@vulnerabilities/api/public/index.php:11 | not-real | TP → FP | IMPROVE | High→Low |
+
+## Resource deltas
+
+_Informational, non-gating — run-to-run variance is expected._
+
+Δcost `+0.8081` · Δin-tok `+114k` · Δout-tok `+12k` · Δcache-ratio `-0.0335` · Δtime `+382.2` · Δitersμ `+0.19` · Δn_error `+0` · Δn_abstain `+1`
