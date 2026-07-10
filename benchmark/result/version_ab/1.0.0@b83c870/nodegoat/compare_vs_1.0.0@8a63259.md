@@ -12,3 +12,9 @@
 | js/missing-token-validation@server.js:78 | real | TP → FP | REGRESS | Low→Low |
 | js/sql-injection@app/data/user-dao.js:91 | real | TP → NMD | REGRESS | Low→High |
 | js/sql-injection@app/data/user-dao.js:104 | real | TP → NMD | REGRESS | Low→Medium |
+
+## Resource deltas
+
+_Informational, non-gating — run-to-run variance is expected._
+
+Δcost `+0.37` · Δin-tok `+38k` · Δout-tok `+7k` · Δcache-ratio `-0.0419` · Δtime `+198.4` · Δitersμ `+0.24` · Δn_error `+0` · Δn_abstain `+3`

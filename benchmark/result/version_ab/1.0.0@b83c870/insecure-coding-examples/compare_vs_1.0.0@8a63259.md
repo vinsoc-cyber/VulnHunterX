@@ -10,3 +10,9 @@
 | cpp/static-buffer-overflow@practice/if_constexpr.cpp:15 | real | FP → TP | IMPROVE | Medium→Medium |
 | cpp/suspicious-sizeof@practice/decay.cpp:5 | not-real | TP → FP | IMPROVE | Low→High |
 | cpp/type-confusion@practice/guidelines/expressions_and_statements/use_named_cast.cpp:16 | not-real | TP → NMD | neutral | Low→Medium |
+
+## Resource deltas
+
+_Informational, non-gating — run-to-run variance is expected._
+
+Δcost `+0.0737` · Δin-tok `+8k` · Δout-tok `+2k` · Δcache-ratio `-0.0128` · Δtime `+64.5` · Δitersμ `+0.03` · Δn_error `+0` · Δn_abstain `+1`
