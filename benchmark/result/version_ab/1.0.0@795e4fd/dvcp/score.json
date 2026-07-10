@@ -16,6 +16,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.045782,
+      "input_tokens": 4312,
+      "output_tokens": 1153,
+      "cached_input_tokens": 2304,
+      "elapsed_seconds": 43.48495435714722,
+      "iterations": 1,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -26,6 +31,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.06432,
+      "input_tokens": 4374,
+      "output_tokens": 1415,
+      "cached_input_tokens": 0,
+      "elapsed_seconds": 52.46588063240051,
+      "iterations": 1,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -36,6 +46,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.054247,
+      "input_tokens": 4373,
+      "output_tokens": 1425,
+      "cached_input_tokens": 2304,
+      "elapsed_seconds": 55.91927695274353,
+      "iterations": 1,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -46,6 +61,11 @@
       "verdict": "TP",
       "confidence": "Medium",
       "cost_usd": 0.086245,
+      "input_tokens": 8153,
+      "output_tokens": 2284,
+      "cached_input_tokens": 5120,
+      "elapsed_seconds": 84.79814457893372,
+      "iterations": 2,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -56,6 +76,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.06489500000000001,
+      "input_tokens": 4303,
+      "output_tokens": 1446,
+      "cached_input_tokens": 0,
+      "elapsed_seconds": 53.245495557785034,
+      "iterations": 1,
       "truth": "real",
       "grade": "CORRECT"
     }
@@ -68,6 +93,18 @@
     "recall": 1.0,
     "n_real": 4,
     "n_not_real": 1,
+    "n_abstain": 0,
+    "n_error": 0,
+    "n_error_real": 0,
     "cost_usd": 0.3155
+  },
+  "resources": {
+    "input_tokens": 25515,
+    "output_tokens": 7723,
+    "cached_input_tokens": 9728,
+    "cache_hit_ratio": 0.3813,
+    "elapsed_seconds": 289.9,
+    "iterations_total": 6,
+    "iterations_mean": 1.2
   }
 }

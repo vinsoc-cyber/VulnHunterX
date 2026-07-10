@@ -5,7 +5,8 @@
     "model": "gpt-5.5",
     "temperature": 0,
     "panel_hash": "sha256:1179d560740b78792516c6aead103d2d",
-    "timestamp": "2026-07-01T06:28:53"
+    "timestamp": "2026-07-01T06:28:53",
+    "max_iterations": 5
   },
   "findings": [
     {
@@ -15,6 +16,11 @@
       "verdict": "NMD",
       "confidence": "High",
       "cost_usd": 0.081967,
+      "input_tokens": 6923,
+      "output_tokens": 1924,
+      "cached_input_tokens": 2304,
+      "elapsed_seconds": 71.62502956390381,
+      "iterations": 2,
       "truth": "real",
       "grade": "abstain"
     },
@@ -25,6 +31,11 @@
       "verdict": "TP",
       "confidence": "Low",
       "cost_usd": 0.36779300000000004,
+      "input_tokens": 47959,
+      "output_tokens": 7953,
+      "cached_input_tokens": 24576,
+      "elapsed_seconds": 295.78432536125183,
+      "iterations": 6,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -35,6 +46,11 @@
       "verdict": "TP",
       "confidence": "Medium",
       "cost_usd": 0.149151,
+      "input_tokens": 13269,
+      "output_tokens": 4181,
+      "cached_input_tokens": 9472,
+      "elapsed_seconds": 155.579683303833,
+      "iterations": 3,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -45,6 +61,11 @@
       "verdict": "TP",
       "confidence": "Low",
       "cost_usd": 0.279457,
+      "input_tokens": 36881,
+      "output_tokens": 6586,
+      "cached_input_tokens": 22784,
+      "elapsed_seconds": 245.759295463562,
+      "iterations": 6,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -55,6 +76,11 @@
       "verdict": "TP",
       "confidence": "Medium",
       "cost_usd": 0.378241,
+      "input_tokens": 38597,
+      "output_tokens": 7980,
+      "cached_input_tokens": 12032,
+      "elapsed_seconds": 304.2992696762085,
+      "iterations": 6,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -65,6 +91,11 @@
       "verdict": "TP",
       "confidence": "Low",
       "cost_usd": 0.365777,
+      "input_tokens": 42841,
+      "output_tokens": 9046,
+      "cached_input_tokens": 26624,
+      "elapsed_seconds": 336.3669102191925,
+      "iterations": 6,
       "truth": "not-real",
       "grade": "FALSE-ALARM"
     },
@@ -75,6 +106,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.041622000000000006,
+      "input_tokens": 5022,
+      "output_tokens": 896,
+      "cached_input_tokens": 2304,
+      "elapsed_seconds": 34.334141969680786,
+      "iterations": 1,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -85,6 +121,11 @@
       "verdict": "NMD",
       "confidence": "Medium",
       "cost_usd": 0.293451,
+      "input_tokens": 34137,
+      "output_tokens": 7817,
+      "cached_input_tokens": 24832,
+      "elapsed_seconds": 301.8897776603699,
+      "iterations": 5,
       "truth": "real",
       "grade": "abstain"
     },
@@ -95,6 +136,11 @@
       "verdict": "FP",
       "confidence": "Medium",
       "cost_usd": 0.134824,
+      "input_tokens": 11948,
+      "output_tokens": 3194,
+      "cached_input_tokens": 4608,
+      "elapsed_seconds": 119.77837681770325,
+      "iterations": 3,
       "truth": "real",
       "grade": "MISS"
     },
@@ -105,6 +151,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.15142100000000003,
+      "input_tokens": 14215,
+      "output_tokens": 3715,
+      "cached_input_tokens": 6912,
+      "elapsed_seconds": 137.96634459495544,
+      "iterations": 3,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -115,6 +166,11 @@
       "verdict": "TP",
       "confidence": "Low",
       "cost_usd": 0.33855999999999997,
+      "input_tokens": 48842,
+      "output_tokens": 7177,
+      "cached_input_tokens": 26880,
+      "elapsed_seconds": 271.48134875297546,
+      "iterations": 6,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -125,6 +181,11 @@
       "verdict": "NMD",
       "confidence": "Medium",
       "cost_usd": 0.230993,
+      "input_tokens": 28165,
+      "output_tokens": 6116,
+      "cached_input_tokens": 20736,
+      "elapsed_seconds": 233.52873635292053,
+      "iterations": 5,
       "truth": "real",
       "grade": "abstain"
     },
@@ -135,6 +196,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.11255399999999999,
+      "input_tokens": 12000,
+      "output_tokens": 2443,
+      "cached_input_tokens": 4608,
+      "elapsed_seconds": 105.29322934150696,
+      "iterations": 3,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -145,6 +211,11 @@
       "verdict": "TP",
       "confidence": "High",
       "cost_usd": 0.119706,
+      "input_tokens": 15378,
+      "output_tokens": 2848,
+      "cached_input_tokens": 9472,
+      "elapsed_seconds": 106.77057361602783,
+      "iterations": 3,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -155,6 +226,11 @@
       "verdict": "TP",
       "confidence": "Low",
       "cost_usd": 0.29022600000000004,
+      "input_tokens": 35844,
+      "output_tokens": 7233,
+      "cached_input_tokens": 23552,
+      "elapsed_seconds": 273.944589138031,
+      "iterations": 6,
       "truth": "real",
       "grade": "CORRECT"
     },
@@ -165,6 +241,11 @@
       "verdict": "NMD",
       "confidence": "High",
       "cost_usd": 0.270351,
+      "input_tokens": 31401,
+      "output_tokens": 6735,
+      "cached_input_tokens": 19712,
+      "elapsed_seconds": 251.43222284317017,
+      "iterations": 5,
       "truth": "real",
       "grade": "abstain"
     },
@@ -175,6 +256,11 @@
       "verdict": "NMD",
       "confidence": "High",
       "cost_usd": 0.22822599999999998,
+      "input_tokens": 23972,
+      "output_tokens": 5609,
+      "cached_input_tokens": 13312,
+      "elapsed_seconds": 213.91244626045227,
+      "iterations": 4,
       "truth": "real",
       "grade": "abstain"
     }
@@ -187,6 +273,18 @@
     "recall": 0.625,
     "n_real": 16,
     "n_not_real": 1,
+    "n_abstain": 5,
+    "n_error": 0,
+    "n_error_real": 0,
     "cost_usd": 3.8343
+  },
+  "resources": {
+    "input_tokens": 447394,
+    "output_tokens": 91453,
+    "cached_input_tokens": 254720,
+    "cache_hit_ratio": 0.5693,
+    "elapsed_seconds": 3459.7,
+    "iterations_total": 73,
+    "iterations_mean": 4.29
   }
 }
