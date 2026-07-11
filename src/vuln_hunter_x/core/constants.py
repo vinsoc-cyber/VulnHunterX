@@ -23,6 +23,10 @@ DEFAULT_LLM_TEMPERATURE = 0.2
 # fallback fired and defaulted to FP. 4096 fits a 6-question verdict with
 # line-cited answers comfortably.
 DEFAULT_LLM_MAX_TOKENS = 4096
+# #149: on a truncated verdict envelope (JSON ran past max_tokens mid-object),
+# the retry re-issues the turn with a doubled budget capped here, so a length
+# artifact gets a real second attempt instead of laundering into a verdict.
+PROMPT_RETRY_MAX_TOKENS = 8192
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
 # ── Prompt assembly budget (#151) ─────────────────────────────────────
