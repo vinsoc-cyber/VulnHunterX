@@ -1,0 +1,21 @@
+# php.lang.security.md5-loose-equality.md5-loose-equality @ vulnerabilities/brute/source/high.php:22
+
+**Verdict:** FP · **Confidence:** High (0.95) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 2
+
+## Reasoning
+
+The flagged line is present and contains a loose comparison, but it compares `mysqli_num_rows($result)` to `1`, not an md5 value. The md5 output from line 16 flows into the SQL query on line 19 and not into the loose comparison at line 22, so the specific md5 type-juggling vulnerability is absent at the flagged sink. [second-opinion pass after 1-iter high-conf FP]
+
+## Answers
+
+1. (a) Specific observed defense / benign mechanism: The flagged line 22 is `if( $result && mysqli_num_rows( $result ) == 1 ) {`. The md5 value is not used in this comparison. The mechanism preventing the reported md5 loose-equality issue is that line 22 compares the integer-like row count returned by `mysqli_num_rows($result)` to literal `1`, while the md5 value is only assigned on line 16 and placed into the SQL string on line 19.
+2. (b) Coverage of reachable paths to the flagged sink: The only visible path to line 22 is inside `if( isset( $_GET[ 'Login' ] ) )` on line 3. Along that path, `$pass` is read from `$_GET['password']` on line 13, transformed by `stripslashes` on line 14, escaped on line 15, hashed with `md5($pass)` on line 16, interpolated into `$query` on line 19, and executed on line 20. The flagged comparison on line 22 does not compare `$pass`, the md5 string, or any database hash value; it only checks whether the query returned exactly one row.
+3. (c) Why the SAST tool flagged it: The rule `php.lang.security.md5-loose-equality.md5-loose-equality` looks for loose comparisons involving md5 values because PHP `==` can type-juggle strings such as magic hashes. There is an md5 call at line 16 and a loose comparison operator `==` at line 22, so the tool likely associated them syntactically or through imprecise dataflow. However, the cited line 22 is not checking the md5 value; it checks `mysqli_num_rows($result) == 1`, so the defense/benign property is directly relevant to what the rule is supposed to detect.
+4. Step 1: The potentially dangerous data originates from unauthenticated HTTP GET input: `$_GET['username']` on line 8 and `$_GET['password']` on line 13.
+5. Step 2: Password flow: `$_GET['password']` line 13 → `$pass` → `stripslashes($pass)` line 14 → `mysqli_real_escape_string(..., $pass)` line 15 → `md5($pass)` line 16 → SQL query string line 19 → `mysqli_query` line 20 → `$result` row-count check line 22. Username flow: `$_GET['username']` line 8 → `stripslashes` line 9 → `mysqli_real_escape_string` line 10 → SQL query string line 19.
+6. Step 3: Sanitization/validation visible: `stripslashes` on lines 9 and 14; `mysqli_real_escape_string` on lines 10 and 15; CSRF token check on line 5; `md5` hashing on line 16. For the specific reported md5 loose-equality issue, the important point is not sanitization but that the md5 output is never used in a loose PHP comparison in the shown code.
+7. Step 4: The reported sink is line 22, the loose comparison `mysqli_num_rows($result) == 1`. The operation would be dangerous for this rule only if an md5 value or attacker-controlled hash-like string were compared loosely. That is not the case here.
+8. Step 5: No ORM parameterization is visible; raw `mysqli_query` is used on line 20. No automatic template escaping is visible. The relevant PHP library behavior is that `mysqli_num_rows($result)` on line 22 returns the number of rows in the result set, not the md5 string from line 16.
+9. Step 6: The code path appears reachable by a pre-authentication user submitting a request with `Login` set on line 3, subject to the token check on line 5.
+10. Step 7: For the reported md5 loose-equality issue, no concrete security impact is visible because no md5 value is compared with `==`. Other issues may exist outside the scope of this finding, but they do not validate this flagged sink.
+11. Step 8: The weakest-link analysis for this specific finding is that the SAST rule matched a loose comparison in proximity to md5, but the dataflow does not put the md5 output into the loose comparison. The comparison operand on line 22 is the result row count, not the md5 hash.

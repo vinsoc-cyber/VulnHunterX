@@ -1,0 +1,50 @@
+{
+  "previous": "1.0.0@b83c870",
+  "current": "1.0.0@b99ed57",
+  "flips": [
+    {
+      "rule": "cpp/overflow-buffer",
+      "file": "practice/if_constexpr.cpp",
+      "line": 15,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "Medium",
+      "cur_conf": "Medium",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "cpp/type-confusion",
+      "file": "practice/guidelines/expressions_and_statements/use_named_cast.cpp",
+      "line": 13,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "NMD",
+      "prev_conf": "Low",
+      "cur_conf": "Medium",
+      "direction": "neutral"
+    }
+  ],
+  "totals": {
+    "flips": 2,
+    "improve": 1,
+    "regress": 0,
+    "neutral": 1
+  },
+  "deltas": {
+    "precision": 0.0385,
+    "recall": 0.0385
+  },
+  "resource_deltas": {
+    "input_tokens": -4665,
+    "output_tokens": -2584,
+    "cached_input_tokens": -2816,
+    "cache_hit_ratio": 0.0002,
+    "elapsed_seconds": 388.6,
+    "iterations_mean": -0.03,
+    "cost_usd": -0.0882,
+    "n_error": 0,
+    "n_abstain": 1
+  },
+  "timestamp": "2026-07-11T06:46:31"
+}
