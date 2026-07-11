@@ -372,6 +372,55 @@ def _reconcile_conflicting_verdicts(verdicts: list[Verdict]) -> list[Verdict]:
     return verdicts
 
 
+# A same-rule cluster wider than this many distinct lines is a noisy/structural
+# rule, not one repeated construct — skip it rather than re-verify a crowd.
+_MAX_SIBLING_CLUSTER_LINES = 12
+
+
+def _select_sibling_consistency_candidates(
+    verdicts: list[Verdict],
+) -> list[tuple[Verdict, list[Verdict]]]:
+    """Find Low/Medium-confidence FP verdicts that contradict a confirmed TP of
+    the SAME rule on the SAME file at a DIFFERENT line — a cross-line
+    self-contradiction on one construct (#122, dvwa ``view_source*``).
+
+    Same-rule only: ``rule_id`` identity establishes "the same construct", so no
+    CWE gate is needed (that is a cross-rule concern). Returns
+    ``(fp_verdict, [tp_sibling, ...])`` pairs; the caller re-verifies each FP
+    with the sibling evidence. Vendored/minified/non-production paths and
+    over-wide clusters are skipped.
+    """
+    tp = VerdictType.TRUE_POSITIVE.value
+    fp = VerdictType.FALSE_POSITIVE.value
+
+    groups: dict[tuple[str, str], list[Verdict]] = {}
+    for v in verdicts:
+        f = v.finding
+        if not f.rule_id:
+            continue
+        if _is_vendored_or_minified(f.file) or _is_nonproduction_path(f.file):
+            continue
+        groups.setdefault((_norm_path(f.file), f.rule_id), []).append(v)
+
+    out: list[tuple[Verdict, list[Verdict]]] = []
+    for group in groups.values():
+        lines = {v.finding.start_line for v in group}
+        if not (2 <= len(lines) <= _MAX_SIBLING_CLUSTER_LINES):
+            continue
+        tps = [v for v in group if v.verdict == tp]
+        if not tps:
+            continue
+        for v in group:
+            if v.verdict != fp or v.confidence not in ("Low", "Medium"):
+                continue
+            cross_line_tps = [
+                t for t in tps if t.finding.start_line != v.finding.start_line
+            ]
+            if cross_line_tps:
+                out.append((v, cross_line_tps))
+    return out
+
+
 def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
     """Demote High/Medium → Low when a TP or FP verdict lacks specific citations.
 
