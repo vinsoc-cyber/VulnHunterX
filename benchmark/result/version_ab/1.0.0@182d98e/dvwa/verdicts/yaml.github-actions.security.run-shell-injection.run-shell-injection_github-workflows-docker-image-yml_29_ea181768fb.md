@@ -1,0 +1,23 @@
+# yaml.github-actions.security.run-shell-injection.run-shell-injection @ .github/workflows/docker-image.yml:29
+
+**Verdict:** TP · **Confidence:** Medium (0.74) · **Truth:** not-real · **Grade:** FALSE-ALARM · **Iterations:** 4
+
+## Reasoning
+
+The flagged line is a GitHub Actions shell `run:` block, and untrusted `github` context data, particularly `github.ref`, is directly interpolated into shell commands on lines 33 and 34 with no visible shell-safe validation or encoding. Exploitability depends on repository permissions to trigger the workflow with a malicious ref, but no visible defense prevents command injection on the flagged path.
+
+## Data flow
+
+GitHub context source `${{ github.ref }}` in .github/workflows/docker-image.yml lines 33-34 → direct pre-shell interpolation into the `run: |` script beginning at line 29 → partial string transformations with `sed` / conditional assignment on lines 33-35 → shell execution and use of derived `VERSION` in `docker buildx build --tag $IMAGE_ID:$VERSION --push` on lines 41-44
+
+## Answers
+
+1. Step 0 / flagged line location: The flagged line is line 29: `run: |`. It is in `.github/workflows/docker-image.yml` under `jobs.build.steps`, not inside a PHP function. The flagged construct is a GitHub Actions shell `run:` block, and `${{ github.* }}` expressions are present inside that block on lines 31, 33, 34, and 36.
+2. Step 1: The potentially dangerous data originates from GitHub Actions `github` context values. Specifically, `${{ github.repository_owner }}` is used on line 31, `${{ github.ref }}` is used on lines 33 and 34, and `${{ github.sha }}` is used on line 36. The most relevant source for shell injection is `${{ github.ref }}` because refs/branch/tag names can be attacker-influenced in GitHub workflows depending on who can trigger the workflow.
+3. Step 2: `${{ github.repository_owner }}` flows into `IMAGE_ID=ghcr.io/${{ github.repository_owner }}/dvwa` on line 31, then through `IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')` on line 32, then into Docker tag arguments on lines 42 and 43. `${{ github.ref }}` flows into `VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')` on line 33, then `VERSION` is conditionally modified on lines 34 and 35, and finally used in `--tag $IMAGE_ID:$VERSION` on line 42. `${{ github.ref }}` is also directly interpolated into the shell conditional on line 34. `${{ github.sha }}` flows into `COMMIT=$(echo "${{ github.sha }}" | cut -c 1-7)` on line 36 and then into `--tag $IMAGE_ID:$COMMIT` on line 43.
+4. Step 3: There is transformation but no sufficient validation, sanitization, or shell encoding. Line 32 lowercases `IMAGE_ID`; line 33 extracts the last path component of the ref with `sed`; line 34 strips a leading `v` for tags; line 35 maps `master` to `latest`; and line 36 truncates the SHA. None of these operations safely shell-escape untrusted input. The double quotes around `${{ github.ref }}` on lines 33 and 34 are not a complete defense because GitHub expression interpolation occurs before the shell runs, and shell metacharacters or command substitution in the resulting script can still be interpreted.
+5. Step 4: The sink is the shell script introduced by `run: |` on line 29. The dangerous operation is direct interpolation of GitHub context expressions into shell code, especially `${{ github.ref }}` on lines 33 and 34, before the shell executes the script.
+6. Step 5: No automatic framework or library protection is visible. GitHub Actions does not automatically shell-escape `${{ ... }}` expressions inserted directly into a `run:` block. The safer pattern recommended by this rule, placing the context value into `env:` and referencing it as a quoted shell variable, is not present.
+7. Step 6: The workflow can run via `workflow_dispatch` on line 4 and via `push` to `master` on lines 5-7. For the `push` trigger, an attacker would need permission to push to `master`. For `workflow_dispatch`, an attacker would need sufficient repository permissions to manually dispatch the workflow. Exact repository permissions and branch protection settings were requested but are unavailable, so the exact authentication level is not visible in the code.
+8. Step 7: If an attacker can control the interpolated ref or another GitHub context value used in this `run:` block, the impact is shell command injection/RCE on the GitHub Actions runner. This could allow theft of workflow-accessible tokens or secrets and tampering with the Docker image build/push operation on lines 41-44.
+9. Step 8: The weakest link is the direct use of `${{ github.ref }}` inside executable shell code on lines 33 and 34 without a shell-safe boundary or validation. No complete visible defense exists in the provided workflow.

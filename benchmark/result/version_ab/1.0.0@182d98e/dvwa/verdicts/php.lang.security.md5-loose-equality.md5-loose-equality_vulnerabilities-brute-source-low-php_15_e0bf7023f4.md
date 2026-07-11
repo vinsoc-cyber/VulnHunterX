@@ -1,0 +1,22 @@
+# php.lang.security.md5-loose-equality.md5-loose-equality @ vulnerabilities/brute/source/low.php:15
+
+**Verdict:** FP · **Confidence:** High (0.9) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 2
+
+## Reasoning
+
+The flagged line is visible and contains `==`, but the operands are a row count and literal `1`, not an md5 hash or md5-derived variable. The md5 value created on line 9 is used in the SQL query on line 12, so the reported md5-loose-equality vulnerability is absent at the flagged sink. [second-opinion pass after 1-iter high-conf FP]
+
+## Answers
+
+1. Step 0 / flagged line verification: The flagged line is present at line 15 and reads exactly: `if( $result && mysqli_num_rows( $result ) == 1 ) {`. A loose equality operator `==` is present on that line, but the compared expression is `mysqli_num_rows($result)` versus integer `1`; there is no `md5(...)` value or md5-derived variable being compared on line 15.
+2. (a) Specific defense observed: There is no sanitizer or validation defense for an md5 loose-comparison vulnerability. Instead, the concrete reason this finding is not the reported vulnerability is that the flagged sink does not compare an md5 value: line 15 compares a database row count from `mysqli_num_rows($result)` to `1`. The md5 value is created on line 9 as `$pass = md5($pass);` and is only interpolated into the SQL query on line 12, not used as an operand of the loose comparison on line 15.
+3. (b) Coverage of all reachable paths to the flagged sink: In the provided code, the only visible path to line 15 is through the `isset($_GET['Login'])` branch starting at line 3, assignment of `$result` from `mysqli_query(...)` on line 13, then the condition on line 15. On that path, the operands to `==` on line 15 are always `mysqli_num_rows($result)` and literal `1`; the md5-derived `$pass` from line 9 does not flow into the `==` comparison.
+4. (c) Why the SAST tool flagged this: The rule `php.lang.security.md5-loose-equality.md5-loose-equality` looks for loose comparisons involving md5 values because PHP type juggling can make magic hashes such as strings beginning with `0e...` compare equal under `==`. The code has an md5 call on line 9 and a loose equality on line 15, but the visible flagged comparison on line 15 is not checking the md5 value; it is checking the result row count. Therefore the rule’s intended dangerous pattern is not actually present at the flagged sink.
+5. Step 1: The potentially dangerous data originates from user input in `$_GET['username']` on line 5 and `$_GET['password']` on line 8. For this specific md5-loose-equality finding, the password is hashed on line 9 but does not flow to the loose comparison on line 15.
+6. Step 2: Password flow: `$_GET['password']` line 8 → `$pass` line 8 → `md5($pass)` line 9 → SQL string `$query` line 12 → `mysqli_query(...)` result line 13. Flagged comparison flow: `$result` from `mysqli_query(...)` line 13 → `mysqli_num_rows($result)` line 15 → compared with literal `1` using `==` on line 15.
+7. Step 3: No validation, sanitization, or encoding is visible for `$_GET['username']` or `$_GET['password']` before SQL interpolation on line 12. `md5()` on line 9 is a hash transformation, not a sanitizer. For the specific md5 loose-equality issue, however, the md5 output is not compared with `==`.
+8. Step 4: The flagged sink is the loose comparison on line 15: `mysqli_num_rows($result) == 1`. The operation would be dangerous for the reported rule if an md5 digest were being compared loosely, but the visible operation is a row-count check, not an md5 comparison.
+9. Step 5: No framework or ORM protection is visible. The code uses raw `mysqli_query` on line 13 with a string built on line 12. That may be relevant to SQL injection, but it does not make the line-15 md5-loose-equality finding true.
+10. Step 6: An unauthenticated attacker appears able to reach the code by supplying `Login` in the query string, because the only visible gate is `isset($_GET['Login'])` on line 3.
+11. Step 7: For the reported md5-loose-equality finding, no concrete impact is shown because no md5 value reaches the loose comparison. Separately, line 12 may allow SQL injection due to unsanitized interpolation, but that is a different sink and dataflow.
+12. Step 8: The weakest visible link overall is the raw SQL construction on line 12. For this specific finding, the decisive point is that the flagged loose comparison on line 15 is not over an md5 value.
