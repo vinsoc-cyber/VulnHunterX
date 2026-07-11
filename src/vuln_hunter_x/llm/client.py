@@ -1016,12 +1016,16 @@ class LLMClient:
             data_flow=rep.data_flow,
         )
 
+    # Challenges a single-turn high-confidence FP into re-enumerating the defense
+    # it claimed. Provenance: the 2026-05-15 benchmark measured such one-iteration
+    # high-confidence FPs wrong ~80% of the time on memory-safety / access-control
+    # CWEs; the prompt keeps that method (enumerate the defense) but states the
+    # tendency qualitatively rather than asserting a dated point-in-time figure.
     _SECOND_OPINION_PROMPT = (
         "Your previous verdict was 'False Positive' with high confidence, "
         "reached in a single turn without requesting additional context.\n\n"
-        "The 2026-05-15 benchmark showed that this pattern (one-iteration "
-        "high-confidence FP) is wrong 80% of the time on memory-safety and "
-        "access-control CWEs — usually because the LLM assumed a defense "
+        "A single-turn high-confidence FP on memory-safety and access-control "
+        "CWEs is frequently wrong — usually because the LLM assumed a defense "
         "exists outside the snippet, inverted a missing-check finding "
         "(saw checks and concluded 'no bug'), or treated an empty/init "
         "function as inherently safe.\n\n"
