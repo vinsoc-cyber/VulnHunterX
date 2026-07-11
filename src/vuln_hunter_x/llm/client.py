@@ -43,6 +43,7 @@ from vuln_hunter_x.core.constants import (
     DEFAULT_LLM_PROVIDER,
     DEFAULT_LLM_TEMPERATURE,
     DEFAULT_OLLAMA_BASE_URL,
+    PROMPT_RETRY_MAX_TOKENS,
 )
 from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
 from vuln_hunter_x.core.validation import openai_compat_kwargs
@@ -127,6 +128,9 @@ class LLMClient:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        # #149: attach response_format=json_object where supported; cleared for
+        # the session if an endpoint rejects it (see _completion).
+        self._response_format_supported = True
         self.num_retries = num_retries
         self.request_timeout = request_timeout
         self.prompt_builder = PromptBuilder()
@@ -270,6 +274,14 @@ class LLMClient:
             # disable LiteLLM's own retry to avoid hammering the exhausted key.
             kwargs["num_retries"] = self.num_retries
             kwargs["retry_strategy"] = "exponential_backoff_retry"
+        # #149: guarantee a JSON envelope on OpenAI-compatible providers (json
+        # mode). Dropped + disabled on the fly if the endpoint rejects it (see
+        # _completion). Strict-schema field enforcement is deferred to Phase 3.
+        if getattr(self, "_response_format_supported", True) and self.provider in (
+            "openai",
+            "deepseek",
+        ):
+            kwargs["response_format"] = {"type": "json_object"}
         kwargs.update(
             openai_compat_kwargs(
                 provider=self.provider,
@@ -299,6 +311,24 @@ class LLMClient:
         return any(marker in msg for marker in cls._OLLAMA_QUOTA_MARKERS)
 
     def _completion(self, kwargs: dict) -> Any:
+        """Dispatch to the key-rotating completion, transparently dropping an
+        unsupported ``response_format`` (and disabling it for the session) when
+        the endpoint rejects it — #149."""
+        try:
+            return self._completion_raw(kwargs)
+        except litellm.BadRequestError as exc:
+            if kwargs.get("response_format") and "response_format" in str(exc).lower():
+                logger.warning(
+                    "Endpoint rejected response_format; disabling it for this "
+                    "session and retrying without it."
+                )
+                self._response_format_supported = False
+                retry = dict(kwargs)
+                retry.pop("response_format", None)
+                return self._completion_raw(retry)
+            raise
+
+    def _completion_raw(self, kwargs: dict) -> Any:
         """Call ``litellm.completion``, rotating keys on 429/quota when a pool is active.
 
         Without a pool this is a pass-through and LiteLLM's own retry layer
@@ -345,6 +375,60 @@ class LLMClient:
                 kwargs["api_key"] = next_key
         assert last_err is not None
         raise last_err
+
+    def _complete_and_meter(
+        self, messages: list[dict], temperature: float | None, max_tokens: int | None = None
+    ) -> tuple[str, dict]:
+        """Run one completion turn. Returns ``(raw_content, usage_delta)`` where
+        ``usage_delta`` carries total/input/output/cached-input tokens and cost."""
+        kwargs = self._build_completion_kwargs(messages, temperature=temperature)
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        response = self._completion(kwargs)
+        if not response.choices:
+            raise ValueError("LLM returned empty choices list")
+        raw = response.choices[0].message.content or ""
+        usage = getattr(response, "usage", None)
+        delta = {
+            "total_tokens": getattr(usage, "total_tokens", 0) or 0,
+            "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+            "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
+            "cached_input_tokens": _extract_cached_input_tokens(usage),
+            "cost_usd": 0.0,
+        }
+        try:
+            delta["cost_usd"] = litellm.completion_cost(completion_response=response)
+        except Exception:
+            logger.debug("Could not compute completion cost", exc_info=True)
+        return raw, delta
+
+    def _complete_parse_retry(
+        self, messages: list[dict], temperature: float | None
+    ) -> tuple[str, dict, dict]:
+        """Complete + parse; retry ONCE on a truncated/unparseable envelope before
+        accepting the abstention (#149). A length truncation retries with a larger
+        ``max_tokens``. Returns ``(raw, parsed, usage_delta)`` with usage summed
+        across both attempts. Verdict-neutral on a healthy response (no retry)."""
+        raw, delta = self._complete_and_meter(messages, temperature)
+        parsed = self._parse_response(raw)
+        if parsed.get("parse_failed"):
+            retry_tokens = (
+                min(self.max_tokens * 2, PROMPT_RETRY_MAX_TOKENS)
+                if parsed.get("truncated")
+                else None
+            )
+            logger.warning(
+                "Verifier verdict envelope %s; retrying once%s.",
+                "truncated" if parsed.get("truncated") else "unparseable",
+                f" at max_tokens={retry_tokens}" if retry_tokens else "",
+            )
+            raw2, delta2 = self._complete_and_meter(messages, temperature, max_tokens=retry_tokens)
+            for k in delta:
+                delta[k] += delta2[k]
+            parsed2 = self._parse_response(raw2)
+            if not parsed2.get("parse_failed"):
+                raw, parsed = raw2, parsed2
+        return raw, parsed, delta
 
     def analyze(
         self,
@@ -466,27 +550,20 @@ class LLMClient:
                 print("    Calling LLM...", end="", flush=True)
 
             try:
-                kwargs = self._build_completion_kwargs(messages, temperature=temperature)
-                response = self._completion(kwargs)
-                if not response.choices:
-                    raise ValueError("LLM returned empty choices list")
-                raw_response = response.choices[0].message.content or ""
+                # #149: one turn, with a bounded retry on a truncated/unparseable
+                # envelope so a length artifact can't silently become an abstention
+                # that force-decision then launders into a verdict.
+                raw_response, parsed, _delta = self._complete_parse_retry(
+                    messages, temperature
+                )
                 all_raw_responses.append(raw_response)
 
                 # Accumulate token usage (split + total) and cost.
-                _usage = getattr(response, "usage", None)
-                _tokens = getattr(_usage, "total_tokens", 0) or 0
-                _in = getattr(_usage, "prompt_tokens", 0) or 0
-                _out = getattr(_usage, "completion_tokens", 0) or 0
-                _cached_in = _extract_cached_input_tokens(_usage)
-                total_tokens_used += _tokens
-                total_input_tokens += _in
-                total_output_tokens += _out
-                total_cached_input_tokens += _cached_in
-                try:
-                    total_cost_usd += litellm.completion_cost(completion_response=response)
-                except Exception:
-                    logger.debug("Could not compute completion cost", exc_info=True)
+                total_tokens_used += _delta["total_tokens"]
+                total_input_tokens += _delta["input_tokens"]
+                total_output_tokens += _delta["output_tokens"]
+                total_cached_input_tokens += _delta["cached_input_tokens"]
+                total_cost_usd += _delta["cost_usd"]
 
                 if not verbose and not quiet:
                     print(f" done ({len(raw_response)} chars)")
@@ -501,8 +578,6 @@ class LLMClient:
                     print(f"    {raw_response}")
                     print("    === END RESPONSE ===\n")
 
-                # Parse response
-                parsed = self._parse_response(raw_response)
                 verdict = parsed.get("verdict", "Needs More Data")
                 context_needed = parsed.get("context_needed", [])
 
