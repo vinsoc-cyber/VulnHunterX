@@ -158,3 +158,39 @@ def test_apply_passes_fp_and_siblings_to_reverify() -> None:
 
     apply_sibling_consistency(verdicts, reverify)
     assert seen == [(68, [63])]
+
+
+def test_sibling_reverify_carries_evidence_and_prompt() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from vuln_hunter_x.llm.client import LLMClient
+    from vuln_hunter_x.verification.engine import VerificationEngine
+
+    ctx = SimpleNamespace(code="@file_get_contents(...)", start_line=60,
+                          function_name="<top>")
+    returned = _mk(_RULE, _F, 68, "True Positive", "Medium")
+    client = MagicMock()
+    client.request_second_opinion.return_value = returned
+    client._SIBLING_CONSISTENCY_CHALLENGE_PROMPT = (
+        LLMClient._SIBLING_CONSISTENCY_CHALLENGE_PROMPT
+    )
+    engine = SimpleNamespace(
+        questions_loader=MagicMock(get_questions=MagicMock(return_value="Q")),
+        context_extractor=MagicMock(get_context=MagicMock(return_value=ctx)),
+        llm_client=client,
+        config=SimpleNamespace(output=SimpleNamespace(is_verbose=False, is_quiet=True)),
+        _log_fh=None,
+    )
+    fp = _mk(_RULE, _F, 68, "False Positive", "Low")
+    tp = _mk(_RULE, _F, 63, "True Positive", "High")
+
+    out = VerificationEngine._sibling_reverify(engine, fp, [tp])
+
+    assert out is returned
+    _, kwargs = client.request_second_opinion.call_args
+    assert kwargs["challenge_prompt"] is LLMClient._SIBLING_CONSISTENCY_CHALLENGE_PROMPT
+    assert kwargs["previous_verdict"] is fp
+    assert kwargs["context"] == ctx.code
+    note = " ".join(kwargs["prefetched_context"].values())
+    assert "63" in note  # sibling TP line is cited as evidence

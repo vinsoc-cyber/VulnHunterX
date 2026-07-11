@@ -1044,6 +1044,12 @@ class VerificationEngine:
         # Semgrep vs OpenGrep) BEFORE tallying stats so the counts match.
         verdicts = _reconcile_conflicting_verdicts(verdicts)
 
+        # Cross-line sibling consistency (#122): re-verify Low/Med-confidence FPs
+        # that contradict a confirmed True Positive of the SAME rule elsewhere in
+        # the file (the dvwa view_source* self-contradictions). Post-reconcile so
+        # every first-pass verdict — and the same-line harmonisation — is settled.
+        verdicts = apply_sibling_consistency(verdicts, self._sibling_reverify)
+
         for v in verdicts:
             stats[v.verdict] = stats.get(v.verdict, 0) + 1
 
@@ -1395,6 +1401,52 @@ class VerificationEngine:
         verdict = _downgrade_cli_path_injection(verdict)
 
         return verdict
+
+    def _sibling_reverify(
+        self, fp: Verdict, tp_siblings: list[Verdict]
+    ) -> Verdict:
+        """Re-verify a Low/Med FP against confirmed same-rule TP siblings (#122).
+
+        Rebuilds light context (enclosing snippet + questions) and challenges the
+        FP with the sibling evidence via ``request_second_opinion``. The heavy
+        first-pass prefetch is intentionally omitted: the material-difference
+        signal (safe vs unsafe variant) lives in the enclosing snippet itself.
+        """
+        finding = fp.finding
+        questions = self.questions_loader.get_questions(
+            finding.rule_id, cwe_ids=finding.cwe_ids, lang=finding.lang,
+        )
+        context_result = self.context_extractor.get_context(
+            finding.file, finding.start_line, finding.lang,
+            repo_name=finding.repo_name,
+        )
+        sib = ", ".join(
+            f"line {t.finding.start_line} ({t.confidence} confidence)"
+            for t in sorted(tp_siblings, key=lambda t: t.finding.start_line)
+        )
+        prefetched_context = {
+            "NOTE: sibling verdicts — same rule & construct on THIS file": (
+                f"The rule '{finding.rule_id}' flagged the same construct at {sib} "
+                f"of this file, and those instances were confirmed TRUE POSITIVE by "
+                f"this same analysis. This finding at line {finding.start_line} "
+                "shares that construct; typically only a constant literal differs. "
+                "Decide whether THIS line adds real defense or is the same reachable "
+                "vulnerability the sibling already proved."
+            )
+        }
+        return self.llm_client.request_second_opinion(
+            finding=finding,
+            context=context_result.code,
+            context_start_line=context_result.start_line,
+            questions=questions,
+            func_name=context_result.function_name,
+            previous_verdict=fp,
+            prefetched_context=prefetched_context,
+            challenge_prompt=self.llm_client._SIBLING_CONSISTENCY_CHALLENGE_PROMPT,
+            verbose=self.config.output.is_verbose,
+            quiet=self.config.output.is_quiet,
+            log_file=self._log_fh,
+        )
 
     @staticmethod
     def _extract_sink_callees(

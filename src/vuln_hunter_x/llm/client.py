@@ -994,6 +994,30 @@ class LLMClient:
         "JSON format."
     )
 
+    _SIBLING_CONSISTENCY_CHALLENGE_PROMPT = (
+        "Your previous verdict was 'False Positive'. However, this SAME rule "
+        "flagged the SAME construct at OTHER lines of THIS file, and that "
+        "identical construct — the same untrusted input reaching the same kind "
+        "of sink — was confirmed 'True Positive' by this same analysis (see the "
+        "sibling verdicts noted in the pre-fetched context). A confirmed sibling "
+        "establishes that the attacker-reachable consequence is REAL in this file, "
+        "which is exactly the concrete consequence a True Positive requires.\n\n"
+        "Re-verify by answering, with line references:\n"
+        "  (a) Is THIS line the same construct with the same untrusted input as "
+        "the confirmed sibling(s), or does it differ materially?\n"
+        "  (b) Does THIS line add REAL defense the sibling lacked — validation, "
+        "sanitization, an allowlist, canonicalization, or a constant / "
+        "non-attacker-controlled input — as opposed to only a different constant "
+        "literal (e.g. a different filename suffix or path segment)?\n"
+        "  (c) Is THIS sink genuinely unreachable where the sibling's is "
+        "reachable?\n\n"
+        "If THIS line is the same untrusted-input construct as a confirmed "
+        "sibling and adds no real defense, change your verdict to 'True "
+        "Positive' — the consequence proven at the sibling applies here too. "
+        "Keep 'False Positive' ONLY if you can cite a concrete material "
+        "difference at THIS line. Respond in the same strict JSON format."
+    )
+
     def request_second_opinion(
         self,
         finding: Finding,
