@@ -1,0 +1,23 @@
+# php.lang.security.injection.tainted-filename.tainted-filename @ vulnerabilities/view_source.php:63
+
+**Verdict:** TP · **Confidence:** Medium (0.8) · **Truth:** real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The updated context does not change the analysis: the flagged line is a real filesystem read sink, and visible user input from `$_GET['security']` reaches it without any shown validation or containment check. The precise impact is better characterized as local file read/path traversal/source disclosure rather than SSRF, but the flagged tainted filename sink is genuinely exploitable on the shown path.
+
+## Data flow
+
+user input `$_GET['security']` (vulnerabilities/view_source.php:13) → direct assignment to `$security` (vulnerabilities/view_source.php:13) → interpolation into `DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/{$id}/source/{$security}.php"` (vulnerabilities/view_source.php:63) → file read by `file_get_contents()` (vulnerabilities/view_source.php:63) → `$source` displayed with `highlight_string($source, true)` (vulnerabilities/view_source.php:89). Additional requested contexts were unavailable and added no sanitization or guard.
+
+## Answers
+
+1. Step 0 / flagged line location: The flagged line is present at vulnerabilities/view_source.php:63: `$source = @file_get_contents( DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/{$id}/source/{$security}.php" );`. It appears in the provided Function: `<unknown>` context, likely top-level PHP code; no named enclosing function is visible. The dangerous construct is present on that exact line: a dynamically constructed filename is passed to `file_get_contents()`.
+2. Step 1 / source: The visible dangerous source is user input from `$_GET['security']`, assigned to `$security` at vulnerabilities/view_source.php:13. `$id` is also used in the filename at line 63, but its source remains not visible. The additional requested context for `global:_GET` was unavailable and does not change the visible fact that `$_GET['security']` is direct HTTP request input.
+3. Step 2 / trace: `$_GET['security']` at line 13 → assigned directly to `$security` at line 13 → interpolated into the filename string at line 63 → passed to `file_get_contents()` at line 63 → result assigned to `$source` at line 63 → displayed via `highlight_string($source, true)` at line 89. `$id` is used in `switch ($id)` at line 16 and interpolated into the same path at line 63, but its assignment/source is not visible.
+4. Step 3 / validation/sanitization: No validation, sanitization, encoding, allowlist, `basename()`, `realpath()` containment check, or regex restriction is visible for `$security` between line 13 and line 63. The `switch ($id)` on lines 16-61 only maps `$id` values to display labels; the `default` case on lines 59-60 still allows execution to continue with `$vuln = "Unknown Vulnerability"`. The newly supplied context is unavailable and adds no visible defense.
+5. Step 4 / sink: The sink is `file_get_contents()` at line 63. The dangerous operation is a server-side file read using a path containing user-controlled `$security`. Although the rule message mentions SSRF, the concrete visible issue is a tainted filename/local file read/path traversal sink, because attacker input is embedded in a filesystem path and then the file contents are read.
+6. Step 5 / framework/library protections: No framework or library protection is visible. PHP `file_get_contents()` does not automatically prevent path traversal or enforce application-level path allowlisting. The requested `DVWA_WEB_PAGE_TO_ROOT` and output helper contexts were unavailable, so no automatic or upstream protection can be confirmed from the added context.
+7. Step 6 / privilege/authentication: Not visible in the provided context. The snippet does not show whether the endpoint is unauthenticated, authenticated-user-only, or admin-only. This affects exposure but does not remove the visible unsafe file-read path.
+8. Step 7 / concrete impact: If an attacker controls `$security`, they can influence which `.php` file is read under or via traversal from `DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/{$id}/source/"` at line 63. The read content is then rendered back to the response through `highlight_string($source, true)` at line 89, causing potential local source disclosure or sensitive PHP file disclosure.
+9. Step 8 / weakest link: The weakest link is the direct use of `$_GET['security']` from line 13 in the filename passed to `file_get_contents()` at line 63 without any visible allowlist or canonical path containment check. No added context provided a compensating defense.
