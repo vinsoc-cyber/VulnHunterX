@@ -1018,6 +1018,20 @@ class LLMClient:
         "difference at THIS line. Respond in the same strict JSON format."
     )
 
+    @staticmethod
+    def _second_opinion_marker(challenge_prompt: str | None) -> str:
+        """Reasoning tag naming which second-opinion challenge produced a verdict.
+
+        Distinguishes the sibling-consistency challenge (#122) from the
+        correctness-rule TP challenge and the default 1-iter-FP re-prompt, so the
+        reasoning text does not mislabel every non-None challenge as the latter.
+        """
+        if challenge_prompt is LLMClient._SIBLING_CONSISTENCY_CHALLENGE_PROMPT:
+            return " [second-opinion pass: sibling-consistency challenge]"
+        if challenge_prompt is not None:
+            return " [second-opinion pass: TP challenge on correctness rule]"
+        return " [second-opinion pass after 1-iter high-conf FP]"
+
     def request_second_opinion(
         self,
         finding: Finding,
@@ -1127,11 +1141,7 @@ class LLMClient:
             log_file.write("### Second Opinion\n\n")
             log_file.write(f"```json\n{raw}\n```\n\n")
 
-        marker = (
-            " [second-opinion pass: TP challenge on correctness rule]"
-            if challenge_prompt is not None
-            else " [second-opinion pass after 1-iter high-conf FP]"
-        )
+        marker = self._second_opinion_marker(challenge_prompt)
         return Verdict(
             finding=finding,
             verdict=parsed.get("verdict", previous_verdict.verdict),

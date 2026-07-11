@@ -194,3 +194,17 @@ def test_sibling_reverify_carries_evidence_and_prompt() -> None:
     assert kwargs["context"] == ctx.code
     note = " ".join(kwargs["prefetched_context"].values())
     assert "63" in note  # sibling TP line is cited as evidence
+
+
+def test_second_opinion_marker_distinguishes_sibling_challenge() -> None:
+    # The reasoning marker must name the ACTUAL challenge, not hardcode the
+    # TP-correctness label for every non-None challenge_prompt.
+    from vuln_hunter_x.llm.client import LLMClient
+    sib = LLMClient._second_opinion_marker(
+        LLMClient._SIBLING_CONSISTENCY_CHALLENGE_PROMPT)
+    tp = LLMClient._second_opinion_marker(LLMClient._TP_CHALLENGE_PROMPT)
+    fp = LLMClient._second_opinion_marker(None)
+    assert "sibling" in sib.lower()
+    assert "sibling" not in tp.lower() and "correctness" in tp.lower()
+    assert "1-iter" in fp
+    assert sib != tp and tp != fp and sib != fp
