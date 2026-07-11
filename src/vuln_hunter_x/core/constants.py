@@ -25,6 +25,16 @@ DEFAULT_LLM_TEMPERATURE = 0.2
 DEFAULT_LLM_MAX_TOKENS = 4096
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
+# ── Prompt assembly budget (#151) ─────────────────────────────────────
+# When an enclosing-function slice exceeds this many characters (~4 chars/token,
+# so ~6k tokens) and the question bank set no explicit snippet window, window the
+# slice to ±PROMPT_SLICE_BUDGET_WINDOW_LINES around the flagged line so a
+# pathologically large function can't overflow the context window (which
+# truncates the response and forces a spurious abstention). Conservative — it
+# never fires on normal-sized functions.
+PROMPT_SLICE_CHAR_BUDGET = 24000
+PROMPT_SLICE_BUDGET_WINDOW_LINES = 80
+
 # ── Verification defaults ─────────────────────────────────────────────
 DEFAULT_MAX_ITERATIONS = 10
 

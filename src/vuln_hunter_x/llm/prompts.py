@@ -10,6 +10,10 @@ import logging
 
 import yaml
 
+from vuln_hunter_x.core.constants import (
+    PROMPT_SLICE_BUDGET_WINDOW_LINES,
+    PROMPT_SLICE_CHAR_BUDGET,
+)
 from vuln_hunter_x.core.types import Finding, GuidedQuestions
 
 logger = logging.getLogger(__name__)
@@ -144,11 +148,16 @@ class PromptBuilder:
         line-number gutters and the flagged line marked so the model can
         locate it without counting.
         """
+        window = questions.snippet_window_lines or None
+        if window is None and len(context) > PROMPT_SLICE_CHAR_BUDGET:
+            # #151: a pathologically large slice would overflow the context
+            # window; window it around the flagged line so it can't.
+            window = PROMPT_SLICE_BUDGET_WINDOW_LINES
         context = render_code_for_prompt(
             context,
             start_line=context_start_line,
             flagged_line=finding.start_line,
-            window=questions.snippet_window_lines or None,
+            window=window,
         )
         questions_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(questions.questions))
         return self._build_prompt(finding, context, questions, func_name, questions_text)
