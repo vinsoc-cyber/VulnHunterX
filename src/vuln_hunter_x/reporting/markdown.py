@@ -162,7 +162,7 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
         return texts
 
     try:
-        import litellm
+        from vuln_hunter_x.llm.completion import run_completion
     except ImportError:
         logger.warning("litellm not available for translation, falling back to English")
         return texts
@@ -254,32 +254,32 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
         from concurrent.futures import ThreadPoolExecutor
         from concurrent.futures import TimeoutError as FuturesTimeoutError
 
-        kwargs: dict = {
-            "model": llm_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": min(8000, len(numbered) * 3),
-            # Bound the call so the worker terminates; otherwise the wall-clock
-            # guard below fires but shutdown(wait=True) re-blocks on a worker
-            # still waiting on litellm's default timeout (~600s, or forever on a
-            # byte-trickling proxy) — deadlocking verify (#127).
-            "timeout": 120,
-        }
-        if api_base:
-            kwargs["api_base"] = api_base
-        if provider == "anthropic":
-            kwargs["api_key"] = anthropic_key
-        elif provider == "gemini" and gemini_key:
-            # Before the generic api_key catch-all so a stray OPENAI_API_KEY
-            # is never attached to a Gemini call.
-            kwargs["api_key"] = gemini_key
-        elif provider == "ollama" and ollama_cloud_key:
-            kwargs["api_key"] = ollama_cloud_key
-        elif api_key and provider != "ollama":
-            kwargs["api_key"] = api_key
+        # Before the generic api_key catch-all so a stray OPENAI_API_KEY is
+        # never attached to a Gemini call; ollama_cloud_key is only bound in the
+        # ollama branch, guarded by the provider check (short-circuits otherwise).
+        call_api_key = (
+            anthropic_key if provider == "anthropic"
+            else gemini_key if (provider == "gemini" and gemini_key)
+            else ollama_cloud_key if (provider == "ollama" and ollama_cloud_key)
+            else api_key if (api_key and provider != "ollama")
+            else None
+        )
 
         # Use a thread with wall-clock timeout so SSL read hangs don't block forever
         with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(litellm.completion, **kwargs)
+            # timeout=120 bounds the call so the worker terminates; otherwise the
+            # wall-clock guard below fires but shutdown(wait=True) re-blocks on a
+            # worker still waiting on litellm's default timeout (~600s) — #127.
+            future = executor.submit(
+                run_completion,
+                messages=[{"role": "user", "content": prompt}],
+                model=llm_model,
+                provider=provider,
+                api_key=call_api_key,
+                api_base=api_base,
+                max_tokens=min(8000, len(numbered) * 3),
+                timeout=120,
+            )
             try:
                 resp = future.result(timeout=120)
             except FuturesTimeoutError:
