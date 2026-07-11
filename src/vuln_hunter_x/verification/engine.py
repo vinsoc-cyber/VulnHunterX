@@ -165,6 +165,16 @@ _RECONCILE_SPECIFIC_CWES: frozenset[str] = frozenset({
     "CWE-787", "CWE-788",  # out-of-bounds write
 })
 
+# Specific buffer-overflow CWEs — the concrete children of the broad CWE-119
+# "buffer errors" parent. Two different rules that share only CWE-119 are not
+# fused (CWE-119 is too generic), but when each ALSO carries one of these, they
+# flag the same buffer bug at a location and reconciliation may proceed. See
+# :func:`_same_issue`.
+_BUFFER_OVERFLOW_CWES: frozenset[str] = frozenset({
+    "CWE-120", "CWE-121", "CWE-122", "CWE-124", "CWE-125", "CWE-126", "CWE-127",
+    "CWE-131", "CWE-787", "CWE-788",
+})
+
 # Reconciliation does not run on these paths — vendored / generated / minified
 # code is out of scope and a frequent source of dense, unrelated findings.
 _VENDORED_PATH_RE = re.compile(
@@ -238,8 +248,21 @@ def _same_issue(a: Verdict, b: Verdict, *, allow_cross_rule: bool) -> bool:
         return True
     if not allow_cross_rule:
         return False
-    shared = set(fa.cwe_ids or ()) & set(fb.cwe_ids or ())
-    return bool(shared & _RECONCILE_SPECIFIC_CWES)
+    ca, cb = set(fa.cwe_ids or ()), set(fb.cwe_ids or ())
+    shared = ca & cb
+    if shared & _RECONCILE_SPECIFIC_CWES:
+        return True
+    # Broad buffer-errors parent (CWE-119) is excluded from the specific set — on
+    # its own it fuses unrelated rules. But two rules sharing CWE-119 that EACH
+    # also carry a specific buffer-overflow CWE denote the same memory-safety bug
+    # at this location (e.g. cpp/static-buffer-overflow[CWE-131] vs
+    # cpp/overflow-buffer[CWE-121] on one memcpy). The per-side specific CWE keeps
+    # generic CWE-119 findings apart while letting the real duplicate reconcile.
+    return bool(
+        "CWE-119" in shared
+        and ca & _BUFFER_OVERFLOW_CWES
+        and cb & _BUFFER_OVERFLOW_CWES
+    )
 
 
 def _reconcile_conflicting_verdicts(verdicts: list[Verdict]) -> list[Verdict]:
