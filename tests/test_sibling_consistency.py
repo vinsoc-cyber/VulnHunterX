@@ -8,6 +8,7 @@ from __future__ import annotations
 from vuln_hunter_x.core.types import Finding, Verdict
 from vuln_hunter_x.verification.engine import (
     _select_sibling_consistency_candidates,
+    apply_sibling_consistency,
 )
 
 _RULE = "php.lang.security.injection.tainted-filename.tainted-filename"
@@ -103,3 +104,57 @@ def test_oversized_cluster_skipped() -> None:
     verdicts += [_mk(_RULE, _F, ln, "False Positive", "Low") for ln in range(1, 20)]
     cands = _select_sibling_consistency_candidates(verdicts)
     assert cands == []
+
+
+def test_apply_flips_fp_to_tp_when_reverify_upgrades() -> None:
+    verdicts = [
+        _mk(_RULE, _F, 63, "True Positive", "High"),
+        _mk(_RULE, _F, 68, "False Positive", "Low"),
+    ]
+
+    def reverify(fp, sibs):
+        return _mk(fp.finding.rule_id, fp.finding.file, fp.finding.start_line,
+                   "True Positive", "Medium")
+
+    out = apply_sibling_consistency(verdicts, reverify)
+    by_line = {v.finding.start_line: v.verdict for v in out}
+    assert by_line == {63: "True Positive", 68: "True Positive"}
+
+
+def test_apply_keeps_fp_when_reverify_declines() -> None:
+    fp = _mk(_RULE, _F, 68, "False Positive", "Low")
+    verdicts = [_mk(_RULE, _F, 63, "True Positive", "High"), fp]
+
+    def reverify(fp_, sibs):
+        return fp_  # unchanged — material difference found
+
+    out = apply_sibling_consistency(verdicts, reverify)
+    assert out[1] is fp
+    assert out[1].verdict == "False Positive"
+
+
+def test_apply_is_exception_safe() -> None:
+    fp = _mk(_RULE, _F, 68, "False Positive", "Low")
+    verdicts = [_mk(_RULE, _F, 63, "True Positive", "High"), fp]
+
+    def reverify(fp_, sibs):
+        raise RuntimeError("llm down")
+
+    out = apply_sibling_consistency(verdicts, reverify)
+    assert out[1] is fp
+    assert out[1].verdict == "False Positive"
+
+
+def test_apply_passes_fp_and_siblings_to_reverify() -> None:
+    verdicts = [
+        _mk(_RULE, _F, 63, "True Positive", "High"),
+        _mk(_RULE, _F, 68, "False Positive", "Low"),
+    ]
+    seen = []
+
+    def reverify(fp_, sibs):
+        seen.append((fp_.finding.start_line, [s.finding.start_line for s in sibs]))
+        return fp_
+
+    apply_sibling_consistency(verdicts, reverify)
+    assert seen == [(68, [63])]

@@ -421,6 +421,30 @@ def _select_sibling_consistency_candidates(
     return out
 
 
+def apply_sibling_consistency(
+    verdicts: list[Verdict],
+    reverify: Callable[[Verdict, list[Verdict]], Verdict],
+) -> list[Verdict]:
+    """Re-verify cross-line sibling-consistency candidates (#122).
+
+    Each Low/Med-confidence FP that contradicts a same-rule TP sibling is passed
+    to ``reverify``; the FP is upgraded only if re-verification returns a True
+    Positive. Exception-safe — a failing ``reverify`` leaves the verdict as-is.
+    A True Positive is therefore never fabricated deterministically: it is the
+    model's own re-decision against a consequence already proven on this file.
+    """
+    tp = VerdictType.TRUE_POSITIVE.value
+    index = {id(v): i for i, v in enumerate(verdicts)}
+    for fp_verdict, tp_siblings in _select_sibling_consistency_candidates(verdicts):
+        try:
+            new = reverify(fp_verdict, tp_siblings)
+        except Exception:
+            continue
+        if new is not None and new.verdict == tp:
+            verdicts[index[id(fp_verdict)]] = new
+    return verdicts
+
+
 def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
     """Demote High/Medium → Low when a TP or FP verdict lacks specific citations.
 
