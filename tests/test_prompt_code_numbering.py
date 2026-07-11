@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from vuln_hunter_x.core.types import Finding, GuidedQuestions
 from vuln_hunter_x.llm.client import LLMClient
-from vuln_hunter_x.llm.prompts import DEFAULT_SYSTEM_PROMPT, PromptBuilder, render_code_for_prompt
+from vuln_hunter_x.llm.prompts import PromptBuilder, render_code_for_prompt
 
 
 def test_numbers_lines_with_absolute_offset_and_marks_flagged():
@@ -137,11 +137,6 @@ def test_system_prompt_has_locate_and_quote_guard():
     assert "Needs More Data" in sp
 
 
-def test_default_system_prompt_constant_has_guard():
-    assert "LOCATE the flagged line" in DEFAULT_SYSTEM_PROMPT
-    assert "Needs More Data" in DEFAULT_SYSTEM_PROMPT
-
-
 def test_force_decision_prompt_is_consequence_first():
     from vuln_hunter_x.llm.client import LLMClient
     fd = LLMClient._FORCE_DECISION_PROMPT
@@ -157,11 +152,10 @@ def test_system_prompt_rule_is_locator_not_straitjacket():
     assert "LOCATE the flagged line" in sp and "Needs More Data" in sp  # #118 guards preserved
 
 
-def test_rule_scope_reframe_synced_yaml_and_fallback():
-    # Both the live YAML prompt and the Python fallback carry the locator reframe,
-    # and neither keeps the old cross-class prohibition.
+def test_rule_scope_reframe_in_live_prompt():
+    # The single packaged prompt carries the locator reframe and has dropped the
+    # old cross-class prohibition (DEFAULT_SYSTEM_PROMPT fallback removed, #144).
     sp = PromptBuilder().get_system_prompt(tool_name="Semgrep", lang="php")
-    for text in (sp, DEFAULT_SYSTEM_PROMPT):
-        assert "LOCATES a suspicious sink" in text
-        assert "do not relabel" not in text
-        assert 'NEVER return "True Positive" for a vulnerability class other than' not in text
+    assert "LOCATES a suspicious sink" in sp
+    assert "do not relabel" not in sp
+    assert 'NEVER return "True Positive" for a vulnerability class other than' not in sp

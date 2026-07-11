@@ -19,10 +19,11 @@ from pathlib import Path
 
 from vuln_hunter_x.core.constants import (
     BUILD_LOG_LLM_PREVIEW_CHARS,
+    DEFAULT_LLM_TEMPERATURE,
     DEFAULT_MAX_FIX_ITERATIONS,
     TIMEOUT_LLM_REQUEST,
 )
-from vuln_hunter_x.core.validation import normalize_ollama_model, openai_compat_kwargs
+from vuln_hunter_x.core.validation import normalize_ollama_model
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +282,7 @@ def make_llm_fix_fn(
         type_context: Struct/enum/typedef definitions.
         symbol_context: Symbol linkability info (library exports, static symbols).
     """
-    import litellm
+    from vuln_hunter_x.llm.completion import run_completion
 
     # Normalize model ID and resolve api_base/api_key — mirrors LLMClient._build_completion_kwargs()
     api_base: str | None = None
@@ -344,25 +345,20 @@ Respond with the corrected full C++ source only (use a ```cpp ... ``` block or p
         message_history.append({"role": "user", "content": user})
 
         try:
-            kwargs = {
-                "model": model_id,
-                "messages": list(message_history),
-                "max_tokens": max_tokens,
-                "timeout": TIMEOUT_LLM_REQUEST,
-            }
-            if api_base:
-                kwargs["api_base"] = api_base
-            if api_key:
-                kwargs["api_key"] = api_key
-            kwargs.update(
-                openai_compat_kwargs(
-                    provider=provider,
-                    model=model_id,
-                    api_base=api_base,
-                    stream=False,
-                )
+            # #152: was an unset (provider-default) temperature with no retry —
+            # a transient error returned "" and aborted the repair. Now defined
+            # temperature + retry via the shared helper.
+            resp = run_completion(
+                messages=list(message_history),
+                model=model_id,
+                provider=provider,
+                api_key=api_key,
+                api_base=api_base,
+                max_tokens=max_tokens,
+                timeout=TIMEOUT_LLM_REQUEST,
+                temperature=DEFAULT_LLM_TEMPERATURE,
+                num_retries=2,
             )
-            resp = litellm.completion(**kwargs)
             content = (resp.choices or [{}])[0].get("message", {}).get("content") or ""
 
             # Add assistant response to history for multi-turn context

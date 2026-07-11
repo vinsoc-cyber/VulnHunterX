@@ -74,6 +74,9 @@ package-dir = {"" = "src"}
 where = ["src"]
 include = ["vuln_hunter_x*"]
 
+[tool.setuptools.package-data]
+"vuln_hunter_x.llm" = ["*.yaml"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

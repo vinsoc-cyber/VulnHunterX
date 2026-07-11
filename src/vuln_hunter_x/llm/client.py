@@ -1098,7 +1098,7 @@ class LLMClient:
         start_time = time.time()
         try:
             kwargs = self._build_completion_kwargs(messages, temperature=temperature)
-            response = litellm.completion(**kwargs)
+            response = self._completion(kwargs)
             raw = (
                 response.choices[0].message.content or ""
                 if response.choices

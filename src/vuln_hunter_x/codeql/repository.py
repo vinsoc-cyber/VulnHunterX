@@ -17,7 +17,6 @@ import yaml
 from vuln_hunter_x.core.constants import TIMEOUT_CODEQL_DB_CREATE, TIMEOUT_LLM_REQUEST
 from vuln_hunter_x.core.validation import (
     normalize_ollama_model,
-    openai_compat_kwargs,
     validate_repo_name,
 )
 
@@ -173,7 +172,7 @@ def ask_llm_for_build_help(
         LLM recommendation or None
     """
     try:
-        import litellm
+        from vuln_hunter_x.llm.completion import run_completion
     except ImportError:
         return None
 
@@ -221,27 +220,15 @@ Language: {language}
 Be specific and actionable. Include exact commands to run."""
 
     try:
-        kwargs: dict = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1200,
-            "timeout": TIMEOUT_LLM_REQUEST,
-        }
-        if use_ollama and api_base:
-            kwargs["api_base"] = api_base.rstrip("/")
-        if use_gemini:
-            kwargs["api_key"] = gemini_key
-        elif api_key and not use_ollama:
-            kwargs["api_key"] = api_key
-            kwargs.update(
-                openai_compat_kwargs(
-                    provider="openai",
-                    model=model,
-                    stream=False,
-                )
-            )
-
-        resp = litellm.completion(**kwargs)
+        resp = run_completion(
+            messages=[{"role": "user", "content": prompt}],
+            model=model,
+            provider=("gemini" if use_gemini else "ollama" if use_ollama else "openai"),
+            api_key=(gemini_key if use_gemini else None if use_ollama else api_key),
+            api_base=(api_base.rstrip("/") if (use_ollama and api_base) else None),
+            max_tokens=1200,
+            timeout=TIMEOUT_LLM_REQUEST,
+        )
         return (resp.choices[0].message.content or "").strip()
     except Exception:
         logger.warning("LLM build help request failed for %s", repo_name, exc_info=True)
