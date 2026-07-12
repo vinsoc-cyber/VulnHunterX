@@ -703,6 +703,101 @@ def _is_nonproduction_path(file_path: str) -> bool:
     return bool(_NONPROD_STEM_RE.search(stem))
 
 
+# Taint-source markers (#121). The scanner's data-flow SOURCE already encodes the
+# entry kind; we surface it so the verifier stops hedging on reachability the
+# scanner already resolved. Matched case-insensitively against the SOURCE step's
+# message (e.g. "req.body", "**argv").
+_REMOTE_SOURCE_MARKERS = (
+    "req.", "request.", "$_get", "$_post", "$_request", "$_cookie", "$_server",
+    "getparameter", "flask.request", "request.form", "request.args", "request.json",
+    "httpservletrequest", "ctx.request", "event.body", "url.searchparams",
+)
+_OPERATOR_SOURCE_MARKERS = (
+    "argv", "process.argv", "sys.argv", "getenv", "environ", "$_env",
+    "stdin", "scanf", "std::cin", "command line", "command-line",
+)
+# Vulnerability classes whose harm REQUIRES crossing an external trust/privilege
+# boundary — path traversal, SSRF, injection, redirects, access control. For these,
+# an operator/CLI (argv) source usually means no real attacker boundary → weight FP.
+# Memory-safety / format-string / overflow classes are deliberately EXCLUDED: there,
+# argv/stdin is a valid exploit vector and the bug is real regardless of provenance
+# (A/B 1.0.0@11e2a2f regressed 10 such findings when the operator note fired blindly).
+_TRUST_BOUNDARY_RULE_MARKERS = (
+    "injection", "traversal", "path-injection", "ssrf", "request-forgery",
+    "open-redirect", "redirect", "xss", "cross-site", "csrf", "access-control",
+    "authoriz", "authentic", "deserial", "xxe", "ssti", "zip-slip", "cors",
+    "sql", "ldap", "xpath",
+)
+
+
+def _first_source_step(dataflow_path: list[str]) -> str:
+    """Return the first non-separator dataflow step (the SOURCE), or ""."""
+    for step in dataflow_path or []:
+        if isinstance(step, str) and not step.startswith("--- Flow"):
+            return step
+    return ""
+
+
+def _classify_dataflow_source_kind(dataflow_path: list[str]) -> str:
+    """Classify the scanner's taint SOURCE as ``"remote"`` (external request/network
+    input), ``"operator_cli"`` (argv/env/stdin), or ``""`` (unknown → fail-safe).
+
+    Heuristic over the scanner's already-computed, short source string — not a repo
+    scan. Clear cases only; the long tail is left to the LLM reading the [SOURCE] label.
+    """
+    src = _first_source_step(dataflow_path)
+    if not src:
+        return ""
+    msg = src.split(": ", 1)[-1].lower() if ": " in src else src.lower()
+    if any(m in msg for m in _REMOTE_SOURCE_MARKERS):
+        return "remote"
+    if any(m in msg for m in _OPERATOR_SOURCE_MARKERS):
+        return "operator_cli"
+    return ""
+
+
+def _dataflow_source_note(dataflow_path: list[str], rule_id: str = "") -> dict[str, str]:
+    """Return a {note_key: note_text} describing the scanner's taint-source kind for
+    injection into prefetched_context, or {} when the kind is unknown (#121).
+
+    The operator/CLI note is gated by ``rule_id``: it fires only for trust-boundary
+    vulnerability classes; memory-safety / format-string / overflow classes are left
+    alone (there, argv/stdin is a valid exploit vector). The remote note is ungated.
+    """
+    kind = _classify_dataflow_source_kind(dataflow_path)
+    if not kind:
+        return {}
+    src = _first_source_step(dataflow_path).split(": ", 1)[-1].strip()
+    if kind == "remote":
+        return {
+            "NOTE: scanner taint-source = remote/external input": (
+                f"The scanner's data-flow for this finding begins at an EXTERNAL / "
+                f"REMOTE input (source: {src}). The scanner's model has already "
+                "established that external, attacker-controllable input reaches the "
+                "flagged sink, so this sink IS reachable from outside. Do NOT answer "
+                "'Needs More Data' on reachability grounds and do NOT require a visible "
+                "caller/route to confirm it. Judge EXPLOITABILITY (is there an adequate "
+                "sanitizer or guard on this path?), not reachability."
+            )
+        }
+    # operator_cli: the "not a trust boundary → weight FP" argument only holds for
+    # trust-boundary vulnerability classes. For memory-safety/format/overflow, argv/
+    # stdin is a valid exploit vector, so suppress the note (fail-safe: unknown class
+    # → no note). Prevents the class-blind over-suppression measured in A/B @11e2a2f.
+    if not any(m in (rule_id or "").lower() for m in _TRUST_BOUNDARY_RULE_MARKERS):
+        return {}
+    return {
+        "NOTE: scanner taint-source = operator command-line input": (
+            f"The scanner's data-flow for this finding begins at a COMMAND-LINE / "
+            f"OPERATOR input (source: {src}) — argv / environment / stdin, supplied by "
+            "whoever runs the program, NOT a network or request boundary. This is "
+            "generally not an external trust boundary. Unless you can trace a real "
+            "external (network/request) path to this code, weight toward 'False "
+            "Positive' rather than confirming an attacker-facing vulnerability."
+        )
+    }
+
+
 def _verdict_filename(finding: Finding) -> str:
     """Unique, filesystem-safe filename for a per-finding verdict JSON.
 
@@ -1220,6 +1315,12 @@ class VerificationEngine:
                 "More Data over confirming a pattern that cannot reach a dangerous "
                 "value in this context."
             )
+
+        # Taint-source reachability signal (#121): the scanner's data-flow SOURCE
+        # already encodes the entry kind — surface it so the verifier stops hedging
+        # on reachability the scanner already resolved (remote → reachable; argv/
+        # operator → not an external trust boundary). Fail-safe: {} when unknown.
+        prefetched_context.update(_dataflow_source_note(finding.dataflow_path, finding.rule_id))
 
         # Framework signal (P2.1): tell the verifier the repo's actual web
         # framework so it reasons about THIS one instead of guessing (the dvpwa
