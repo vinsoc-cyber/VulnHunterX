@@ -70,12 +70,15 @@ def test_system_prompt_has_taint_source_clause():
     sp = PromptBuilder().get_system_prompt(tool_name="CodeQL", lang="javascript")
     low = sp.lower()
     assert "taint-source" in low or "data-flow source" in low
-    # remote source ⇒ reachability established, don't hedge
+    # remote source ⇒ reachability established, don't hedge — this is the ONLY
+    # taint-source guidance in the GLOBAL prompt; it is ungated and safe.
     assert "remote" in low and "reachab" in low
-    # operator-cli source ⇒ not an external trust boundary
-    assert "argv" in low and ("trust boundary" in low or "operator" in low)
     # reachability, not exploitability — a visible sanitizer is still FP
     assert "exploitab" in low
+    # the operator-CLI "weight FP" guidance must NOT live in the global prompt: it
+    # leaked onto memory-safety findings there (A/B @0104961). It now travels only
+    # via the class-gated NOTE (_dataflow_source_note).
+    assert "not an external trust boundary" not in low
     # Step-0 preserved; the prompt still builds — a stray unescaped brace in the
     # added clause would raise KeyError/ValueError in get_system_prompt()'s .format().
     assert "step 0" in low
