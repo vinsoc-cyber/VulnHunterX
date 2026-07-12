@@ -1,0 +1,22 @@
+# php.lang.security.md5-loose-equality.md5-loose-equality @ vulnerabilities/captcha/source/impossible.php:46
+
+**Verdict:** FP · **Confidence:** Medium (0.74) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 1
+
+## Reasoning
+
+Flagged line 46 is present exactly as `if( ( $pass_new == $pass_conf) && ( $data->rowCount() == 1 ) ) {`, and it does contain the rule-described loose `==` comparison involving MD5-derived values. The comparison is technically unsafe PHP type juggling, but in this visible flow both operands are attacker-controlled new-password/confirmation values and the actual password update is separately gated by the current-password database check, so the flagged sink does not clearly create an exploitable security impact beyond accepting mismatched confirmation values.
+
+## Data flow
+
+source `$_POST['password_new']` (line 11) → `stripslashes` (line 12) → `mysqli_real_escape_string` (line 13) → `md5` (line 14) → loose comparison sink `$pass_new == $pass_conf` (line 46); source `$_POST['password_conf']` (line 16) → `stripslashes` (line 17) → `mysqli_real_escape_string` (line 18) → `md5` (line 19) → loose comparison sink `$pass_new == $pass_conf` (line 46)
+
+## Answers
+
+1. Step 1: The potentially dangerous data originates from remote user-controlled POST parameters: `$_POST['password_new']` on line 11 and `$_POST['password_conf']` on line 16. These are the ultimate sources for the two MD5 values compared on line 46.
+2. Step 2: Data flow for the new password: `$_POST['password_new']` line 11 → `$pass_new` line 11 → `stripslashes($pass_new)` line 12 → `mysqli_real_escape_string(..., $pass_new)` line 13 → `md5($pass_new)` line 14 → loose comparison on line 46. Data flow for the confirmation password: `$_POST['password_conf']` line 16 → `$pass_conf` line 16 → `stripslashes($pass_conf)` line 17 → `mysqli_real_escape_string(..., $pass_conf)` line 18 → `md5($pass_conf)` line 19 → loose comparison on line 46.
+3. Step 3: `stripslashes()` is applied on lines 12 and 17, and `mysqli_real_escape_string()` is applied on lines 13 and 18. These are not sufficient for the specific vulnerability type, because PHP loose equality/type juggling is not prevented by SQL escaping or slash removal. `md5()` on lines 14 and 19 creates hexadecimal strings, some of which can have PHP numeric-string form such as `0e...`, which is relevant to loose comparison.
+4. Step 4: The sink is line 46: `if( ( $pass_new == $pass_conf) && ( $data->rowCount() == 1 ) ) {`. The unsafe operation is the loose comparison `==` between two MD5 digest strings. In PHP, `==` may perform type juggling, so two different MD5 hashes that look like numeric zero in scientific notation can compare equal.
+5. Step 5: The code uses a CSRF token check on line 5, CAPTCHA verification on lines 27-33, and a parameterized PDO query for the current password check on lines 40-43. These protect other parts of the password-change flow, but they do not protect the MD5 comparison itself from PHP loose-equality semantics. No framework/library automatic protection is visible that converts the comparison to strict equality.
+6. Step 6: The attacker appears to need access to the password-change flow and must satisfy the current-password check: the code reads `$_POST['password_current']` on line 21, hashes it on line 24, and checks it against the current user's database row on lines 40-46. The snippet does not show the surrounding route/session enforcement, but the visible code requires knowledge of the current password and a valid CSRF token/CAPTCHA path.
+7. Step 7: If an attacker controls `password_new` and `password_conf`, the concrete impact of the loose comparison is that two different plaintext password entries can be accepted as matching if their MD5 hashes trigger PHP type juggling. However, because the attacker already controls both new-password fields and the update is also gated by the current-password database check on lines 40-46, the visible security impact is limited to bypassing the password-confirmation consistency check, not unauthorized account takeover, RCE, data theft, or privilege escalation.
+8. Step 8: The weakest link is the loose equality operator on line 46; it should be `===` for comparing MD5 strings. However, in the provided context this weak link affects only whether the two attacker-supplied new password fields are considered matching. The defense chain against unauthorized password change is the current-password query and row-count gate on lines 40-46, plus token/CAPTCHA checks on lines 5 and 27-33.

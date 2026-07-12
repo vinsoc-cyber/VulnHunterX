@@ -1,0 +1,23 @@
+# php.lang.security.eval-use.eval-use @ vulnerabilities/view_help.php:20
+
+**Verdict:** TP · **Confidence:** Medium (0.78) · **Truth:** real · **Grade:** CORRECT · **Iterations:** 5
+
+## Reasoning
+
+The flagged line is an actual dynamic `eval()` sink, and attacker-controlled `$_GET['id']` reaches the file path used to obtain the evaluated PHP code with no visible validation, allowlist, or canonicalization. Although the attacker must be authenticated and the exact filesystem contents are not shown, the visible path is reachable and lacks any defense preventing user-controlled file selection before evaluation.
+
+## Data flow
+
+HTTP query parameter $_GET['id'] checked only for existence at vulnerabilities/view_help.php:11-13 → assigned to $id at vulnerabilities/view_help.php:14 → $_GET['locale'] assigned to $locale at vulnerabilities/view_help.php:16 → branch requires $locale == 'en' at vulnerabilities/view_help.php:19 → $id interpolated into `DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/{$id}/help/help.php"` at vulnerabilities/view_help.php:20 → `file_get_contents(...)` reads the selected file at vulnerabilities/view_help.php:20 → file contents are concatenated into the argument to `eval(...)` at vulnerabilities/view_help.php:20 → PHP evaluates the non-constant string at vulnerabilities/view_help.php:20
+
+## Answers
+
+1. Step 0: The flagged line is present at vulnerabilities/view_help.php:20 and its exact text is `eval( '?>' . file_get_contents( DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/{$id}/help/help.php" ) . '<?php ' );`. The construct described by the rule is present on that exact line: PHP `eval()` is invoked with a dynamically constructed, non-constant expression. The code is in top-level script scope; no named function or method is visible, so the function is `<unknown>`.
+2. Q1: The dangerous selector data originates from HTTP query parameters in `$_GET`. Specifically, `$_GET['id']` is assigned to `$id` on line 14, and `$_GET['locale']` is assigned to `$locale` on line 16. On the flagged line 20 path, `$locale` must equal `'en'` because of the branch on line 19, so the relevant attacker-controlled value reaching the flagged sink is `$id`. The evaluated bytes themselves come from the filesystem via `file_get_contents()` on line 20.
+3. Q2: Data trace: lines 11-13 check only that `id`, `security`, and `locale` exist in `$_GET`; line 14 assigns `$_GET['id']` to `$id`; line 16 assigns `$_GET['locale']` to `$locale`; line 19 branches when `$locale == 'en'`; line 20 interpolates `$id` into `DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/{$id}/help/help.php"`; line 20 reads that selected file with `file_get_contents()`; line 20 concatenates the returned file contents into the argument to `eval()`; line 20 evaluates that string.
+4. Q3: No validation, sanitization, encoding, allowlist, path normalization, canonical path check, or path traversal prevention for `$id` is visible between its assignment on line 14 and its use on line 20. The check on line 19 validates only that `$locale == 'en'`; it does not constrain `$id`. The additional context provided was unavailable and did not reveal any upstream defense.
+5. Q4: The sink is `eval(...)` on line 20. The unsafe operation is evaluating dynamically selected file contents as PHP code. The path to the evaluated file is influenced by user-controlled `$id`, making this an unsafe dynamic-evaluation/local-file-selection sink.
+6. Q5: No framework or library protection is visible at the sink. `dvwaPageStartup(array('authenticated'))` on line 6 appears to enforce authentication, but its implementation was unavailable and no visible protection from it applies to `$id` before line 20. There is no visible ORM parameterization, template auto-escaping, sandboxing, safe include wrapper, or configured allowlist protecting the `file_get_contents()` plus `eval()` sequence.
+7. Q6: Based on visible code, the attacker must be authenticated because line 6 calls `dvwaPageStartup(array('authenticated'))`. No admin-only check is visible in the provided code.
+8. Q7: The concrete security impact is potential PHP code execution in the web application context if the attacker can cause the constructed path to resolve to PHP content with executable code, including through traversal to unintended files or attacker-influenced files. Even without a direct write primitive shown, the flagged sink is dangerous because user input controls which file’s contents are evaluated as PHP.
+9. Q8: The weakest link is the complete lack of an allowlist or canonical path validation for `$id` before it is used to choose a file whose contents are passed to `eval()` on line 20. There is no visible complete defense chain preventing attacker-controlled file selection at the eval sink.

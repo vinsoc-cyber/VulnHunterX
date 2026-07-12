@@ -1,0 +1,23 @@
+# php.lang.security.injection.tainted-exec.tainted-exec @ vulnerabilities/exec/source/impossible.php:22
+
+**Verdict:** FP · **Confidence:** High (0.9) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The flagged shell-execution sink is present at line 22, and the source is request input from line 8. However, the only visible path to the sink passes through the line 15 numeric/four-octet guard and line 17 reconstruction, which prevents shell metacharacters or arbitrary command fragments from being included in `$target` at the flagged sink.
+
+## Data flow
+
+vulnerabilities/exec/source/impossible.php:8 `$_REQUEST['ip']` source → line 8 `$target` assignment → line 9 `stripslashes($target)` → line 12 `explode('.', $target)` into `$octet` → line 15 `is_numeric($octet[0]) && ... && is_numeric($octet[3]) && sizeof($octet) == 4` validation gate → line 17 `$target = $octet[0] . '.' . $octet[1] . '.' . $octet[2] . '.' . $octet[3]` reconstruction → line 22 `$cmd = shell_exec( 'ping  ' . $target );` sink. Additional requested contexts for `checkToken`, `generateSessionToken`, `$html`, `$_REQUEST`, and `$_SESSION` were unavailable and add no further visible data-flow steps.
+
+## Answers
+
+1. Step 0 / flagged line: The flagged line is line 22, exactly: `$cmd = shell_exec( 'ping  ' . $target );`. The construct described by the rule is present on that line: `shell_exec()` executes a shell command built by concatenating a string with `$target`. The code context labels the containing function as `<unknown>`; it appears in the provided slice as top-level PHP code rather than inside a named function.
+2. Step 1: The potentially dangerous data originates from HTTP request input at line 8: `$target = $_REQUEST[ 'ip' ];`. The path is entered when `isset($_POST['Submit'])` is true on line 3. The additional requested context for `$_REQUEST` was unavailable and does not change this source assessment.
+3. Step 2: The data flow is: `$_REQUEST['ip']` on line 8 → assigned to `$target` on line 8 → transformed by `stripslashes($target)` on line 9 → split into `$octet` by `explode('.', $target)` on line 12 → checked by `is_numeric($octet[0..3])` and `sizeof($octet) == 4` on line 15 → reconstructed into `$target` from the four octets and literal dots on line 17 → concatenated into the command passed to `shell_exec()` on line 22. The additional context for `checkToken()` and `generateSessionToken()` was unavailable, and no new transformation of `$target` was provided.
+4. Step 3: Validation is visible and relevant. `stripslashes()` on line 9 is not a command-injection sanitizer. However, line 15 requires exactly four dot-separated components and requires each component to be numeric, and line 17 reconstructs `$target` only from those checked components plus literal dots. This prevents shell metacharacters or command text such as `;`, `&`, `|`, backticks, `$()`, or appended commands from reaching the flagged `shell_exec()` call on this path.
+5. Step 4: The sink is line 22: `$cmd = shell_exec( 'ping  ' . $target );`. The dangerous operation is shell command execution using `shell_exec()` with a request-derived value concatenated into the command string.
+6. Step 5: No automatic framework or library protection against command injection is visible. `checkToken($_REQUEST['user_token'], $_SESSION['session_token'], 'index.php')` on line 5 appears to be CSRF/session-token validation, not shell escaping. Its body was unavailable in the added context, but the command-injection-relevant defense is already visible in lines 15-17.
+7. Step 6: The required privilege or authentication state is not fully visible. The attacker must be able to submit a request with `$_POST['Submit']` set on line 3 and must pass the token check on line 5. Whether this requires authentication, an admin role, or merely a valid session is not visible in the provided context or the unavailable additional context.
+8. Step 7: If attacker-controlled shell syntax reached line 22, the security impact would be OS command injection / remote code execution as the PHP process user. In the visible flagged path, the numeric-octet validation and reconstruction prevent attacker-controlled command syntax from reaching `shell_exec()`.
+9. Step 8: The weakest link is the use of `shell_exec()` with string concatenation on line 22 instead of a safer process API or explicit shell escaping. Nevertheless, for this specific finding, the defense chain is complete in the visible code because the value reaching line 22 must pass the numeric and four-octet validation at line 15 and is rebuilt at line 17 from only validated octets and literal dots.

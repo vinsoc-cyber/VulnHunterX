@@ -1,0 +1,127 @@
+{
+  "previous": "1.0.0@eda2fd0",
+  "current": "1.0.0@28eab8b",
+  "flips": [
+    {
+      "rule": "cpp/overflow-buffer",
+      "file": "practice/if_constexpr.cpp",
+      "line": 15,
+      "truth": "real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "High",
+      "cur_conf": "High",
+      "direction": "REGRESS"
+    },
+    {
+      "rule": "cpp/signed-overflow-check",
+      "file": "exploitable/undefined_behavior.cpp",
+      "line": 11,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "High",
+      "cur_conf": "Medium",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "cpp/signed-overflow-check",
+      "file": "exploitable/undefined_behavior.cpp",
+      "line": 15,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "High",
+      "cur_conf": "Medium",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "cpp/signed-overflow-check",
+      "file": "practice/if_constexpr.cpp",
+      "line": 14,
+      "truth": "real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "High",
+      "cur_conf": "Medium",
+      "direction": "REGRESS"
+    },
+    {
+      "rule": "cpp/static-buffer-overflow",
+      "file": "practice/if_constexpr.cpp",
+      "line": 15,
+      "truth": "real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "High",
+      "cur_conf": "Medium",
+      "direction": "REGRESS"
+    },
+    {
+      "rule": "cpp/suspicious-sizeof",
+      "file": "practice/decay.cpp",
+      "line": 5,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "Low",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "cpp/suspicious-sizeof",
+      "file": "practice/guidelines/expressions_and_statements/cautious_pointer_use_decay.cpp",
+      "line": 10,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "Low",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "cpp/type-confusion",
+      "file": "practice/guidelines/expressions_and_statements/use_named_cast.cpp",
+      "line": 13,
+      "truth": "not-real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "Medium",
+      "cur_conf": "Medium",
+      "direction": "REGRESS"
+    },
+    {
+      "rule": "cpp/type-confusion",
+      "file": "practice/guidelines/expressions_and_statements/use_named_cast.cpp",
+      "line": 16,
+      "truth": "not-real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "Medium",
+      "cur_conf": "Low",
+      "direction": "REGRESS"
+    }
+  ],
+  "totals": {
+    "flips": 9,
+    "improve": 4,
+    "regress": 5,
+    "neutral": 0
+  },
+  "deltas": {
+    "precision": 0.0533,
+    "recall": -0.1154
+  },
+  "resource_deltas": {
+    "input_tokens": 34017,
+    "output_tokens": 1048,
+    "cached_input_tokens": 52736,
+    "cache_hit_ratio": 0.2113,
+    "elapsed_seconds": -585.2,
+    "iterations_mean": 0.09,
+    "cost_usd": -0.0358,
+    "n_error": 0,
+    "n_abstain": 0
+  },
+  "timestamp": "2026-07-12T12:21:06"
+}

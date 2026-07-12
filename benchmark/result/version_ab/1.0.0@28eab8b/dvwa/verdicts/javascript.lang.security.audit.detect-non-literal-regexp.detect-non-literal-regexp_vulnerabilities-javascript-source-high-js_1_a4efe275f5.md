@@ -1,0 +1,23 @@
+# javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp @ vulnerabilities/javascript/source/high.js:1
+
+**Verdict:** FP · **Confidence:** High (0.92) · **Truth:** not-real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The flagged dynamic `new RegExp` sink is present, but the regex pattern is visibly derived from a literal-bounded numeric loop counter rather than attacker-controlled input. The unavailable additional context does not introduce any new source, and the shown path constructs only simple word-boundary token regexes, so an exploitable ReDoS path is not present.
+
+## Data flow
+
+vulnerabilities/javascript/source/high.js:1 static array `a` → line 1 IIFE rotates `a` → line 1 decoder `b(c,d)` returns static decoded strings → line 1 unpacker call passes literal `0x137` as parameter `f` → line 1 `while(f--)` bounded numeric loop → line 1 `h(f)` numeric-to-token conversion → line 1 pattern concatenation `'\x5cb'+h(f)+'\x5cb'` → line 1 sink `new RegExp(...,'g')` → line 1 use in `d.replace(...)`
+
+## Answers
+
+1. Step 0 / flagged line: The flagged line is `vulnerabilities/javascript/source/high.js:1`, in function/context `<unknown>` / top-level script. The exact relevant flagged text on that line is `d=d[b('0x2')](new RegExp('\x5cb'+h(f)+'\x5cb','g'),g[f]);`. The rule-described construct is present: `new RegExp(...)` is called with a dynamically constructed pattern.
+2. Step 1: The new context does not change the source assessment. The dynamic regex component originates from `h(f)` on line 1, where `f` is the unpacking function parameter supplied by the visible literal argument `0x137` in `eval(function(d,e,f,g,h,i){...}(b('0x7'),0x3e,0x137,b('0x8')[b('0x9')]('|'),0x0,{}));` on line 1. No user input, file, network, database, request parameter, or other attacker-controlled source is visible.
+3. Step 2: Re-trace with additional context: `var a=[...]` is initialized on line 1 with static literals → an IIFE rotates entries in `a` using `push`/`shift` on line 1 → `var b=function(c,d){...return e;};` decodes entries from `a` on line 1 → the unpacking function is invoked via `eval(function(d,e,f,g,h,i){...}(b('0x7'),0x3e,0x137,b('0x8')[b('0x9')]('|'),0x0,{}));` on line 1 → parameter `f` receives literal `0x137` → `while(f--)` iterates over bounded numeric values on line 1 → helper `h(f)` converts the numeric counter into a short base-style token on line 1 → the token is concatenated into `new RegExp('\x5cb'+h(f)+'\x5cb','g')` on line 1 → the regex is used in `d.replace(..., g[f])` on line 1. The requested additional context for `global:a`, `global:b`, and `function:<top-level>` was unavailable and adds no new source.
+4. Step 3: No explicit regex sanitizer such as `recheck` is visible. However, for this specific ReDoS class, the visible code shows a stronger property: the regex pattern component is not attacker-controlled. It is generated from a bounded numeric loop counter initialized by literal `0x137` on line 1. The `h(f)` conversion produces token-like alphanumeric strings, which are placed between literal word-boundary fragments `\b...\b`; no attacker-supplied regex metacharacters are visible.
+5. Step 4: The sink is `new RegExp('\x5cb'+h(f)+'\x5cb','g')` on line 1, followed by use in `d.replace(...)` on line 1. The operation would be dangerous if untrusted input could control the regex pattern and introduce catastrophic-backtracking constructs. In the visible path, the pattern is generated from a numeric counter and fixed string fragments.
+6. Step 5: No framework or library automatic protection is visible or relevant. This is raw JavaScript using `RegExp`, `replace`, and `eval` on line 1. The finding is not mitigated by a framework; it is mitigated by the visible absence of attacker-controlled regex pattern data.
+7. Step 6: Authentication or privilege requirements are not visible. The snippet appears to execute at script load, but no route, request handler, or caller context is provided. Importantly, no visible attacker-controlled input reaches the flagged regex construction regardless of authentication state.
+8. Step 7: If an attacker controlled the regex pattern, the theoretical impact would be denial of service through ReDoS. Based on the visible data flow, an attacker does not control the pattern, so the concrete ReDoS impact for this flagged sink is not demonstrated.
+9. Step 8: No weak link exists for the flagged ReDoS path in the provided code. The defense is complete for this finding because the dynamic component `h(f)` is derived from a literal-bounded numeric counter, not external input, before reaching `new RegExp` on line 1.

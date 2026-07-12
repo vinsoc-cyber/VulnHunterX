@@ -1,0 +1,110 @@
+{
+  "meta": {
+    "version": "1.0.0@28eab8b",
+    "provider": "openai",
+    "model": "gpt-5.5",
+    "temperature": 0,
+    "max_iterations": 5,
+    "panel_hash": "sha256:eebf118bd1d28123bd79695ebc489cca",
+    "timestamp": "2026-07-12T12:21:06"
+  },
+  "findings": [
+    {
+      "rule": "cpp/double-free",
+      "file": "imgRead.c",
+      "line": 62,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.042513,
+      "input_tokens": 4605,
+      "output_tokens": 1072,
+      "cached_input_tokens": 2816,
+      "elapsed_seconds": 23.352470636367798,
+      "iterations": 1,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/invalid-pointer-deref",
+      "file": "imgRead.c",
+      "line": 91,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.061915000000000005,
+      "input_tokens": 4667,
+      "output_tokens": 1286,
+      "cached_input_tokens": 0,
+      "elapsed_seconds": 27.844016790390015,
+      "iterations": 1,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/invalid-pointer-deref",
+      "file": "imgRead.c",
+      "line": 95,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.07127,
+      "input_tokens": 4666,
+      "output_tokens": 1598,
+      "cached_input_tokens": 0,
+      "elapsed_seconds": 36.34610652923584,
+      "iterations": 1,
+      "truth": "real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/path-injection",
+      "file": "imgRead.c",
+      "line": 132,
+      "verdict": "FP",
+      "confidence": "Medium",
+      "cost_usd": 0.105718,
+      "input_tokens": 8876,
+      "output_tokens": 2467,
+      "cached_input_tokens": 2816,
+      "elapsed_seconds": 53.09115505218506,
+      "iterations": 2,
+      "truth": "not-real",
+      "grade": "CORRECT"
+    },
+    {
+      "rule": "cpp/use-after-free",
+      "file": "imgRead.c",
+      "line": 67,
+      "verdict": "TP",
+      "confidence": "High",
+      "cost_usd": 0.05439,
+      "input_tokens": 4596,
+      "output_tokens": 1047,
+      "cached_input_tokens": 0,
+      "elapsed_seconds": 29.290926218032837,
+      "iterations": 1,
+      "truth": "real",
+      "grade": "CORRECT"
+    }
+  ],
+  "aggregates": {
+    "tp_total": 4,
+    "tp_real": 4,
+    "false_alarm": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "n_real": 4,
+    "n_not_real": 1,
+    "n_abstain": 0,
+    "n_error": 0,
+    "n_error_real": 0,
+    "cost_usd": 0.3358
+  },
+  "resources": {
+    "input_tokens": 27410,
+    "output_tokens": 7470,
+    "cached_input_tokens": 5632,
+    "cache_hit_ratio": 0.2055,
+    "elapsed_seconds": 169.9,
+    "iterations_total": 6,
+    "iterations_mean": 1.2
+  }
+}

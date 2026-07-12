@@ -1,0 +1,204 @@
+{
+  "previous": "1.0.0@eda2fd0",
+  "current": "1.0.0@28eab8b",
+  "flips": [
+    {
+      "rule": "php.lang.security.audit.openssl-decrypt-validate.openssl-decrypt-validate",
+      "file": "vulnerabilities/api/src/Token.php",
+      "line": 39,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "Medium",
+      "cur_conf": "Medium",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_help.php",
+      "line": 20,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "High",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_help.php",
+      "line": 22,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "High",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source.php",
+      "line": 63,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "Medium",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source.php",
+      "line": 67,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "Medium",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source_all.php",
+      "line": 14,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "High",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source_all.php",
+      "line": 18,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "Medium",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source_all.php",
+      "line": 22,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "High",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-filename.tainted-filename",
+      "file": "vulnerabilities/view_source_all.php",
+      "line": 26,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "High",
+      "cur_conf": "Medium",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/sqli_blind/source/high.php",
+      "line": 33,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "Low",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/sqli_blind/source/low.php",
+      "line": 32,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "Low",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.injection.tainted-sql-string.tainted-sql-string",
+      "file": "vulnerabilities/sqli_blind/source/medium.php",
+      "line": 34,
+      "truth": "real",
+      "previous": "FP",
+      "current": "TP",
+      "prev_conf": "Low",
+      "cur_conf": "High",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/captcha/source/impossible.php",
+      "line": 46,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "High",
+      "cur_conf": "Medium",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/cryptography/source/ecb_attack.php",
+      "line": 92,
+      "truth": "not-real",
+      "previous": "FP",
+      "current": "NMD",
+      "prev_conf": "High",
+      "cur_conf": "Medium",
+      "direction": "REGRESS"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/javascript/index.php",
+      "line": 43,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "Low",
+      "cur_conf": "Low",
+      "direction": "IMPROVE"
+    },
+    {
+      "rule": "php.lang.security.md5-loose-equality.md5-loose-equality",
+      "file": "vulnerabilities/javascript/index.php",
+      "line": 57,
+      "truth": "not-real",
+      "previous": "TP",
+      "current": "FP",
+      "prev_conf": "Low",
+      "cur_conf": "Low",
+      "direction": "IMPROVE"
+    }
+  ],
+  "totals": {
+    "flips": 16,
+    "improve": 15,
+    "regress": 1,
+    "neutral": 0
+  },
+  "deltas": {
+    "precision": 0.1186,
+    "recall": 0.2619
+  },
+  "resource_deltas": {
+    "input_tokens": -41615,
+    "output_tokens": -25194,
+    "cached_input_tokens": 48896,
+    "cache_hit_ratio": 0.0631,
+    "elapsed_seconds": -4789.4,
+    "iterations_mean": -0.48,
+    "cost_usd": -1.1839,
+    "n_error": 0,
+    "n_abstain": 1
+  },
+  "timestamp": "2026-07-12T12:21:06"
+}

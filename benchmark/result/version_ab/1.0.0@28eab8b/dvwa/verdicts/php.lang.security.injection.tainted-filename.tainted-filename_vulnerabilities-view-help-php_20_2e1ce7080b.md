@@ -1,0 +1,23 @@
+# php.lang.security.injection.tainted-filename.tainted-filename @ vulnerabilities/view_help.php:20
+
+**Verdict:** TP · **Confidence:** High (0.88) · **Truth:** real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The new context is unavailable and does not change the visible analysis: authenticated user input from `$_GET['id']` reaches the flagged `file_get_contents()` filename on line 20 with no sanitization or allowlist, and the loaded contents are immediately evaluated. The precise visible vulnerability is attacker-controlled local file path inclusion with eval-based execution risk, even though the rule message frames the general tainted-filename risk as SSRF.
+
+## Data flow
+
+vulnerabilities/view_help.php:14 `$_GET['id']` source → `$id` assignment at line 14 → no validation after presence-only checks at lines 11-13 → interpolation into `"vulnerabilities/{$id}/help/help.php"` at line 20 → concatenation with `DVWA_WEB_PAGE_TO_ROOT` defined as `'../'` at line 3 → `file_get_contents(...)` at line 20 → returned contents concatenated into `eval(...)` at line 20
+
+## Answers
+
+1. Step 0 / flagged line: The flagged line 20 is present and reads exactly: `eval( '?>' . file_get_contents( DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/{$id}/help/help.php" ) . '<?php ' );`. It lives in top-level PHP script code in `vulnerabilities/view_help.php`; the provided function name is `<unknown>`, and no named function/method wrapper is visible. The Semgrep-described construct is present: a filename passed to `file_get_contents()` is built using user-controlled data.
+2. Step 1: The potentially dangerous data originates from HTTP query-string user input, specifically `$_GET['id']` on line 14. The scanner source is a remote/external request parameter, and the code visibly reads directly from `$_GET`.
+3. Step 2: Data flow: on lines 11-13, the code only checks that `id`, `security`, and `locale` keys exist in `$_GET`; on line 14, `$_GET['id']` is assigned to `$id`; on line 16, `$_GET['locale']` is assigned to `$locale`; on line 19, `$locale` is compared to the literal string `'en'`; on line 20, `$id` is interpolated into `"vulnerabilities/{$id}/help/help.php"`; that path is concatenated with `DVWA_WEB_PAGE_TO_ROOT`, defined as `'../'` on line 3; the resulting path is passed to `file_get_contents()` on line 20; the returned file contents are concatenated into a string and passed to `eval()` on the same line.
+4. Step 3: No validation, sanitization, normalization, allowlist, basename restriction, canonical path check, or encoding is visible for `$id` before it reaches the sink on line 20. The checks on lines 11-13 only verify parameter presence. The `$locale == 'en'` check on line 19 affects which filename template is used, but it does not constrain `$id`. The additional context returned as unavailable does not add any visible defense.
+5. Step 4: The sink is line 20: `file_get_contents( DVWA_WEB_PAGE_TO_ROOT . "vulnerabilities/{$id}/help/help.php" )`, immediately followed by `eval(...)` of the retrieved contents. The dangerous operation is attacker-influenced filesystem path construction and execution of the loaded content as PHP code.
+6. Step 5: No automatic framework or library protection is visible at this point. `dvwaPageStartup(array('authenticated'))` on line 6 may enforce authentication, but its body is unavailable and, in any event, authentication is not path validation. PHP does not automatically sanitize interpolated path components in `file_get_contents()`, and no PHP configuration such as `open_basedir` is visible in the supplied context.
+7. Step 6: Based on line 6, an attacker appears to need an authenticated session because `dvwaPageStartup(array('authenticated'))` is called. No admin-only requirement is visible.
+8. Step 7: The concrete impact is unsafe local file inclusion/path traversal into a file-read sink, made more severe because the loaded contents are passed to `eval()` on line 20. If an authenticated attacker can select or reach a PHP-readable file matching the constructed path pattern, the contents are executed, potentially resulting in code execution. The original rule labels this as SSRF, but because the path is prefixed by the local relative root from line 3, the clearly visible issue is local path manipulation plus eval of file contents rather than a clearly demonstrated remote URL fetch.
+9. Step 8: The weakest link is the absence of any allowlist or canonical-path validation for `$id` before it is inserted into a filesystem path and evaluated on line 20. A complete defense would restrict `$id` to known help-page identifiers and avoid `eval()` entirely.

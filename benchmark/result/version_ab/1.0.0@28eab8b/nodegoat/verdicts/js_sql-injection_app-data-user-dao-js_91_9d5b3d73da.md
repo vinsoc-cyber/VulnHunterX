@@ -1,0 +1,23 @@
+# js/sql-injection @ app/data/user-dao.js:91
+
+**Verdict:** TP · **Confidence:** High (0.86) · **Truth:** real · **Grade:** CORRECT · **Iterations:** 3
+
+## Reasoning
+
+The flagged sink is visible and uses a remote body-derived `userName` directly inside a MongoDB `findOne` query selector at lines 91-92. No visible caller, middleware, type check, or sanitizer prevents an attacker-controlled object from being interpreted as a MongoDB selector, so the flagged data flow is a real NoSQL injection risk.
+
+## Data flow
+
+external `req.body` per CodeQL source → body-derived value enters `this.validateLogin` as `userName` at app/data/user-dao.js:57 → no visible validation/sanitization → `userName` used as query selector value at app/data/user-dao.js:92 → query object passed to `usersCol.findOne({ ... }, validateUserDoc)` at app/data/user-dao.js:91-93. Additional context: no recorded callers for `validateLogin`; no `global:app` or `global:db` found, so no additional sanitizer or framework protection is visible.
+
+## Answers
+
+1. Step 0 / flagged line: The flagged line is present at app/data/user-dao.js:91 and is exactly `usersCol.findOne({`. It lives inside the `UserDAO` constructor function, in the `this.validateLogin = (userName, password, callback) => { ... }` method defined at lines 57-94. The rule-described construct is present on that line: a database query is being constructed and passed to `findOne`.
+2. Step 1: The potentially dangerous data originates from external/remote user input, specifically `req.body` according to the provided CodeQL data-flow source. In the visible code, that external value is represented by the `userName` parameter of `this.validateLogin` at line 57. The new context reports no recorded callers for `validateLogin`, but the pre-fetched scanner context states that external `req.body` reaches this sink, so reachability from remote input remains established for this finding.
+3. Step 2: The visible flow is: external `req.body` per CodeQL source → body-derived value passed as `userName` into `this.validateLogin` at line 57 → `userName` is inserted directly into the MongoDB query object as `userName: userName` at line 92 → the query object is passed to `usersCol.findOne` at line 91 with callback `validateUserDoc` at line 93. The additional context says `[No callers found for: validateLogin]`, so no caller-side transformation or validation is visible.
+4. Step 3: No validation, sanitization, type enforcement, or encoding is visible for `userName` before it reaches the query at lines 91-92. There is no visible check that `userName` is a string, no rejection of objects, and no visible removal of MongoDB operator keys such as `$ne`, `$gt`, or `$regex`. The additional context does not reveal any global `app` middleware or `db` wrapper that would sanitize the value.
+5. Step 4: The sink is the MongoDB query operation beginning at line 91: `usersCol.findOne({`, with the attacker-controlled value used in the selector at line 92: `userName: userName`. The dangerous operation is using remote input as a MongoDB query selector value; if the value can be an object, it may be interpreted as a MongoDB operator expression rather than a literal username.
+6. Step 5: No framework or library automatic protection is visible. `usersCol` is obtained from `db.collection("users")` at line 15, and the code directly calls MongoDB-style `findOne` at line 91. The new context did not provide any `app` global, middleware, schema validator, mongo-sanitize configuration, or custom `db` wrapper showing automatic protection.
+7. Step 6: The exact authentication state is not visible in the provided code or additional context. However, the scanner source is remote/external `req.body`, and the provided note states that external attacker-controllable input reaches the flagged sink, so an external requester capable of submitting the relevant body can trigger this data flow. No admin-only or authenticated-only guard is visible.
+8. Step 7: The concrete impact is MongoDB/NoSQL query selector injection at the user lookup. In this login flow, manipulating the `userName` selector could cause lookup of an unintended user document. The subsequent password comparison at lines 60-61 and 75 may limit full login bypass unless the attacker can also satisfy the password comparison, but the query predicate itself is still attacker-controlled and can alter database lookup semantics.
+9. Step 8: The weakest link is the absence of an explicit scalar/type validation or MongoDB operator sanitization before line 92. No complete defense is visible in the DAO, caller context, or requested globals; the new context does not add any sanitizer or guard.
