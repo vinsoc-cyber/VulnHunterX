@@ -6,6 +6,7 @@ source means external reachability is already established; a command-line/operat
 source is not an external trust boundary. Both facts are already in Finding.dataflow_path."""
 from __future__ import annotations
 
+from vuln_hunter_x.llm.prompts import PromptBuilder
 from vuln_hunter_x.verification.engine import (
     _classify_dataflow_source_kind,
     _dataflow_source_note,
@@ -51,3 +52,19 @@ def test_dataflow_source_note_operator_and_unknown():
     assert "operator" in key.lower() or "command-line" in key.lower()
     assert "false positive" in text.lower()
     assert _dataflow_source_note(["line 7: localBuffer"]) == {}
+
+
+def test_system_prompt_has_taint_source_clause():
+    sp = PromptBuilder().get_system_prompt(tool_name="CodeQL", lang="javascript")
+    low = sp.lower()
+    assert "taint-source" in low or "data-flow source" in low
+    # remote source ⇒ reachability established, don't hedge
+    assert "remote" in low and "reachab" in low
+    # operator-cli source ⇒ not an external trust boundary
+    assert "argv" in low and ("trust boundary" in low or "operator" in low)
+    # reachability, not exploitability — a visible sanitizer is still FP
+    assert "exploitab" in low
+    # Step-0 preserved; the prompt still builds — a stray unescaped brace in the
+    # added clause would raise KeyError/ValueError in get_system_prompt()'s .format().
+    assert "step 0" in low
+    assert '"verdict":' in sp  # strict-JSON response block intact
