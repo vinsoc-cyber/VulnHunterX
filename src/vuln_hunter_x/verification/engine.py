@@ -716,6 +716,18 @@ _OPERATOR_SOURCE_MARKERS = (
     "argv", "process.argv", "sys.argv", "getenv", "environ", "$_env",
     "stdin", "scanf", "std::cin", "command line", "command-line",
 )
+# Vulnerability classes whose harm REQUIRES crossing an external trust/privilege
+# boundary — path traversal, SSRF, injection, redirects, access control. For these,
+# an operator/CLI (argv) source usually means no real attacker boundary → weight FP.
+# Memory-safety / format-string / overflow classes are deliberately EXCLUDED: there,
+# argv/stdin is a valid exploit vector and the bug is real regardless of provenance
+# (A/B 1.0.0@11e2a2f regressed 10 such findings when the operator note fired blindly).
+_TRUST_BOUNDARY_RULE_MARKERS = (
+    "injection", "traversal", "path-injection", "ssrf", "request-forgery",
+    "open-redirect", "redirect", "xss", "cross-site", "csrf", "access-control",
+    "authoriz", "authentic", "deserial", "xxe", "ssti", "zip-slip", "cors",
+    "sql", "ldap", "xpath",
+)
 
 
 def _first_source_step(dataflow_path: list[str]) -> str:
@@ -744,9 +756,14 @@ def _classify_dataflow_source_kind(dataflow_path: list[str]) -> str:
     return ""
 
 
-def _dataflow_source_note(dataflow_path: list[str]) -> dict[str, str]:
+def _dataflow_source_note(dataflow_path: list[str], rule_id: str = "") -> dict[str, str]:
     """Return a {note_key: note_text} describing the scanner's taint-source kind for
-    injection into prefetched_context, or {} when the kind is unknown (#121)."""
+    injection into prefetched_context, or {} when the kind is unknown (#121).
+
+    The operator/CLI note is gated by ``rule_id``: it fires only for trust-boundary
+    vulnerability classes; memory-safety / format-string / overflow classes are left
+    alone (there, argv/stdin is a valid exploit vector). The remote note is ungated.
+    """
     kind = _classify_dataflow_source_kind(dataflow_path)
     if not kind:
         return {}
@@ -763,6 +780,12 @@ def _dataflow_source_note(dataflow_path: list[str]) -> dict[str, str]:
                 "sanitizer or guard on this path?), not reachability."
             )
         }
+    # operator_cli: the "not a trust boundary → weight FP" argument only holds for
+    # trust-boundary vulnerability classes. For memory-safety/format/overflow, argv/
+    # stdin is a valid exploit vector, so suppress the note (fail-safe: unknown class
+    # → no note). Prevents the class-blind over-suppression measured in A/B @11e2a2f.
+    if not any(m in (rule_id or "").lower() for m in _TRUST_BOUNDARY_RULE_MARKERS):
+        return {}
     return {
         "NOTE: scanner taint-source = operator command-line input": (
             f"The scanner's data-flow for this finding begins at a COMMAND-LINE / "
@@ -1297,7 +1320,7 @@ class VerificationEngine:
         # already encodes the entry kind — surface it so the verifier stops hedging
         # on reachability the scanner already resolved (remote → reachable; argv/
         # operator → not an external trust boundary). Fail-safe: {} when unknown.
-        prefetched_context.update(_dataflow_source_note(finding.dataflow_path))
+        prefetched_context.update(_dataflow_source_note(finding.dataflow_path, finding.rule_id))
 
         # Framework signal (P2.1): tell the verifier the repo's actual web
         # framework so it reasons about THIS one instead of guessing (the dvpwa

@@ -46,12 +46,24 @@ def test_dataflow_source_note_remote_and_filter_safe():
     assert "[No " not in text and "[Unknown" not in text
 
 
-def test_dataflow_source_note_operator_and_unknown():
-    note = _dataflow_source_note(["line 126: **argv"])
+def test_dataflow_source_note_operator_gated_by_class():
+    # A/B 11e2a2f regressed 10 real memory-safety findings because the operator/CLI
+    # "not a trust boundary → weight FP" note fired class-blindly. It must apply ONLY
+    # to trust-boundary classes; for memory-safety/format-string, argv is a valid
+    # exploit vector.
+    # trust-boundary class (path-injection) → note fires
+    note = _dataflow_source_note(["line 126: **argv"], "cpp/path-injection")
     (key, text), = note.items()
     assert "operator" in key.lower() or "command-line" in key.lower()
     assert "false positive" in text.lower()
-    assert _dataflow_source_note(["line 7: localBuffer"]) == {}
+    # memory-safety / format-string classes → suppressed (no note)
+    assert _dataflow_source_note(["line 126: **argv"], "cpp/unbounded-write") == {}
+    assert _dataflow_source_note(["line 10: **argv"], "cpp/tainted-format-string") == {}
+    assert _dataflow_source_note(["line 9: **argv"], "cpp/non-constant-format") == {}
+    # remote source is NOT gated by class — fires regardless of rule
+    assert _dataflow_source_note(["line 34: req.body"], "cpp/unbounded-write") != {}
+    # unknown source → nothing
+    assert _dataflow_source_note(["line 7: localBuffer"], "cpp/path-injection") == {}
 
 
 def test_system_prompt_has_taint_source_clause():
