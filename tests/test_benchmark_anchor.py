@@ -75,3 +75,39 @@ def test_function_granularity_fixtures_are_unanchored(fixture):
     entries = load_entries(_FIXTURES / fixture)
     assert entries, f"{fixture} must be non-empty"
     assert all(not e.is_line_anchored for e in entries)
+
+
+# ── Task 4: line-anchored approaches exclude unanchored entries ────────────
+class _StubApproach:
+    def __init__(self, line_anchored: bool) -> None:
+        self.line_anchored = line_anchored
+
+
+def test_benchmark_approach_default_not_line_anchored():
+    from benchmarks.approaches.base import BenchmarkApproach
+    assert BenchmarkApproach.line_anchored is False
+
+
+def test_verifier_approaches_are_line_anchored():
+    from benchmarks.approaches.ablation import AblationGenericApproach, AblationZeroApproach
+    from benchmarks.approaches.raw_sast import RawSastApproach
+    from benchmarks.approaches.vulnhunterx import VulnHunterXApproach
+    assert VulnHunterXApproach.line_anchored is True
+    assert AblationGenericApproach.line_anchored is True
+    assert AblationZeroApproach.line_anchored is True
+    assert RawSastApproach.line_anchored is False  # raw-sast doesn't run the line-aware verifier
+
+
+def test_filter_drops_unanchored_for_line_anchored_approach():
+    from benchmarks.approaches.base import filter_for_approach
+    entries = [_entry(id="a", sink_line=10), _entry(id="b", sink_line=None), _entry(id="c", sink_line=20)]
+    kept, dropped = filter_for_approach(entries, _StubApproach(True))
+    assert [e.id for e in kept] == ["a", "c"]
+    assert dropped == 1
+
+
+def test_filter_keeps_all_for_non_line_anchored_approach():
+    from benchmarks.approaches.base import filter_for_approach
+    entries = [_entry(id="a", sink_line=None), _entry(id="b", sink_line=10)]
+    kept, dropped = filter_for_approach(entries, _StubApproach(False))
+    assert len(kept) == 2 and dropped == 0

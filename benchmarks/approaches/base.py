@@ -113,6 +113,11 @@ class BenchmarkApproach(ABC):
     """Abstract base for all benchmark approaches."""
 
     name: str = "unnamed"
+    # True for approaches that anchor the verifier on a specific flagged line
+    # (they call entry_to_finding). Line-unanchored, function-granularity
+    # entries are excluded from these approaches so the line-aware verifier is
+    # not penalised for correctly rejecting a fabricated anchor (#125).
+    line_anchored: bool = False
 
     @abstractmethod
     def evaluate(self, entry: GroundTruthEntry) -> BenchmarkResult:
@@ -159,6 +164,20 @@ def entry_to_finding(entry: GroundTruthEntry) -> Finding:
         lang=entry.lang,
         tool="benchmark",
     )
+
+
+def filter_for_approach(
+    entries: list[GroundTruthEntry], approach: BenchmarkApproach
+) -> tuple[list[GroundTruthEntry], int]:
+    """Drop line-unanchored entries for a line-anchored approach (#125).
+
+    Returns ``(kept_entries, dropped_count)``. Non-line-anchored approaches
+    (e.g. raw-sast) keep every entry.
+    """
+    if not getattr(approach, "line_anchored", False):
+        return list(entries), 0
+    kept = [e for e in entries if e.is_line_anchored]
+    return kept, len(entries) - len(kept)
 
 
 def verdict_to_pred(verdict_str: str) -> str:

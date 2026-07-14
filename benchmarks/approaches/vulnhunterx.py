@@ -44,6 +44,7 @@ class VulnHunterXApproach(RegisteredApproach):
     """
 
     name = "vulnhunterx"
+    line_anchored = True  # anchors the verifier on the flagged line (#125)
     requires_llm = True
     is_baseline = False
     option_schema = {

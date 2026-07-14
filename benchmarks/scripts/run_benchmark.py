@@ -81,6 +81,7 @@ from benchmarks.adapters.ground_truth import GroundTruthEntry, load_entries  # n
 from benchmarks.approaches.base import (  # noqa: E402
     PRED_ERROR,
     BenchmarkApproach,
+    filter_for_approach,
     BenchmarkResult,
 )
 from benchmarks.metrics import deepseek_v4_cost  # noqa: E402
@@ -507,6 +508,17 @@ def run_one(
     drop any prior checkpoint rows for them so they are re-run from scratch
     (used by `failed_entries.txt` re-runs).
     """
+    # Line-anchored approaches must not see function-granularity (line-unanchored)
+    # entries: a fabricated anchor makes the line-aware verifier reject real bugs (#125).
+    entries, _n_unanchored = filter_for_approach(entries, approach)
+    if _n_unanchored:
+        logger.warning(
+            "Excluded %d line-unanchored entr%s from line-anchored approach %s on %s "
+            "(function-granularity dataset; not a real scanner anchor) (#125)",
+            _n_unanchored, "y" if _n_unanchored == 1 else "ies",
+            approach_name, dataset_name,
+        )
+
     prior_results: list[BenchmarkResult] = []
     processed_ids: set[str] = set()
 
