@@ -134,7 +134,18 @@ _CWE_MESSAGES: dict[str, str] = {
 
 
 def entry_to_finding(entry: GroundTruthEntry) -> Finding:
-    """Convert a GroundTruthEntry to a VulnHunterX Finding for use with VerificationEngine."""
+    """Convert a GroundTruthEntry to a VulnHunterX Finding for use with VerificationEngine.
+
+    Requires a real scanner-derived anchor (``entry.sink_line``). Line-unanchored
+    entries (function-granularity datasets) must be excluded upstream by
+    line-anchored approaches: anchoring them at a fabricated line makes the
+    line-aware verifier dismiss real bugs as False Positive (#125).
+    """
+    if entry.sink_line is None:
+        raise ValueError(
+            f"entry {entry.id!r} ({entry.source_dataset}) is line-unanchored; "
+            "line-anchored verifier approaches must exclude it (#125)"
+        )
     return Finding(
         rule_id=entry.rule_id or f"benchmark/{entry.cwe_id.lower().replace('-', '')}",
         message=entry.metadata.get(
@@ -142,8 +153,8 @@ def entry_to_finding(entry: GroundTruthEntry) -> Finding:
             _CWE_MESSAGES.get(entry.cwe_id, f"{entry.cwe_id or 'vulnerability'} detected"),
         ),
         file=entry.file_path or "benchmark_snippet.c",
-        start_line=entry.start_line or 1,
-        end_line=entry.start_line or 1,
+        start_line=entry.sink_line,
+        end_line=entry.sink_line,
         repo_name=entry.source_dataset,
         lang=entry.lang,
         tool="benchmark",

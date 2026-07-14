@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry, LABEL_TP
+from benchmarks.approaches.base import entry_to_finding
 
 
 def _entry(**kw) -> GroundTruthEntry:
@@ -39,3 +40,15 @@ def test_legacy_json_without_sink_line_loads():
     d = _entry().to_dict()
     d.pop("sink_line", None)
     assert GroundTruthEntry.from_dict(d).sink_line is None
+
+
+# ── Task 2: entry_to_finding anchors on sink_line, refuses to fabricate ────
+def test_entry_to_finding_uses_sink_line():
+    f = entry_to_finding(_entry(sink_line=42, file_path="a.c"))
+    assert f.start_line == 42
+    assert f.end_line == 42
+
+
+def test_entry_to_finding_rejects_unanchored():
+    with pytest.raises(ValueError, match="line-unanchored"):
+        entry_to_finding(_entry(sink_line=None))
