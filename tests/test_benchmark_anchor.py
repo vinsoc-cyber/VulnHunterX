@@ -7,10 +7,14 @@ line-unanchored and must be excluded from line-anchored verifier approaches.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from benchmarks.adapters.ground_truth import GroundTruthEntry, LABEL_TP
+from benchmarks.adapters.ground_truth import GroundTruthEntry, LABEL_TP, load_entries
 from benchmarks.approaches.base import entry_to_finding
+
+_FIXTURES = Path(__file__).resolve().parents[1] / "benchmarks" / "fixtures"
 
 
 def _entry(**kw) -> GroundTruthEntry:
@@ -52,3 +56,22 @@ def test_entry_to_finding_uses_sink_line():
 def test_entry_to_finding_rejects_unanchored():
     with pytest.raises(ValueError, match="line-unanchored"):
         entry_to_finding(_entry(sink_line=None))
+
+
+# ── Task 3: adapters set anchors honestly (RealVuln real; the 6 unanchored) ─
+def test_realvuln_fixture_is_line_anchored():
+    entries = load_entries(_FIXTURES / "realvuln_sample.json")
+    assert entries, "realvuln fixture must be non-empty"
+    assert all(e.is_line_anchored for e in entries)
+    assert all(e.sink_line == e.start_line for e in entries)
+
+
+@pytest.mark.parametrize("fixture", [
+    "diversevul_sample.json", "juliet_sample.json", "openvuln_sample.json",
+    "owasp_benchmark_sample.json", "secllmholmes_sample.json",
+    "security-rules_sample.json",
+])
+def test_function_granularity_fixtures_are_unanchored(fixture):
+    entries = load_entries(_FIXTURES / fixture)
+    assert entries, f"{fixture} must be non-empty"
+    assert all(not e.is_line_anchored for e in entries)
