@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from vuln_hunter_x.context.repo_paths import resolve_repo_file
 from vuln_hunter_x.core.types import CodeContext, Finding
 
 
@@ -57,7 +58,7 @@ class ContextExtractor:
         self.repos_base = Path(repos_base)
         self.output_dir = Path(output_dir) if output_dir is not None else None
         self._file_cache: dict[str, list[str]] = {}
-        self._path_cache: dict[tuple[str, str], Path | None] = {}
+        self._path_cache: dict[tuple[str, str, str], Path | None] = {}
 
     def clear_cache(self) -> None:
         """Clear all caches."""
@@ -85,7 +86,7 @@ class ContextExtractor:
         Returns:
             CodeContext with the extracted code
         """
-        full_path = self._resolve_path(file_path, lang)
+        full_path = self._resolve_path(file_path, lang, repo_name)
         if not full_path or not full_path.is_file():
             return self._fallback_context(file_path, line, context_lines)
 
@@ -148,22 +149,18 @@ class ContextExtractor:
         except (OSError, UnicodeDecodeError):
             return []
 
-    def _resolve_path(self, file_path: str, lang: str) -> Path | None:
-        """Resolve file path to actual location in repos/."""
-        cache_key = (file_path, lang)
+    def _resolve_path(self, file_path: str, lang: str, repo_name: str = "") -> Path | None:
+        """Resolve file_path to its location within repos/<lang>/<repo_name>/.
+
+        Fail-closed and repo-scoped (#156): never scans sibling repos, so two
+        repos sharing a relative path never collide; the cache is keyed by repo.
+        """
+        cache_key = (repo_name, lang, file_path)
         if cache_key in self._path_cache:
             return self._path_cache[cache_key]
-
-        lang_dir = self.repos_base / lang
-        if lang_dir.is_dir():
-            for repo_dir in lang_dir.iterdir():
-                candidate = repo_dir / file_path
-                if candidate.is_file():
-                    self._path_cache[cache_key] = candidate
-                    return candidate
-
-        self._path_cache[cache_key] = None
-        return None
+        resolved = resolve_repo_file(self.repos_base, lang, repo_name, file_path)
+        self._path_cache[cache_key] = resolved
+        return resolved
 
     def _fallback_context(
         self,
