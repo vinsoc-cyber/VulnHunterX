@@ -289,6 +289,7 @@ class TestApproachBase:
         from benchmarks.approaches.base import entry_to_finding
 
         entry = _entry(LABEL_TP)
+        entry.sink_line = 5  # entry_to_finding now requires a real anchor (#125)
         finding = entry_to_finding(entry)
         assert finding.rule_id == "cpp/use-after-free"
         assert finding.lang == "c"
@@ -305,6 +306,7 @@ class TestApproachBase:
             file_path="f.c",
             function_name="fn",
             start_line=1,
+            sink_line=1,  # entry_to_finding now requires a real anchor (#125)
             lang="c",
             label=LABEL_TP,
             code_snippet="",

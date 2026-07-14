@@ -111,3 +111,33 @@ def test_filter_keeps_all_for_non_line_anchored_approach():
     entries = [_entry(id="a", sink_line=None), _entry(id="b", sink_line=10)]
     kept, dropped = filter_for_approach(entries, _StubApproach(False))
     assert len(kept) == 2 and dropped == 0
+
+
+# ── Task 5: end-to-end — line-anchored panel has zero fabricated line-1 anchors ─
+def test_e2e_function_granularity_dataset_fully_excluded():
+    """secllmholmes (all line-1) is entirely excluded for the real VulnHunterX
+    approach, so no fabricated line-1 anchor ever reaches the verifier (#125)."""
+    from benchmarks.approaches.base import filter_for_approach
+    from benchmarks.approaches.vulnhunterx import VulnHunterXApproach
+
+    sec = load_entries(_FIXTURES / "secllmholmes_sample.json")
+    kept, dropped = filter_for_approach(sec, VulnHunterXApproach)
+    assert kept == [] and dropped == len(sec)
+    # And forcing an unanchored entry through would be rejected, never fabricated:
+    with pytest.raises(ValueError, match="line-unanchored"):
+        entry_to_finding(sec[0])
+
+
+def test_e2e_realvuln_entries_flow_through_with_real_anchors():
+    """RealVuln (real lines) is kept and every entry yields a Finding anchored
+    on its real sink line — never line 1 (#125)."""
+    from benchmarks.approaches.base import filter_for_approach
+    from benchmarks.approaches.vulnhunterx import VulnHunterXApproach
+
+    rv = load_entries(_FIXTURES / "realvuln_sample.json")
+    kept, dropped = filter_for_approach(rv, VulnHunterXApproach)
+    assert dropped == 0 and len(kept) == len(rv)
+    for e in kept:
+        f = entry_to_finding(e)  # must not raise
+        assert f.start_line == e.sink_line
+        assert f.start_line != 1  # realvuln fixture lines are all real (15,25,42,60,88)
