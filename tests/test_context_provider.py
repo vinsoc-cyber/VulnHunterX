@@ -503,3 +503,23 @@ class TestFrameworkContext:
             "app", "javascript", ["framework_sanitizers:repo"]
         )
         assert "No global input-validation pipe" in res["framework_sanitizers:repo"]
+
+
+def test_read_lines_does_not_serve_sibling_repo(tmp_path):
+    # myrepo lacks x.c; a sibling repo has it — the sibling must NOT be served (#156).
+    (tmp_path / "repos" / "c" / "myrepo").mkdir(parents=True)
+    (tmp_path / "repos" / "c" / "other").mkdir(parents=True)
+    (tmp_path / "repos" / "c" / "other" / "x.c").write_text("SIBLING\n")
+    provider = ContextProvider(tmp_path / "output", tmp_path / "repos")
+    out = provider._read_lines("myrepo", "c", "x.c", 1, 1)
+    assert "SIBLING" not in out and out.startswith("[File not found")
+
+
+def test_repo_root_does_not_pick_sibling(tmp_path):
+    # _repo_root must not fall back to a sibling that happens to contain src/,
+    # and an empty repo_name must fail closed rather than returning the lang dir.
+    sib = tmp_path / "repos" / "c" / "sibling"
+    (sib / "src").mkdir(parents=True)
+    provider = ContextProvider(tmp_path / "output", tmp_path / "repos")
+    assert provider._repo_root("c", "myrepo") is None
+    assert provider._repo_root("c", "") is None

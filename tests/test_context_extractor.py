@@ -65,3 +65,23 @@ def test_line_past_eof_does_not_claim_containment(tmp_path):
     ex = ContextExtractor(repos_base=tmp_path)
     ctx = ex.get_context("short.c", 999, "c", repo_name="demo")
     assert not (ctx.start_line <= 999 <= ctx.end_line)
+
+
+def test_same_relative_path_resolves_within_own_repo(tmp_path):
+    # Two repos share app.py; each finding must read its OWN repo's source and
+    # the per-repo cache must not serve repoA's path to repoB (#156).
+    _write(tmp_path, "python", "repoA", "app.py", "A_SOURCE\n" * 3)
+    _write(tmp_path, "python", "repoB", "app.py", "B_SOURCE\n" * 3)
+    ex = ContextExtractor(repos_base=tmp_path)
+    a = ex.get_context("app.py", 1, "python", repo_name="repoA")
+    b = ex.get_context("app.py", 1, "python", repo_name="repoB")
+    assert "A_SOURCE" in a.code and "B_SOURCE" not in a.code
+    assert "B_SOURCE" in b.code and "A_SOURCE" not in b.code
+
+
+def test_empty_repo_name_yields_fallback_not_sibling(tmp_path):
+    # No repo identity → fail-closed → placeholder, never a sibling repo's source.
+    _write(tmp_path, "python", "repoA", "app.py", "SECRET\n")
+    ex = ContextExtractor(repos_base=tmp_path)
+    ctx = ex.get_context("app.py", 1, "python")  # no repo_name
+    assert "SECRET" not in ctx.code

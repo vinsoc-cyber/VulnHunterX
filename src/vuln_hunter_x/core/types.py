@@ -181,9 +181,14 @@ class Verdict:
         """Check if verdict needs more data."""
         return self.verdict == VerdictType.NEEDS_MORE_DATA.value
 
-    def to_dict(self) -> dict:
-        """Convert to dictionary for serialization."""
-        return {
+    def to_dict(self, include_raw_response: bool = False) -> dict:
+        """Convert to dictionary for serialization.
+
+        ``raw_response`` is omitted by default (it can be large and may contain
+        sensitive snippets); pass ``include_raw_response=True`` to persist it so
+        a saved verdict round-trips through ``from_dict`` (#160).
+        """
+        data: dict = {
             "finding": self.finding.to_dict(),
             "verdict": self.verdict,
             "confidence": self.confidence,
@@ -202,6 +207,9 @@ class Verdict:
             "cost_usd": self.cost_usd,
             "data_flow": self.data_flow,
         }
+        if include_raw_response:
+            data["raw_response"] = self.raw_response
+        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> Verdict:
@@ -261,8 +269,11 @@ class VerificationResult:
             return 0.0
         return (self.false_positive_count / self.total_findings) * 100
 
-    def to_dict(self) -> dict:
-        """Convert to dictionary for serialization."""
+    def to_dict(self, include_raw_response: bool = False) -> dict:
+        """Convert to dictionary for serialization.
+
+        ``include_raw_response`` is forwarded to each verdict (#160).
+        """
         return {
             "timestamp": self.timestamp,
             "provider": self.provider,
@@ -270,7 +281,9 @@ class VerificationResult:
             "total_findings": self.total_findings,
             "total_time_seconds": self.total_time_seconds,
             "stats": self.stats,
-            "verdicts": [v.to_dict() for v in self.verdicts],
+            "verdicts": [
+                v.to_dict(include_raw_response=include_raw_response) for v in self.verdicts
+            ],
         }
 
 
