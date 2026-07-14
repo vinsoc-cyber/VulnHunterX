@@ -10,7 +10,16 @@
     "lang": "python",
     "label": "TP",
     "code_snippet": "@app.route('/profile')\ndef render_profile():\n    name = request.args.get('name', '')\n    # BUG: untrusted input written into HTML\n    return f\"<html>Hello {name}</html>\"\n",
-    "metadata": {"repo_id": "flask-cve-001", "commit_sha": "abc123", "end_line": 47, "evidence_source": "cve", "cve_id": "CVE-2024-12345", "snippet_kind": "resolver", "vulnerability_class": "xss"}
+    "metadata": {
+      "repo_id": "flask-cve-001",
+      "commit_sha": "abc123",
+      "end_line": 47,
+      "evidence_source": "cve",
+      "cve_id": "CVE-2024-12345",
+      "snippet_kind": "resolver",
+      "vulnerability_class": "xss"
+    },
+    "sink_line": 42
   },
   {
     "id": "realvuln-flask-cve-001-2",
@@ -23,7 +32,16 @@
     "lang": "python",
     "label": "FP",
     "code_snippet": "@app.route('/safe')\ndef render_safe():\n    name = request.args.get('name', '')\n    # FP trap: looks like XSS but escape() makes it safe\n    return render_template('hello.html', name=escape(name))\n",
-    "metadata": {"repo_id": "flask-cve-001", "commit_sha": "abc123", "end_line": 65, "evidence_source": "semgrep", "cve_id": "", "snippet_kind": "resolver", "vulnerability_class": "xss"}
+    "metadata": {
+      "repo_id": "flask-cve-001",
+      "commit_sha": "abc123",
+      "end_line": 65,
+      "evidence_source": "semgrep",
+      "cve_id": "",
+      "snippet_kind": "resolver",
+      "vulnerability_class": "xss"
+    },
+    "sink_line": 60
   },
   {
     "id": "realvuln-django-app-2-1",
@@ -36,7 +54,16 @@
     "lang": "python",
     "label": "TP",
     "code_snippet": "def search(request):\n    q = request.GET.get('q', '')\n    # BUG: raw SQL with user input\n    cursor.execute(\"SELECT * FROM items WHERE name LIKE '%\" + q + \"%'\")\n    return JsonResponse({'rows': cursor.fetchall()})\n",
-    "metadata": {"repo_id": "django-app-2", "commit_sha": "def456", "end_line": 19, "evidence_source": "cve", "cve_id": "CVE-2025-77777", "snippet_kind": "resolver", "vulnerability_class": "sqli"}
+    "metadata": {
+      "repo_id": "django-app-2",
+      "commit_sha": "def456",
+      "end_line": 19,
+      "evidence_source": "cve",
+      "cve_id": "CVE-2025-77777",
+      "snippet_kind": "resolver",
+      "vulnerability_class": "sqli"
+    },
+    "sink_line": 15
   },
   {
     "id": "realvuln-django-app-2-2",
@@ -49,7 +76,16 @@
     "lang": "python",
     "label": "FP",
     "code_snippet": "def search_orm(request):\n    q = request.GET.get('q', '')\n    # FP trap: ORM parameterizes, no injection\n    rows = Item.objects.filter(name__icontains=q).values()\n    return JsonResponse({'rows': list(rows)})\n",
-    "metadata": {"repo_id": "django-app-2", "commit_sha": "def456", "end_line": 28, "evidence_source": "semgrep", "cve_id": "", "snippet_kind": "resolver", "vulnerability_class": "sqli"}
+    "metadata": {
+      "repo_id": "django-app-2",
+      "commit_sha": "def456",
+      "end_line": 28,
+      "evidence_source": "semgrep",
+      "cve_id": "",
+      "snippet_kind": "resolver",
+      "vulnerability_class": "sqli"
+    },
+    "sink_line": 25
   },
   {
     "id": "realvuln-fastapi-r-3-1",
@@ -62,6 +98,15 @@
     "lang": "python",
     "label": "TP",
     "code_snippet": "@app.get('/files/{name}')\ndef read_user_file(name: str):\n    # BUG: path traversal\n    return open(f'/var/data/{name}').read()\n",
-    "metadata": {"repo_id": "fastapi-r-3", "commit_sha": "789ghi", "end_line": 92, "evidence_source": "cve", "cve_id": "CVE-2025-99999", "snippet_kind": "resolver", "vulnerability_class": "path_traversal"}
+    "metadata": {
+      "repo_id": "fastapi-r-3",
+      "commit_sha": "789ghi",
+      "end_line": 92,
+      "evidence_source": "cve",
+      "cve_id": "CVE-2025-99999",
+      "snippet_kind": "resolver",
+      "vulnerability_class": "path_traversal"
+    },
+    "sink_line": 88
   }
 ]

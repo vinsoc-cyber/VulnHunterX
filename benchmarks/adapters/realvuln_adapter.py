@@ -187,6 +187,10 @@ class RealVulnAdapter(DatasetAdapter):
                         file_path=file_rel,
                         function_name=func_name,
                         start_line=start_line or 1,
+                        # RealVuln carries real per-finding location lines, so it
+                        # is line-anchored (verifier-track); other datasets are
+                        # function-granularity and stay unanchored (#125).
+                        sink_line=start_line or None,
                         lang=lang,
                         label=label,
                         code_snippet=snippet,

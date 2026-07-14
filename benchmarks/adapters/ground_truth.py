@@ -36,12 +36,21 @@ class GroundTruthEntry:
     label: str             # LABEL_TP | LABEL_FP | LABEL_BENIGN
     code_snippet: str
     metadata: dict = field(default_factory=dict)
+    # Real scanner-derived flagged/sink line. None means the dataset labels at
+    # function granularity only (no real line); such entries are line-unanchored
+    # and must be excluded from line-anchored verifier approaches (#125).
+    sink_line: int | None = None
 
     def __post_init__(self) -> None:
         if self.label not in (LABEL_TP, LABEL_FP, LABEL_BENIGN):
             raise ValueError(
                 f"Invalid label {self.label!r}; must be 'TP', 'FP', or 'BENIGN'"
             )
+
+    @property
+    def is_line_anchored(self) -> bool:
+        """True iff a real scanner-derived sink line is present (#125)."""
+        return self.sink_line is not None
 
     def to_dict(self) -> dict:
         return {
@@ -56,6 +65,7 @@ class GroundTruthEntry:
             "label": self.label,
             "code_snippet": self.code_snippet,
             "metadata": self.metadata,
+            "sink_line": self.sink_line,
         }
 
     @classmethod
@@ -72,6 +82,7 @@ class GroundTruthEntry:
             label=data["label"],
             code_snippet=data.get("code_snippet", ""),
             metadata=data.get("metadata", {}),
+            sink_line=data.get("sink_line"),
         )
 
 

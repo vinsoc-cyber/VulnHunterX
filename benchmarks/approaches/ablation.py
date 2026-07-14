@@ -93,6 +93,7 @@ class _AblationVariant(RegisteredApproach):
 
     requires_llm: ClassVar[bool] = True
     is_baseline: ClassVar[bool] = False
+    line_anchored: ClassVar[bool] = True  # anchors the verifier on the flagged line (#125)
     variant: ClassVar[str] = ""  # "generic" | "zero" — override in subclass
     option_schema: ClassVar[dict[str, OptionSpec]] = {
         "max_iterations": OptionSpec(int, default=3, help="Max LLM turns per finding."),

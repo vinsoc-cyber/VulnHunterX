@@ -113,6 +113,11 @@ class BenchmarkApproach(ABC):
     """Abstract base for all benchmark approaches."""
 
     name: str = "unnamed"
+    # True for approaches that anchor the verifier on a specific flagged line
+    # (they call entry_to_finding). Line-unanchored, function-granularity
+    # entries are excluded from these approaches so the line-aware verifier is
+    # not penalised for correctly rejecting a fabricated anchor (#125).
+    line_anchored: bool = False
 
     @abstractmethod
     def evaluate(self, entry: GroundTruthEntry) -> BenchmarkResult:
@@ -134,7 +139,18 @@ _CWE_MESSAGES: dict[str, str] = {
 
 
 def entry_to_finding(entry: GroundTruthEntry) -> Finding:
-    """Convert a GroundTruthEntry to a VulnHunterX Finding for use with VerificationEngine."""
+    """Convert a GroundTruthEntry to a VulnHunterX Finding for use with VerificationEngine.
+
+    Requires a real scanner-derived anchor (``entry.sink_line``). Line-unanchored
+    entries (function-granularity datasets) must be excluded upstream by
+    line-anchored approaches: anchoring them at a fabricated line makes the
+    line-aware verifier dismiss real bugs as False Positive (#125).
+    """
+    if entry.sink_line is None:
+        raise ValueError(
+            f"entry {entry.id!r} ({entry.source_dataset}) is line-unanchored; "
+            "line-anchored verifier approaches must exclude it (#125)"
+        )
     return Finding(
         rule_id=entry.rule_id or f"benchmark/{entry.cwe_id.lower().replace('-', '')}",
         message=entry.metadata.get(
@@ -142,12 +158,26 @@ def entry_to_finding(entry: GroundTruthEntry) -> Finding:
             _CWE_MESSAGES.get(entry.cwe_id, f"{entry.cwe_id or 'vulnerability'} detected"),
         ),
         file=entry.file_path or "benchmark_snippet.c",
-        start_line=entry.start_line or 1,
-        end_line=entry.start_line or 1,
+        start_line=entry.sink_line,
+        end_line=entry.sink_line,
         repo_name=entry.source_dataset,
         lang=entry.lang,
         tool="benchmark",
     )
+
+
+def filter_for_approach(
+    entries: list[GroundTruthEntry], approach: BenchmarkApproach
+) -> tuple[list[GroundTruthEntry], int]:
+    """Drop line-unanchored entries for a line-anchored approach (#125).
+
+    Returns ``(kept_entries, dropped_count)``. Non-line-anchored approaches
+    (e.g. raw-sast) keep every entry.
+    """
+    if not getattr(approach, "line_anchored", False):
+        return list(entries), 0
+    kept = [e for e in entries if e.is_line_anchored]
+    return kept, len(entries) - len(kept)
 
 
 def verdict_to_pred(verdict_str: str) -> str:
