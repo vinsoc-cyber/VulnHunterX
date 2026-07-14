@@ -81,8 +81,8 @@ from benchmarks.adapters.ground_truth import GroundTruthEntry, load_entries  # n
 from benchmarks.approaches.base import (  # noqa: E402
     PRED_ERROR,
     BenchmarkApproach,
-    filter_for_approach,
     BenchmarkResult,
+    filter_for_approach,
 )
 from benchmarks.metrics import deepseek_v4_cost  # noqa: E402
 from benchmarks.metrics.evaluator import ApproachMetrics, evaluate  # noqa: E402

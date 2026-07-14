@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from benchmarks.adapters.ground_truth import GroundTruthEntry, LABEL_TP, load_entries
+from benchmarks.adapters.ground_truth import LABEL_TP, GroundTruthEntry, load_entries
 from benchmarks.approaches.base import entry_to_finding
 
 _FIXTURES = Path(__file__).resolve().parents[1] / "benchmarks" / "fixtures"
