@@ -11,6 +11,8 @@ import os
 import threading
 from pathlib import Path
 
+from vuln_hunter_x.context.repo_paths import resolve_repo_file, resolve_repo_root
+
 logger = logging.getLogger(__name__)
 
 # Directories never worth walking when grepping a repo for framework config —
@@ -175,38 +177,8 @@ class ContextProvider:
         end: int,
     ) -> str:
         """Read specific lines from a source file."""
-        full_path = self.repos_dir / lang / repo_name / file_path
-        if not full_path.is_file():
-            # Try without repo_name in path
-            lang_dir = self.repos_dir / lang
-            if lang_dir.is_dir():
-                for repo_dir in lang_dir.iterdir():
-                    candidate = repo_dir / file_path
-                    if candidate.is_file():
-                        full_path = candidate
-                        break
-
-        # Guard against path traversal. Resolve the repo root (and the lang dir)
-        # so legitimately symlinked repos — e.g. repos/<lang>/<repo> pointing at a
-        # benchmark checkout — are accepted, while `../` escapes out of the repo
-        # are still blocked.
-        allowed_bases: list[Path] = []
-        for candidate_base in (self.repos_dir / lang / repo_name, self.repos_dir / lang):
-            try:
-                allowed_bases.append(candidate_base.resolve())
-            except OSError:
-                continue
-        try:
-            resolved = full_path.resolve()
-            if not any(resolved.is_relative_to(b) for b in allowed_bases):
-                logger.warning(
-                    "Path traversal blocked: %s escapes %s", file_path, allowed_bases
-                )
-                return f"[Access denied: {file_path}]"
-        except (ValueError, OSError):
-            return f"[Invalid path: {file_path}]"
-
-        if not full_path.is_file():
+        full_path = resolve_repo_file(self.repos_dir, lang, repo_name, file_path)
+        if full_path is None:
             return f"[File not found: {file_path}]"
 
         try:
@@ -648,16 +620,11 @@ class ContextProvider:
         return "\n".join(parts)
 
     def _repo_root(self, lang: str, repo_name: str) -> Path | None:
-        """Resolve the on-disk source root for a repo (symlink-tolerant)."""
-        base = self.repos_dir / lang / repo_name
-        if base.is_dir():
-            return base
-        lang_dir = self.repos_dir / lang
-        if lang_dir.is_dir():
-            for child in lang_dir.iterdir():
-                if child.is_dir() and (child / "src").exists():
-                    return child
-        return base if base.exists() else None
+        """Resolve the on-disk source root for a repo (symlink-tolerant).
+
+        Fail-closed and repo-scoped (#156): never falls back to a sibling repo.
+        """
+        return resolve_repo_root(self.repos_dir, lang, repo_name)
 
     def _grep_repo(
         self,
