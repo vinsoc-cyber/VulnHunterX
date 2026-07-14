@@ -1698,6 +1698,10 @@ class VerificationEngine:
             Tuple of (summary_path, results_dir)
         """
         output_dir = output_dir or self.config.paths.output_dir
+        # save_results may run on a config-less engine when output_dir is passed
+        # explicitly (see tests); default to redaction in that case.
+        config = getattr(self, "config", None)
+        include_raw = bool(config and config.output.persist_raw_response)
         # Save per-repo under output/<lang>/<repo_name>/verification_results/
         for verdict in result.verdicts:
             finding = verdict.finding
@@ -1706,7 +1710,9 @@ class VerificationEngine:
             )
             repo_results_dir.mkdir(parents=True, exist_ok=True)
             result_file = repo_results_dir / _verdict_filename(finding)
-            result_file.write_text(json.dumps(verdict.to_dict(), indent=2))
+            result_file.write_text(
+                json.dumps(verdict.to_dict(include_raw_response=include_raw), indent=2)
+            )
 
         # Summary: write to first repo's verification_results dir
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1720,6 +1726,8 @@ class VerificationEngine:
         results_dir = output_dir / first_lang / first_repo / "verification_results"
         results_dir.mkdir(parents=True, exist_ok=True)
         summary_file = results_dir / f"summary_{repo_part}_{timestamp}.json"
-        summary_file.write_text(json.dumps(result.to_dict(), indent=2))
+        summary_file.write_text(
+            json.dumps(result.to_dict(include_raw_response=include_raw), indent=2)
+        )
 
         return summary_file, results_dir

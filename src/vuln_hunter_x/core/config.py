@@ -173,6 +173,9 @@ class OutputConfig:
 
     verbosity: str = "normal"  # quiet, normal, verbose
     log_file: Path | None = None
+    # When True, verdict JSON includes the model's raw_response so a saved run
+    # round-trips (#160). Off by default: raw output can be large / sensitive.
+    persist_raw_response: bool = False
 
     @property
     def is_quiet(self) -> bool:
@@ -250,6 +253,7 @@ class Config:
         output = OutputConfig(
             verbosity=data.get("verbosity", "normal"),
             log_file=Path(data["log_file"]) if data.get("log_file") else None,
+            persist_raw_response=bool(data.get("persist_raw_response", False)),
         )
 
         fuzz_data = data.get("fuzz") or {}
