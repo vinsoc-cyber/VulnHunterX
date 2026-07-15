@@ -1,0 +1,253 @@
+Here is the additional context you requested:
+
+### caller:helper
+```
+// Caller function: process
+// File: main.cpp
+void process(char* in) {
+  helper(in);
+  free(in);
+}
+```
+
+### caller:orphan
+```
+[No callers found for: orphan — function exists but has no recorded callers in the analyzed codebase. It may be called via function pointers, callbacks, or from code outside the analysis scope.]
+```
+
+### caller:ghost
+```
+[No caller found for: ghost — function not found in the analysis scope. It may be defined in an external library or header.]
+```
+
+### all_callers:free
+```
+// Caller: process
+// File: main.cpp
+void process(char* in) {
+  helper(in);
+  free(in);
+}
+
+// Caller: helper
+// File: main.cpp
+void helper(char* p) {
+  free(p);
+}
+```
+
+### callees:process
+```
+// Functions called by process:
+  - helper
+  - free
+```
+
+### callee_bodies:process
+```
+// Function: helper
+// File: main.cpp
+void helper(char* p) {
+  free(p);
+}
+
+// (skipped external/builtin callees: free)
+```
+
+### function:helper
+```
+// Function: helper
+// File: main.cpp
+void helper(char* p) {
+  free(p);
+}
+```
+
+### function:process
+```
+// Function: process
+// File: main.cpp
+void process(char* in) {
+  helper(in);
+  free(in);
+}
+
+// Function: process
+// File: main.cpp
+void process(int n) {
+  int x = n + 1;
+}
+```
+
+### function:badline
+```
+[Function metadata present for badline but body could not be read.]
+```
+
+### function:ghost
+```
+[Function not found: ghost — no definition in the analysis scope. It may be an external library, a built-in, or a dynamically assigned method.]
+```
+
+### struct:Widget
+```
+// Struct/Class: Widget
+// File: main.cpp
+struct Widget {
+  int id;
+  char* buf;
+};
+```
+
+### struct:Missing
+```
+[Struct/Class not found: Missing — it may be a typedef alias. Try typedef:Missing to resolve the underlying type.]
+```
+
+### global:g_count
+```
+// Global: g_count (type: int)
+// File: main.cpp
+int g_count = 0;
+```
+
+### global:missing
+```
+[Global variable not found: missing]
+```
+
+### macro:MAXLEN
+```
+// Macro: MAXLEN
+// File: main.cpp:2
+#define MAXLEN 128
+```
+
+### macro:MISSING
+```
+[Macro not found: MISSING]
+```
+
+### typedef:Node
+```
+// Typedef: Node = struct Node
+// File: main.cpp:3
+```
+
+### typedef:Missing
+```
+[Typedef not found: Missing]
+```
+
+### enum:Color
+```
+// Enum: Color
+// File: main.cpp
+  RED = 0
+  GREEN = 1
+  BLUE = 2
+```
+
+### enum:Missing
+```
+[Enum not found: Missing]
+```
+
+### free_sites:p
+```
+// Free/delete sites for: p
+  main.cpp:11  in helper()  -- free(p)
+```
+
+### free_sites:buf
+```
+// Free/delete sites for: buf
+  main.cpp:15  in process()  -- free(inbuf)
+```
+
+### free_sites:zzz
+```
+[No free/delete sites found for pointer: 'zzz']
+```
+
+### destructor:Widget
+```
+// Destructor / cleanup: Widget::~Widget
+// File: main.cpp
+Widget::~Widget() {
+  free(buf);
+}
+```
+
+### destructor:Missing
+```
+[No destructor / cleanup method found for type: 'Missing']
+```
+
+### field_writes:Widget.buf
+```
+// Write sites for: Widget.buf
+  main.cpp:15  in process()  -- write to Widget.buf
+```
+
+### field_writes:buf
+```
+// Write sites for: buf
+  main.cpp:15  in process()  -- write to Widget.buf
+```
+
+### field_writes:Zzz.q
+```
+[No write sites found for field: 'Zzz.q']
+```
+
+### bogus:x
+```
+[Unknown context type: bogus]
+```
+
+### method:helper
+```
+// Function: helper
+// File: main.cpp
+void helper(char* p) {
+  free(p);
+}
+```
+
+### classes:Widget
+```
+// Struct/Class: Widget
+// File: main.cpp
+struct Widget {
+  int id;
+  char* buf;
+};
+```
+
+### func:process
+```
+// Function: process
+// File: main.cpp
+void process(char* in) {
+  helper(in);
+  free(in);
+}
+
+// Function: process
+// File: main.cpp
+void process(int n) {
+  int x = n + 1;
+}
+```
+
+### free_site:p
+```
+// Free/delete sites for: p
+  main.cpp:11  in helper()  -- free(p)
+```
+
+INSTRUCTIONS:
+1. Re-examine the original guided questions — does this new context change any of your previous answers?
+2. Re-trace the data flow with the additional context included.
+3. Provide your updated verdict in the same JSON format.

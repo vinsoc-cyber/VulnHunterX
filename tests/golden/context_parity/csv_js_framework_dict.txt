@@ -1,0 +1,10 @@
+[
+  [
+    "framework_sanitizers:x",
+    "// Framework input-validation boundary (upstream sanitizer).\n// If whitelist/forbidNonWhitelisted is enabled, undeclared keys like __proto__/constructor are stripped or rejected before the sink runs.\n\n// File: app.ts:1\nimport { ValidationPipe } from '@nestjs/common';\nexport async function bootstrap(app) {\n  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));\n}"
+  ],
+  [
+    "framework_guards:x",
+    "[No global or route auth guards found (e.g. NestJS APP_GUARD, useGlobalGuards, @UseGuards, @Public). The route may genuinely be unauthenticated.]"
+  ]
+]

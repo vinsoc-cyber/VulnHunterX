@@ -1,0 +1,50 @@
+[
+  [
+    "struct:Point",
+    "// Struct/Class: Point (snippet line 1)\nstruct Point { int x; int y; }"
+  ],
+  [
+    "macro:SZ",
+    "// Macro: SZ\n#define SZ 8"
+  ],
+  [
+    "free_sites:p",
+    "// Snippet-local free/delete sites for: p\n  line 5: free(p)"
+  ],
+  [
+    "callees:run",
+    "// Callees referenced within the snippet for 'run':\n  - run\n  - malloc\n  - free\n  - helper"
+  ],
+  [
+    "caller:run",
+    "<unavailable: out-of-snippet> (caller:run) — caller relationships require cross-function analysis not available from a single snippet"
+  ],
+  [
+    "global:g",
+    "<unavailable: out-of-snippet> (global:g) — global declarations require whole-module visibility"
+  ],
+  [
+    "enum:E",
+    "<unavailable: out-of-snippet> (enum:E) — enum is not defined inside the snippet"
+  ],
+  [
+    "typedef:T",
+    "<unavailable: out-of-snippet> (typedef:T) — typedef is not defined inside the snippet"
+  ],
+  [
+    "destructor:X",
+    "<unavailable: out-of-snippet> (destructor:X) — requires cross-file analysis (only the flagged function is available in this provider)"
+  ],
+  [
+    "field_writes:X.y",
+    "<unavailable: out-of-snippet> (field_writes:X.y) — requires cross-file analysis (only the flagged function is available in this provider)"
+  ],
+  [
+    "bogus:z",
+    "<unavailable: out-of-snippet> (bogus:z) — unknown context type 'bogus'"
+  ],
+  [
+    "noColonHere",
+    "<unavailable: out-of-snippet> (noColonHere) — malformed request"
+  ]
+]

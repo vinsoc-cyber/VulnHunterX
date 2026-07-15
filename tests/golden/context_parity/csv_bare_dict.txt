@@ -1,0 +1,22 @@
+[
+  [
+    "free_sites:p",
+    "[No free_sites data for repo (free_sites.csv missing). Run `vuln-hunter-x prepare --skip-clone --force` to extract.]"
+  ],
+  [
+    "destructor:Widget",
+    "[No destructors data for repo (destructors.csv missing). Run `vuln-hunter-x prepare --skip-clone --force` to extract.]"
+  ],
+  [
+    "field_writes:Widget.buf",
+    "[No field_writes data for repo (field_writes.csv missing). Run `vuln-hunter-x prepare --skip-clone --force` to extract.]"
+  ],
+  [
+    "function:foo",
+    "[Function not found: foo — no definition in the analysis scope. It may be an external library, a built-in, or a dynamically assigned method.]"
+  ],
+  [
+    "caller:foo",
+    "[No caller found for: foo — function not found in the analysis scope. It may be defined in an external library or header.]"
+  ]
+]

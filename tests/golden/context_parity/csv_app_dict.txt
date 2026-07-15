@@ -1,0 +1,134 @@
+[
+  [
+    "caller:helper",
+    "// Caller function: process\n// File: main.cpp\nvoid process(char* in) {\n  helper(in);\n  free(in);\n}"
+  ],
+  [
+    "caller:orphan",
+    "[No callers found for: orphan — function exists but has no recorded callers in the analyzed codebase. It may be called via function pointers, callbacks, or from code outside the analysis scope.]"
+  ],
+  [
+    "caller:ghost",
+    "[No caller found for: ghost — function not found in the analysis scope. It may be defined in an external library or header.]"
+  ],
+  [
+    "all_callers:free",
+    "// Caller: process\n// File: main.cpp\nvoid process(char* in) {\n  helper(in);\n  free(in);\n}\n\n// Caller: helper\n// File: main.cpp\nvoid helper(char* p) {\n  free(p);\n}"
+  ],
+  [
+    "callees:process",
+    "// Functions called by process:\n  - helper\n  - free"
+  ],
+  [
+    "callee_bodies:process",
+    "// Function: helper\n// File: main.cpp\nvoid helper(char* p) {\n  free(p);\n}\n\n// (skipped external/builtin callees: free)"
+  ],
+  [
+    "function:helper",
+    "// Function: helper\n// File: main.cpp\nvoid helper(char* p) {\n  free(p);\n}"
+  ],
+  [
+    "function:process",
+    "// Function: process\n// File: main.cpp\nvoid process(char* in) {\n  helper(in);\n  free(in);\n}\n\n// Function: process\n// File: main.cpp\nvoid process(int n) {\n  int x = n + 1;\n}"
+  ],
+  [
+    "function:badline",
+    "[Function metadata present for badline but body could not be read.]"
+  ],
+  [
+    "function:ghost",
+    "[Function not found: ghost — no definition in the analysis scope. It may be an external library, a built-in, or a dynamically assigned method.]"
+  ],
+  [
+    "struct:Widget",
+    "// Struct/Class: Widget\n// File: main.cpp\nstruct Widget {\n  int id;\n  char* buf;\n};"
+  ],
+  [
+    "struct:Missing",
+    "[Struct/Class not found: Missing — it may be a typedef alias. Try typedef:Missing to resolve the underlying type.]"
+  ],
+  [
+    "global:g_count",
+    "// Global: g_count (type: int)\n// File: main.cpp\nint g_count = 0;"
+  ],
+  [
+    "global:missing",
+    "[Global variable not found: missing]"
+  ],
+  [
+    "macro:MAXLEN",
+    "// Macro: MAXLEN\n// File: main.cpp:2\n#define MAXLEN 128"
+  ],
+  [
+    "macro:MISSING",
+    "[Macro not found: MISSING]"
+  ],
+  [
+    "typedef:Node",
+    "// Typedef: Node = struct Node\n// File: main.cpp:3"
+  ],
+  [
+    "typedef:Missing",
+    "[Typedef not found: Missing]"
+  ],
+  [
+    "enum:Color",
+    "// Enum: Color\n// File: main.cpp\n  RED = 0\n  GREEN = 1\n  BLUE = 2"
+  ],
+  [
+    "enum:Missing",
+    "[Enum not found: Missing]"
+  ],
+  [
+    "free_sites:p",
+    "// Free/delete sites for: p\n  main.cpp:11  in helper()  -- free(p)"
+  ],
+  [
+    "free_sites:buf",
+    "// Free/delete sites for: buf\n  main.cpp:15  in process()  -- free(inbuf)"
+  ],
+  [
+    "free_sites:zzz",
+    "[No free/delete sites found for pointer: 'zzz']"
+  ],
+  [
+    "destructor:Widget",
+    "// Destructor / cleanup: Widget::~Widget\n// File: main.cpp\nWidget::~Widget() {\n  free(buf);\n}"
+  ],
+  [
+    "destructor:Missing",
+    "[No destructor / cleanup method found for type: 'Missing']"
+  ],
+  [
+    "field_writes:Widget.buf",
+    "// Write sites for: Widget.buf\n  main.cpp:15  in process()  -- write to Widget.buf"
+  ],
+  [
+    "field_writes:buf",
+    "// Write sites for: buf\n  main.cpp:15  in process()  -- write to Widget.buf"
+  ],
+  [
+    "field_writes:Zzz.q",
+    "[No write sites found for field: 'Zzz.q']"
+  ],
+  [
+    "bogus:x",
+    "[Unknown context type: bogus]"
+  ],
+  [
+    "method:helper",
+    "// Function: helper\n// File: main.cpp\nvoid helper(char* p) {\n  free(p);\n}"
+  ],
+  [
+    "classes:Widget",
+    "// Struct/Class: Widget\n// File: main.cpp\nstruct Widget {\n  int id;\n  char* buf;\n};"
+  ],
+  [
+    "func:process",
+    "// Function: process\n// File: main.cpp\nvoid process(char* in) {\n  helper(in);\n  free(in);\n}\n\n// Function: process\n// File: main.cpp\nvoid process(int n) {\n  int x = n + 1;\n}"
+  ],
+  [
+    "free_site:p",
+    "// Free/delete sites for: p\n  main.cpp:11  in helper()  -- free(p)"
+  ]
+]
