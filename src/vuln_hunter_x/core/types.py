@@ -165,6 +165,11 @@ class Verdict:
     cost_usd: float = 0.0
     confidence_score: float = 0.0
     data_flow: str = ""
+    # Which decision path produced this verdict: "legacy_model" (the model's own
+    # verdict) or "policy" (the rule-family evidence-closure gate). Legacy
+    # finalizers (arms, downgraders, reconciliation, sibling re-verify) must not
+    # mutate a policy-sourced verdict.
+    decision_source: str = "legacy_model"
 
     @property
     def is_true_positive(self) -> bool:

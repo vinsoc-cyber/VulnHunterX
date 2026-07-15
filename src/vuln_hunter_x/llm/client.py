@@ -47,6 +47,12 @@ from vuln_hunter_x.core.constants import (
 )
 from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
 from vuln_hunter_x.core.validation import openai_compat_kwargs
+from vuln_hunter_x.llm.decision_strategy import (
+    Abstain,
+    DecisionStrategy,
+    Finalize,
+    Retrieve,
+)
 from vuln_hunter_x.llm.key_pool import KeyPool, extract_retry_after
 from vuln_hunter_x.llm.prompts import PromptBuilder
 
@@ -445,6 +451,7 @@ class LLMClient:
         prefetched_context: dict[str, str] | None = None,
         temperature: float | None = None,
         context_start_line: int = 1,
+        decision_strategy: DecisionStrategy | None = None,
     ) -> Verdict:
         """
         Analyze a finding and return a verdict.
@@ -585,6 +592,32 @@ class LLMClient:
                     print(
                         f"    Parsed: verdict={verdict}, confidence={parsed.get('confidence', 'Low')}"
                     )
+
+                # Evidence-closure hook: when a decision strategy is supplied (the
+                # policy path), it owns closure — retrieve / repair / finalize /
+                # abstain — bypassing the legacy min-iterations, context-expansion
+                # and force-decision control flow below.
+                if decision_strategy is not None:
+                    action = decision_strategy.evaluate(parsed, raw_response, iterations)
+                    if isinstance(action, (Finalize, Abstain)):
+                        v = action.verdict
+                        v.raw_response = "\n---\n".join(all_raw_responses)
+                        v.elapsed_seconds = time.time() - start_time
+                        v.iterations = iterations
+                        v.tokens_used = total_tokens_used
+                        v.input_tokens = total_input_tokens
+                        v.output_tokens = total_output_tokens
+                        v.cached_input_tokens = total_cached_input_tokens
+                        v.cost_usd = total_cost_usd
+                        return v
+                    follow_up = (
+                        action.followup_prompt
+                        if isinstance(action, Retrieve)
+                        else action.repair_prompt
+                    )
+                    messages.append({"role": "assistant", "content": raw_response})
+                    messages.append({"role": "user", "content": follow_up})
+                    continue
 
                 # min_iterations gate: for high-stakes rules (e.g., memory-safety CWEs)
                 # the questions YAML can require multiple analysis rounds before allowing

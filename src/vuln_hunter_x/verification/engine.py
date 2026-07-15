@@ -607,6 +607,7 @@ def _downgrade_cli_path_injection(verdict: Verdict) -> Verdict:
     return verdict
 
 
+from vuln_hunter_x.context.evidence import SourceRef
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.context.repo_signals import (
@@ -625,6 +626,12 @@ from vuln_hunter_x.core.types import (
 from vuln_hunter_x.llm.client import LLMClient
 from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
+from vuln_hunter_x.verification.policy.closure import PolicyClosureController
+from vuln_hunter_x.verification.policy.ledger import EvidenceLedger
+from vuln_hunter_x.verification.policy.loader import (
+    PolicyOverlapError,
+    load_policy_registry,
+)
 
 
 class _ThreadSafeLogFile:
@@ -891,6 +898,10 @@ class VerificationEngine:
             gemini_api_keys=config.llm.gemini_api_keys,
             gemini_key_state_path=config.paths.output_dir / ".gemini_key_state.json",
         )
+
+        # Rule-family evidence-closure policies. A finding whose CWE/rule selects
+        # a policy is verified through the policy path; all others stay legacy.
+        self._policy_registry = load_policy_registry()
 
         # Wire CWE → question mapping if rule_categories.yaml is available.
         # rule_categories.yaml lives in the config dir (alongside prompts/), i.e.
@@ -1221,7 +1232,23 @@ class VerificationEngine:
             pool.shutdown(wait=True)
 
     def _verify_single_finding(self, finding: Finding) -> Verdict:
-        """Verify a single finding."""
+        """Route a finding to the policy evidence-closure path (when a rule-family
+        policy selects it) or the legacy model-verdict path. Overlapping policy
+        selection fails closed to Needs-More-Data — never a silent legacy fallback."""
+        policy = None
+        if self._policy_registry.families:
+            try:
+                policy = self._policy_registry.resolve_family(
+                    cwe_ids=finding.cwe_ids or [], rule_id=finding.rule_id
+                )
+            except PolicyOverlapError:
+                return self._policy_ambiguous_verdict(finding)
+        if policy is not None:
+            return self._verify_policy_finding(finding, policy)
+        return self._verify_legacy_finding(finding)
+
+    def _verify_legacy_finding(self, finding: Finding) -> Verdict:
+        """Verify a single finding (legacy model-verdict path)."""
         # Get questions (pass CWE IDs for Semgrep/OpenGrep CWE-based matching)
         questions = self.questions_loader.get_questions(
             finding.rule_id,
@@ -1502,6 +1529,83 @@ class VerificationEngine:
         verdict = _downgrade_cli_path_injection(verdict)
 
         return verdict
+
+    def _verify_policy_finding(self, finding: Finding, policy) -> Verdict:
+        """Policy evidence-closure path: seed a typed ledger from the primary
+        slice + scanner dataflow, then let the closure controller drive analyze()
+        to a policy-entailed verdict. force_decision is off — the controller owns
+        closure — and the result is tagged decision_source='policy'."""
+        questions = self.questions_loader.get_questions(
+            finding.rule_id, cwe_ids=finding.cwe_ids, lang=finding.lang,
+        )
+        context_result = self.context_extractor.get_context(
+            finding.file, finding.start_line, finding.lang, repo_name=finding.repo_name,
+        )
+        effective_provider: ContextProvider | SnippetContextProvider | None = (
+            self.context_provider
+        )
+        if isinstance(self.context_provider, ContextProvider) and not (
+            self.context_provider.has_context_for_repo(finding.repo_name, finding.lang)
+        ):
+            effective_provider = SnippetContextProvider(
+                snippet=context_result.code,
+                function_name=context_result.function_name,
+            )
+
+        ledger = EvidenceLedger()
+        ledger.add_local_slice(
+            SourceRef(
+                repo=finding.repo_name,
+                lang=finding.lang,
+                file=finding.file,
+                start=context_result.start_line,
+                end=context_result.end_line,
+            ),
+            context_result.code,
+        )
+        if finding.dataflow_path:
+            ledger.add_scanner_dataflow(" -> ".join(finding.dataflow_path))
+
+        controller = PolicyClosureController(
+            policy=policy,
+            provider=effective_provider,
+            finding=finding,
+            model=self.llm_client.model,
+            ledger=ledger,
+        )
+        verdict = self.llm_client.analyze(
+            finding=finding,
+            context=context_result.code,
+            context_start_line=context_result.start_line,
+            questions=questions,
+            func_name=context_result.function_name,
+            context_provider=effective_provider,
+            max_iterations=self.config.verification.max_iterations,
+            verbose=self.config.output.is_verbose,
+            quiet=self.config.output.is_quiet,
+            force_decision=False,
+            log_file=self._log_fh,
+            decision_strategy=controller,
+        )
+        verdict.decision_source = "policy"
+        return verdict
+
+    def _policy_ambiguous_verdict(self, finding: Finding) -> Verdict:
+        """Fail closed when a finding matches more than one family policy."""
+        return Verdict(
+            finding=finding,
+            verdict=VerdictType.NEEDS_MORE_DATA.value,
+            confidence="Low",
+            reasoning=(
+                "Policy selection is ambiguous — this finding matched more than "
+                "one rule-family policy. Failing closed to Needs More Data rather "
+                "than guessing a family."
+            ),
+            answers=[],
+            raw_response="",
+            model=self.llm_client.model,
+            decision_source="policy",
+        )
 
     def _sibling_reverify(
         self, fp: Verdict, tp_siblings: list[Verdict]
