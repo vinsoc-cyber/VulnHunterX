@@ -42,6 +42,18 @@ class HandoffSelector:
 
 
 @dataclass(frozen=True)
+class Applicability:
+    """Declares which value of a decisive slot means this family applies vs. does
+    not apply to a finding. A not-applicable outcome is evaluated BEFORE
+    entailment and is never a False Positive — it hands the finding back to its
+    base route. Required for a family that declares a ``handoff_from`` block."""
+
+    slot: str
+    applicable_values: frozenset[str] = frozenset()
+    not_applicable_values: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
 class FamilyPolicy:
     """A declarative policy for one vulnerability family.
 
@@ -70,6 +82,8 @@ class FamilyPolicy:
     # Optional cross-family candidacy: findings this family can be handed off
     # (their rule locates this family's sink even though their CWE names another).
     handoff_from: HandoffSelector | None = None
+    # Required when handoff_from is set: which slot value means "not my family".
+    applicability: Applicability | None = None
     version: str = "1"
 
 
