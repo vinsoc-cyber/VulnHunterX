@@ -18,10 +18,7 @@ from vuln_hunter_x.context.anchor import ABSENT
 from vuln_hunter_x.core.types import Finding, Verdict, VerdictType
 from vuln_hunter_x.sarif.parser import SarifParser
 from vuln_hunter_x.verification import engine as eng
-from vuln_hunter_x.verification.engine import (
-    _reconcile_conflicting_verdicts,
-    apply_sibling_consistency,
-)
+from vuln_hunter_x.verification.engine import _reconcile_conflicting_verdicts
 
 
 # --------------------------------------------------------------------------- #
@@ -219,13 +216,3 @@ def test_reconcile_does_not_flip_structural_gate_to_sibling_tp():
     out = _reconcile_conflicting_verdicts([sg, tp1, tp2])
     kept = [v for v in out if v.decision_source == "structural_gate"][0]
     assert kept.verdict == "Needs More Data"   # untouched by reconciliation
-
-
-def test_sibling_consistency_never_reverifies_structural_gate():
-    sg = _sv("Needs More Data", 7, source="structural_gate", conf="Low")
-    tp = _sv("True Positive", 9)
-    reverify = MagicMock(side_effect=AssertionError("must not re-verify"))
-    out = apply_sibling_consistency([sg, tp], reverify)
-    kept = [v for v in out if v.decision_source == "structural_gate"][0]
-    assert kept.verdict == "Needs More Data"
-    reverify.assert_not_called()

@@ -1155,40 +1155,14 @@ class LLMClient:
         "Respond in the same strict JSON format."
     )
 
-    _SIBLING_CONSISTENCY_CHALLENGE_PROMPT = (
-        "Your previous verdict was 'False Positive'. However, this SAME rule "
-        "flagged the SAME construct at OTHER lines of THIS file, and that "
-        "identical construct — the same untrusted input reaching the same kind "
-        "of sink — was confirmed 'True Positive' by this same analysis (see the "
-        "sibling verdicts noted in the pre-fetched context). A confirmed sibling "
-        "establishes that the attacker-reachable consequence is REAL in this file, "
-        "which is exactly the concrete consequence a True Positive requires.\n\n"
-        "Re-verify by answering, with line references:\n"
-        "  (a) Is THIS line the same construct with the same untrusted input as "
-        "the confirmed sibling(s), or does it differ materially?\n"
-        "  (b) Does THIS line add REAL defense the sibling lacked — validation, "
-        "sanitization, an allowlist, canonicalization, or a constant / "
-        "non-attacker-controlled input — as opposed to only a different constant "
-        "literal (e.g. a different filename suffix or path segment)?\n"
-        "  (c) Is THIS sink genuinely unreachable where the sibling's is "
-        "reachable?\n\n"
-        "If THIS line is the same untrusted-input construct as a confirmed "
-        "sibling and adds no real defense, change your verdict to 'True "
-        "Positive' — the consequence proven at the sibling applies here too. "
-        "Keep 'False Positive' ONLY if you can cite a concrete material "
-        "difference at THIS line. Respond in the same strict JSON format."
-    )
-
     @staticmethod
     def _second_opinion_marker(challenge_prompt: str | None) -> str:
         """Reasoning tag naming which second-opinion challenge produced a verdict.
 
-        Distinguishes the sibling-consistency challenge (#122) from the
-        correctness-rule TP challenge and the default 1-iter-FP re-prompt, so the
-        reasoning text does not mislabel every non-None challenge as the latter.
+        Distinguishes a TP-challenge (correctness-rule or framework-taint) from
+        the default 1-iteration-FP re-prompt, so the reasoning text does not
+        mislabel one as the other.
         """
-        if challenge_prompt is LLMClient._SIBLING_CONSISTENCY_CHALLENGE_PROMPT:
-            return " [second-opinion pass: sibling-consistency challenge]"
         if challenge_prompt is not None:
             return " [second-opinion pass: TP challenge on correctness rule]"
         return " [second-opinion pass after 1-iter high-conf FP]"

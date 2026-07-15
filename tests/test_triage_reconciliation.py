@@ -59,45 +59,45 @@ def test_real_taint_xss_still_routes_to_xss() -> None:
 _REL = "sqli/dao/student.py"
 
 
-def test_cross_rule_disagreement_sends_fp_to_needs_more_data() -> None:
-    # CodeQL django-raw-sql (FP) vs Semgrep SQLi (TP), CWE-89, same file.
-    # Safe direction: the FP becomes Needs More Data; the TPs are untouched —
-    # a vulnerability is never fabricated from a corroborating rule.
+def test_cross_rule_distinct_obligations_left_independent() -> None:
+    # Different rules ask different security questions (#122): a django-raw-sql FP
+    # and a SQLi TP on one line are NOT a contradiction. Cross-rule verdicts are
+    # left independent — never forced to agree. The old FP→Needs-More-Data
+    # reconciliation is retired (forcing agreement degraded correct verdicts).
     out = _reconcile_conflicting_verdicts([
         _mk("py/django-raw-sql", _REL, 45, "False Positive", ["CWE-89"]),
         _mk("python.formatted-sql-query", _REL, 45, "True Positive", ["CWE-89"]),
         _mk("python.sqlalchemy-raw", _REL, 45, "True Positive", ["CWE-89"]),
     ])
-    assert [v.verdict for v in out] == ["Needs More Data", "True Positive", "True Positive"]
-    assert "Needs More Data" in out[0].reasoning
+    assert [v.verdict for v in out] == ["False Positive", "True Positive", "True Positive"]
 
 
-def test_memory_safety_cwe_cross_rule_reconciles() -> None:
-    # dvcp imgRead.c:62 — CodeQL cpp/double-free→FP vs Semgrep double-free→TP,
-    # both CWE-415 (a memory-safety class). The FP must resolve to Needs More
-    # Data (safe direction); the TP is untouched.
+def test_memory_safety_cross_rule_left_independent() -> None:
+    # dvcp imgRead.c:62 — CodeQL cpp/double-free→FP vs a Semgrep double-free→TP.
+    # Distinct rules → distinct obligations; the verdicts are left independent
+    # (no manufactured Needs-More-Data). A per-finding wrong verdict is a
+    # correctness concern for its own rule, not a reconciliation concern.
     out = _reconcile_conflicting_verdicts([
         _mk("cpp/double-free", "linux/imgRead.c", 62, "False Positive", ["CWE-415"]),
         _mk("c.lang.security.double-free", "linux/imgRead.c", 62, "True Positive", ["CWE-415"]),
     ])
-    assert [v.verdict for v in out] == ["Needs More Data", "True Positive"]
+    assert [v.verdict for v in out] == ["False Positive", "True Positive"]
 
 
-def test_buffer_overflow_family_cross_rule_reconciles() -> None:
-    # insecure-coding-examples if_constexpr.cpp:15 — CodeQL cpp/static-buffer-overflow
-    # (CWE-119, CWE-131) = TP vs cpp/overflow-buffer (CWE-119, CWE-121/122/126) = FP at
-    # the SAME memcpy line. Both rules flag the same buffer overflow, but they share
-    # only the BROAD CWE-119 parent (excluded from _RECONCILE_SPECIFIC_CWES), not a
-    # specific CWE — so reconciliation used to leave the contradiction standing. With
-    # a specific buffer CWE on each side, the FP must resolve to Needs More Data (safe
-    # direction); the TP is untouched.
+def test_buffer_overflow_family_cross_rule_left_independent() -> None:
+    # #122 Row 4 — insecure-coding-examples if_constexpr.cpp:15: cpp/static-buffer-
+    # overflow (TP) vs cpp/overflow-buffer (FP) at the SAME memcpy line. A shared
+    # broad CWE-119 is NOT obligation equivalence — the two rules may ask different
+    # questions (size-calc error vs destination-bound violation). They are left
+    # independent, never forced to agree. If the FP is itself wrong that is a
+    # per-finding correctness bug (#120), not something reconciliation should mask.
     out = _reconcile_conflicting_verdicts([
         _mk("cpp/static-buffer-overflow", "practice/if_constexpr.cpp", 15,
             "True Positive", ["CWE-119", "CWE-131"]),
         _mk("cpp/overflow-buffer", "practice/if_constexpr.cpp", 15,
             "False Positive", ["CWE-119", "CWE-121", "CWE-122", "CWE-126"]),
     ])
-    assert [v.verdict for v in out] == ["True Positive", "Needs More Data"]
+    assert [v.verdict for v in out] == ["True Positive", "False Positive"]
 
 
 def test_broad_buffer_parent_alone_not_merged() -> None:

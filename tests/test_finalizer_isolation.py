@@ -13,10 +13,7 @@ Also pins that decision_source + the policy decision record persist in to_dict.
 from __future__ import annotations
 
 from vuln_hunter_x.core.types import Finding, Verdict
-from vuln_hunter_x.verification.engine import (
-    _reconcile_conflicting_verdicts,
-    apply_sibling_consistency,
-)
+from vuln_hunter_x.verification.engine import _reconcile_conflicting_verdicts
 
 
 def _v(verdict, *, rule="py/sql-injection", file="a.py", line=10, cwe="CWE-89",
@@ -46,20 +43,6 @@ def test_reconcile_still_reconciles_legacy_only_cluster():
     legacy_fp = _v("False Positive")
     _reconcile_conflicting_verdicts([legacy_tp, legacy_fp])
     assert legacy_fp.verdict == "True Positive"
-
-
-def test_sibling_reverify_skips_policy_members():
-    calls = []
-
-    def reverify(fp, tps):
-        calls.append(fp)
-        return _v("True Positive")
-
-    policy_fp = _v("False Positive", source="policy", line=10)
-    legacy_tp = _v("True Positive", line=20)  # same rule, sibling line
-    apply_sibling_consistency([policy_fp, legacy_tp], reverify)
-    assert policy_fp not in calls
-    assert policy_fp.verdict == "False Positive"
 
 
 def test_to_dict_emits_decision_source_and_policy_decision():

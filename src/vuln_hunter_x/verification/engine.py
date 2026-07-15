@@ -359,96 +359,10 @@ def _reconcile_conflicting_verdicts(verdicts: list[Verdict]) -> list[Verdict]:
                             f"same rule at {v.finding.file}:{v.finding.start_line} "
                             f"as '{resolved}']"
                         )
-            elif tp in {v.verdict for v in cluster}:
-                # Cross-rule disagreement: never fabricate or drop a TP. An FP
-                # contradicted by a corroborating TP → Needs More Data (review).
-                for v in cluster:
-                    if v.verdict == fp:
-                        v.verdict = nmd
-                        v.confidence = "Low"
-                        v.confidence_score = min(v.confidence_score, 0.3)
-                        v.reasoning = (v.reasoning or "") + (
-                            " [verdict set to Needs More Data: a different "
-                            f"rule/tool flagged the same issue at {v.finding.file}:"
-                            f"{v.finding.start_line} as True Positive — tools "
-                            "disagree, manual review required]"
-                        )
-    return verdicts
-
-
-# A same-rule cluster wider than this many distinct lines is a noisy/structural
-# rule, not one repeated construct — skip it rather than re-verify a crowd.
-_MAX_SIBLING_CLUSTER_LINES = 12
-
-
-def _select_sibling_consistency_candidates(
-    verdicts: list[Verdict],
-) -> list[tuple[Verdict, list[Verdict]]]:
-    """Find Low/Medium-confidence FP verdicts that contradict a confirmed TP of
-    the SAME rule on the SAME file at a DIFFERENT line — a cross-line
-    self-contradiction on one construct (#122, dvwa ``view_source*``).
-
-    Same-rule only: ``rule_id`` identity establishes "the same construct", so no
-    CWE gate is needed (that is a cross-rule concern). Returns
-    ``(fp_verdict, [tp_sibling, ...])`` pairs; the caller re-verifies each FP
-    with the sibling evidence. Vendored/minified/non-production paths and
-    over-wide clusters are skipped.
-    """
-    tp = VerdictType.TRUE_POSITIVE.value
-    fp = VerdictType.FALSE_POSITIVE.value
-
-    groups: dict[tuple[str, str], list[Verdict]] = {}
-    for v in verdicts:
-        f = v.finding
-        if not f.rule_id:
-            continue
-        if _is_vendored_or_minified(f.file) or _is_nonproduction_path(f.file):
-            continue
-        groups.setdefault((_norm_path(f.file), f.rule_id), []).append(v)
-
-    out: list[tuple[Verdict, list[Verdict]]] = []
-    for group in groups.values():
-        lines = {v.finding.start_line for v in group}
-        if not (2 <= len(lines) <= _MAX_SIBLING_CLUSTER_LINES):
-            continue
-        tps = [v for v in group if v.verdict == tp]
-        if not tps:
-            continue
-        for v in group:
-            if v.verdict != fp or v.confidence not in ("Low", "Medium"):
-                continue
-            cross_line_tps = [
-                t for t in tps if t.finding.start_line != v.finding.start_line
-            ]
-            if cross_line_tps:
-                out.append((v, cross_line_tps))
-    return out
-
-
-def apply_sibling_consistency(
-    verdicts: list[Verdict],
-    reverify: Callable[[Verdict, list[Verdict]], Verdict],
-) -> list[Verdict]:
-    """Re-verify cross-line sibling-consistency candidates (#122).
-
-    Each Low/Med-confidence FP that contradicts a same-rule TP sibling is passed
-    to ``reverify``; the FP is upgraded only if re-verification returns a True
-    Positive. Exception-safe — a failing ``reverify`` leaves the verdict as-is.
-    A True Positive is therefore never fabricated deterministically: it is the
-    model's own re-decision against a consequence already proven on this file.
-    """
-    tp = VerdictType.TRUE_POSITIVE.value
-    index = {id(v): i for i, v in enumerate(verdicts)}
-    # Only legacy model verdicts are re-verified / used as TP siblings; policy
-    # and structural-gate verdicts are owned by their own gates.
-    legacy = [v for v in verdicts if v.decision_source == "legacy_model"]
-    for fp_verdict, tp_siblings in _select_sibling_consistency_candidates(legacy):
-        try:
-            new = reverify(fp_verdict, tp_siblings)
-        except Exception:
-            continue
-        if new is not None and new.verdict == tp:
-            verdicts[index[id(fp_verdict)]] = new
+            # Cross-rule clusters (distinct rules → distinct obligations) are left
+            # independent (#122): different rules ask different security questions,
+            # so forcing their verdicts to agree is unsound and previously degraded
+            # correct verdicts. Only genuine same-rule duplicates are reconciled.
     return verdicts
 
 
@@ -1160,15 +1074,9 @@ class VerificationEngine:
                 pool.shutdown(wait=True)
             verdicts = [verdicts_by_index[i] for i in sorted(verdicts_by_index)]
 
-        # Reconcile conflicting verdicts on exact-duplicate findings (e.g.
-        # Semgrep vs OpenGrep) BEFORE tallying stats so the counts match.
+        # Reconcile genuine same-rule duplicate findings (e.g. Semgrep vs
+        # OpenGrep flagging one sink) BEFORE tallying stats so the counts match.
         verdicts = _reconcile_conflicting_verdicts(verdicts)
-
-        # Cross-line sibling consistency (#122): re-verify Low/Med-confidence FPs
-        # that contradict a confirmed True Positive of the SAME rule elsewhere in
-        # the file (the dvwa view_source* self-contradictions). Post-reconcile so
-        # every first-pass verdict — and the same-line harmonisation — is settled.
-        verdicts = apply_sibling_consistency(verdicts, self._sibling_reverify)
 
         for v in verdicts:
             stats[v.verdict] = stats.get(v.verdict, 0) + 1
@@ -1753,52 +1661,6 @@ class VerificationEngine:
             raw_response="",
             model=self.llm_client.model,
             decision_source="policy",
-        )
-
-    def _sibling_reverify(
-        self, fp: Verdict, tp_siblings: list[Verdict]
-    ) -> Verdict:
-        """Re-verify a Low/Med FP against confirmed same-rule TP siblings (#122).
-
-        Rebuilds light context (enclosing snippet + questions) and challenges the
-        FP with the sibling evidence via ``request_second_opinion``. The heavy
-        first-pass prefetch is intentionally omitted: the material-difference
-        signal (safe vs unsafe variant) lives in the enclosing snippet itself.
-        """
-        finding = fp.finding
-        questions = self.questions_loader.get_questions(
-            finding.rule_id, cwe_ids=finding.cwe_ids, lang=finding.lang,
-        )
-        context_result = self.context_extractor.get_context(
-            finding.file, finding.start_line, finding.lang,
-            repo_name=finding.repo_name,
-        )
-        sib = ", ".join(
-            f"line {t.finding.start_line} ({t.confidence} confidence)"
-            for t in sorted(tp_siblings, key=lambda t: t.finding.start_line)
-        )
-        prefetched_context = {
-            "NOTE: sibling verdicts — same rule & construct on THIS file": (
-                f"The rule '{finding.rule_id}' flagged the same construct at {sib} "
-                f"of this file, and those instances were confirmed TRUE POSITIVE by "
-                f"this same analysis. This finding at line {finding.start_line} "
-                "shares that construct; typically only a constant literal differs. "
-                "Decide whether THIS line adds real defense or is the same reachable "
-                "vulnerability the sibling already proved."
-            )
-        }
-        return self.llm_client.request_second_opinion(
-            finding=finding,
-            context=context_result.code,
-            context_start_line=context_result.start_line,
-            questions=questions,
-            func_name=context_result.function_name,
-            previous_verdict=fp,
-            prefetched_context=prefetched_context,
-            challenge_prompt=self.llm_client._SIBLING_CONSISTENCY_CHALLENGE_PROMPT,
-            verbose=self.config.output.is_verbose,
-            quiet=self.config.output.is_quiet,
-            log_file=self._log_fh,
         )
 
     @staticmethod

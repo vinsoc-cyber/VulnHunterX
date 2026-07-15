@@ -30,10 +30,7 @@ from vuln_hunter_x.context.evidence import (
 )
 from vuln_hunter_x.core.types import Finding, GuidedQuestions
 from vuln_hunter_x.llm.client import LLMClient
-from vuln_hunter_x.verification.engine import (
-    _reconcile_conflicting_verdicts,
-    apply_sibling_consistency,
-)
+from vuln_hunter_x.verification.engine import _reconcile_conflicting_verdicts
 from vuln_hunter_x.verification.policy.closure import PolicyClosureController
 from vuln_hunter_x.verification.policy.ledger import EvidenceLedger
 from vuln_hunter_x.verification.policy.loader import load_policy_registry
@@ -186,7 +183,6 @@ def test_case8_policy_verdict_immune_to_legacy_finalizers(mc):
     v.decision_source = "policy"  # analyze-level verdict; engine tags this
     before = v.verdict
     _reconcile_conflicting_verdicts([v])
-    apply_sibling_consistency([v], lambda fp, tps: fp)
     assert v.verdict == before == "True Positive"
 
 
