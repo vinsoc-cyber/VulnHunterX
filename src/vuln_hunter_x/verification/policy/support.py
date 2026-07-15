@@ -19,6 +19,8 @@ Profiles (evidence-shape predicates over the cited ledger entries):
 * ``LOCAL_OR_FOUND`` — local slice or a positive retrieval.
 * ``CONCRETE_PATH`` — a witnessed path: local slice, scanner dataflow, or a positive retrieval.
 * ``EXHAUSTIVE_ENCODER`` — a retrieved, exhaustive, non-framework ``FOUND`` (coverage over all paths).
+* ``LOCAL_OR_EXHAUSTIVE`` — all-path coverage proven in the local slice (the full
+  construction is visible) or by an exhaustive retrieval.
 * ``COMPLETE_REPO_ABSENCE`` — a repository-scoped, non-framework ``NOT_FOUND_COMPLETE``.
 * ``ANY_CITATION`` — any citation (informational slots only).
 
@@ -89,6 +91,9 @@ _PROFILES: dict[str, Callable[[Sequence[EvidenceEntry]], bool]] = {
         _is_local(e) or _is_dataflow(e) or _is_found(e) for e in cited
     ),
     "EXHAUSTIVE_ENCODER": lambda cited: any(_exhaustive_found_encoder(e) for e in cited),
+    "LOCAL_OR_EXHAUSTIVE": lambda cited: any(
+        _is_local(e) or _exhaustive_found_encoder(e) for e in cited
+    ),
     "COMPLETE_REPO_ABSENCE": lambda cited: any(_complete_repo_absence(e) for e in cited),
     "ANY_CITATION": lambda cited: bool(cited),
 }
