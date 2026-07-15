@@ -11,8 +11,10 @@ never the prose.
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 
@@ -144,6 +146,103 @@ class Capability:
     artifact_state: ArtifactState  # for CSV-backed kinds (else PRESENT)
     scope: EvidenceScope
     authoritative_for_absence: bool  # may an exhaustive miss be NOT_FOUND_COMPLETE?
+
+
+# --- Capability matrix -----------------------------------------------------
+# Kinds the toolchain extracts ONLY for the C family (c/cpp): CodeQL emits these
+# queries under config/queries/tools/cpp, and tree-sitter's QUERIES_BY_LANG lists
+# structs/globals/macros for c/cpp only. FUNCTION, STRUCT, and the call-graph
+# kinds are extracted for every supported language.
+_C_FAMILY_LANGS = frozenset({"c", "cpp"})
+_C_ONLY_KINDS = frozenset(
+    {
+        EvidenceKind.GLOBAL,
+        EvidenceKind.MACRO,
+        EvidenceKind.TYPEDEF,
+        EvidenceKind.ENUM,
+        EvidenceKind.FREE_SITES,
+        EvidenceKind.DESTRUCTOR,
+        EvidenceKind.FIELD_WRITES,
+    }
+)
+_FRAMEWORK_KINDS = frozenset(
+    {EvidenceKind.FRAMEWORK_SANITIZERS, EvidenceKind.FRAMEWORK_GUARDS}
+)
+
+# Primary CSV basename backing each CSV-based kind. STRUCT is language-aware
+# (see _kind_csv_name); framework/unknown kinds have no CSV.
+_CSV_FOR_KIND: dict[EvidenceKind, str] = {
+    EvidenceKind.CALLER: "callers",
+    EvidenceKind.ALL_CALLERS: "callers",
+    EvidenceKind.CALLEES: "callers",
+    EvidenceKind.CALLEE_BODIES: "callers",
+    EvidenceKind.FUNCTION: "functions",
+    EvidenceKind.GLOBAL: "globals",
+    EvidenceKind.MACRO: "macros",
+    EvidenceKind.TYPEDEF: "typedefs",
+    EvidenceKind.ENUM: "enums",
+    EvidenceKind.FREE_SITES: "free_sites",
+    EvidenceKind.DESTRUCTOR: "destructors",
+    EvidenceKind.FIELD_WRITES: "field_writes",
+}
+
+
+def _kind_csv_name(kind: EvidenceKind, lang: str) -> str | None:
+    """Primary CSV a handler reads for this kind+lang, or None if not CSV-backed."""
+    if kind is EvidenceKind.STRUCT:
+        # Mirrors ContextProvider._get_struct_context.
+        return "classes" if lang in ("python", "javascript", "csharp") else "structs"
+    return _CSV_FOR_KIND.get(kind)
+
+
+def _supported(kind: EvidenceKind, lang: str) -> bool:
+    """Whether the toolchain has any producer for this kind+language."""
+    if kind in _FRAMEWORK_KINDS:
+        return True  # grep-based; no index required
+    if kind is EvidenceKind.UNKNOWN:
+        return False
+    if kind in _C_ONLY_KINDS:
+        return lang in _C_FAMILY_LANGS
+    return True  # FUNCTION, STRUCT, and the call-graph kinds are universal
+
+
+def _artifact_state(context_dir: Path, csv_name: str) -> ArtifactState:
+    path = context_dir / f"{csv_name}.csv"
+    if not path.is_file():
+        return ArtifactState.MISSING
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            next(csv.reader(f), None)  # touch header; catches unreadable/undecodable
+        return ArtifactState.PRESENT
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return ArtifactState.INVALID
+
+
+def inspect_capability(context_dir: Path, lang: str, kind: EvidenceKind) -> Capability:
+    """Describe what the toolchain can answer for (kind, lang) at this repo.
+
+    Pure over ``context_dir`` (the repo's ``output/<lang>/<repo>/context`` dir).
+    Distinguishes 'no producer for this kind+lang' (drives UNSUPPORTED) from
+    'expected but the index is missing/invalid' (drives INCOMPLETE_INDEX).
+    """
+    csv_name = _kind_csv_name(kind, lang)
+    artifact = (
+        ArtifactState.PRESENT
+        if csv_name is None
+        else _artifact_state(context_dir, csv_name)
+    )
+    return Capability(
+        kind=kind,
+        lang=lang,
+        supported=_supported(kind, lang),
+        artifact_state=artifact,
+        scope=(
+            EvidenceScope.REPOSITORY_SOURCE
+            if kind in _FRAMEWORK_KINDS
+            else EvidenceScope.REPOSITORY_INDEX
+        ),
+        authoritative_for_absence=kind in _FRAMEWORK_KINDS,
+    )
 
 
 @runtime_checkable

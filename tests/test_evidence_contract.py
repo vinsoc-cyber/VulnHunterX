@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 from vuln_hunter_x.context.evidence import (
+    ArtifactState,
+    Capability,
     ContextProviderProtocol,
     EvidenceKind,
     EvidenceRequest,
@@ -14,6 +16,7 @@ from vuln_hunter_x.context.evidence import (
     EvidenceStatus,
     SourceRef,
     SymbolRef,
+    inspect_capability,
 )
 from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
 
@@ -103,3 +106,75 @@ class TestProtocol:
         # Snippet provider does NOT yet implement resolve_evidence (added in Task 6),
         # so it must NOT satisfy the Protocol at this phase.
         assert not isinstance(SnippetContextProvider("x"), ContextProviderProtocol)
+
+
+class TestCapabilitySupport:
+    def test_c_family_only_kinds(self, tmp_path):
+        for kind in (
+            EvidenceKind.GLOBAL,
+            EvidenceKind.MACRO,
+            EvidenceKind.TYPEDEF,
+            EvidenceKind.ENUM,
+            EvidenceKind.FREE_SITES,
+            EvidenceKind.DESTRUCTOR,
+            EvidenceKind.FIELD_WRITES,
+        ):
+            assert inspect_capability(tmp_path, "cpp", kind).supported is True
+            assert inspect_capability(tmp_path, "c", kind).supported is True
+            assert inspect_capability(tmp_path, "python", kind).supported is False
+            assert inspect_capability(tmp_path, "javascript", kind).supported is False
+
+    def test_universal_kinds(self, tmp_path):
+        for lang in ("python", "javascript", "go", "java", "php", "cpp"):
+            assert inspect_capability(tmp_path, lang, EvidenceKind.FUNCTION).supported is True
+            assert inspect_capability(tmp_path, lang, EvidenceKind.CALLER).supported is True
+            assert inspect_capability(tmp_path, lang, EvidenceKind.CALLEE_BODIES).supported is True
+            assert inspect_capability(tmp_path, lang, EvidenceKind.STRUCT).supported is True
+
+    def test_framework_kinds(self, tmp_path):
+        cap = inspect_capability(tmp_path, "javascript", EvidenceKind.FRAMEWORK_GUARDS)
+        assert cap.supported is True
+        assert cap.scope is EvidenceScope.REPOSITORY_SOURCE
+        assert cap.authoritative_for_absence is True
+        assert cap.artifact_state is ArtifactState.PRESENT  # not CSV-backed
+
+    def test_unknown_unsupported(self, tmp_path):
+        assert inspect_capability(tmp_path, "cpp", EvidenceKind.UNKNOWN).supported is False
+
+    def test_symbol_kinds_not_authoritative_in_p2a(self, tmp_path):
+        # P2a asserts no symbol-index authority; only framework markers are.
+        for kind in (EvidenceKind.FUNCTION, EvidenceKind.STRUCT, EvidenceKind.CALLER):
+            assert inspect_capability(tmp_path, "cpp", kind).authoritative_for_absence is False
+
+
+class TestCapabilityArtifactState:
+    def test_missing(self, tmp_path):
+        cap = inspect_capability(tmp_path, "cpp", EvidenceKind.FUNCTION)
+        assert cap.artifact_state is ArtifactState.MISSING
+        assert cap.scope is EvidenceScope.REPOSITORY_INDEX
+
+    def test_present(self, tmp_path):
+        (tmp_path / "functions.csv").write_text("name,file\nfoo,a.c\n", encoding="utf-8")
+        assert (
+            inspect_capability(tmp_path, "cpp", EvidenceKind.FUNCTION).artifact_state
+            is ArtifactState.PRESENT
+        )
+
+    def test_invalid(self, tmp_path):
+        (tmp_path / "functions.csv").write_bytes(b"\xff\xfe not utf-8 \x80")
+        assert (
+            inspect_capability(tmp_path, "cpp", EvidenceKind.FUNCTION).artifact_state
+            is ArtifactState.INVALID
+        )
+
+    def test_struct_csv_is_language_aware(self, tmp_path):
+        # python STRUCT reads classes.csv; cpp STRUCT reads structs.csv.
+        (tmp_path / "classes.csv").write_text("name,file\nX,a.py\n", encoding="utf-8")
+        assert (
+            inspect_capability(tmp_path, "python", EvidenceKind.STRUCT).artifact_state
+            is ArtifactState.PRESENT
+        )
+        assert (
+            inspect_capability(tmp_path, "cpp", EvidenceKind.STRUCT).artifact_state
+            is ArtifactState.MISSING
+        )
