@@ -47,6 +47,9 @@ class FamilyPolicy:
     # Per (slot, value) evidence-shape profile name (see support.PROFILE_NAMES).
     # A (slot, value) with no declared profile is inadmissible (fail closed).
     admissibility: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
+    # Neutral fact-gathering guidance rendered into the assessment prompt (no
+    # verdict commands, no benchmark names). Helps the model resolve the slots.
+    assessment_guidance: tuple[str, ...] = ()
     version: str = "1"
 
 

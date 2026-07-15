@@ -98,6 +98,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
             }
             for slot, vals in (raw_adm.items() if isinstance(raw_adm, Mapping) else [])
         }
+        assessment_guidance = tuple(str(g) for g in data.get("assessment_guidance", []) or [])
     except (KeyError, TypeError) as exc:
         raise PolicyError(f"malformed policy: {exc}") from exc
 
@@ -119,6 +120,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         false_positive_if_any=false_positive_if_any,
         languages=languages,
         admissibility=admissibility,
+        assessment_guidance=assessment_guidance,
         version=str(data.get("version", "1")),
     )
 

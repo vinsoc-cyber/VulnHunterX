@@ -57,6 +57,10 @@ def render_assessment_prompt(policy: FamilyPolicy, ledger: EvidenceLedger) -> st
     ]
     for slot, values in policy.fact_slots.items():
         lines.append(f"  - {slot}: {', '.join(values)} | UNRESOLVED")
+    if policy.assessment_guidance:
+        lines.append("")
+        lines.append("Assessment guidance (how to resolve the slots from the evidence):")
+        lines.extend(f"  - {g}" for g in policy.assessment_guidance)
     lines.append("")
     lines.append(
         "Available evidence (cite by id; if a decisive slot is UNRESOLVED, request "
