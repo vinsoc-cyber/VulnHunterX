@@ -12,7 +12,7 @@ avoid importing the heavier types module into the pure core.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Verdict vocabulary — must equal core.types.VerdictType values.
 TP = "True Positive"
@@ -44,6 +44,9 @@ class FamilyPolicy:
     # Optional language scoping: empty ⇒ language-agnostic (matches any lang, as
     # CWE-117 does); non-empty ⇒ the finding's lang must be a member. Lowercased.
     languages: frozenset[str] = frozenset()
+    # Per (slot, value) evidence-shape profile name (see support.PROFILE_NAMES).
+    # A (slot, value) with no declared profile is inadmissible (fail closed).
+    admissibility: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
     version: str = "1"
 
 

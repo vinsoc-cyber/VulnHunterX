@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 
 from vuln_hunter_x.verification.policy.models import Condition, FamilyPolicy
+from vuln_hunter_x.verification.policy.support import PROFILE_NAMES
 
 
 class PolicyError(ValueError):
@@ -53,6 +54,24 @@ def _validate_condition(
                 )
 
 
+def _validate_admissibility(
+    admissibility: Mapping[str, Mapping[str, str]],
+    fact_slots: Mapping[str, tuple[str, ...]],
+) -> None:
+    for slot, value_map in admissibility.items():
+        if slot not in fact_slots:
+            raise PolicyError(f"admissibility: slot {slot!r} is not declared in fact_slots")
+        for value, profile in value_map.items():
+            if value not in fact_slots[slot]:
+                raise PolicyError(
+                    f"admissibility: value {value!r} for slot {slot!r} is not declared"
+                )
+            if profile not in PROFILE_NAMES:
+                raise PolicyError(
+                    f"admissibility: unknown profile {profile!r} for {slot}={value}"
+                )
+
+
 def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
     """Build a :class:`FamilyPolicy` from a parsed YAML mapping (validated)."""
     try:
@@ -71,6 +90,14 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         false_positive_if_any = tuple(
             _normalize_condition(c) for c in ent.get("false_positive_if_any", [])
         )
+        raw_adm = data.get("admissibility", {}) or {}
+        admissibility = {
+            str(slot): {
+                str(v): str(prof)
+                for v, prof in (vals.items() if isinstance(vals, Mapping) else [])
+            }
+            for slot, vals in (raw_adm.items() if isinstance(raw_adm, Mapping) else [])
+        }
     except (KeyError, TypeError) as exc:
         raise PolicyError(f"malformed policy: {exc}") from exc
 
@@ -80,6 +107,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
     _validate_condition(true_positive, fact_slots, "true_positive")
     for i, cond in enumerate(false_positive_if_any):
         _validate_condition(cond, fact_slots, f"false_positive_if_any[{i}]")
+    _validate_admissibility(admissibility, fact_slots)
 
     return FamilyPolicy(
         family=family,
@@ -90,6 +118,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         true_positive=true_positive,
         false_positive_if_any=false_positive_if_any,
         languages=languages,
+        admissibility=admissibility,
         version=str(data.get("version", "1")),
     )
 

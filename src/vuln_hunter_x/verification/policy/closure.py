@@ -149,7 +149,7 @@ class PolicyClosureController:
                 continue
             cited = [self._ledger.get(eid) for eid in claim.evidence]
             cited = [c for c in cited if c is not None]
-            if is_admissible(slot, claim.value, cited):
+            if is_admissible(self._policy, slot, claim.value, cited):
                 facts[slot] = claim.value
                 evidence_ids.extend(claim.evidence)
         return facts, evidence_ids
