@@ -165,6 +165,15 @@ class Verdict:
     cost_usd: float = 0.0
     confidence_score: float = 0.0
     data_flow: str = ""
+    # Which decision path produced this verdict: "legacy_model" (the model's own
+    # verdict) or "policy" (the rule-family evidence-closure gate). Legacy
+    # finalizers (arms, downgraders, reconciliation, sibling re-verify) must not
+    # mutate a policy-sourced verdict.
+    decision_source: str = "legacy_model"
+    # On the policy path, a compact serializable record of the entailment:
+    # {family, version, terminal_reason, facts{slot:value}, evidence_ids[]}.
+    # None on the legacy path. Persisted even when raw_response is not.
+    policy_decision: dict | None = None
 
     @property
     def is_true_positive(self) -> bool:
@@ -206,6 +215,8 @@ class Verdict:
             "cached_input_tokens": self.cached_input_tokens,
             "cost_usd": self.cost_usd,
             "data_flow": self.data_flow,
+            "decision_source": self.decision_source,
+            "policy_decision": self.policy_decision,
         }
         if include_raw_response:
             data["raw_response"] = self.raw_response
@@ -233,6 +244,8 @@ class Verdict:
             cost_usd=data.get("cost_usd", 0.0),
             confidence_score=data.get("confidence_score", 0.0),
             data_flow=data.get("data_flow", ""),
+            decision_source=data.get("decision_source", "legacy_model"),
+            policy_decision=data.get("policy_decision"),
         )
 
 

@@ -301,6 +301,10 @@ def _reconcile_conflicting_verdicts(verdicts: list[Verdict]) -> list[Verdict]:
     # Vendored/generated/minified findings are excluded outright.
     buckets: dict[tuple, list[Verdict]] = {}
     for v in verdicts:
+        # Policy-sourced verdicts are owned by the evidence-closure gate; they are
+        # never reconciled against (or by) legacy siblings.
+        if v.decision_source == "policy":
+            continue
         f = v.finding
         if _is_vendored_or_minified(f.file):
             continue
@@ -435,7 +439,9 @@ def apply_sibling_consistency(
     """
     tp = VerdictType.TRUE_POSITIVE.value
     index = {id(v): i for i, v in enumerate(verdicts)}
-    for fp_verdict, tp_siblings in _select_sibling_consistency_candidates(verdicts):
+    # Policy-sourced verdicts are neither re-verified nor used as TP siblings.
+    legacy = [v for v in verdicts if v.decision_source != "policy"]
+    for fp_verdict, tp_siblings in _select_sibling_consistency_candidates(legacy):
         try:
             new = reverify(fp_verdict, tp_siblings)
         except Exception:
@@ -607,6 +613,7 @@ def _downgrade_cli_path_injection(verdict: Verdict) -> Verdict:
     return verdict
 
 
+from vuln_hunter_x.context.evidence import SourceRef
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.context.repo_signals import (
@@ -625,6 +632,13 @@ from vuln_hunter_x.core.types import (
 from vuln_hunter_x.llm.client import LLMClient
 from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
+from vuln_hunter_x.verification.policy.closure import PolicyClosureController
+from vuln_hunter_x.verification.policy.ledger import EvidenceLedger
+from vuln_hunter_x.verification.policy.loader import (
+    PolicyOverlapError,
+    load_policy_registry,
+)
+from vuln_hunter_x.verification.policy.voting import aggregate_policy_decisions
 
 
 class _ThreadSafeLogFile:
@@ -891,6 +905,10 @@ class VerificationEngine:
             gemini_api_keys=config.llm.gemini_api_keys,
             gemini_key_state_path=config.paths.output_dir / ".gemini_key_state.json",
         )
+
+        # Rule-family evidence-closure policies. A finding whose CWE/rule selects
+        # a policy is verified through the policy path; all others stay legacy.
+        self._policy_registry = load_policy_registry()
 
         # Wire CWE → question mapping if rule_categories.yaml is available.
         # rule_categories.yaml lives in the config dir (alongside prompts/), i.e.
@@ -1221,7 +1239,23 @@ class VerificationEngine:
             pool.shutdown(wait=True)
 
     def _verify_single_finding(self, finding: Finding) -> Verdict:
-        """Verify a single finding."""
+        """Route a finding to the policy evidence-closure path (when a rule-family
+        policy selects it) or the legacy model-verdict path. Overlapping policy
+        selection fails closed to Needs-More-Data — never a silent legacy fallback."""
+        policy = None
+        if self._policy_registry.families:
+            try:
+                policy = self._policy_registry.resolve_family(
+                    cwe_ids=finding.cwe_ids or [], rule_id=finding.rule_id
+                )
+            except PolicyOverlapError:
+                return self._policy_ambiguous_verdict(finding)
+        if policy is not None:
+            return self._verify_policy_finding(finding, policy)
+        return self._verify_legacy_finding(finding)
+
+    def _verify_legacy_finding(self, finding: Finding) -> Verdict:
+        """Verify a single finding (legacy model-verdict path)."""
         # Get questions (pass CWE IDs for Semgrep/OpenGrep CWE-based matching)
         questions = self.questions_loader.get_questions(
             finding.rule_id,
@@ -1467,9 +1501,14 @@ class VerificationEngine:
         if sc_samples <= 1 and (arm_a or arm_b or arm_c or arm_d):
             # Post-processing must never crash a verdict; the original
             # verdict is preserved if the second-opinion call fails.
-            challenge_prompt = (
-                self.llm_client._TP_CHALLENGE_PROMPT if arm_d else None
-            )
+            if arm_d:
+                challenge_prompt = self.llm_client._TP_CHALLENGE_PROMPT
+            elif arm_c:
+                # A framework-taint TP: challenge it as a TP (not the FP-oriented
+                # default, which wrongly asserts a prior False Positive).
+                challenge_prompt = self.llm_client._FRAMEWORK_TAINT_TP_CHALLENGE_PROMPT
+            else:
+                challenge_prompt = None
             with contextlib.suppress(Exception):
                 verdict = self.llm_client.request_second_opinion(
                     finding=finding,
@@ -1502,6 +1541,154 @@ class VerificationEngine:
         verdict = _downgrade_cli_path_injection(verdict)
 
         return verdict
+
+    def _verify_policy_finding(self, finding: Finding, policy) -> Verdict:
+        """Policy evidence-closure path. Each sample seeds its own typed ledger
+        (primary slice + scanner dataflow) and lets the closure controller drive
+        analyze() to a policy-entailed decision; force_decision is off. With
+        self-consistency > 1 the per-sample PolicyDecisions are aggregated —
+        a True/False-Positive disagreement resolves to honest NMD, never a
+        tie-broken binary. The result is tagged decision_source='policy'."""
+        questions = self.questions_loader.get_questions(
+            finding.rule_id, cwe_ids=finding.cwe_ids, lang=finding.lang,
+        )
+        context_result = self.context_extractor.get_context(
+            finding.file, finding.start_line, finding.lang, repo_name=finding.repo_name,
+        )
+        effective_provider: ContextProvider | SnippetContextProvider | None = (
+            self.context_provider
+        )
+        if isinstance(self.context_provider, ContextProvider) and not (
+            self.context_provider.has_context_for_repo(finding.repo_name, finding.lang)
+        ):
+            effective_provider = SnippetContextProvider(
+                snippet=context_result.code,
+                function_name=context_result.function_name,
+            )
+
+        sc_samples = getattr(self.config.verification, "self_consistency_samples", 1) or 1
+        if sc_samples > 1:
+            voting_temp = getattr(
+                self.config.verification, "self_consistency_temperature", 0.7
+            )
+            samples = [
+                self._run_policy_sample(
+                    finding, policy, questions, context_result,
+                    effective_provider, voting_temp,
+                )
+                for _ in range(sc_samples)
+            ]
+            return self._aggregate_policy_samples(
+                finding, policy, [s[0] for s in samples], [s[1] for s in samples]
+            )
+
+        verdict, decision = self._run_policy_sample(
+            finding, policy, questions, context_result, effective_provider, None
+        )
+        return self._finalize_policy_verdict(verdict, policy, decision)
+
+    def _run_policy_sample(
+        self, finding, policy, questions, context_result, provider, temperature
+    ) -> tuple[Verdict, object]:
+        """Run one closure sample with a fresh ledger; return (verdict, decision)."""
+        ledger = EvidenceLedger()
+        ledger.add_local_slice(
+            SourceRef(
+                repo=finding.repo_name,
+                lang=finding.lang,
+                file=finding.file,
+                start=context_result.start_line,
+                end=context_result.end_line,
+            ),
+            context_result.code,
+        )
+        if finding.dataflow_path:
+            ledger.add_scanner_dataflow(" -> ".join(finding.dataflow_path))
+        controller = PolicyClosureController(
+            policy=policy,
+            provider=provider,
+            finding=finding,
+            model=self.llm_client.model,
+            ledger=ledger,
+        )
+        verdict = self.llm_client.analyze(
+            finding=finding,
+            context=context_result.code,
+            context_start_line=context_result.start_line,
+            questions=questions,
+            func_name=context_result.function_name,
+            context_provider=provider,
+            max_iterations=self.config.verification.max_iterations,
+            verbose=self.config.output.is_verbose,
+            quiet=self.config.output.is_quiet,
+            force_decision=False,
+            log_file=self._log_fh,
+            temperature=temperature,
+            decision_strategy=controller,
+        )
+        return verdict, controller.last_decision
+
+    @staticmethod
+    def _policy_decision_record(policy, decision) -> dict:
+        return {
+            "family": decision.family,
+            "version": policy.version,
+            "terminal_reason": decision.terminal_reason,
+            "facts": dict(decision.facts),
+            "evidence_ids": list(decision.evidence_ids),
+        }
+
+    def _finalize_policy_verdict(self, verdict: Verdict, policy, decision) -> Verdict:
+        verdict.decision_source = "policy"
+        if decision is not None:
+            verdict.policy_decision = self._policy_decision_record(policy, decision)
+        return verdict
+
+    def _aggregate_policy_samples(self, finding, policy, verdicts, decisions) -> Verdict:
+        agg = aggregate_policy_decisions(decisions)
+        distinct = {d.verdict for d in decisions if d is not None}
+        if agg.verdict == VerdictType.NEEDS_MORE_DATA.value:
+            confidence = "Low"
+        else:
+            confidence = "High" if len(distinct) == 1 else "Medium"
+        rep = next((v for v in verdicts if v.verdict == agg.verdict), verdicts[0])
+        verdict = Verdict(
+            finding=finding,
+            verdict=agg.verdict,
+            confidence=confidence,
+            reasoning=(rep.reasoning or "")
+            + f" [policy vote over {len(verdicts)} samples: "
+            + f"{agg.terminal_reason or 'entailed'}]",
+            answers=rep.answers,
+            raw_response="\n---\n".join(v.raw_response for v in verdicts),
+            model=self.llm_client.model,
+            elapsed_seconds=sum(v.elapsed_seconds for v in verdicts),
+            iterations=max((v.iterations for v in verdicts), default=1),
+            tokens_used=sum(v.tokens_used for v in verdicts),
+            input_tokens=sum(v.input_tokens for v in verdicts),
+            output_tokens=sum(v.output_tokens for v in verdicts),
+            cached_input_tokens=sum(v.cached_input_tokens for v in verdicts),
+            cost_usd=sum(v.cost_usd for v in verdicts),
+            data_flow=rep.data_flow,
+        )
+        return self._finalize_policy_verdict(verdict, policy, agg)
+
+    def _policy_ambiguous_verdict(self, finding: Finding) -> Verdict:
+        """Fail closed when a finding matches more than one family policy."""
+        return Verdict(
+            finding=finding,
+            verdict=VerdictType.NEEDS_MORE_DATA.value,
+            confidence="Low",
+            reasoning=(
+                "Policy selection is ambiguous — this finding matched more than "
+                "one rule-family policy. Failing closed to Needs More Data rather "
+                "than guessing a family."
+            ),
+            answers=[],
+            raw_response="",
+            model=self.llm_client.model,
+            decision_source="policy",
+        )
 
     def _sibling_reverify(
         self, fp: Verdict, tp_siblings: list[Verdict]

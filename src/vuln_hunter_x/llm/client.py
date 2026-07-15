@@ -47,6 +47,12 @@ from vuln_hunter_x.core.constants import (
 )
 from vuln_hunter_x.core.types import Finding, GuidedQuestions, Verdict
 from vuln_hunter_x.core.validation import openai_compat_kwargs
+from vuln_hunter_x.llm.decision_strategy import (
+    Abstain,
+    DecisionStrategy,
+    Finalize,
+    Retrieve,
+)
 from vuln_hunter_x.llm.key_pool import KeyPool, extract_retry_after
 from vuln_hunter_x.llm.prompts import PromptBuilder
 
@@ -445,6 +451,7 @@ class LLMClient:
         prefetched_context: dict[str, str] | None = None,
         temperature: float | None = None,
         context_start_line: int = 1,
+        decision_strategy: DecisionStrategy | None = None,
     ) -> Verdict:
         """
         Analyze a finding and return a verdict.
@@ -483,6 +490,13 @@ class LLMClient:
                     "\n\n## Pre-fetched Additional Context\n\n"
                     + "\n\n".join(prefetch_parts)
                 )
+
+        # Policy path: append the strategy's fact-slot assessment instructions so
+        # the model returns the structured assessment on the first turn.
+        if decision_strategy is not None:
+            extra = getattr(decision_strategy, "initial_instructions", lambda: None)()
+            if extra:
+                user_prompt += "\n\n" + extra
 
         sys_prompt = self.prompt_builder.get_system_prompt(
             tool_name=finding.tool or "static analysis",
@@ -585,6 +599,32 @@ class LLMClient:
                     print(
                         f"    Parsed: verdict={verdict}, confidence={parsed.get('confidence', 'Low')}"
                     )
+
+                # Evidence-closure hook: when a decision strategy is supplied (the
+                # policy path), it owns closure — retrieve / repair / finalize /
+                # abstain — bypassing the legacy min-iterations, context-expansion
+                # and force-decision control flow below.
+                if decision_strategy is not None:
+                    action = decision_strategy.evaluate(parsed, raw_response, iterations)
+                    if isinstance(action, (Finalize, Abstain)):
+                        v = action.verdict
+                        v.raw_response = "\n---\n".join(all_raw_responses)
+                        v.elapsed_seconds = time.time() - start_time
+                        v.iterations = iterations
+                        v.tokens_used = total_tokens_used
+                        v.input_tokens = total_input_tokens
+                        v.output_tokens = total_output_tokens
+                        v.cached_input_tokens = total_cached_input_tokens
+                        v.cost_usd = total_cost_usd
+                        return v
+                    follow_up = (
+                        action.followup_prompt
+                        if isinstance(action, Retrieve)
+                        else action.repair_prompt
+                    )
+                    messages.append({"role": "assistant", "content": raw_response})
+                    messages.append({"role": "user", "content": follow_up})
+                    continue
 
                 # min_iterations gate: for high-stakes rules (e.g., memory-safety CWEs)
                 # the questions YAML can require multiple analysis rounds before allowing
@@ -944,8 +984,14 @@ class LLMClient:
             counts[v.verdict] = counts.get(v.verdict, 0) + 1
             if v.verdict in scores:
                 scores[v.verdict] += float(v.confidence_score or 0.0)
-        # Pick winner. NMD votes do not contribute weight.
-        if scores[TP] > scores[FP]:
+        # Pick winner. NMD votes do not contribute confidence weight — but a
+        # sample set with NO True/False Positive votes at all must NOT collapse to
+        # FP via the tie-break (the documented uncertainty-erasure defect). Decide
+        # those degenerate cases honestly by count: all-NMD -> NMD, all-Error ->
+        # Error. Only a genuine TP-vs-FP tie falls through to the tie-break.
+        if counts.get(TP, 0) == 0 and counts.get(FP, 0) == 0:
+            winner = NMD if counts.get(NMD, 0) > 0 else "Error"
+        elif scores[TP] > scores[FP]:
             winner = TP
         elif scores[FP] > scores[TP]:
             winner = FP
@@ -1071,6 +1117,34 @@ class LLMClient:
         "change your verdict to 'False Positive' (the pattern is present but the "
         "overflow is not reachable) or 'Needs More Data'. Respond in the same strict "
         "JSON format."
+    )
+
+    # arm_c challenge: a 1-iteration/High True Positive on a framework-language
+    # taint/injection CWE. The over-confirmation risk is assuming the framework
+    # actually delivers attacker-controlled data to the sink unsanitized. States
+    # the prior verdict correctly as TP (unlike the FP-oriented default).
+    _FRAMEWORK_TAINT_TP_CHALLENGE_PROMPT = (
+        "Your previous verdict was 'True Positive' with high confidence, reached "
+        "in a single turn. The flagged rule is a taint / injection rule on a "
+        "framework-based app, where the danger depends on the FRAMEWORK actually "
+        "delivering attacker-controlled data to the sink unsanitized — easy to "
+        "assume without proof.\n\n"
+        "Re-verify by answering, with line references:\n"
+        "  (a) The concrete SOURCE of the tainted value — a real external entry "
+        "(HTTP request body / query / params, header, uploaded file, message "
+        "payload), or a framework-validated/typed binding, config, or internal "
+        "value?\n"
+        "  (b) Does the framework neutralize it on the path — DTO/schema "
+        "validation, ORM parameter binding, template auto-escaping, a sanitizer "
+        "middleware? Quote it or state its absence with line references.\n"
+        "  (c) Does the value reach the sink on a REACHABLE path with no effective "
+        "neutralization AND a concrete security consequence?\n"
+        "  (d) Is this file a test, fixture, example, or dev-only harness rather "
+        "than a production entry point?\n\n"
+        "Confirm 'True Positive' ONLY if you can trace attacker-controlled input "
+        "to the sink with no effective framework defense and a real consequence. "
+        "Otherwise change your verdict to 'False Positive' or 'Needs More Data'. "
+        "Respond in the same strict JSON format."
     )
 
     _SIBLING_CONSISTENCY_CHALLENGE_PROMPT = (
