@@ -187,6 +187,11 @@ class Verdict:
     # {family, version, terminal_reason, facts{slot:value}, evidence_ids[]}.
     # None on the legacy path. Persisted even when raw_response is not.
     policy_decision: dict | None = None
+    # Anchor-fidelity signals (#118). Populated on the legacy path; inert
+    # ("", 0) when no snippet was resolved. A structural NMD sets
+    # decision_source="structural_gate" so legacy finalizers skip it.
+    anchor_resolution: str = ""
+    analysis_line: int = 0
 
     @property
     def is_true_positive(self) -> bool:
@@ -230,6 +235,8 @@ class Verdict:
             "data_flow": self.data_flow,
             "decision_source": self.decision_source,
             "policy_decision": self.policy_decision,
+            "anchor_resolution": self.anchor_resolution,
+            "analysis_line": self.analysis_line,
         }
         if include_raw_response:
             data["raw_response"] = self.raw_response
@@ -259,6 +266,8 @@ class Verdict:
             data_flow=data.get("data_flow", ""),
             decision_source=data.get("decision_source", "legacy_model"),
             policy_decision=data.get("policy_decision"),
+            anchor_resolution=data.get("anchor_resolution", ""),
+            analysis_line=data.get("analysis_line", 0),
         )
 
 
