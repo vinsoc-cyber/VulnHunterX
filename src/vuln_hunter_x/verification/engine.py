@@ -1366,8 +1366,15 @@ class VerificationEngine:
         questions = self.questions_loader.get_questions(
             finding.rule_id, cwe_ids=finding.cwe_ids, lang=finding.lang,
         )
+        # Confirm the reported sink anchor against real source before analysis:
+        # the policy path must inherit P3a's structural safety (#118). A construct
+        # that cannot be uniquely placed is an honest Needs-More-Data, never
+        # reasoned over on a misaligned slice.
+        anchor = self._resolve_finding_anchor(finding)
+        if anchor.resolution in STRUCTURAL_NMD_RESOLUTIONS:
+            return self._structural_gate_verdict(finding, anchor)
         context_result = self.context_extractor.get_context(
-            finding.file, finding.start_line, finding.lang, repo_name=finding.repo_name,
+            finding.file, anchor.analysis_line, finding.lang, repo_name=finding.repo_name,
         )
         effective_provider: ContextProvider | SnippetContextProvider | None = (
             self.context_provider
