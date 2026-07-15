@@ -46,6 +46,13 @@ class Finding:
     cwe_ids: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     related_locations: list[str] = field(default_factory=list)
+    # Reported sink anchor evidence from the scanner (SARIF region.snippet /
+    # columns). Immutable; used to confirm or re-align the analysis anchor
+    # without ever moving the reported (file, start_line). Empty when the
+    # scanner emitted no snippet — such findings take the unchanged path.
+    sink_snippet: str = ""
+    start_column: int = 0
+    end_column: int = 0
 
     @property
     def location(self) -> str:
@@ -70,6 +77,9 @@ class Finding:
             "cwe_ids": self.cwe_ids,
             "tags": self.tags,
             "related_locations": self.related_locations,
+            "sink_snippet": self.sink_snippet,
+            "start_column": self.start_column,
+            "end_column": self.end_column,
         }
 
     @classmethod
@@ -91,6 +101,9 @@ class Finding:
             cwe_ids=data.get("cwe_ids", []),
             tags=data.get("tags", []),
             related_locations=data.get("related_locations", []),
+            sink_snippet=data.get("sink_snippet", ""),
+            start_column=data.get("start_column", 0),
+            end_column=data.get("end_column", 0),
         )
 
 
