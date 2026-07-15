@@ -1246,7 +1246,7 @@ class VerificationEngine:
         if self._policy_registry.families:
             try:
                 policy = self._policy_registry.resolve_family(
-                    cwe_ids=finding.cwe_ids or [], rule_id=finding.rule_id
+                    cwe_ids=finding.cwe_ids or [], rule_id=finding.rule_id, lang=finding.lang
                 )
             except PolicyOverlapError:
                 return self._policy_ambiguous_verdict(finding)

@@ -41,6 +41,9 @@ class FamilyPolicy:
     decisive_slots: frozenset[str]
     true_positive: Condition
     false_positive_if_any: tuple[Condition, ...]
+    # Optional language scoping: empty ⇒ language-agnostic (matches any lang, as
+    # CWE-117 does); non-empty ⇒ the finding's lang must be a member. Lowercased.
+    languages: frozenset[str] = frozenset()
     version: str = "1"
 
 

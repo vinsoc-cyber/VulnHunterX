@@ -60,6 +60,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         selectors = data.get("selectors", {}) or {}
         cwes = frozenset(str(c).upper() for c in selectors.get("cwes", []))
         rule_aliases = tuple(str(a) for a in selectors.get("rule_aliases", []))
+        languages = frozenset(str(lang).lower() for lang in selectors.get("languages", []))
         raw_slots = data["fact_slots"]
         fact_slots = {str(k): tuple(str(v) for v in vals) for k, vals in raw_slots.items()}
         decisive = frozenset(
@@ -88,6 +89,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         decisive_slots=decisive,
         true_positive=true_positive,
         false_positive_if_any=false_positive_if_any,
+        languages=languages,
         version=str(data.get("version", "1")),
     )
 
@@ -103,17 +105,25 @@ class PolicyRegistry:
         return [p.family for p in self._policies]
 
     @staticmethod
-    def _matches(policy: FamilyPolicy, cwe_set: set[str], rule_id: str) -> bool:
+    def _matches(policy: FamilyPolicy, cwe_set: set[str], rule_id: str, lang: str) -> bool:
+        # Language gate: a policy that declares languages matches only findings in
+        # those languages. An empty languages set is language-agnostic (CWE-117).
+        if policy.languages and lang.lower() not in policy.languages:
+            return False
         if cwe_set & policy.cwes:
             return True
         return any(fnmatch.fnmatch(rule_id, pat) for pat in policy.rule_aliases)
 
     def resolve_family(
-        self, *, cwe_ids: Iterable[str], rule_id: str
+        self, *, cwe_ids: Iterable[str], rule_id: str, lang: str = ""
     ) -> FamilyPolicy | None:
         """Return the single matching policy, ``None`` if none, error if >1."""
         cwe_set = {str(c).upper() for c in cwe_ids}
-        matches = [p for p in self._policies if self._matches(p, cwe_set, rule_id or "")]
+        matches = [
+            p
+            for p in self._policies
+            if self._matches(p, cwe_set, rule_id or "", lang or "")
+        ]
         if not matches:
             return None
         if len(matches) > 1:
