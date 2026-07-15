@@ -301,6 +301,10 @@ def _reconcile_conflicting_verdicts(verdicts: list[Verdict]) -> list[Verdict]:
     # Vendored/generated/minified findings are excluded outright.
     buckets: dict[tuple, list[Verdict]] = {}
     for v in verdicts:
+        # Policy-sourced verdicts are owned by the evidence-closure gate; they are
+        # never reconciled against (or by) legacy siblings.
+        if v.decision_source == "policy":
+            continue
         f = v.finding
         if _is_vendored_or_minified(f.file):
             continue
@@ -435,7 +439,9 @@ def apply_sibling_consistency(
     """
     tp = VerdictType.TRUE_POSITIVE.value
     index = {id(v): i for i, v in enumerate(verdicts)}
-    for fp_verdict, tp_siblings in _select_sibling_consistency_candidates(verdicts):
+    # Policy-sourced verdicts are neither re-verified nor used as TP siblings.
+    legacy = [v for v in verdicts if v.decision_source != "policy"]
+    for fp_verdict, tp_siblings in _select_sibling_consistency_candidates(legacy):
         try:
             new = reverify(fp_verdict, tp_siblings)
         except Exception:
@@ -1588,6 +1594,15 @@ class VerificationEngine:
             decision_strategy=controller,
         )
         verdict.decision_source = "policy"
+        decision = controller.last_decision
+        if decision is not None:
+            verdict.policy_decision = {
+                "family": decision.family,
+                "version": policy.version,
+                "terminal_reason": decision.terminal_reason,
+                "facts": dict(decision.facts),
+                "evidence_ids": list(decision.evidence_ids),
+            }
         return verdict
 
     def _policy_ambiguous_verdict(self, finding: Finding) -> Verdict:
