@@ -19,6 +19,15 @@ from __future__ import annotations
 
 import re
 
+from vuln_hunter_x.context.evidence import (
+    EvidenceKind,
+    EvidenceRequest,
+    EvidenceResult,
+    EvidenceScope,
+    EvidenceStatus,
+    SourceRef,
+)
+
 # Compiled once. C/C++-flavoured but works well enough for Python/Java/JS too
 # because we're scanning for human-readable identifiers, not parsing types.
 _FREE_KIND_RE = re.compile(
@@ -44,9 +53,17 @@ class SnippetContextProvider:
 
     UNAVAILABLE_PREFIX = "<unavailable: out-of-snippet>"
 
-    def __init__(self, snippet: str, function_name: str = "") -> None:
+    def __init__(
+        self,
+        snippet: str,
+        function_name: str = "",
+        source_ref: SourceRef | None = None,
+    ) -> None:
         self._snippet = snippet or ""
         self._func_name = function_name or ""
+        # Optional provenance for FOUND in-snippet evidence (P2a). The snippet
+        # has only relative offsets, so a caller that knows the origin passes it.
+        self._source_ref = source_ref
 
     # ---- ContextProvider interface ----
 
@@ -66,6 +83,40 @@ class SnippetContextProvider:
             name = name.strip()
             results[request] = self._dispatch(ctx_type, name, lang)
         return results
+
+    def resolve_evidence(
+        self,
+        repo_name: str,
+        lang: str,
+        requests: list[EvidenceRequest],
+    ) -> dict[str, EvidenceResult]:
+        """Typed retrieval (P2a). Snippet misses are incomplete at REPOSITORY
+        scope — only positive in-snippet evidence is safely FOUND; the snippet
+        can never prove repository-wide absence. Keyed by ``raw_request``."""
+        out: dict[str, EvidenceResult] = {}
+        for req in requests:
+            raw = req.raw_request
+            ctx_type = raw.split(":", 1)[0].lower().strip() if ":" in raw else raw
+            content = self._dispatch(ctx_type, req.subject, lang)
+            if content.startswith(self.UNAVAILABLE_PREFIX):
+                status = (
+                    EvidenceStatus.UNSUPPORTED
+                    if req.kind is EvidenceKind.UNKNOWN
+                    else EvidenceStatus.INCOMPLETE_INDEX
+                )
+                prov: tuple[SourceRef, ...] = ()
+            else:
+                status = EvidenceStatus.FOUND
+                prov = (self._source_ref,) if self._source_ref else ()
+            out[raw] = EvidenceResult(
+                req,
+                status,
+                content,
+                EvidenceScope.SNIPPET,
+                exhaustive=False,
+                provenance=prov,
+            )
+        return out
 
     def has_context_for_repo(self, repo_name: str, lang: str) -> bool:
         # Always True — we always have *some* snippet-derived answer
