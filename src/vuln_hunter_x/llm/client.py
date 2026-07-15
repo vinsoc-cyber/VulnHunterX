@@ -977,8 +977,14 @@ class LLMClient:
             counts[v.verdict] = counts.get(v.verdict, 0) + 1
             if v.verdict in scores:
                 scores[v.verdict] += float(v.confidence_score or 0.0)
-        # Pick winner. NMD votes do not contribute weight.
-        if scores[TP] > scores[FP]:
+        # Pick winner. NMD votes do not contribute confidence weight — but a
+        # sample set with NO True/False Positive votes at all must NOT collapse to
+        # FP via the tie-break (the documented uncertainty-erasure defect). Decide
+        # those degenerate cases honestly by count: all-NMD -> NMD, all-Error ->
+        # Error. Only a genuine TP-vs-FP tie falls through to the tie-break.
+        if counts.get(TP, 0) == 0 and counts.get(FP, 0) == 0:
+            winner = NMD if counts.get(NMD, 0) > 0 else "Error"
+        elif scores[TP] > scores[FP]:
             winner = TP
         elif scores[FP] > scores[TP]:
             winner = FP

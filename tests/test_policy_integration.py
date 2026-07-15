@@ -28,6 +28,7 @@ from vuln_hunter_x.verification.policy.loader import (
     load_policy_from_mapping,
     load_policy_registry,
 )
+from vuln_hunter_x.verification.policy.models import FP, TP, PolicyDecision
 
 _NMD_JSON = '{"verdict":"Needs More Data","confidence":"Low","reasoning":"r","answers":[]}'
 
@@ -170,3 +171,36 @@ class TestEngineRouting:
 
     def test_default_decision_source_is_legacy(self):
         assert _mk_verdict("True Positive").decision_source == "legacy_model"
+
+
+class TestPolicyVotingAggregation:
+    def setup_method(self):
+        self.engine = VerificationEngine(load_config())
+        self.policy = load_policy_registry().resolve_family(
+            cwe_ids=["CWE-117"], rule_id="js/log-injection"
+        )
+
+    @staticmethod
+    def _pd(verdict, reason=None):
+        return PolicyDecision(verdict, "log_injection", {"attacker_control": "PROVEN"}, terminal_reason=reason)
+
+    def test_unanimous_tp_is_high_confidence_policy_verdict(self):
+        v = self.engine._aggregate_policy_samples(
+            _finding(), self.policy,
+            [_mk_verdict("True Positive"), _mk_verdict("True Positive")],
+            [self._pd(TP), self._pd(TP)],
+        )
+        assert v.verdict == "True Positive"
+        assert v.confidence == "High"
+        assert v.decision_source == "policy"
+        assert v.policy_decision["family"] == "log_injection"
+
+    def test_sample_disagreement_becomes_nmd(self):
+        v = self.engine._aggregate_policy_samples(
+            _finding(), self.policy,
+            [_mk_verdict("True Positive"), _mk_verdict("False Positive")],
+            [self._pd(TP), self._pd(FP)],
+        )
+        assert v.verdict == "Needs More Data"
+        assert v.confidence == "Low"
+        assert "sample_disagreement" in (v.policy_decision["terminal_reason"] or "")

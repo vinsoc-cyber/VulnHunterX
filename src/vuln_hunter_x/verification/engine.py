@@ -638,6 +638,7 @@ from vuln_hunter_x.verification.policy.loader import (
     PolicyOverlapError,
     load_policy_registry,
 )
+from vuln_hunter_x.verification.policy.voting import aggregate_policy_decisions
 
 
 class _ThreadSafeLogFile:
@@ -1537,10 +1538,12 @@ class VerificationEngine:
         return verdict
 
     def _verify_policy_finding(self, finding: Finding, policy) -> Verdict:
-        """Policy evidence-closure path: seed a typed ledger from the primary
-        slice + scanner dataflow, then let the closure controller drive analyze()
-        to a policy-entailed verdict. force_decision is off — the controller owns
-        closure — and the result is tagged decision_source='policy'."""
+        """Policy evidence-closure path. Each sample seeds its own typed ledger
+        (primary slice + scanner dataflow) and lets the closure controller drive
+        analyze() to a policy-entailed decision; force_decision is off. With
+        self-consistency > 1 the per-sample PolicyDecisions are aggregated —
+        a True/False-Positive disagreement resolves to honest NMD, never a
+        tie-broken binary. The result is tagged decision_source='policy'."""
         questions = self.questions_loader.get_questions(
             finding.rule_id, cwe_ids=finding.cwe_ids, lang=finding.lang,
         )
@@ -1558,6 +1561,31 @@ class VerificationEngine:
                 function_name=context_result.function_name,
             )
 
+        sc_samples = getattr(self.config.verification, "self_consistency_samples", 1) or 1
+        if sc_samples > 1:
+            voting_temp = getattr(
+                self.config.verification, "self_consistency_temperature", 0.7
+            )
+            samples = [
+                self._run_policy_sample(
+                    finding, policy, questions, context_result,
+                    effective_provider, voting_temp,
+                )
+                for _ in range(sc_samples)
+            ]
+            return self._aggregate_policy_samples(
+                finding, policy, [s[0] for s in samples], [s[1] for s in samples]
+            )
+
+        verdict, decision = self._run_policy_sample(
+            finding, policy, questions, context_result, effective_provider, None
+        )
+        return self._finalize_policy_verdict(verdict, policy, decision)
+
+    def _run_policy_sample(
+        self, finding, policy, questions, context_result, provider, temperature
+    ) -> tuple[Verdict, object]:
+        """Run one closure sample with a fresh ledger; return (verdict, decision)."""
         ledger = EvidenceLedger()
         ledger.add_local_slice(
             SourceRef(
@@ -1571,10 +1599,9 @@ class VerificationEngine:
         )
         if finding.dataflow_path:
             ledger.add_scanner_dataflow(" -> ".join(finding.dataflow_path))
-
         controller = PolicyClosureController(
             policy=policy,
-            provider=effective_provider,
+            provider=provider,
             finding=finding,
             model=self.llm_client.model,
             ledger=ledger,
@@ -1585,25 +1612,61 @@ class VerificationEngine:
             context_start_line=context_result.start_line,
             questions=questions,
             func_name=context_result.function_name,
-            context_provider=effective_provider,
+            context_provider=provider,
             max_iterations=self.config.verification.max_iterations,
             verbose=self.config.output.is_verbose,
             quiet=self.config.output.is_quiet,
             force_decision=False,
             log_file=self._log_fh,
+            temperature=temperature,
             decision_strategy=controller,
         )
+        return verdict, controller.last_decision
+
+    @staticmethod
+    def _policy_decision_record(policy, decision) -> dict:
+        return {
+            "family": decision.family,
+            "version": policy.version,
+            "terminal_reason": decision.terminal_reason,
+            "facts": dict(decision.facts),
+            "evidence_ids": list(decision.evidence_ids),
+        }
+
+    def _finalize_policy_verdict(self, verdict: Verdict, policy, decision) -> Verdict:
         verdict.decision_source = "policy"
-        decision = controller.last_decision
         if decision is not None:
-            verdict.policy_decision = {
-                "family": decision.family,
-                "version": policy.version,
-                "terminal_reason": decision.terminal_reason,
-                "facts": dict(decision.facts),
-                "evidence_ids": list(decision.evidence_ids),
-            }
+            verdict.policy_decision = self._policy_decision_record(policy, decision)
         return verdict
+
+    def _aggregate_policy_samples(self, finding, policy, verdicts, decisions) -> Verdict:
+        agg = aggregate_policy_decisions(decisions)
+        distinct = {d.verdict for d in decisions if d is not None}
+        if agg.verdict == VerdictType.NEEDS_MORE_DATA.value:
+            confidence = "Low"
+        else:
+            confidence = "High" if len(distinct) == 1 else "Medium"
+        rep = next((v for v in verdicts if v.verdict == agg.verdict), verdicts[0])
+        verdict = Verdict(
+            finding=finding,
+            verdict=agg.verdict,
+            confidence=confidence,
+            reasoning=(rep.reasoning or "")
+            + f" [policy vote over {len(verdicts)} samples: "
+            + f"{agg.terminal_reason or 'entailed'}]",
+            answers=rep.answers,
+            raw_response="\n---\n".join(v.raw_response for v in verdicts),
+            model=self.llm_client.model,
+            elapsed_seconds=sum(v.elapsed_seconds for v in verdicts),
+            iterations=max((v.iterations for v in verdicts), default=1),
+            tokens_used=sum(v.tokens_used for v in verdicts),
+            input_tokens=sum(v.input_tokens for v in verdicts),
+            output_tokens=sum(v.output_tokens for v in verdicts),
+            cached_input_tokens=sum(v.cached_input_tokens for v in verdicts),
+            cost_usd=sum(v.cost_usd for v in verdicts),
+            data_flow=rep.data_flow,
+        )
+        return self._finalize_policy_verdict(verdict, policy, agg)
 
     def _policy_ambiguous_verdict(self, finding: Finding) -> Verdict:
         """Fail closed when a finding matches more than one family policy."""
