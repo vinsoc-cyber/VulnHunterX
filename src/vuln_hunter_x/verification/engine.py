@@ -341,12 +341,12 @@ from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
 from vuln_hunter_x.verification.case import VerificationCase, build_cases, case_key
 from vuln_hunter_x.verification.policy.closure import PolicyClosureController
-from vuln_hunter_x.verification.policy.ledger import EvidenceLedger
 from vuln_hunter_x.verification.policy.handoff import (
     PolicyAttempt,
     PolicyAttemptStatus,
     classify_applicability,
 )
+from vuln_hunter_x.verification.policy.ledger import EvidenceLedger
 from vuln_hunter_x.verification.policy.loader import (
     PolicyOverlapError,
     load_policy_registry,
