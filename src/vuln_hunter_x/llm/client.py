@@ -1112,6 +1112,34 @@ class LLMClient:
         "JSON format."
     )
 
+    # arm_c challenge: a 1-iteration/High True Positive on a framework-language
+    # taint/injection CWE. The over-confirmation risk is assuming the framework
+    # actually delivers attacker-controlled data to the sink unsanitized. States
+    # the prior verdict correctly as TP (unlike the FP-oriented default).
+    _FRAMEWORK_TAINT_TP_CHALLENGE_PROMPT = (
+        "Your previous verdict was 'True Positive' with high confidence, reached "
+        "in a single turn. The flagged rule is a taint / injection rule on a "
+        "framework-based app, where the danger depends on the FRAMEWORK actually "
+        "delivering attacker-controlled data to the sink unsanitized — easy to "
+        "assume without proof.\n\n"
+        "Re-verify by answering, with line references:\n"
+        "  (a) The concrete SOURCE of the tainted value — a real external entry "
+        "(HTTP request body / query / params, header, uploaded file, message "
+        "payload), or a framework-validated/typed binding, config, or internal "
+        "value?\n"
+        "  (b) Does the framework neutralize it on the path — DTO/schema "
+        "validation, ORM parameter binding, template auto-escaping, a sanitizer "
+        "middleware? Quote it or state its absence with line references.\n"
+        "  (c) Does the value reach the sink on a REACHABLE path with no effective "
+        "neutralization AND a concrete security consequence?\n"
+        "  (d) Is this file a test, fixture, example, or dev-only harness rather "
+        "than a production entry point?\n\n"
+        "Confirm 'True Positive' ONLY if you can trace attacker-controlled input "
+        "to the sink with no effective framework defense and a real consequence. "
+        "Otherwise change your verdict to 'False Positive' or 'Needs More Data'. "
+        "Respond in the same strict JSON format."
+    )
+
     _SIBLING_CONSISTENCY_CHALLENGE_PROMPT = (
         "Your previous verdict was 'False Positive'. However, this SAME rule "
         "flagged the SAME construct at OTHER lines of THIS file, and that "

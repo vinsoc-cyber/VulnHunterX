@@ -1501,9 +1501,14 @@ class VerificationEngine:
         if sc_samples <= 1 and (arm_a or arm_b or arm_c or arm_d):
             # Post-processing must never crash a verdict; the original
             # verdict is preserved if the second-opinion call fails.
-            challenge_prompt = (
-                self.llm_client._TP_CHALLENGE_PROMPT if arm_d else None
-            )
+            if arm_d:
+                challenge_prompt = self.llm_client._TP_CHALLENGE_PROMPT
+            elif arm_c:
+                # A framework-taint TP: challenge it as a TP (not the FP-oriented
+                # default, which wrongly asserts a prior False Positive).
+                challenge_prompt = self.llm_client._FRAMEWORK_TAINT_TP_CHALLENGE_PROMPT
+            else:
+                challenge_prompt = None
             with contextlib.suppress(Exception):
                 verdict = self.llm_client.request_second_opinion(
                     finding=finding,
