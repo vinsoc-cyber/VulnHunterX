@@ -192,6 +192,30 @@ class TestFrameworkGrepTyped:
         assert res.status is EvidenceStatus.INCOMPLETE_INDEX
 
 
+class TestResolveEvidenceAdapter:
+    def test_prompt_content_matches_get_additional_context(self, prov):
+        raws = [
+            "function:helper", "struct:W", "caller:sink", "all_callers:helper",
+            "callees:fn", "callee_bodies:fn", "free_sites:p", "destructor:W",
+            "field_writes:W.buf", "macro:M", "typedef:T", "enum:E", "global:g",
+            "bogus:z", "noColonHere",
+        ]
+        legacy = prov.get_additional_context("app", "cpp", raws)
+        reqs = [r for r in (EvidenceRequest.parse(x) for x in raws) if r is not None]
+        typed = {k: v.prompt_content for k, v in prov.resolve_evidence("app", "cpp", reqs).items()}
+        assert typed == legacy
+
+    def test_keyed_by_raw_request(self, prov):
+        reqs = [EvidenceRequest.parse("method:helper")]  # alias -> FUNCTION kind
+        out = prov.resolve_evidence("app", "cpp", reqs)
+        assert "method:helper" in out  # keyed by the original raw request, not canonicalized
+
+    def test_conforms_to_protocol(self, prov):
+        from vuln_hunter_x.context.evidence import ContextProviderProtocol
+
+        assert isinstance(prov, ContextProviderProtocol)
+
+
 class TestGrepBounds:
     def test_hit_max_files(self, prov):
         root = prov._repo_root("javascript", "web")

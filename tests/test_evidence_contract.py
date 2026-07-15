@@ -101,10 +101,9 @@ class TestEvidenceResultDefaults:
 
 
 class TestProtocol:
-    def test_runtime_checkable(self):
-        # Snippet provider does NOT yet implement resolve_evidence (added in Task 6),
-        # so it must NOT satisfy the Protocol at this phase.
-        assert not isinstance(SnippetContextProvider("x"), ContextProviderProtocol)
+    def test_snippet_conforms(self):
+        # Snippet provider implements resolve_evidence (P2a Task 6) -> conforms.
+        assert isinstance(SnippetContextProvider("x"), ContextProviderProtocol)
 
 
 class TestCapabilitySupport:

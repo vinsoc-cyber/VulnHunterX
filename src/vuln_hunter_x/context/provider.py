@@ -160,6 +160,68 @@ class ContextProvider:
 
         return results
 
+    def resolve_evidence(
+        self,
+        repo_name: str,
+        lang: str,
+        requests: list[EvidenceRequest],
+    ) -> dict[str, EvidenceResult]:
+        """Typed retrieval entrypoint (P2a), keyed by ``raw_request``.
+
+        ``get_additional_context`` is the legacy string adapter over the same
+        ``_resolve_*`` handlers; this returns the full typed result (status /
+        scope / exhaustive / provenance) for the P2b policy gate to consume.
+        """
+        return {
+            req.raw_request: self._dispatch_resolve(req, repo_name, lang)
+            for req in requests
+        }
+
+    def _dispatch_resolve(
+        self, req: EvidenceRequest, repo_name: str, lang: str
+    ) -> EvidenceResult:
+        kind = req.kind
+        if kind is EvidenceKind.CALLER:
+            return self._resolve_caller(req, repo_name, lang)
+        if kind is EvidenceKind.ALL_CALLERS:
+            return self._resolve_all_callers(req, repo_name, lang)
+        if kind is EvidenceKind.CALLEES:
+            return self._resolve_callees(req, repo_name, lang)
+        if kind is EvidenceKind.CALLEE_BODIES:
+            return self._resolve_callee_bodies(req, repo_name, lang)
+        if kind is EvidenceKind.FUNCTION:
+            return self._resolve_function(req, repo_name, lang)
+        if kind is EvidenceKind.STRUCT:
+            return self._resolve_struct(req, repo_name, lang)
+        if kind is EvidenceKind.GLOBAL:
+            return self._resolve_global(req, repo_name, lang)
+        if kind is EvidenceKind.MACRO:
+            return self._resolve_macro(req, repo_name, lang)
+        if kind is EvidenceKind.TYPEDEF:
+            return self._resolve_typedef(req, repo_name, lang)
+        if kind is EvidenceKind.ENUM:
+            return self._resolve_enum(req, repo_name, lang)
+        if kind is EvidenceKind.FREE_SITES:
+            return self._resolve_free_sites(req, repo_name, lang)
+        if kind is EvidenceKind.DESTRUCTOR:
+            return self._resolve_destructor(req, repo_name, lang)
+        if kind is EvidenceKind.FIELD_WRITES:
+            return self._resolve_field_writes(req, repo_name, lang)
+        if kind is EvidenceKind.FRAMEWORK_SANITIZERS:
+            return self._resolve_framework_sanitizers(req, repo_name, lang)
+        if kind is EvidenceKind.FRAMEWORK_GUARDS:
+            return self._resolve_framework_guards(req, repo_name, lang)
+        # Unknown context type — mirror get_additional_context's message exactly.
+        ctx_type = (
+            req.raw_request.split(":", 1)[0].lower().strip()
+            if ":" in req.raw_request
+            else req.raw_request
+        )
+        content = f"[Unknown context type: {ctx_type}]"
+        return EvidenceResult(
+            req, EvidenceStatus.UNSUPPORTED, content, EvidenceScope.REPOSITORY_INDEX
+        )
+
     def has_context_for_repo(self, repo_name: str, lang: str) -> bool:
         """Check if context CSV files exist for a repository."""
         repo_context_dir = self._context_dir(lang, repo_name)
