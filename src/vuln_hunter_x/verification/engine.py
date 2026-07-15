@@ -301,9 +301,9 @@ def _reconcile_conflicting_verdicts(verdicts: list[Verdict]) -> list[Verdict]:
     # Vendored/generated/minified findings are excluded outright.
     buckets: dict[tuple, list[Verdict]] = {}
     for v in verdicts:
-        # Policy-sourced verdicts are owned by the evidence-closure gate; they are
-        # never reconciled against (or by) legacy siblings.
-        if v.decision_source == "policy":
+        # Policy and structural-gate verdicts are owned by their own gates; only
+        # the legacy model path is subject to post-hoc reconciliation.
+        if v.decision_source != "legacy_model":
             continue
         f = v.finding
         if _is_vendored_or_minified(f.file):
@@ -439,8 +439,9 @@ def apply_sibling_consistency(
     """
     tp = VerdictType.TRUE_POSITIVE.value
     index = {id(v): i for i, v in enumerate(verdicts)}
-    # Policy-sourced verdicts are neither re-verified nor used as TP siblings.
-    legacy = [v for v in verdicts if v.decision_source != "policy"]
+    # Only legacy model verdicts are re-verified / used as TP siblings; policy
+    # and structural-gate verdicts are owned by their own gates.
+    legacy = [v for v in verdicts if v.decision_source == "legacy_model"]
     for fp_verdict, tp_siblings in _select_sibling_consistency_candidates(legacy):
         try:
             new = reverify(fp_verdict, tp_siblings)
