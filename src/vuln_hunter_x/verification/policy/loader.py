@@ -1,0 +1,142 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+"""Load family policies from YAML and select the policy for a finding.
+
+Selection is by CWE membership or rule-id glob. Overlapping selectors (a
+finding matching more than one family) fail closed — the caller must never
+silently pick one. This mirrors the fail-closed repo-identity discipline from
+P1: ambiguity is an error, not a guess.
+"""
+
+from __future__ import annotations
+
+import fnmatch
+from collections.abc import Iterable, Mapping
+from pathlib import Path
+
+import yaml
+
+from vuln_hunter_x.verification.policy.models import Condition, FamilyPolicy
+
+
+class PolicyError(ValueError):
+    """A policy YAML is malformed or internally inconsistent."""
+
+
+class PolicyOverlapError(RuntimeError):
+    """A finding matched more than one family policy (fail closed)."""
+
+
+def _normalize_condition(raw: Mapping[str, object]) -> dict[str, tuple[str, ...]]:
+    out: dict[str, tuple[str, ...]] = {}
+    for slot, value in raw.items():
+        if isinstance(value, str):
+            out[slot] = (value,)
+        elif isinstance(value, (list, tuple)):
+            out[slot] = tuple(str(v) for v in value)
+        else:
+            raise PolicyError(f"condition value for {slot!r} must be a string or list")
+    return out
+
+
+def _validate_condition(
+    cond: Condition, fact_slots: Mapping[str, tuple[str, ...]], where: str
+) -> None:
+    for slot, values in cond.items():
+        if slot not in fact_slots:
+            raise PolicyError(f"{where}: slot {slot!r} is not declared in fact_slots")
+        for v in values:
+            if v not in fact_slots[slot]:
+                raise PolicyError(
+                    f"{where}: value {v!r} for slot {slot!r} is not a declared value"
+                )
+
+
+def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
+    """Build a :class:`FamilyPolicy` from a parsed YAML mapping (validated)."""
+    try:
+        family = str(data["family"])
+        selectors = data.get("selectors", {}) or {}
+        cwes = frozenset(str(c).upper() for c in selectors.get("cwes", []))
+        rule_aliases = tuple(str(a) for a in selectors.get("rule_aliases", []))
+        raw_slots = data["fact_slots"]
+        fact_slots = {str(k): tuple(str(v) for v in vals) for k, vals in raw_slots.items()}
+        decisive = frozenset(
+            str(s) for s in data.get("decisive_slots", list(fact_slots))
+        )
+        ent = data["entailment"]
+        true_positive = _normalize_condition(ent["true_positive"])
+        false_positive_if_any = tuple(
+            _normalize_condition(c) for c in ent.get("false_positive_if_any", [])
+        )
+    except (KeyError, TypeError) as exc:
+        raise PolicyError(f"malformed policy: {exc}") from exc
+
+    for slot in decisive:
+        if slot not in fact_slots:
+            raise PolicyError(f"decisive slot {slot!r} is not declared in fact_slots")
+    _validate_condition(true_positive, fact_slots, "true_positive")
+    for i, cond in enumerate(false_positive_if_any):
+        _validate_condition(cond, fact_slots, f"false_positive_if_any[{i}]")
+
+    return FamilyPolicy(
+        family=family,
+        cwes=cwes,
+        rule_aliases=rule_aliases,
+        fact_slots=fact_slots,
+        decisive_slots=decisive,
+        true_positive=true_positive,
+        false_positive_if_any=false_positive_if_any,
+        version=str(data.get("version", "1")),
+    )
+
+
+class PolicyRegistry:
+    """Holds the loaded policies and selects at most one per finding."""
+
+    def __init__(self, policies: Iterable[FamilyPolicy]) -> None:
+        self._policies = list(policies)
+
+    @property
+    def families(self) -> list[str]:
+        return [p.family for p in self._policies]
+
+    @staticmethod
+    def _matches(policy: FamilyPolicy, cwe_set: set[str], rule_id: str) -> bool:
+        if cwe_set & policy.cwes:
+            return True
+        return any(fnmatch.fnmatch(rule_id, pat) for pat in policy.rule_aliases)
+
+    def resolve_family(
+        self, *, cwe_ids: Iterable[str], rule_id: str
+    ) -> FamilyPolicy | None:
+        """Return the single matching policy, ``None`` if none, error if >1."""
+        cwe_set = {str(c).upper() for c in cwe_ids}
+        matches = [p for p in self._policies if self._matches(p, cwe_set, rule_id or "")]
+        if not matches:
+            return None
+        if len(matches) > 1:
+            raise PolicyOverlapError(
+                f"finding (cwes={sorted(cwe_set)}, rule={rule_id!r}) matched multiple "
+                f"policy families: {[p.family for p in matches]}"
+            )
+        return matches[0]
+
+
+def _bundled_policies_dir() -> Path:
+    # config-relative bundled assets, resolved from __file__ (not cwd) so it
+    # works from any working directory. This file is at
+    # src/vuln_hunter_x/verification/policy/loader.py → parents[4] is repo root.
+    return Path(__file__).resolve().parents[4] / "config" / "policies"
+
+
+def load_policy_registry(policies_dir: Path | None = None) -> PolicyRegistry:
+    """Load every ``*.yaml`` policy under ``policies_dir`` (bundled if None)."""
+    directory = policies_dir or _bundled_policies_dir()
+    policies: list[FamilyPolicy] = []
+    if directory.is_dir():
+        for yaml_file in sorted(directory.glob("*.yaml")):
+            data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+            policies.append(load_policy_from_mapping(data))
+    return PolicyRegistry(policies)

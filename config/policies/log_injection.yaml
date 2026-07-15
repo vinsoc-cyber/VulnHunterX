@@ -1,0 +1,46 @@
+# Log-injection (CWE-117) family policy.
+#
+# Decisive facts and their TP/FP entailment for log-forging findings. A finding
+# whose CWE is CWE-117 (or whose rule id matches */log-injection) is verified
+# through the evidence-closure path: the model supplies each fact value with
+# cited evidence, decisive facts must be resolved by admissible evidence, and
+# this table — not the model's own verdict string — entails TP/FP/NMD.
+#
+# production_scope is recorded but NOT decisive here (scope becomes decisive in
+# a later phase); it is intentionally absent from decisive_slots.
+
+family: log_injection
+version: "1"
+
+selectors:
+  cwes: ["CWE-117"]
+  rule_aliases: ["*/log-injection"]
+
+fact_slots:
+  sink_binding: [QUALIFYING_LOG_SINK, NOT_LOG_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  record_boundary: [BREAKABLE, PRESERVED]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS, NONE_FOUND_COMPLETE]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - record_boundary
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_LOG_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    record_boundary: BREAKABLE
+    neutralization_coverage: [BYPASS_PATH_FOUND, NONE_FOUND_COMPLETE]
+  false_positive_if_any:
+    - sink_binding: NOT_LOG_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - record_boundary: PRESERVED
+    - neutralization_coverage: ALL_REACHING_PATHS
