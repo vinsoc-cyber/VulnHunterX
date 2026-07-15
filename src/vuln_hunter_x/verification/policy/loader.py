@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 
 from vuln_hunter_x.verification.policy.models import Condition, FamilyPolicy
+from vuln_hunter_x.verification.policy.support import PROFILE_NAMES
 
 
 class PolicyError(ValueError):
@@ -53,6 +54,24 @@ def _validate_condition(
                 )
 
 
+def _validate_admissibility(
+    admissibility: Mapping[str, Mapping[str, str]],
+    fact_slots: Mapping[str, tuple[str, ...]],
+) -> None:
+    for slot, value_map in admissibility.items():
+        if slot not in fact_slots:
+            raise PolicyError(f"admissibility: slot {slot!r} is not declared in fact_slots")
+        for value, profile in value_map.items():
+            if value not in fact_slots[slot]:
+                raise PolicyError(
+                    f"admissibility: value {value!r} for slot {slot!r} is not declared"
+                )
+            if profile not in PROFILE_NAMES:
+                raise PolicyError(
+                    f"admissibility: unknown profile {profile!r} for {slot}={value}"
+                )
+
+
 def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
     """Build a :class:`FamilyPolicy` from a parsed YAML mapping (validated)."""
     try:
@@ -60,6 +79,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         selectors = data.get("selectors", {}) or {}
         cwes = frozenset(str(c).upper() for c in selectors.get("cwes", []))
         rule_aliases = tuple(str(a) for a in selectors.get("rule_aliases", []))
+        languages = frozenset(str(lang).lower() for lang in selectors.get("languages", []))
         raw_slots = data["fact_slots"]
         fact_slots = {str(k): tuple(str(v) for v in vals) for k, vals in raw_slots.items()}
         decisive = frozenset(
@@ -70,6 +90,15 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         false_positive_if_any = tuple(
             _normalize_condition(c) for c in ent.get("false_positive_if_any", [])
         )
+        raw_adm = data.get("admissibility", {}) or {}
+        admissibility = {
+            str(slot): {
+                str(v): str(prof)
+                for v, prof in (vals.items() if isinstance(vals, Mapping) else [])
+            }
+            for slot, vals in (raw_adm.items() if isinstance(raw_adm, Mapping) else [])
+        }
+        assessment_guidance = tuple(str(g) for g in data.get("assessment_guidance", []) or [])
     except (KeyError, TypeError) as exc:
         raise PolicyError(f"malformed policy: {exc}") from exc
 
@@ -79,6 +108,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
     _validate_condition(true_positive, fact_slots, "true_positive")
     for i, cond in enumerate(false_positive_if_any):
         _validate_condition(cond, fact_slots, f"false_positive_if_any[{i}]")
+    _validate_admissibility(admissibility, fact_slots)
 
     return FamilyPolicy(
         family=family,
@@ -88,6 +118,9 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         decisive_slots=decisive,
         true_positive=true_positive,
         false_positive_if_any=false_positive_if_any,
+        languages=languages,
+        admissibility=admissibility,
+        assessment_guidance=assessment_guidance,
         version=str(data.get("version", "1")),
     )
 
@@ -103,17 +136,25 @@ class PolicyRegistry:
         return [p.family for p in self._policies]
 
     @staticmethod
-    def _matches(policy: FamilyPolicy, cwe_set: set[str], rule_id: str) -> bool:
+    def _matches(policy: FamilyPolicy, cwe_set: set[str], rule_id: str, lang: str) -> bool:
+        # Language gate: a policy that declares languages matches only findings in
+        # those languages. An empty languages set is language-agnostic (CWE-117).
+        if policy.languages and lang.lower() not in policy.languages:
+            return False
         if cwe_set & policy.cwes:
             return True
         return any(fnmatch.fnmatch(rule_id, pat) for pat in policy.rule_aliases)
 
     def resolve_family(
-        self, *, cwe_ids: Iterable[str], rule_id: str
+        self, *, cwe_ids: Iterable[str], rule_id: str, lang: str = ""
     ) -> FamilyPolicy | None:
         """Return the single matching policy, ``None`` if none, error if >1."""
         cwe_set = {str(c).upper() for c in cwe_ids}
-        matches = [p for p in self._policies if self._matches(p, cwe_set, rule_id or "")]
+        matches = [
+            p
+            for p in self._policies
+            if self._matches(p, cwe_set, rule_id or "", lang or "")
+        ]
         if not matches:
             return None
         if len(matches) > 1:

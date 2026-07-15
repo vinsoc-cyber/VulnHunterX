@@ -102,6 +102,13 @@ def _load_system_prompt_template() -> str:
     return _parse_system_prompt(text)
 
 
+# Stable markers for assessment-mode prompt trimming (the policy evidence-closure
+# path): the trailing free-text verdict framing is stripped so the fact-slot
+# assessment is the sole response contract. Legacy prompts keep both.
+_RESPONSE_FORMAT_MARKER = "Response format (strict JSON):"
+_VERDICT_COMMAND_MARKER = "ONLY AFTER answering every question"
+
+
 class PromptBuilder:
     """Builds prompts for LLM bug verification."""
 
@@ -118,12 +125,24 @@ class PromptBuilder:
         self,
         tool_name: str = "static analysis",
         lang: str = "",
+        assessment_mode: bool = False,
     ) -> str:
-        """Return the system prompt with placeholders filled in."""
-        return self._system_prompt_template.format(
+        """Return the system prompt with placeholders filled in.
+
+        In ``assessment_mode`` (the policy evidence-closure path) the trailing
+        free-text verdict response-format block is removed, so the fact-slot
+        assessment contract carried in the user turn is the sole response
+        contract. Legacy mode returns the prompt unchanged.
+        """
+        prompt = self._system_prompt_template.format(
             tool_name=tool_name or "static analysis",
             lang=lang or "the target",
         )
+        if assessment_mode:
+            idx = prompt.rfind(_RESPONSE_FORMAT_MARKER)
+            if idx != -1:
+                prompt = prompt[:idx].rstrip() + "\n"
+        return prompt
 
     @property
     def system_prompt(self) -> str:
@@ -140,13 +159,16 @@ class PromptBuilder:
         questions: GuidedQuestions,
         func_name: str,
         context_start_line: int = 1,
+        assessment_mode: bool = False,
     ) -> str:
         """Build the user prompt for the LLM.
 
         ``context`` is the raw code slice; ``context_start_line`` is its
         absolute first-line number. The slice is rendered with absolute
         line-number gutters and the flagged line marked so the model can
-        locate it without counting.
+        locate it without counting. In ``assessment_mode`` (policy path) the
+        trailing "provide your final verdict" command is removed — the fact-slot
+        assessment overlay is the sole response contract.
         """
         window = questions.snippet_window_lines or None
         if window is None and len(context) > PROMPT_SLICE_CHAR_BUDGET:
@@ -160,7 +182,12 @@ class PromptBuilder:
             window=window,
         )
         questions_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(questions.questions))
-        return self._build_prompt(finding, context, questions, func_name, questions_text)
+        prompt = self._build_prompt(finding, context, questions, func_name, questions_text)
+        if assessment_mode:
+            idx = prompt.rfind(_VERDICT_COMMAND_MARKER)
+            if idx != -1:
+                prompt = prompt[:idx].rstrip()
+        return prompt
 
     def _build_prompt(
         self,

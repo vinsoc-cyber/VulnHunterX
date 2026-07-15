@@ -477,7 +477,14 @@ class LLMClient:
         Returns:
             Verdict with the analysis result (includes confidence_score 0.0-1.0)
         """
-        user_prompt = self.prompt_builder.build_user_prompt(finding, context, questions, func_name, context_start_line)
+        # The policy evidence-closure path (a decision strategy is supplied) uses
+        # assessment-mode prompts: the fact-slot assessment is the sole response
+        # contract, so the free-text verdict framing is dropped from both turns.
+        assessment_mode = decision_strategy is not None
+        user_prompt = self.prompt_builder.build_user_prompt(
+            finding, context, questions, func_name, context_start_line,
+            assessment_mode=assessment_mode,
+        )
 
         # Append pre-fetched context to initial prompt
         if prefetched_context:
@@ -501,6 +508,7 @@ class LLMClient:
         sys_prompt = self.prompt_builder.get_system_prompt(
             tool_name=finding.tool or "static analysis",
             lang=finding.lang,
+            assessment_mode=assessment_mode,
         )
         messages = [
             {"role": "system", "content": sys_prompt},

@@ -57,6 +57,10 @@ def render_assessment_prompt(policy: FamilyPolicy, ledger: EvidenceLedger) -> st
     ]
     for slot, values in policy.fact_slots.items():
         lines.append(f"  - {slot}: {', '.join(values)} | UNRESOLVED")
+    if policy.assessment_guidance:
+        lines.append("")
+        lines.append("Assessment guidance (how to resolve the slots from the evidence):")
+        lines.extend(f"  - {g}" for g in policy.assessment_guidance)
     lines.append("")
     lines.append(
         "Available evidence (cite by id; if a decisive slot is UNRESOLVED, request "
@@ -149,7 +153,7 @@ class PolicyClosureController:
                 continue
             cited = [self._ledger.get(eid) for eid in claim.evidence]
             cited = [c for c in cited if c is not None]
-            if is_admissible(slot, claim.value, cited):
+            if is_admissible(self._policy, slot, claim.value, cited):
                 facts[slot] = claim.value
                 evidence_ids.extend(claim.evidence)
         return facts, evidence_ids

@@ -44,3 +44,30 @@ entailment:
     - flow_to_sink: NO_PATH_COMPLETE
     - record_boundary: PRESERVED
     - neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. A claimed value is only accepted
+# when the cited ledger evidence satisfies its profile.
+admissibility:
+  sink_binding:
+    QUALIFYING_LOG_SINK: LOCAL_POSITIVE
+    NOT_LOG_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  record_boundary:
+    BREAKABLE: LOCAL_OR_FOUND
+    PRESERVED: LOCAL_OR_FOUND
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: EXHAUSTIVE_ENCODER
+    NONE_FOUND_COMPLETE: COMPLETE_REPO_ABSENCE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION

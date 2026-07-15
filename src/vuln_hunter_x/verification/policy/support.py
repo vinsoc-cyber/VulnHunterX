@@ -1,32 +1,42 @@
 # SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 
-"""Per-slot-VALUE evidence admissibility for the log-injection family.
+"""Per-slot-VALUE evidence admissibility — declarative, family-generic.
 
 A claimed ``(slot, value)`` is admissible only when the cited ledger entries
-carry evidence of the right *shape* for that specific value — encoded per value,
-not per polarity. Key rules (from the converged design):
+carry evidence of the right *shape*. The shapes are a fixed named set of
+**profiles** (encoded here); each family policy declares, per ``(slot, value)``,
+which profile the citation must satisfy (``policy.admissibility``). Dispatch is
+by profile, not by slot name, so a new family's slots become admissible by
+declaring profiles — with no code branch here. A ``(slot, value)`` with no
+declared profile fails closed (inadmissible).
 
-* ``neutralization_coverage``
-  - ``ALL_REACHING_PATHS`` needs an exhaustive ``FOUND`` encoder result (a
-    non-exhaustive ``FOUND`` cannot establish full coverage), and a
-    framework-marker result is never valid encoder evidence.
-  - ``NONE_FOUND_COMPLETE`` needs a repository-scoped ``NOT_FOUND_COMPLETE``
-    (snippet-scoped / ``INCOMPLETE_INDEX`` / ``AMBIGUOUS`` leaves it unresolved).
-  - ``BYPASS_PATH_FOUND`` needs a concrete path (local slice, scanner dataflow,
-    or a positive ``FOUND`` retrieval) — never a mere absence result.
-* Proven-safe negatives (``attacker_control=REFUTED``,
-  ``record_boundary=PRESERVED``) are provable positively from the local slice.
+Profiles (evidence-shape predicates over the cited ledger entries):
 
-No prose is read here; only the typed ledger fields.
+* ``LOCAL_POSITIVE`` — a property proven positively from the local slice.
+* ``LOCAL_OR_DATAFLOW`` — local slice or the scanner dataflow (a concrete relation).
+* ``LOCAL_OR_COMPLETE_ABSENCE`` — local proof, or a correctly-scoped complete absence.
+* ``LOCAL_OR_FOUND`` — local slice or a positive retrieval.
+* ``CONCRETE_PATH`` — a witnessed path: local slice, scanner dataflow, or a positive retrieval.
+* ``EXHAUSTIVE_ENCODER`` — a retrieved, exhaustive, non-framework ``FOUND`` (coverage over all paths).
+* ``LOCAL_OR_EXHAUSTIVE`` — all-path coverage proven in the local slice (the full
+  construction is visible) or by an exhaustive retrieval.
+* ``COMPLETE_REPO_ABSENCE`` — a repository-scoped, non-framework ``NOT_FOUND_COMPLETE``.
+* ``ANY_CITATION`` — any citation (informational slots only).
+
+A non-exhaustive ``FOUND`` cannot establish full coverage; a framework-marker
+result is never valid encoder evidence; a snippet-scoped / ``INCOMPLETE_INDEX`` /
+``AMBIGUOUS`` absence never establishes complete absence. No prose is read here;
+only the typed ledger fields.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from vuln_hunter_x.context.evidence import EvidenceKind, EvidenceScope, EvidenceStatus
 from vuln_hunter_x.verification.policy.ledger import EvidenceEntry, EvidenceOrigin
+from vuln_hunter_x.verification.policy.models import FamilyPolicy
 
 _FRAMEWORK_KINDS = frozenset(
     {EvidenceKind.FRAMEWORK_SANITIZERS, EvidenceKind.FRAMEWORK_GUARDS}
@@ -48,6 +58,10 @@ def _is_retrieved(e: EvidenceEntry) -> bool:
     return e.origin is EvidenceOrigin.RETRIEVED
 
 
+def _is_found(e: EvidenceEntry) -> bool:
+    return _is_retrieved(e) and e.status is EvidenceStatus.FOUND
+
+
 def _exhaustive_found_encoder(e: EvidenceEntry) -> bool:
     return (
         _is_retrieved(e)
@@ -66,51 +80,37 @@ def _complete_repo_absence(e: EvidenceEntry) -> bool:
     )
 
 
-def _concrete_path(e: EvidenceEntry) -> bool:
-    return (
-        _is_local(e)
-        or _is_dataflow(e)
-        or (_is_retrieved(e) and e.status is EvidenceStatus.FOUND)
-    )
+_PROFILES: dict[str, Callable[[Sequence[EvidenceEntry]], bool]] = {
+    "LOCAL_POSITIVE": lambda cited: any(_is_local(e) for e in cited),
+    "LOCAL_OR_DATAFLOW": lambda cited: any(_is_local(e) or _is_dataflow(e) for e in cited),
+    "LOCAL_OR_COMPLETE_ABSENCE": lambda cited: any(
+        _is_local(e) or _complete_repo_absence(e) for e in cited
+    ),
+    "LOCAL_OR_FOUND": lambda cited: any(_is_local(e) or _is_found(e) for e in cited),
+    "CONCRETE_PATH": lambda cited: any(
+        _is_local(e) or _is_dataflow(e) or _is_found(e) for e in cited
+    ),
+    "EXHAUSTIVE_ENCODER": lambda cited: any(_exhaustive_found_encoder(e) for e in cited),
+    "LOCAL_OR_EXHAUSTIVE": lambda cited: any(
+        _is_local(e) or _exhaustive_found_encoder(e) for e in cited
+    ),
+    "COMPLETE_REPO_ABSENCE": lambda cited: any(_complete_repo_absence(e) for e in cited),
+    "ANY_CITATION": lambda cited: bool(cited),
+}
+
+PROFILE_NAMES = frozenset(_PROFILES)
 
 
-def is_admissible(slot: str, value: str, cited: Sequence[EvidenceEntry]) -> bool:
-    """Whether ``cited`` admissibly supports the claim ``slot == value``."""
+def is_admissible(
+    policy: FamilyPolicy, slot: str, value: str, cited: Sequence[EvidenceEntry]
+) -> bool:
+    """Whether ``cited`` admissibly supports ``slot == value`` under ``policy``.
+
+    Fails closed: no citations, or a ``(slot, value)`` with no declared profile,
+    is never admissible.
+    """
     if not cited:
         return False
-
-    if slot == "neutralization_coverage":
-        if value == "ALL_REACHING_PATHS":
-            return any(_exhaustive_found_encoder(e) for e in cited)
-        if value == "NONE_FOUND_COMPLETE":
-            return any(_complete_repo_absence(e) for e in cited)
-        if value == "BYPASS_PATH_FOUND":
-            return any(_concrete_path(e) for e in cited)
-        return False
-
-    if slot == "attacker_control":
-        if value == "PROVEN":
-            return any(_is_dataflow(e) or _is_local(e) for e in cited)
-        if value == "REFUTED":
-            return any(_is_local(e) for e in cited)
-        return False
-
-    if slot == "flow_to_sink":
-        if value == "REACHES":
-            return any(_is_dataflow(e) or _is_local(e) for e in cited)
-        if value == "NO_PATH_COMPLETE":
-            return any(_is_local(e) or _complete_repo_absence(e) for e in cited)
-        return False
-
-    if slot == "record_boundary":
-        return any(
-            _is_local(e) or (_is_retrieved(e) and e.status is EvidenceStatus.FOUND)
-            for e in cited
-        )
-
-    if slot == "sink_binding":
-        return any(_is_local(e) for e in cited)
-
-    # production_scope is informational until P5 — any citation is accepted (never
-    # decisive); any other slot is unknown to this family and not admissible.
-    return slot == "production_scope"
+    profile = policy.admissibility.get(slot, {}).get(value)
+    predicate = _PROFILES.get(profile) if profile else None
+    return predicate is not None and predicate(cited)
