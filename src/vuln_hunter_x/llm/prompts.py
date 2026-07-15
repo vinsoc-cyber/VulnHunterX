@@ -107,6 +107,10 @@ def _load_system_prompt_template() -> str:
 # assessment is the sole response contract. Legacy prompts keep both.
 _RESPONSE_FORMAT_MARKER = "Response format (strict JSON):"
 _VERDICT_COMMAND_MARKER = "ONLY AFTER answering every question"
+# The rule-scope verdict-coaching block (start marker .. next-section marker).
+# Stripped in assessment mode so it cannot bias fact-slot assessment.
+_RULE_SCOPE_MARKER = "RULE-SCOPE DISCIPLINE:"
+_POST_RULE_SCOPE_MARKER = "IMPORTANT CONSTRAINTS:"
 
 
 class PromptBuilder:
@@ -139,9 +143,19 @@ class PromptBuilder:
             lang=lang or "the target",
         )
         if assessment_mode:
+            # Evidence-closure path: the fact-slot policy entails the verdict,
+            # so strip (1) the trailing free-text verdict schema and (2) the
+            # rule-scope verdict-coaching block (which would otherwise bias the
+            # model's fact assessment). Legacy mode keeps both, byte-identical.
             idx = prompt.rfind(_RESPONSE_FORMAT_MARKER)
             if idx != -1:
                 prompt = prompt[:idx].rstrip() + "\n"
+            start = prompt.find(_RULE_SCOPE_MARKER)
+            end = prompt.find(_POST_RULE_SCOPE_MARKER, start) if start != -1 else -1
+            if start != -1 and end != -1:
+                line_start = prompt.rfind("\n", 0, start) + 1
+                end_line_start = prompt.rfind("\n", 0, end) + 1
+                prompt = prompt[:line_start] + prompt[end_line_start:]
         return prompt
 
     @property

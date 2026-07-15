@@ -24,6 +24,8 @@ from vuln_hunter_x.verification.policy.loader import load_policy_registry
 
 _VERDICT_CMD = "provide your final verdict"
 _RESPONSE_FMT = "Response format (strict JSON):"
+_RULE_SCOPE = "RULE-SCOPE DISCIPLINE:"
+_LFI_EXEMPLAR = "LFI → RCE"  # the tainted-filename/eval verdict-coaching exemplar
 
 
 def test_legacy_system_prompt_unchanged():
@@ -40,6 +42,26 @@ def test_assessment_mode_system_prompt_drops_verdict_schema():
     )
     assert _RESPONSE_FMT not in sp
     assert '"verdict":' not in sp
+
+
+def test_legacy_system_prompt_keeps_rule_scope_block():
+    # Legacy verdict mode is byte-identical: the rule-scope coaching stays.
+    pb = PromptBuilder()
+    sp = pb.get_system_prompt(tool_name="CodeQL", lang="python", assessment_mode=False)
+    assert _RULE_SCOPE in sp
+    assert _LFI_EXEMPLAR in sp
+
+
+def test_assessment_mode_drops_rule_scope_verdict_coaching():
+    # On the evidence-closure path the fact-slot policy entails the verdict, so
+    # the rule-scope verdict-coaching block (incl. the LFI/eval exemplar) must
+    # not remain to bias fact assessment (#120 structural replacement).
+    sp = PromptBuilder().get_system_prompt(
+        tool_name="CodeQL", lang="python", assessment_mode=True
+    )
+    assert _RULE_SCOPE not in sp
+    assert _LFI_EXEMPLAR not in sp
+    assert "IMPORTANT CONSTRAINTS:" in sp  # the rest of the guidance is retained
 
 
 def test_assessment_mode_user_prompt_drops_verdict_command():
@@ -88,5 +110,6 @@ def test_assembled_policy_prompt_has_one_contract_no_verdict_command():
     system = messages[0]["content"]
     user = messages[1]["content"]
     assert _RESPONSE_FMT not in system
+    assert _RULE_SCOPE not in system  # no verdict coaching on the policy path
     assert _VERDICT_CMD not in user
     assert "fact_slots" in user  # the single response contract, from the overlay
