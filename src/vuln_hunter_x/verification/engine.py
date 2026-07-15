@@ -331,6 +331,7 @@ from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
 from vuln_hunter_x.core.config import Config, load_config
 from vuln_hunter_x.core.types import (
     Finding,
+    GuidedQuestions,
     Verdict,
     VerdictType,
     VerificationResult,
@@ -341,6 +342,11 @@ from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
 from vuln_hunter_x.verification.case import VerificationCase, build_cases, case_key
 from vuln_hunter_x.verification.policy.closure import PolicyClosureController
 from vuln_hunter_x.verification.policy.ledger import EvidenceLedger
+from vuln_hunter_x.verification.policy.handoff import (
+    PolicyAttempt,
+    PolicyAttemptStatus,
+    classify_applicability,
+)
 from vuln_hunter_x.verification.policy.loader import (
     PolicyOverlapError,
     load_policy_registry,
@@ -887,7 +893,15 @@ class VerificationEngine:
         if not self._policy_registry.families:
             return False
         try:
-            return self._policy_registry.resolve_family(
+            if self._policy_registry.resolve_family(
+                cwe_ids=finding.cwe_ids or [],
+                rule_id=finding.rule_id,
+                lang=finding.lang,
+            ) is not None:
+                return True
+            # A handoff candidate is also policy-managed: keep it one-to-one so
+            # case identity never merges it (P3b cross-rule equivalence stays shut).
+            return self._policy_registry.resolve_handoff(
                 cwe_ids=finding.cwe_ids or [],
                 rule_id=finding.rule_id,
                 lang=finding.lang,
@@ -998,17 +1012,81 @@ class VerificationEngine:
         """Route a finding to the policy evidence-closure path (when a rule-family
         policy selects it) or the legacy model-verdict path. Overlapping policy
         selection fails closed to Needs-More-Data — never a silent legacy fallback."""
-        policy = None
+        base_policy = None
+        handoff_policy = None
         if self._policy_registry.families:
             try:
-                policy = self._policy_registry.resolve_family(
+                base_policy = self._policy_registry.resolve_family(
+                    cwe_ids=finding.cwe_ids or [], rule_id=finding.rule_id, lang=finding.lang
+                )
+                handoff_policy = self._policy_registry.resolve_handoff(
                     cwe_ids=finding.cwe_ids or [], rule_id=finding.rule_id, lang=finding.lang
                 )
             except PolicyOverlapError:
                 return self._policy_ambiguous_verdict(finding)
-        if policy is not None:
-            return self._verify_policy_finding(finding, policy)
+        if handoff_policy is not None:
+            return self._verify_with_handoff(finding, base_policy, handoff_policy)
+        if base_policy is not None:
+            return self._verify_policy_finding(finding, base_policy)
         return self._verify_legacy_finding(finding)
+
+    def _verify_with_handoff(
+        self, finding: Finding, base_policy, handoff_policy
+    ) -> Verdict:
+        """Non-destructive cross-family combiner. A handoff may SCHEDULE a policy
+        but can never by itself dismiss the finding. A handoff True Positive
+        short-circuits (the base route is not consulted, so the legacy prose path
+        is structurally replaced); a not-applicable or applicable-False-Positive
+        handoff falls through to the base route; an unresolved handoff lets a base
+        True Positive stand but downgrades a base False Positive to the handoff's
+        honest Needs-More-Data (never erasing the unresolved real-bug possibility)."""
+        attempt = self._attempt_policy(finding, handoff_policy, handoff=True)
+        if (
+            attempt.status is PolicyAttemptStatus.DECIDED
+            and attempt.verdict.verdict == VerdictType.TRUE_POSITIVE.value
+        ):
+            return attempt.verdict
+        base = self._run_base(finding, base_policy)
+        if attempt.status is PolicyAttemptStatus.UNRESOLVED:
+            if base.verdict == VerdictType.TRUE_POSITIVE.value:
+                return base
+            return attempt.verdict
+        return base
+
+    def _attempt_policy(
+        self, finding: Finding, policy, *, handoff: bool
+    ) -> PolicyAttempt:
+        """Run one family's evidence closure and classify the outcome. The
+        applicability gate (from the resolved facts) takes precedence: a
+        not-applicable family contributes no verdict, never a False Positive."""
+        questions = self._handoff_questions(policy) if handoff else None
+        verdict = self._verify_policy_finding(finding, policy, questions=questions)
+        facts: dict = {}
+        if verdict.policy_decision:
+            facts = verdict.policy_decision.get("facts", {}) or {}
+        applicability = classify_applicability(policy, facts)
+        if applicability == "not_applicable":
+            return PolicyAttempt(PolicyAttemptStatus.NOT_APPLICABLE, verdict)
+        if verdict.verdict in (
+            VerdictType.TRUE_POSITIVE.value,
+            VerdictType.FALSE_POSITIVE.value,
+        ):
+            return PolicyAttempt(PolicyAttemptStatus.DECIDED, verdict)
+        return PolicyAttempt(PolicyAttemptStatus.UNRESOLVED, verdict)
+
+    def _run_base(self, finding: Finding, base_policy) -> Verdict:
+        """The finding's own route: its unique primary family, else legacy."""
+        if base_policy is not None:
+            return self._verify_policy_finding(finding, base_policy)
+        return self._verify_legacy_finding(finding)
+
+    @staticmethod
+    def _handoff_questions(policy) -> GuidedQuestions:
+        """Neutral question set for a handoff so the reported rule's guided
+        questions (e.g. SSRF for a tainted-filename) do not drive the target
+        family's assessment — the fact-slot overlay and the family's
+        assessment_guidance own it."""
+        return GuidedQuestions(rule_id=policy.family, short_description="", questions=[])
 
     def _read_finding_source(self, finding: Finding) -> str | None:
         """Full source of the finding's file, or None if unresolved/unreadable."""
@@ -1356,16 +1434,23 @@ class VerificationEngine:
 
         return verdict
 
-    def _verify_policy_finding(self, finding: Finding, policy) -> Verdict:
+    def _verify_policy_finding(
+        self, finding: Finding, policy, questions: GuidedQuestions | None = None
+    ) -> Verdict:
         """Policy evidence-closure path. Each sample seeds its own typed ledger
         (primary slice + scanner dataflow) and lets the closure controller drive
         analyze() to a policy-entailed decision; force_decision is off. With
         self-consistency > 1 the per-sample PolicyDecisions are aggregated —
         a True/False-Positive disagreement resolves to honest NMD, never a
-        tie-broken binary. The result is tagged decision_source='policy'."""
-        questions = self.questions_loader.get_questions(
-            finding.rule_id, cwe_ids=finding.cwe_ids, lang=finding.lang,
-        )
+        tie-broken binary. The result is tagged decision_source='policy'.
+
+        ``questions`` defaults to the reported rule's guided questions; a handoff
+        passes the target family's neutral set so the reported rule's questions
+        do not drive the assessment."""
+        if questions is None:
+            questions = self.questions_loader.get_questions(
+                finding.rule_id, cwe_ids=finding.cwe_ids, lang=finding.lang,
+            )
         # Confirm the reported sink anchor against real source before analysis:
         # the policy path must inherit P3a's structural safety (#118). A construct
         # that cannot be uniquely placed is an honest Needs-More-Data, never
