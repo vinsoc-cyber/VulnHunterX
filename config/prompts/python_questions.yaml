@@ -242,14 +242,16 @@ py/ldap-injection:
 
 py/xpath-injection:
   short_description: "XPath expression built from untrusted user input"
+  # Covered by the CWE-643 evidence-closure policy: this rule gathers facts, it
+  # does not command a verdict (the policy entails TP/FP/NMD from the cited
+  # evidence). Keep it locators/fact-gathering only.
   questions:
     - "Quote the EXACT XPath sink (`Element.xpath(...)` / `XPath(...)(node)` / `etree.XPath(...)` / `findall(...)` / `find(...)`, line N) and name the XPath-string value passed to it."
-    - "List EVERY assignment to that XPath value on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
-    - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain — explicitly handle: (a) list element indices after `list.pop(0)`, (b) dict lookups where the key is constant even if values are tainted, (c) ternary/if branches where one side is constant, (d) tuple/list literals like `['safe', param, 'moresafe']`."
-    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers. (OWASP-Python FP cases commonly use these.)"
-    - "What specific defense, if any, neutralises the value? Name it concretely — e.g. lxml variable binding `node.xpath('//user[name=$n]', n=user)`, strict allow-list of metacharacters via `re.match`, `defusedxml`. Apostrophe-only blocklist is NOT a complete defense (other metacharacters bypass)."
-    - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
-  context_hint: "Trace from input through XPath string construction to evaluate call."
+    - "List EVERY assignment to that XPath value on each path that reaches the sink, with line numbers. Identify the LAST assignment that executes on each path and cite the data-flow chain back to a user-input source or a constant/safe source."
+    - "Does the user-controlled value become part of the XPath EXPRESSION text (built by string concatenation or an f-string/format into the query), or is it passed only as a BOUND DATA value (a parameterised variable) on every reaching path? Quote the construction with line numbers."
+    - "What specific defense, if any, neutralises the value before the sink? Name it concretely — e.g. lxml variable binding `node.xpath('//user[name=$n]', n=user)`, or an enforced full-string allow-list. An apostrophe-only or prefix-only filter is not complete (other XPath metacharacters bypass)."
+    - "Is the XPath result used in a security-relevant way (authorisation decision, data selection, value returned to the caller), or is it discarded / non-security-relevant?"
+  context_hint: "Trace from input through XPath string construction to the evaluate call."
   additional_context: ["caller"]
   min_iterations: 2
 
