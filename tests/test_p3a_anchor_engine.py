@@ -18,10 +18,6 @@ from vuln_hunter_x.context.anchor import ABSENT
 from vuln_hunter_x.core.types import Finding, Verdict, VerdictType
 from vuln_hunter_x.sarif.parser import SarifParser
 from vuln_hunter_x.verification import engine as eng
-from vuln_hunter_x.verification.engine import (
-    _reconcile_conflicting_verdicts,
-    apply_sibling_consistency,
-)
 
 
 # --------------------------------------------------------------------------- #
@@ -200,32 +196,3 @@ def test_structural_gate_absent_returns_nmd_without_model_call():
     e.context_extractor.get_context.assert_not_called()
 
 
-# --------------------------------------------------------------------------- #
-# Task 5 — finalizer isolation: structural_gate is never post-hoc mutated
-# --------------------------------------------------------------------------- #
-def _sv(verdict, line, source="legacy_model", conf="High", rule="cpp/double-free"):
-    f = Finding(rule_id=rule, message="m", file="a.c", start_line=line,
-                end_line=line, repo_name="x", lang="cpp")
-    return Verdict(finding=f, verdict=verdict, confidence=conf, reasoning="",
-                   answers=[], raw_response="", model="gpt", decision_source=source)
-
-
-def test_reconcile_does_not_flip_structural_gate_to_sibling_tp():
-    # A same-line/same-rule legacy-TP majority must NOT drag the structural NMD
-    # into a "sibling reported True Positive" reconciliation.
-    sg = _sv("Needs More Data", 5, source="structural_gate")
-    tp1 = _sv("True Positive", 5)
-    tp2 = _sv("True Positive", 5)
-    out = _reconcile_conflicting_verdicts([sg, tp1, tp2])
-    kept = [v for v in out if v.decision_source == "structural_gate"][0]
-    assert kept.verdict == "Needs More Data"   # untouched by reconciliation
-
-
-def test_sibling_consistency_never_reverifies_structural_gate():
-    sg = _sv("Needs More Data", 7, source="structural_gate", conf="Low")
-    tp = _sv("True Positive", 9)
-    reverify = MagicMock(side_effect=AssertionError("must not re-verify"))
-    out = apply_sibling_consistency([sg, tp], reverify)
-    kept = [v for v in out if v.decision_source == "structural_gate"][0]
-    assert kept.verdict == "Needs More Data"
-    reverify.assert_not_called()

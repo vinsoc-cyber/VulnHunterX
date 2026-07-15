@@ -192,6 +192,10 @@ class Verdict:
     # decision_source="structural_gate" so legacy finalizers skip it.
     anchor_resolution: str = ""
     analysis_line: int = 0
+    # Shared identifier when several duplicate scanner observations (same
+    # canonical sink + same obligation) are verified once as one case and this
+    # verdict is a projection of that single decision. "" for singletons (#122).
+    case_id: str = ""
 
     @property
     def is_true_positive(self) -> bool:
@@ -237,6 +241,7 @@ class Verdict:
             "policy_decision": self.policy_decision,
             "anchor_resolution": self.anchor_resolution,
             "analysis_line": self.analysis_line,
+            "case_id": self.case_id,
         }
         if include_raw_response:
             data["raw_response"] = self.raw_response
@@ -268,6 +273,7 @@ class Verdict:
             policy_decision=data.get("policy_decision"),
             anchor_resolution=data.get("anchor_resolution", ""),
             analysis_line=data.get("analysis_line", 0),
+            case_id=data.get("case_id", ""),
         )
 
 
