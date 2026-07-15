@@ -30,7 +30,6 @@ from vuln_hunter_x.context.evidence import (
 )
 from vuln_hunter_x.core.types import Finding, GuidedQuestions
 from vuln_hunter_x.llm.client import LLMClient
-from vuln_hunter_x.verification.engine import _reconcile_conflicting_verdicts
 from vuln_hunter_x.verification.policy.closure import PolicyClosureController
 from vuln_hunter_x.verification.policy.ledger import EvidenceLedger
 from vuln_hunter_x.verification.policy.loader import load_policy_registry
@@ -175,15 +174,6 @@ def test_case7_two_malformed_assessments_fail_to_assess(mc):
     v = _run(mc, [bad, bad])
     assert v.verdict == "Needs More Data"
     assert "model_failed_to_assess" in v.reasoning
-
-
-@patch("vuln_hunter_x.llm.client.litellm.completion")
-def test_case8_policy_verdict_immune_to_legacy_finalizers(mc):
-    v = _run(mc, [_assess(neut="BYPASS_PATH_FOUND", neut_ev=["L1"])])
-    v.decision_source = "policy"  # analyze-level verdict; engine tags this
-    before = v.verdict
-    _reconcile_conflicting_verdicts([v])
-    assert v.verdict == before == "True Positive"
 
 
 def test_fact_slot_overlay_present_on_first_turn():

@@ -12,9 +12,9 @@ import logging
 import re
 import threading
 import time
-from collections import Counter
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -120,77 +120,6 @@ def _is_high_severity(finding: Finding | None) -> bool:
         return sev in ("error", "critical", "high")
 
 
-# Specific vulnerability-class CWEs precise enough that two DIFFERENT rules
-# sharing one at the same location are reliably the SAME bug. Broad/structural
-# CWEs (CWE-20 input validation, CWE-200 info exposure, CWE-664/693/707/710,
-# CWE-732 permissions, …) are deliberately EXCLUDED: they attach to many
-# unrelated rules and would fuse distinct findings into one cluster.
-_RECONCILE_SPECIFIC_CWES: frozenset[str] = frozenset({
-    "CWE-22",   # path traversal
-    "CWE-77", "CWE-78",            # command injection
-    "CWE-79", "CWE-80", "CWE-87",  # XSS
-    "CWE-89",   # SQL injection
-    "CWE-90",   # LDAP injection
-    "CWE-91",   # XML injection
-    "CWE-94", "CWE-95",            # code / eval injection
-    "CWE-98",   # PHP file inclusion
-    "CWE-113",  # HTTP header injection
-    "CWE-134",  # format string
-    "CWE-326", "CWE-327", "CWE-328",  # weak crypto / hashing
-    "CWE-338",  # weak PRNG
-    "CWE-502",  # insecure deserialisation
-    "CWE-601",  # open redirect
-    "CWE-611",  # XXE
-    "CWE-643",  # XPath injection
-    "CWE-798",  # hardcoded credentials
-    "CWE-915",  # mass assignment
-    "CWE-917",  # SSTI
-    "CWE-918",  # SSRF
-    "CWE-943",  # NoSQL injection
-    "CWE-1004", "CWE-614",         # insecure cookie flags
-    "CWE-1333", # ReDoS
-    # C/C++ memory-safety classes — specific enough that two rules sharing one
-    # at a location are the same bug. Without these, cross-rule reconciliation
-    # was a no-op for C/C++ (the language where cross-tool corroboration matters
-    # most): on dvcp, CodeQL cpp/double-free→FP and Semgrep double-free→TP at the
-    # same imgRead.c:62 (CWE-415) were left contradictory. CWE-119 (the broad
-    # buffer parent) is deliberately omitted.
-    "CWE-120", "CWE-121", "CWE-122", "CWE-124", "CWE-125", "CWE-126", "CWE-127",
-    "CWE-131",  # incorrect buffer size calc
-    "CWE-190", "CWE-191", "CWE-192", "CWE-197",  # integer over/under/trunc
-    "CWE-369",  # divide by zero
-    "CWE-401", "CWE-415", "CWE-416",  # leak / double-free / use-after-free
-    "CWE-457", "CWE-476",  # uninitialized / null deref
-    "CWE-674",  # uncontrolled recursion (stack exhaustion)
-    "CWE-787", "CWE-788",  # out-of-bounds write
-})
-
-# Specific buffer-overflow CWEs — the concrete children of the broad CWE-119
-# "buffer errors" parent. Two different rules that share only CWE-119 are not
-# fused (CWE-119 is too generic), but when each ALSO carries one of these, they
-# flag the same buffer bug at a location and reconciliation may proceed. See
-# :func:`_same_issue`.
-_BUFFER_OVERFLOW_CWES: frozenset[str] = frozenset({
-    "CWE-120", "CWE-121", "CWE-122", "CWE-124", "CWE-125", "CWE-126", "CWE-127",
-    "CWE-131", "CWE-787", "CWE-788",
-})
-
-# Reconciliation does not run on these paths — vendored / generated / minified
-# code is out of scope and a frequent source of dense, unrelated findings.
-_VENDORED_PATH_RE = re.compile(
-    r"(?:^|/)(?:node_modules|bower_components|vendor|third_party|"
-    r"dist|build|out|static|assets|public)/"
-    r"|[.-]min\.(?:js|css)$",
-    re.IGNORECASE,
-)
-
-# If more than this many DISTINCT rules fire at one (file, line), treat it as a
-# dense/generated hotspot and skip cross-rule clustering there (same-rule
-# sibling-tool consensus still applies). Set above legitimate hotspots — the
-# dvpwa MD5 line has 4 distinct rules, the SQLi line 3.
-_MAX_DISTINCT_RULES_FOR_CROSS = 6
-
-
 def _norm_path(path: str) -> str:
     """Normalise a finding path for comparison (forward slashes, no edges)."""
     return (path or "").replace("\\", "/").strip("/")
@@ -220,150 +149,6 @@ def _repo_relative_path(path: str) -> str:
                 pass
         return norm
     return norm
-
-
-def _is_vendored_or_minified(path: str) -> bool:
-    """True if *path* is vendored / generated / minified (skip reconciliation)."""
-    return bool(_VENDORED_PATH_RE.search(_norm_path(path)))
-
-
-def _paths_same_file(a: str, b: str) -> bool:
-    """True if two finding paths denote the same file (repo-relative equality)."""
-    ra, rb = _repo_relative_path(a), _repo_relative_path(b)
-    return bool(ra) and ra == rb
-
-
-def _same_issue(a: Verdict, b: Verdict, *, allow_cross_rule: bool) -> bool:
-    """True if two same-bucket verdicts concern the same underlying issue.
-
-    Same file (repo-relative equality) AND either the same rule id (sibling-tool
-    duplicate) or — only when ``allow_cross_rule`` — an overlapping *specific*
-    CWE (different rules flagging one bug; broad CWEs are excluded so unrelated
-    findings are never fused).
-    """
-    fa, fb = a.finding, b.finding
-    if not _paths_same_file(fa.file, fb.file):
-        return False
-    if fa.rule_id and fa.rule_id == fb.rule_id:
-        return True
-    if not allow_cross_rule:
-        return False
-    ca, cb = set(fa.cwe_ids or ()), set(fb.cwe_ids or ())
-    shared = ca & cb
-    if shared & _RECONCILE_SPECIFIC_CWES:
-        return True
-    # Broad buffer-errors parent (CWE-119) is excluded from the specific set — on
-    # its own it fuses unrelated rules. But two rules sharing CWE-119 that EACH
-    # also carry a specific buffer-overflow CWE denote the same memory-safety bug
-    # at this location (e.g. cpp/static-buffer-overflow[CWE-131] vs
-    # cpp/overflow-buffer[CWE-121] on one memcpy). The per-side specific CWE keeps
-    # generic CWE-119 findings apart while letting the real duplicate reconcile.
-    return bool(
-        "CWE-119" in shared
-        and ca & _BUFFER_OVERFLOW_CWES
-        and cb & _BUFFER_OVERFLOW_CWES
-    )
-
-
-def _reconcile_conflicting_verdicts(verdicts: list[Verdict]) -> list[Verdict]:
-    """Harmonise conflicting verdicts that concern the SAME underlying bug.
-
-    Two situations produce one bug reported as both real and false-alarm:
-      * sibling tools (OpenGrep is a Semgrep fork) flag the same (file, line,
-        rule) — the dvpwa cleartext-password-log case (Semgrep→TP, OpenGrep→FP);
-      * different rules flag one bug at one line — the dvpwa SQLi at
-        student.py:45, TP via Semgrep ``formatted-sql-query`` but FP via CodeQL
-        ``py/django-raw-sql`` (a Django rule mismatched on an aiohttp app).
-
-    Resolution is deliberately asymmetric to avoid inventing vulnerabilities:
-
-      * **Same-rule clusters** (sibling tools): legitimate consensus — majority
-        wins, ties keep the flagged verdict (TP > Needs More Data > FP).
-      * **Cross-rule clusters** (different rules linked by a specific CWE): the
-        safe direction only. A True Positive is never created or dropped; an FP
-        that is contradicted by a corroborating TP from another rule becomes
-        **Needs More Data** (tools disagree → human review), preserving the
-        ambiguity signal instead of fabricating a TP.
-
-    Guards: vendored/minified paths are skipped entirely; dense hotspots (more
-    than ``_MAX_DISTINCT_RULES_FOR_CROSS`` distinct rules at one line) allow only
-    same-rule consensus; file identity is repo-root-relative (no suffix fuzz).
-    Findings are NOT merged/deduped (out of scope); only verdict and confidence
-    are reconciled, in place.
-    """
-    tp = VerdictType.TRUE_POSITIVE.value
-    nmd = VerdictType.NEEDS_MORE_DATA.value
-    fp = VerdictType.FALSE_POSITIVE.value
-    rank = {tp: 0, nmd: 1, fp: 2}  # lower = preferred on a tie (keep flagged)
-
-    # Bucket by (basename, line) so absolute- and relative-path variants of the
-    # same file land together; clustering then confirms they are the same file.
-    # Vendored/generated/minified findings are excluded outright.
-    buckets: dict[tuple, list[Verdict]] = {}
-    for v in verdicts:
-        # Policy and structural-gate verdicts are owned by their own gates; only
-        # the legacy model path is subject to post-hoc reconciliation.
-        if v.decision_source != "legacy_model":
-            continue
-        f = v.finding
-        if _is_vendored_or_minified(f.file):
-            continue
-        base = _norm_path(f.file).rsplit("/", 1)[-1]
-        buckets.setdefault((base, f.start_line), []).append(v)
-
-    for bucket in buckets.values():
-        if len(bucket) < 2:
-            continue
-        # Dense-hotspot backstop: too many distinct rules at one line → only
-        # same-rule (sibling-tool) consensus, no cross-rule CWE merging.
-        allow_cross = len({v.finding.rule_id for v in bucket}) <= _MAX_DISTINCT_RULES_FOR_CROSS
-
-        # Connected-components clustering. A new member may bridge several
-        # existing clusters, so merge every cluster it matches.
-        clusters: list[list[Verdict]] = []
-        for v in bucket:
-            matched = [
-                c for c in clusters
-                if any(_same_issue(v, m, allow_cross_rule=allow_cross) for m in c)
-            ]
-            if not matched:
-                clusters.append([v])
-                continue
-            merged = [v]
-            for c in matched:
-                merged.extend(c)
-                clusters.remove(c)
-            clusters.append(merged)
-
-        for cluster in clusters:
-            if len(cluster) < 2 or len({v.verdict for v in cluster}) < 2:
-                continue  # singleton or already consistent
-
-            if len({v.finding.rule_id for v in cluster}) == 1:
-                # Same-rule sibling consensus: majority, tie → keep flagged.
-                counts = Counter(v.verdict for v in cluster)
-                top = max(counts.values())
-                winners = [k for k, c in counts.items() if c == top]
-                resolved = min(winners, key=lambda k: rank.get(k, 99))
-                best = max(
-                    (v for v in cluster if v.verdict == resolved),
-                    key=lambda v: v.confidence_score,
-                )
-                for v in cluster:
-                    if v.verdict != resolved:
-                        v.verdict = resolved
-                        v.confidence = best.confidence
-                        v.confidence_score = best.confidence_score
-                        v.reasoning = (v.reasoning or "") + (
-                            " [verdict reconciled: a sibling tool reported the "
-                            f"same rule at {v.finding.file}:{v.finding.start_line} "
-                            f"as '{resolved}']"
-                        )
-            # Cross-rule clusters (distinct rules → distinct obligations) are left
-            # independent (#122): different rules ask different security questions,
-            # so forcing their verdicts to agree is unsound and previously degraded
-            # correct verdicts. Only genuine same-rule duplicates are reconciled.
-    return verdicts
 
 
 def _downgrade_unsupported_confidence(verdict: Verdict) -> Verdict:
@@ -553,6 +338,7 @@ from vuln_hunter_x.core.types import (
 from vuln_hunter_x.llm.client import LLMClient
 from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
+from vuln_hunter_x.verification.case import VerificationCase, build_cases, case_key
 from vuln_hunter_x.verification.policy.closure import PolicyClosureController
 from vuln_hunter_x.verification.policy.ledger import EvidenceLedger
 from vuln_hunter_x.verification.policy.loader import (
@@ -1043,28 +829,33 @@ class VerificationEngine:
             "Error": 0,
         }
 
-        total = len(findings)
+        # Group duplicate observations (same canonical sink + same obligation)
+        # into cases and verify each case ONCE; the single decision is projected
+        # back to one verdict per original observation (#122). Snippet-less and
+        # policy/structural findings are their own singleton cases (unchanged).
+        cases = self._cases_for(findings)
+        n_cases = len(cases)
+        reps = [findings[c.representative_index] for c in cases]
 
-        if self._jobs <= 1 or total <= 1:
-            verdicts: list[Verdict] = []
-            for i, finding in enumerate(findings, 1):
-                verdicts.append(self._verify_one_with_callbacks(i, total, finding))
+        if self._jobs <= 1 or n_cases <= 1:
+            rep_verdicts: list[Verdict] = []
+            for i, finding in enumerate(reps, 1):
+                rep_verdicts.append(self._verify_one_with_callbacks(i, n_cases, finding))
         else:
-            verdicts_by_index: dict[int, Verdict] = {}
+            rep_by_pos: dict[int, Verdict] = {}
             pool = ThreadPoolExecutor(
                 max_workers=self._jobs, thread_name_prefix="vhx-verify"
             )
             try:
                 futures = {
                     pool.submit(
-                        self._verify_one_with_callbacks, i, total, finding
-                    ): i
-                    for i, finding in enumerate(findings, 1)
+                        self._verify_one_with_callbacks, pos + 1, n_cases, finding
+                    ): pos
+                    for pos, finding in enumerate(reps)
                 }
                 try:
                     for future in as_completed(futures):
-                        idx = futures[future]
-                        verdicts_by_index[idx] = future.result()
+                        rep_by_pos[futures[future]] = future.result()
                 except BaseException:
                     # Drop queued work; let in-flight LLM calls finish so we
                     # don't leak partial network conversations.
@@ -1072,11 +863,9 @@ class VerificationEngine:
                     raise
             finally:
                 pool.shutdown(wait=True)
-            verdicts = [verdicts_by_index[i] for i in sorted(verdicts_by_index)]
+            rep_verdicts = [rep_by_pos[pos] for pos in sorted(rep_by_pos)]
 
-        # Reconcile genuine same-rule duplicate findings (e.g. Semgrep vs
-        # OpenGrep flagging one sink) BEFORE tallying stats so the counts match.
-        verdicts = _reconcile_conflicting_verdicts(verdicts)
+        verdicts = self._project_cases(cases, rep_verdicts, findings)
 
         for v in verdicts:
             stats[v.verdict] = stats.get(v.verdict, 0) + 1
@@ -1090,6 +879,58 @@ class VerificationEngine:
             provider=self.config.llm.provider,
             total_time_seconds=total_time,
         )
+
+    def _is_policy_routed(self, finding: Finding) -> bool:
+        """True if a rule-family policy owns this finding (or selection is
+        ambiguous). Policy-owned findings are verified one-to-one and are never
+        merged into a legacy case."""
+        if not self._policy_registry.families:
+            return False
+        try:
+            return self._policy_registry.resolve_family(
+                cwe_ids=finding.cwe_ids or [],
+                rule_id=finding.rule_id,
+                lang=finding.lang,
+            ) is not None
+        except PolicyOverlapError:
+            return True
+
+    def _cases_for(self, findings: list[Finding]) -> list[VerificationCase]:
+        """Group findings into verification cases before analysis. Policy-routed
+        findings, snippet-less findings, and unplaceable anchors never merge
+        (key None → their own singleton case), so the current snippet-less corpus
+        is unchanged and no source is read for it."""
+        keys = []
+        for finding in findings:
+            if self._is_policy_routed(finding):
+                keys.append(None)
+                continue
+            anchor = self._resolve_finding_anchor(finding)
+            keys.append(
+                case_key(finding, anchor, norm_path=_repo_relative_path(finding.file))
+            )
+        return build_cases(keys)
+
+    def _project_cases(
+        self,
+        cases: list[VerificationCase],
+        rep_verdicts: list[Verdict],
+        findings: list[Finding],
+    ) -> list[Verdict]:
+        """Fan each case's single decision out to one verdict per original
+        observation, in reported order. Non-representative observations get a copy
+        carrying their own reported finding and the shared case_id; the
+        representative verdict is reused. Singleton cases are unchanged (id "")."""
+        by_obs: dict[int, Verdict] = {}
+        for case, rep_v in zip(cases, rep_verdicts, strict=True):
+            if case.case_id:
+                rep_v.case_id = case.case_id
+            for obs_idx in case.observation_indices:
+                if obs_idx == case.representative_index:
+                    by_obs[obs_idx] = rep_v
+                else:
+                    by_obs[obs_idx] = replace(rep_v, finding=findings[obs_idx])
+        return [by_obs[i] for i in range(len(findings))]
 
     def _verify_one_with_callbacks(
         self, i: int, total: int, finding: Finding
