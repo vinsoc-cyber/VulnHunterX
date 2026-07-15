@@ -36,6 +36,37 @@ from vuln_hunter_x.verification.policy.schema import UNRESOLVED, SchemaError, pa
 from vuln_hunter_x.verification.policy.support import is_admissible
 
 
+def render_assessment_prompt(policy: FamilyPolicy, ledger: EvidenceLedger) -> str:
+    """Render the covered-family assessment instructions + the seeded ledger.
+
+    Appended to the first user turn so the model returns the structured
+    ``fact_slots`` assessment (citing evidence by ledger id) instead of a
+    free-text verdict.
+    """
+    lines = [
+        "## Evidence-closure assessment (REQUIRED response format)",
+        "",
+        "Do NOT decide a free-text verdict. Assess each fact slot below using ONLY "
+        "the cited evidence, and return strict JSON:",
+        '{"fact_slots": {"<slot>": {"value": "<VALUE|UNRESOLVED>", "evidence": '
+        '["<id>"]}}, "evidence_requests": [{"kind": "function", "subject": '
+        '"<name>", "for_slot": "<slot>"}], "reasoning": "..."}',
+        "",
+        "Fact slots and allowed values (use UNRESOLVED if the evidence does not "
+        "establish the value):",
+    ]
+    for slot, values in policy.fact_slots.items():
+        lines.append(f"  - {slot}: {', '.join(values)} | UNRESOLVED")
+    lines.append("")
+    lines.append(
+        "Available evidence (cite by id; if a decisive slot is UNRESOLVED, request "
+        "more via evidence_requests):"
+    )
+    for entry in ledger.entries:
+        lines.append(f"  [{entry.id}] {entry.origin.value}: {entry.summary}")
+    return "\n".join(lines)
+
+
 class PolicyClosureController:
     def __init__(
         self,
@@ -62,6 +93,10 @@ class PolicyClosureController:
         self._seen: set[tuple[EvidenceKind, str]] = set()
         self._pending: list[tuple[str, EvidenceResult]] = []  # (entry_id, result)
         self.last_decision: PolicyDecision | None = None
+
+    def initial_instructions(self) -> str:
+        """Fact-slot assessment instructions appended to the first user turn."""
+        return render_assessment_prompt(self._policy, self._ledger)
 
     def evaluate(
         self, parsed: Mapping[str, object], raw_response: str = "", iteration: int = 1

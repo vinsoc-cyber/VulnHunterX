@@ -491,6 +491,13 @@ class LLMClient:
                     + "\n\n".join(prefetch_parts)
                 )
 
+        # Policy path: append the strategy's fact-slot assessment instructions so
+        # the model returns the structured assessment on the first turn.
+        if decision_strategy is not None:
+            extra = getattr(decision_strategy, "initial_instructions", lambda: None)()
+            if extra:
+                user_prompt += "\n\n" + extra
+
         sys_prompt = self.prompt_builder.get_system_prompt(
             tool_name=finding.tool or "static analysis",
             lang=finding.lang,
