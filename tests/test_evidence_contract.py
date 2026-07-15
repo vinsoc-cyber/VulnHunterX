@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from vuln_hunter_x.context.evidence import (
     ArtifactState,
-    Capability,
     ContextProviderProtocol,
     EvidenceKind,
     EvidenceRequest,

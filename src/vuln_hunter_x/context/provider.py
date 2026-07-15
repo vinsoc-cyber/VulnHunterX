@@ -11,6 +11,17 @@ import os
 import threading
 from pathlib import Path
 
+from vuln_hunter_x.context.evidence import (
+    ArtifactState,
+    Capability,
+    EvidenceKind,
+    EvidenceRequest,
+    EvidenceResult,
+    EvidenceScope,
+    EvidenceStatus,
+    SourceRef,
+    inspect_capability,
+)
 from vuln_hunter_x.context.repo_paths import resolve_repo_file, resolve_repo_root
 
 logger = logging.getLogger(__name__)
@@ -168,6 +179,26 @@ class ContextProvider:
                 )
                 return []
 
+    def _absence_status(self, cap: Capability) -> EvidenceStatus:
+        """Map a not-found lookup to an honest status given backend capability.
+
+        Verdict-inert in P2a. Symbol indexes are non-authoritative here, so a
+        present-but-missing lookup is INCOMPLETE_INDEX, never NOT_FOUND_COMPLETE.
+        """
+        if cap.artifact_state is ArtifactState.MISSING:
+            return (
+                EvidenceStatus.INCOMPLETE_INDEX
+                if cap.supported
+                else EvidenceStatus.UNSUPPORTED
+            )
+        if cap.artifact_state is ArtifactState.INVALID:
+            return EvidenceStatus.INCOMPLETE_INDEX
+        return (
+            EvidenceStatus.NOT_FOUND_COMPLETE
+            if cap.authoritative_for_absence
+            else EvidenceStatus.INCOMPLETE_INDEX
+        )
+
     def _read_lines(
         self,
         repo_name: str,
@@ -224,30 +255,38 @@ class ContextProvider:
             f"analysis scope. It may be defined in an external library or header.]"
         )
 
-    def _get_function_context(
+    def _resolve_function(
         self,
+        req: EvidenceRequest,
         repo_name: str,
         lang: str,
-        func_name: str,
         max_matches: int = 3,
-    ) -> str:
-        """Get the body of a named function/method (the sink/callee implementation).
+    ) -> EvidenceResult:
+        """Resolve a named function/method body (the sink/callee implementation).
 
         Looks up ``functions.csv`` by name and reads each match's line range. A
         name may resolve to several definitions (overloads, same method name on
         different classes); up to ``max_matches`` are returned, disambiguated by
         file in the header comment.
         """
+        func_name = req.subject
         rows = self._load_csv(repo_name, lang, "functions")
         matches = [r for r in rows if r.get("name") == func_name]
         if not matches:
-            return (
+            content = (
                 f"[Function not found: {func_name} — no definition in the analysis "
                 f"scope. It may be an external library, a built-in, or a dynamically "
                 f"assigned method.]"
             )
+            cap = inspect_capability(
+                self._context_dir(lang, repo_name), lang, EvidenceKind.FUNCTION
+            )
+            return EvidenceResult(
+                req, self._absence_status(cap), content, EvidenceScope.REPOSITORY_INDEX
+            )
 
         parts: list[str] = []
+        provs: list[SourceRef] = []
         for row in matches[:max_matches]:
             file_path = row.get("file", "")
             try:
@@ -258,15 +297,43 @@ class ContextProvider:
             if start > 0 and end >= start:
                 code = self._read_lines(repo_name, lang, file_path, start, end)
                 parts.append(f"// Function: {func_name}\n// File: {file_path}\n{code}")
+                provs.append(SourceRef(repo_name, lang, file_path, start, end))
 
         if not parts:
-            return f"[Function metadata present for {func_name} but body could not be read.]"
-        if len(matches) > max_matches:
+            content = f"[Function metadata present for {func_name} but body could not be read.]"
+            return EvidenceResult(
+                req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.FILE
+            )
+        truncated = len(matches) > max_matches
+        if truncated:
             parts.append(
                 f"// ... and {len(matches) - max_matches} more definition(s) of "
                 f"{func_name} (truncated)"
             )
-        return "\n\n".join(parts)
+        content = "\n\n".join(parts)
+        status = EvidenceStatus.AMBIGUOUS if len(matches) > 1 else EvidenceStatus.FOUND
+        return EvidenceResult(
+            req,
+            status,
+            content,
+            EvidenceScope.FILE,
+            exhaustive=not truncated,
+            provenance=tuple(provs),
+        )
+
+    def _get_function_context(
+        self,
+        repo_name: str,
+        lang: str,
+        func_name: str,
+        max_matches: int = 3,
+    ) -> str:
+        return self._resolve_function(
+            EvidenceRequest(EvidenceKind.FUNCTION, func_name, f"function:{func_name}"),
+            repo_name,
+            lang,
+            max_matches,
+        ).prompt_content
 
     def _get_callee_bodies_context(
         self,
@@ -319,17 +386,20 @@ class ContextProvider:
             parts.append(f"// (skipped external/builtin callees: {', '.join(skipped)})")
         return "\n\n".join(parts)
 
-    def _get_struct_context(
+    def _resolve_struct(
         self,
+        req: EvidenceRequest,
         repo_name: str,
         lang: str,
-        struct_name: str,
-    ) -> str:
-        """Get struct/class definition."""
+    ) -> EvidenceResult:
+        """Resolve a struct/class definition."""
+        struct_name = req.subject
         csv_name = "classes" if lang in ("python", "javascript", "csharp") else "structs"
         rows = self._load_csv(repo_name, lang, csv_name)
+        saw_name = False
         for row in rows:
             if row.get("name") == struct_name:
+                saw_name = True
                 file_path = row.get("file", "")
                 try:
                     start = int(row.get("start_line", 0))
@@ -338,20 +408,50 @@ class ContextProvider:
                     continue
                 if start > 0 and end >= start:
                     code = self._read_lines(repo_name, lang, file_path, start, end)
-                    return f"// Struct/Class: {struct_name}\n// File: {file_path}\n{code}"
+                    content = f"// Struct/Class: {struct_name}\n// File: {file_path}\n{code}"
+                    return EvidenceResult(
+                        req,
+                        EvidenceStatus.FOUND,
+                        content,
+                        EvidenceScope.FILE,
+                        provenance=(SourceRef(repo_name, lang, file_path, start, end),),
+                    )
 
-        return (
+        content = (
             f"[Struct/Class not found: {struct_name} — it may be a typedef alias. "
             f"Try typedef:{struct_name} to resolve the underlying type.]"
         )
+        if saw_name:
+            return EvidenceResult(
+                req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.FILE
+            )
+        cap = inspect_capability(
+            self._context_dir(lang, repo_name), lang, EvidenceKind.STRUCT
+        )
+        return EvidenceResult(
+            req, self._absence_status(cap), content, EvidenceScope.REPOSITORY_INDEX
+        )
 
-    def _get_global_context(
+    def _get_struct_context(
         self,
         repo_name: str,
         lang: str,
-        var_name: str,
+        struct_name: str,
     ) -> str:
-        """Get global variable definition."""
+        return self._resolve_struct(
+            EvidenceRequest(EvidenceKind.STRUCT, struct_name, f"struct:{struct_name}"),
+            repo_name,
+            lang,
+        ).prompt_content
+
+    def _resolve_global(
+        self,
+        req: EvidenceRequest,
+        repo_name: str,
+        lang: str,
+    ) -> EvidenceResult:
+        """Resolve a global variable definition."""
+        var_name = req.subject
         rows = self._load_csv(repo_name, lang, "globals")
         for row in rows:
             if row.get("name") == var_name:
@@ -363,9 +463,61 @@ class ContextProvider:
                     continue
                 var_type = row.get("type", "unknown")
                 code = self._read_lines(repo_name, lang, file_path, start, end)
-                return f"// Global: {var_name} (type: {var_type})\n// File: {file_path}\n{code}"
+                content = f"// Global: {var_name} (type: {var_type})\n// File: {file_path}\n{code}"
+                return EvidenceResult(
+                    req,
+                    EvidenceStatus.FOUND,
+                    content,
+                    EvidenceScope.FILE,
+                    provenance=(SourceRef(repo_name, lang, file_path, start, end),),
+                )
 
-        return f"[Global variable not found: {var_name}]"
+        content = f"[Global variable not found: {var_name}]"
+        cap = inspect_capability(
+            self._context_dir(lang, repo_name), lang, EvidenceKind.GLOBAL
+        )
+        return EvidenceResult(
+            req, self._absence_status(cap), content, EvidenceScope.REPOSITORY_INDEX
+        )
+
+    def _get_global_context(
+        self,
+        repo_name: str,
+        lang: str,
+        var_name: str,
+    ) -> str:
+        return self._resolve_global(
+            EvidenceRequest(EvidenceKind.GLOBAL, var_name, f"global:{var_name}"),
+            repo_name,
+            lang,
+        ).prompt_content
+
+    def _resolve_macro(
+        self,
+        req: EvidenceRequest,
+        repo_name: str,
+        lang: str,
+    ) -> EvidenceResult:
+        """Resolve a macro definition."""
+        macro_name = req.subject
+        rows = self._load_csv(repo_name, lang, "macros")
+        for row in rows:
+            if row.get("name") == macro_name:
+                file_path = row.get("file", "")
+                line = row.get("line", "?")
+                body = row.get("body", "")
+                content = f"// Macro: {macro_name}\n// File: {file_path}:{line}\n#define {macro_name} {body}"
+                return EvidenceResult(
+                    req, EvidenceStatus.FOUND, content, EvidenceScope.FILE
+                )
+
+        content = f"[Macro not found: {macro_name}]"
+        cap = inspect_capability(
+            self._context_dir(lang, repo_name), lang, EvidenceKind.MACRO
+        )
+        return EvidenceResult(
+            req, self._absence_status(cap), content, EvidenceScope.REPOSITORY_INDEX
+        )
 
     def _get_macro_context(
         self,
@@ -373,16 +525,11 @@ class ContextProvider:
         lang: str,
         macro_name: str,
     ) -> str:
-        """Get macro definition."""
-        rows = self._load_csv(repo_name, lang, "macros")
-        for row in rows:
-            if row.get("name") == macro_name:
-                file_path = row.get("file", "")
-                line = row.get("line", "?")
-                body = row.get("body", "")
-                return f"// Macro: {macro_name}\n// File: {file_path}:{line}\n#define {macro_name} {body}"
-
-        return f"[Macro not found: {macro_name}]"
+        return self._resolve_macro(
+            EvidenceRequest(EvidenceKind.MACRO, macro_name, f"macro:{macro_name}"),
+            repo_name,
+            lang,
+        ).prompt_content
 
     def _get_callees_context(
         self,
@@ -447,37 +594,66 @@ class ContextProvider:
             return f"[Could not read source for callers of: {callee_name}]"
         return "\n\n".join(parts)
 
-    def _get_typedef_context(
+    def _resolve_typedef(
         self,
+        req: EvidenceRequest,
         repo_name: str,
         lang: str,
-        type_name: str,
-    ) -> str:
-        """Get typedef/type alias definition."""
+    ) -> EvidenceResult:
+        """Resolve a typedef/type alias definition."""
+        type_name = req.subject
         rows = self._load_csv(repo_name, lang, "typedefs")
         for row in rows:
             if row.get("name") == type_name:
                 file_path = row.get("file", "")
                 line = row.get("line", "?")
                 underlying = row.get("underlying_type", "")
-                return (
+                content = (
                     f"// Typedef: {type_name} = {underlying}\n"
                     f"// File: {file_path}:{line}"
                 )
+                return EvidenceResult(
+                    req, EvidenceStatus.FOUND, content, EvidenceScope.FILE
+                )
 
-        return f"[Typedef not found: {type_name}]"
+        content = f"[Typedef not found: {type_name}]"
+        cap = inspect_capability(
+            self._context_dir(lang, repo_name), lang, EvidenceKind.TYPEDEF
+        )
+        return EvidenceResult(
+            req, self._absence_status(cap), content, EvidenceScope.REPOSITORY_INDEX
+        )
 
-    def _get_enum_context(
+    def _get_typedef_context(
         self,
         repo_name: str,
         lang: str,
-        enum_name: str,
+        type_name: str,
     ) -> str:
-        """Get enum definition with enumerator values."""
+        return self._resolve_typedef(
+            EvidenceRequest(EvidenceKind.TYPEDEF, type_name, f"typedef:{type_name}"),
+            repo_name,
+            lang,
+        ).prompt_content
+
+    def _resolve_enum(
+        self,
+        req: EvidenceRequest,
+        repo_name: str,
+        lang: str,
+    ) -> EvidenceResult:
+        """Resolve an enum definition with enumerator values."""
+        enum_name = req.subject
         rows = self._load_csv(repo_name, lang, "enums")
         matches = [r for r in rows if r.get("name") == enum_name]
         if not matches:
-            return f"[Enum not found: {enum_name}]"
+            content = f"[Enum not found: {enum_name}]"
+            cap = inspect_capability(
+                self._context_dir(lang, repo_name), lang, EvidenceKind.ENUM
+            )
+            return EvidenceResult(
+                req, self._absence_status(cap), content, EvidenceScope.REPOSITORY_INDEX
+            )
 
         parts: list[str] = []
         file_path = matches[0].get("file", "")
@@ -489,7 +665,20 @@ class ContextProvider:
             if member:
                 parts.append(f"  {member} = {value}" if value else f"  {member}")
 
-        return "\n".join(parts)
+        content = "\n".join(parts)
+        return EvidenceResult(req, EvidenceStatus.FOUND, content, EvidenceScope.FILE)
+
+    def _get_enum_context(
+        self,
+        repo_name: str,
+        lang: str,
+        enum_name: str,
+    ) -> str:
+        return self._resolve_enum(
+            EvidenceRequest(EvidenceKind.ENUM, enum_name, f"enum:{enum_name}"),
+            repo_name,
+            lang,
+        ).prompt_content
 
     def _get_free_sites_context(
         self,
