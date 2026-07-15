@@ -162,6 +162,20 @@ class ContextExtractor:
         self._path_cache[cache_key] = resolved
         return resolved
 
+    def read_source(self, file_path: str, lang: str, repo_name: str = "") -> str | None:
+        """Return the full source of a repo file, or None if unresolved/unreadable.
+
+        Used for deterministic anchor resolution (#118); repo-scoped via the same
+        ``_resolve_path`` as context extraction, so it never scans sibling repos.
+        """
+        full_path = self._resolve_path(file_path, lang, repo_name)
+        if full_path is None:
+            return None
+        try:
+            return full_path.read_text(errors="replace")
+        except OSError:
+            return None
+
     def _fallback_context(
         self,
         file_path: str,

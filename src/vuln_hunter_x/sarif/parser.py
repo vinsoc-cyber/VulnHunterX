@@ -340,6 +340,11 @@ class SarifParser:
                     region = phys.get("region") or {}
                     start_line = region.get("startLine") or 1
                     end_line = region.get("endLine") or start_line
+                    # Reported sink construct + columns, used later to confirm or
+                    # re-align the analysis anchor against the real source (#118).
+                    snippet_text = (region.get("snippet") or {}).get("text") or ""
+                    start_col = region.get("startColumn") or 0
+                    end_col = region.get("endColumn") or 0
 
                     findings.append(
                         Finding(
@@ -358,6 +363,9 @@ class SarifParser:
                             cwe_ids=cwe_ids,
                             tags=non_cwe_tags,
                             related_locations=related_locations,
+                            sink_snippet=snippet_text,
+                            start_column=start_col,
+                            end_column=end_col,
                         )
                     )
 

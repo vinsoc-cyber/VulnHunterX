@@ -301,9 +301,9 @@ def _reconcile_conflicting_verdicts(verdicts: list[Verdict]) -> list[Verdict]:
     # Vendored/generated/minified findings are excluded outright.
     buckets: dict[tuple, list[Verdict]] = {}
     for v in verdicts:
-        # Policy-sourced verdicts are owned by the evidence-closure gate; they are
-        # never reconciled against (or by) legacy siblings.
-        if v.decision_source == "policy":
+        # Policy and structural-gate verdicts are owned by their own gates; only
+        # the legacy model path is subject to post-hoc reconciliation.
+        if v.decision_source != "legacy_model":
             continue
         f = v.finding
         if _is_vendored_or_minified(f.file):
@@ -439,8 +439,9 @@ def apply_sibling_consistency(
     """
     tp = VerdictType.TRUE_POSITIVE.value
     index = {id(v): i for i, v in enumerate(verdicts)}
-    # Policy-sourced verdicts are neither re-verified nor used as TP siblings.
-    legacy = [v for v in verdicts if v.decision_source != "policy"]
+    # Only legacy model verdicts are re-verified / used as TP siblings; policy
+    # and structural-gate verdicts are owned by their own gates.
+    legacy = [v for v in verdicts if v.decision_source == "legacy_model"]
     for fp_verdict, tp_siblings in _select_sibling_consistency_candidates(legacy):
         try:
             new = reverify(fp_verdict, tp_siblings)
@@ -613,6 +614,12 @@ def _downgrade_cli_path_injection(verdict: Verdict) -> Verdict:
     return verdict
 
 
+from vuln_hunter_x.context.anchor import (
+    REANCHORED_UNIQUE,
+    STRUCTURAL_NMD_RESOLUTIONS,
+    AnchorResolution,
+    resolve_anchor,
+)
 from vuln_hunter_x.context.evidence import SourceRef
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
@@ -1254,6 +1261,48 @@ class VerificationEngine:
             return self._verify_policy_finding(finding, policy)
         return self._verify_legacy_finding(finding)
 
+    def _read_finding_source(self, finding: Finding) -> str | None:
+        """Full source of the finding's file, or None if unresolved/unreadable."""
+        reader = getattr(self.context_extractor, "read_source", None)
+        if reader is None:
+            return None
+        return reader(finding.file, finding.lang, repo_name=finding.repo_name)
+
+    def _resolve_finding_anchor(self, finding: Finding) -> AnchorResolution:
+        # Only read source when the scanner gave a construct to confirm; snippet-
+        # less findings take the unchanged legacy path (no IO, verdict-neutral).
+        file_text = (
+            self._read_finding_source(finding)
+            if (finding.sink_snippet or "").strip()
+            else None
+        )
+        return resolve_anchor(finding, file_text)
+
+    def _structural_gate_verdict(
+        self, finding: Finding, anchor: AnchorResolution
+    ) -> Verdict:
+        """Honest Needs-More-Data when the reported construct cannot be uniquely
+        placed in the source. Never a dismissal — reasoning over a misaligned
+        slice is the #118 failure. Bypasses the model entirely."""
+        return Verdict(
+            finding=finding,
+            verdict=VerdictType.NEEDS_MORE_DATA.value,
+            confidence="Low",
+            confidence_score=0.3,
+            reasoning=(
+                "Structural gate: the scanner-reported code construct could not be "
+                f"confirmed at, or uniquely relocated within, {finding.file} "
+                f"({anchor.detail}). Reasoning over a misaligned slice would risk a "
+                "false dismissal, so this finding needs a correct source anchor."
+            ),
+            answers=[],
+            raw_response="",
+            model=self.config.llm.model,
+            decision_source="structural_gate",
+            anchor_resolution=anchor.resolution,
+            analysis_line=anchor.analysis_line,
+        )
+
     def _verify_legacy_finding(self, finding: Finding) -> Verdict:
         """Verify a single finding (legacy model-verdict path)."""
         # Get questions (pass CWE IDs for Semgrep/OpenGrep CWE-based matching)
@@ -1263,10 +1312,18 @@ class VerificationEngine:
             lang=finding.lang,
         )
 
-        # Extract context
+        # Confirm the reported sink anchor against the real source before
+        # reasoning. A construct that cannot be uniquely placed must not be
+        # dismissed on a misaligned slice (#118): abstain with a structural NMD.
+        anchor = self._resolve_finding_anchor(finding)
+        if anchor.resolution in STRUCTURAL_NMD_RESOLUTIONS:
+            return self._structural_gate_verdict(finding, anchor)
+
+        # Extract context around the RESOLVED line (== reported unless the
+        # flagged construct was found uniquely at a shifted location).
         context_result = self.context_extractor.get_context(
             finding.file,
-            finding.start_line,
+            anchor.analysis_line,
             finding.lang,
             repo_name=finding.repo_name,
         )
@@ -1293,6 +1350,14 @@ class VerificationEngine:
 
         # Pre-fetch additional context declared by guided questions
         prefetched_context: dict[str, str] = {}
+        if anchor.resolution == REANCHORED_UNIQUE:
+            prefetched_context["NOTE: anchor re-aligned"] = (
+                f"The scanner reported this finding at line {anchor.reported_line}, "
+                f"but the flagged construct actually resides at line "
+                f"{anchor.analysis_line} ({anchor.detail}). The context below is "
+                f"shown around the re-aligned location; reason about the construct "
+                f"there, not about whatever occupies line {anchor.reported_line}."
+            )
         if questions.additional_context and effective_provider:
             prefetch_requests = self._build_prefetch_requests(
                 questions.additional_context,
