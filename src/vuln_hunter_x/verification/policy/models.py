@@ -25,6 +25,35 @@ Condition = Mapping[str, tuple[str, ...]]
 
 
 @dataclass(frozen=True)
+class HandoffSelector:
+    """Cross-family candidacy for a family.
+
+    A rule whose own CWE/name belongs to another family can still LOCATE this
+    family's sink (e.g. a ``tainted-filename`` tagged SSRF that is really a
+    path-access read). Kept separate from primary ``selectors`` so a handoff is
+    never mistaken for ownership and never triggers a primary-overlap error.
+    Matching mirrors primary selection: language gate, then CWE membership or
+    rule-id glob.
+    """
+
+    languages: frozenset[str] = frozenset()
+    cwes: frozenset[str] = frozenset()
+    rule_aliases: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Applicability:
+    """Declares which value of a decisive slot means this family applies vs. does
+    not apply to a finding. A not-applicable outcome is evaluated BEFORE
+    entailment and is never a False Positive — it hands the finding back to its
+    base route. Required for a family that declares a ``handoff_from`` block."""
+
+    slot: str
+    applicable_values: frozenset[str] = frozenset()
+    not_applicable_values: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
 class FamilyPolicy:
     """A declarative policy for one vulnerability family.
 
@@ -50,6 +79,11 @@ class FamilyPolicy:
     # Neutral fact-gathering guidance rendered into the assessment prompt (no
     # verdict commands, no benchmark names). Helps the model resolve the slots.
     assessment_guidance: tuple[str, ...] = ()
+    # Optional cross-family candidacy: findings this family can be handed off
+    # (their rule locates this family's sink even though their CWE names another).
+    handoff_from: HandoffSelector | None = None
+    # Required when handoff_from is set: which slot value means "not my family".
+    applicability: Applicability | None = None
     version: str = "1"
 
 

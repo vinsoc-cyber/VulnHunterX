@@ -1,0 +1,107 @@
+# Path-access / file-inclusion (CWE-22 / CWE-73 / CWE-98) family policy — PHP.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# This family also declares a handoff_from block: a PHP rule whose CWE names a
+# different class but whose sink actually reads/includes a filesystem path
+# (a tainted-filename tagged SSRF, or an eval whose argument is file contents
+# reached via a path) is LOCATED into this family. Because a handoff can decide
+# the finding is not this family's sink at all, sink_binding NOT_PATH_ACCESS_SINK
+# is handled by the applicability gate (family_not_applicable) rather than as a
+# False Positive — a not-a-path-sink finding is handed back to its base route,
+# never dismissed here.
+#
+# TP requires a concrete unsafe path AND a real security effect: "no sanitizer
+# visible" alone is not sufficient, and a confined/allowlisted path is a False
+# Positive. production_scope is recorded but not decisive.
+
+family: path_access
+version: "1"
+
+selectors:
+  languages: [php]
+  cwes: ["CWE-22", "CWE-73", "CWE-98"]
+  rule_aliases: ["php/path-injection", "php/file-inclusion"]
+
+handoff_from:
+  languages: [php]
+  rule_aliases:
+    - php.lang.security.injection.tainted-filename.tainted-filename
+    - php.lang.security.eval-use.eval-use
+
+applicability:
+  slot: sink_binding
+  applicable_values: [QUALIFYING_PATH_ACCESS_SINK]
+  not_applicable_values: [NOT_PATH_ACCESS_SINK]
+
+fact_slots:
+  sink_binding: [QUALIFYING_PATH_ACCESS_SINK, NOT_PATH_ACCESS_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_path: [REACHES, NO_PATH_COMPLETE]
+  path_escape: [ESCAPE_PATH_FOUND, CONFINED_ALL_PATHS]
+  defense_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  security_effect: [SECURITY_RELEVANT_EFFECT, NO_SECURITY_EFFECT]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_path
+  - path_escape
+  - defense_coverage
+  - security_effect
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_PATH_ACCESS_SINK
+    attacker_control: PROVEN
+    flow_to_path: REACHES
+    path_escape: ESCAPE_PATH_FOUND
+    defense_coverage: BYPASS_PATH_FOUND
+    security_effect: SECURITY_RELEVANT_EFFECT
+  false_positive_if_any:
+    - attacker_control: REFUTED
+    - flow_to_path: NO_PATH_COMPLETE
+    - path_escape: CONFINED_ALL_PATHS
+    - defense_coverage: ALL_REACHING_PATHS
+    - security_effect: NO_SECURITY_EFFECT
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES.
+admissibility:
+  sink_binding:
+    QUALIFYING_PATH_ACCESS_SINK: LOCAL_POSITIVE
+    NOT_PATH_ACCESS_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_path:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  path_escape:
+    ESCAPE_PATH_FOUND: CONCRETE_PATH
+    CONFINED_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  defense_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: EXHAUSTIVE_ENCODER
+  security_effect:
+    SECURITY_RELEVANT_EFFECT: LOCAL_OR_DATAFLOW
+    NO_SECURITY_EFFECT: LOCAL_POSITIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_PATH_ACCESS_SINK when the flagged call interprets its argument as a filesystem path or an include/require target (file read/include/require/fopen/readfile and similar); NOT_PATH_ACCESS_SINK when the call does not open or include a path (for example a shell/command execution, or a pure string operation)."
+  - "attacker_control: PROVEN when external input reaches the path argument — the scanner data-flow SOURCE (a remote/request source) establishes this; REFUTED when the value is a fixed constant or operator-only input."
+  - "flow_to_path: REACHES when the controlled value reaches the path argument on some path; NO_PATH_COMPLETE only with complete evidence that no path reaches it."
+  - "path_escape: ESCAPE_PATH_FOUND when the attacker can direct the path outside the intended base (../ traversal, an absolute path, a scheme/wrapper, or a fully attacker-chosen segment); CONFINED_ALL_PATHS when every reaching path is pinned to a safe base or a fixed set of names."
+  - "defense_coverage: BYPASS_PATH_FOUND when a reaching path has no effective normalization/allowlist; ALL_REACHING_PATHS when every reaching path is covered by an effective guard."
+  - "security_effect: SECURITY_RELEVANT_EFFECT when the accessed path yields a real consequence (disclosure of sensitive content, or inclusion/execution of attacker-influenced content); NO_SECURITY_EFFECT when the outcome is inert."

@@ -17,7 +17,12 @@ from pathlib import Path
 
 import yaml
 
-from vuln_hunter_x.verification.policy.models import Condition, FamilyPolicy
+from vuln_hunter_x.verification.policy.models import (
+    Applicability,
+    Condition,
+    FamilyPolicy,
+    HandoffSelector,
+)
 from vuln_hunter_x.verification.policy.support import PROFILE_NAMES
 
 
@@ -99,6 +104,26 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
             for slot, vals in (raw_adm.items() if isinstance(raw_adm, Mapping) else [])
         }
         assessment_guidance = tuple(str(g) for g in data.get("assessment_guidance", []) or [])
+        raw_handoff = data.get("handoff_from") or None
+        handoff_from = None
+        if raw_handoff is not None:
+            handoff_from = HandoffSelector(
+                languages=frozenset(str(x).lower() for x in raw_handoff.get("languages", [])),
+                cwes=frozenset(str(c).upper() for c in raw_handoff.get("cwes", [])),
+                rule_aliases=tuple(str(a) for a in raw_handoff.get("rule_aliases", [])),
+            )
+        raw_appl = data.get("applicability") or None
+        applicability = None
+        if raw_appl is not None:
+            applicability = Applicability(
+                slot=str(raw_appl["slot"]),
+                applicable_values=frozenset(
+                    str(v) for v in raw_appl.get("applicable_values", [])
+                ),
+                not_applicable_values=frozenset(
+                    str(v) for v in raw_appl.get("not_applicable_values", [])
+                ),
+            )
     except (KeyError, TypeError) as exc:
         raise PolicyError(f"malformed policy: {exc}") from exc
 
@@ -109,6 +134,19 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
     for i, cond in enumerate(false_positive_if_any):
         _validate_condition(cond, fact_slots, f"false_positive_if_any[{i}]")
     _validate_admissibility(admissibility, fact_slots)
+    if handoff_from is not None and applicability is None:
+        raise PolicyError(f"family {family!r}: handoff_from requires applicability")
+    if applicability is not None:
+        if applicability.slot not in fact_slots:
+            raise PolicyError(
+                f"applicability: slot {applicability.slot!r} is not declared in fact_slots"
+            )
+        for v in (*applicability.applicable_values, *applicability.not_applicable_values):
+            if v not in fact_slots[applicability.slot]:
+                raise PolicyError(
+                    f"applicability: value {v!r} for slot "
+                    f"{applicability.slot!r} is not declared"
+                )
 
     return FamilyPolicy(
         family=family,
@@ -121,6 +159,8 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         languages=languages,
         admissibility=admissibility,
         assessment_guidance=assessment_guidance,
+        handoff_from=handoff_from,
+        applicability=applicability,
         version=str(data.get("version", "1")),
     )
 
@@ -161,6 +201,43 @@ class PolicyRegistry:
             raise PolicyOverlapError(
                 f"finding (cwes={sorted(cwe_set)}, rule={rule_id!r}) matched multiple "
                 f"policy families: {[p.family for p in matches]}"
+            )
+        return matches[0]
+
+    @staticmethod
+    def _handoff_matches(
+        h: HandoffSelector, cwe_set: set[str], rule_id: str, lang: str
+    ) -> bool:
+        if h.languages and lang.lower() not in h.languages:
+            return False
+        if h.cwes and (cwe_set & h.cwes):
+            return True
+        return any(fnmatch.fnmatch(rule_id, pat) for pat in h.rule_aliases)
+
+    def resolve_handoff(
+        self, *, cwe_ids: Iterable[str], rule_id: str, lang: str = ""
+    ) -> FamilyPolicy | None:
+        """Return the single family this finding can be handed off to, ``None`` if
+        none, error if more than one distinct family matches (fail closed).
+
+        A finding that a family PRIMARILY owns is not also that family's handoff
+        candidate (dedup) — the primary path already covers it.
+        """
+        cwe_set = {str(c).upper() for c in cwe_ids}
+        rid = rule_id or ""
+        matches = [
+            p
+            for p in self._policies
+            if p.handoff_from is not None
+            and not self._matches(p, cwe_set, rid, lang or "")
+            and self._handoff_matches(p.handoff_from, cwe_set, rid, lang or "")
+        ]
+        if not matches:
+            return None
+        if len(matches) > 1:
+            raise PolicyOverlapError(
+                f"finding (cwes={sorted(cwe_set)}, rule={rule_id!r}) matched multiple "
+                f"handoff families: {[p.family for p in matches]}"
             )
         return matches[0]
 
