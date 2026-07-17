@@ -92,7 +92,8 @@ class SnippetContextProvider:
     ) -> dict[str, EvidenceResult]:
         """Typed retrieval (P2a). Snippet misses are incomplete at REPOSITORY
         scope — only positive in-snippet evidence is safely FOUND; the snippet
-        can never prove repository-wide absence. Keyed by ``raw_request``."""
+        can never prove repository-wide absence. Keyed by ``request_key`` (equal
+        to ``raw_request`` for an unqualified request)."""
         out: dict[str, EvidenceResult] = {}
         for req in requests:
             raw = req.raw_request
@@ -108,7 +109,7 @@ class SnippetContextProvider:
             else:
                 status = EvidenceStatus.FOUND
                 prov = (self._source_ref,) if self._source_ref else ()
-            out[raw] = EvidenceResult(
+            out[req.request_key] = EvidenceResult(
                 req,
                 status,
                 content,

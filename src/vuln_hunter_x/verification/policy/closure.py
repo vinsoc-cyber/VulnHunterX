@@ -173,7 +173,7 @@ class PolicyClosureController:
         self._pending = []
         added = False
         for req in requests:
-            res = results.get(req.raw_request)
+            res = results.get(req.request_key)
             if res is None:
                 continue
             entry = self._ledger.add_retrieved(res)

@@ -166,14 +166,16 @@ class ContextProvider:
         lang: str,
         requests: list[EvidenceRequest],
     ) -> dict[str, EvidenceResult]:
-        """Typed retrieval entrypoint (P2a), keyed by ``raw_request``.
+        """Typed retrieval entrypoint (P2a), keyed by ``request_key``.
 
         ``get_additional_context`` is the legacy string adapter over the same
         ``_resolve_*`` handlers; this returns the full typed result (status /
         scope / exhaustive / provenance) for the P2b policy gate to consume.
+        ``request_key`` equals ``raw_request`` for an unqualified request, so
+        two target-qualified requests sharing a ``raw_request`` do not collide.
         """
         return {
-            req.raw_request: self._dispatch_resolve(req, repo_name, lang)
+            req.request_key: self._dispatch_resolve(req, repo_name, lang)
             for req in requests
         }
 
