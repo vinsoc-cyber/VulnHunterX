@@ -70,6 +70,12 @@ def _toy_policy(name: str):
             "true_positive": {"sink_binding": "QUALIFYING_LOG_SINK"},
             "false_positive_if_any": [{"sink_binding": "NOT_LOG_SINK"}],
         },
+        "admissibility": {
+            "sink_binding": {
+                "QUALIFYING_LOG_SINK": "LOCAL_POSITIVE",
+                "NOT_LOG_SINK": "LOCAL_POSITIVE",
+            }
+        },
     })
 
 

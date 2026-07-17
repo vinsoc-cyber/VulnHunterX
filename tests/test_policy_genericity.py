@@ -89,6 +89,7 @@ def test_overlap_still_fails_closed():
         "fact_slots": {"sink_binding": ["A", "B"]},
         "decisive_slots": ["sink_binding"],
         "entailment": {"true_positive": {"sink_binding": "A"}, "false_positive_if_any": []},
+        "admissibility": {"sink_binding": {"A": "LOCAL_POSITIVE", "B": "LOCAL_POSITIVE"}},
     })
     reg = PolicyRegistry([_XPATH, dup])
     with pytest.raises(PolicyOverlapError):

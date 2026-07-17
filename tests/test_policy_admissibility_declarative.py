@@ -53,6 +53,7 @@ def _bare_policy(**over):
         "fact_slots": {"s": ["A", "B"]},
         "decisive_slots": ["s"],
         "entailment": {"true_positive": {"s": "A"}, "false_positive_if_any": []},
+        "admissibility": {"s": {"A": "LOCAL_POSITIVE", "B": "LOCAL_POSITIVE"}},
     }
     data.update(over)
     return load_policy_from_mapping(data)
@@ -79,8 +80,12 @@ def test_undeclared_slot_value_fails_closed():
     assert not is_admissible(_CWE117, "attacker_control", "NOT_A_VALUE", [_local()])
 
 
-def test_policy_without_admissibility_admits_nothing():
-    assert not is_admissible(_bare_policy(), "s", "A", [_local()])
+def test_loader_rejects_policy_without_admissibility():
+    # Such a policy would load and then admit nothing, so every decisive slot would
+    # stay unresolved and the family would answer Needs-More-Data forever. Reject it
+    # at load rather than fail silently at verdict time.
+    with pytest.raises(PolicyError, match="no admissibility profile"):
+        _bare_policy(admissibility={})
 
 
 def test_loader_rejects_unknown_profile_name():
