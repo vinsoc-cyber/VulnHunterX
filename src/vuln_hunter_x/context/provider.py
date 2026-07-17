@@ -8,24 +8,51 @@ from __future__ import annotations
 import csv
 import logging
 import os
+import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from vuln_hunter_x.context.evidence import (
     ArtifactState,
+    CallerRef,
     Capability,
     EvidenceKind,
     EvidenceRequest,
     EvidenceResult,
     EvidenceScope,
     EvidenceStatus,
+    RecordedCallersResult,
+    ReferenceScanResult,
     SourceRef,
+    SymbolRef,
+    SymbolResolution,
     inspect_capability,
 )
 from vuln_hunter_x.context.repo_paths import resolve_repo_file, resolve_repo_root
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_repo_rel(path: str) -> str | None:
+    """Normalize a repo-relative path, rejecting escapes; no existence check.
+
+    Returns a forward-slash, dot-collapsed relative path, or ``None`` for an
+    empty, absolute, or ``..``-escaping path. Used to classify recorded caller
+    paths (only their basename matters) without forcing every caller file to
+    exist on disk.
+    """
+    n = (path or "").replace("\\", "/").strip()
+    if not n or n.startswith("/"):
+        return None
+    parts: list[str] = []
+    for seg in n.split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            return None
+        parts.append(seg)
+    return "/".join(parts) if parts else None
 
 # Directories never worth walking when grepping a repo for framework config —
 # pruned in os.walk so a node_modules tree doesn't dominate the scan.
@@ -329,6 +356,185 @@ class ContextProvider:
         content = f"[No unique definition of {req.subject} in {callee_file}.]"
         return None, EvidenceResult(
             req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.REPOSITORY_INDEX
+        )
+
+    def resolve_repo_unique_enclosing_function(
+        self, repo_name: str, lang: str, file_path: str, line: int
+    ) -> SymbolResolution:
+        """Resolve ``(file_path, line)`` to its enclosing function IFF that
+        function's name is unique repository-wide (P5b).
+
+        The reachability gate needs an exact, homonym-free symbol to bind caller
+        evidence to: the tree-sitter caller producer stamps one file per bare
+        name, so a repeated name cannot be trusted. Fail-closed — a path escaping
+        the repo, no containing function, or a name defined more than once
+        anywhere in ``functions.csv`` all return a non-FOUND status with
+        ``symbol=None``.
+        """
+        abs_file = resolve_repo_file(self.repos_dir, lang, repo_name, file_path)
+        root = resolve_repo_root(self.repos_dir, lang, repo_name)
+        if abs_file is None or root is None:
+            return SymbolResolution(EvidenceStatus.INCOMPLETE_INDEX, detail="file not in repo")
+        try:
+            canonical = abs_file.resolve().relative_to(root.resolve()).as_posix()
+        except (OSError, ValueError):
+            return SymbolResolution(EvidenceStatus.INCOMPLETE_INDEX, detail="uncanonicalizable path")
+        rows = self._load_csv(repo_name, lang, "functions")
+        best: tuple[int, dict] | None = None
+        for r in rows:
+            if (r.get("file") or "").replace("\\", "/").strip() != canonical:
+                continue
+            try:
+                start = int(r.get("start_line", 0))
+                end = int(r.get("end_line", 0))
+            except (TypeError, ValueError):
+                continue
+            if start <= line <= end and (best is None or end - start < best[0]):
+                best = (end - start, r)
+        if best is None:
+            return SymbolResolution(EvidenceStatus.INCOMPLETE_INDEX, detail="no containing function")
+        name = (best[1].get("name") or "").strip()
+        if not name:
+            return SymbolResolution(EvidenceStatus.INCOMPLETE_INDEX, detail="unnamed function")
+        defs = sum(1 for r in rows if (r.get("name") or "").strip() == name)
+        if defs != 1:
+            return SymbolResolution(
+                EvidenceStatus.AMBIGUOUS, detail=f"{name} defined {defs}x repository-wide"
+            )
+        start, end = int(best[1]["start_line"]), int(best[1]["end_line"])
+        return SymbolResolution(
+            EvidenceStatus.FOUND,
+            SymbolRef(name, "function", SourceRef(repo_name, lang, canonical, start, end)),
+        )
+
+    def resolve_all_recorded_callers(
+        self, repo_name: str, lang: str, target: SymbolRef
+    ) -> RecordedCallersResult:
+        """Enumerate EVERY recorded caller of ``target``, file-qualified via the
+        P5a binding, with NO cap (P5b).
+
+        Unlike the prompt-facing ``_resolve_all_callers`` (capped at 10, always
+        non-exhaustive), this is the reachability signal's complete-over-recorded
+        -rows enumeration. Fail-closed: an ambiguous callee scope, a malformed
+        row, or a caller path escaping the repo → ``enumerated_all_rows=False``.
+        An empty result is ``INCOMPLETE_INDEX`` with ``enumerated_all_rows=True``.
+        """
+        req = EvidenceRequest(
+            EvidenceKind.ALL_CALLERS, target.name, f"all_callers:{target.name}", target=target
+        )
+        callee_file, short = self._qualified_scope(req, repo_name, lang)
+        if short is not None:
+            return RecordedCallersResult(short.status, target, detail="ambiguous callee scope")
+        callers: list[CallerRef] = []
+        seen: set[tuple] = set()
+        for row in self._load_csv(repo_name, lang, "callers"):
+            if row.get("callee_name") != target.name:
+                continue
+            if callee_file is not None and row.get("callee_file") != callee_file:
+                continue
+            rel = _safe_repo_rel(row.get("caller_file", ""))
+            if rel is None:
+                return RecordedCallersResult(
+                    EvidenceStatus.INCOMPLETE_INDEX, target, detail="invalid caller path"
+                )
+            try:
+                start = int(row.get("caller_start_line", ""))
+                end = int(row.get("caller_end_line", ""))
+            except (TypeError, ValueError):
+                return RecordedCallersResult(
+                    EvidenceStatus.INCOMPLETE_INDEX, target, detail="malformed caller row"
+                )
+            key = (rel, start, end, row.get("caller_name", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            callers.append(
+                CallerRef(
+                    row.get("caller_name", "") or "unknown",
+                    SourceRef(repo_name, lang, rel, start, end),
+                )
+            )
+        callers.sort(key=lambda c: (c.source_ref.file, c.source_ref.start, c.source_ref.end, c.name))
+        if not callers:
+            return RecordedCallersResult(
+                EvidenceStatus.INCOMPLETE_INDEX, target, (), enumerated_all_rows=True,
+                detail="no recorded callers",
+            )
+        return RecordedCallersResult(
+            EvidenceStatus.FOUND, target, tuple(callers), enumerated_all_rows=True
+        )
+
+    def _locate_go_decl_token(
+        self, resolved_root: Path, decl_file_rel: str, name: str, start_line: int
+    ) -> tuple[str, int, int] | None:
+        """Locate the single declaration-name token of ``name`` on its ``func``
+        line, returning ``(decl_file_rel, line, col)`` — or ``None`` if it cannot
+        be uniquely located (so the scan abstains rather than mis-exclude)."""
+        decl_path = resolved_root / decl_file_rel
+        try:
+            if not decl_path.is_file():
+                return None
+            lines = decl_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        if start_line < 1 or start_line > len(lines):
+            return None
+        decl_re = re.compile(r"\bfunc\b\s+(?:\([^)]*\)\s*)?(" + re.escape(name) + r")\b")
+        hits = [
+            (decl_file_rel, start_line, m.start(1))
+            for m in decl_re.finditer(lines[start_line - 1])
+        ]
+        return hits[0] if len(hits) == 1 else None
+
+    def scan_non_test_go_name_occurrences(
+        self, repo_name: str, target: SymbolRef
+    ) -> ReferenceScanResult:
+        """Scan every non-``*_test.go`` Go file for occurrences of ``target.name``,
+        excluding exactly the declaration token (P5b negative veto).
+
+        Conservative by construction: a word-boundary textual match over-includes
+        comments/strings (safe suppression) but never under-suppresses a real
+        call / function-value / registration reference. Scans ALL Go source
+        (including ``vendor/``, ``tests/``, generated, demo, mock) — only exact
+        ``_test.go`` basenames are excluded. ``NOT_FOUND_COMPLETE`` only after a
+        complete zero-occurrence scan; any read/walk/decl-location failure →
+        ``INCOMPLETE_INDEX``.
+        """
+        sr = target.source_ref
+        if sr is None:
+            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="no symbol ref")
+        root = resolve_repo_root(self.repos_dir, sr.lang, repo_name)
+        if root is None:
+            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="no repo root")
+        try:
+            resolved_root = root.resolve()
+        except OSError:
+            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="unresolvable root")
+        decl_pos = self._locate_go_decl_token(resolved_root, sr.file, target.name, sr.start)
+        if decl_pos is None:
+            return ReferenceScanResult(
+                EvidenceStatus.INCOMPLETE_INDEX, target, detail="declaration token not located"
+            )
+        pat = re.compile(r"(?<!\w)" + re.escape(target.name) + r"(?!\w)")
+        matches: list[SourceRef] = []
+        try:
+            for path in sorted(resolved_root.rglob("*.go")):
+                if not path.is_file() or path.name.endswith("_test.go"):
+                    continue
+                rel = path.resolve().relative_to(resolved_root).as_posix()
+                for i, line in enumerate(
+                    path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+                ):
+                    for m in pat.finditer(line):
+                        if (rel, i, m.start()) == decl_pos:
+                            continue
+                        matches.append(SourceRef(repo_name, sr.lang, rel, i, i))
+        except (OSError, ValueError):
+            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="scan read error")
+        if matches:
+            return ReferenceScanResult(EvidenceStatus.FOUND, target, tuple(matches), scan_complete=True)
+        return ReferenceScanResult(
+            EvidenceStatus.NOT_FOUND_COMPLETE, target, (), scan_complete=True
         )
 
     def _resolve_caller(

@@ -100,6 +100,69 @@ class SymbolRef:
 
 
 @dataclass(frozen=True)
+class SymbolResolution:
+    """Result of resolving a (file, line) to its uniquely-named enclosing symbol.
+
+    ``FOUND`` with a ``symbol`` only when the line lands in exactly one function
+    whose name is unique repository-wide (the tree-sitter caller producer is
+    homonym-fragile, so a repeated name cannot be bound to reliable caller
+    evidence). Everything else fails closed with ``symbol=None`` (P5b).
+    """
+
+    status: EvidenceStatus
+    symbol: SymbolRef | None = None
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class CallerRef:
+    """One recorded caller of a target symbol (name + where it calls from)."""
+
+    name: str
+    source_ref: SourceRef
+
+
+@dataclass(frozen=True)
+class RecordedCallersResult:
+    """Unbounded, file-qualified enumeration of a target's recorded callers (P5b).
+
+    ``enumerated_all_rows`` distinguishes 'complete over recorded rows' (the
+    achievable completeness the reachability gate requires) from the capped
+    prompt-facing ``_resolve_all_callers``. An empty-but-valid result is
+    ``INCOMPLETE_INDEX`` with ``enumerated_all_rows=True`` (no recorded caller —
+    could be an entrypoint or a missing index; the gate must not fire). Ambiguity
+    or a malformed/escaping row → a non-FOUND status with
+    ``enumerated_all_rows=False``.
+    """
+
+    status: EvidenceStatus
+    target: SymbolRef
+    callers: tuple[CallerRef, ...] = ()
+    enumerated_all_rows: bool = False
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class ReferenceScanResult:
+    """Conservative textual scan for a symbol name across visible non-test source.
+
+    The negative veto for the reachability gate: ``NOT_FOUND_COMPLETE`` only when
+    a complete scan of every non-``*_test.go`` file found zero occurrences of the
+    name (the declaration token itself excluded). Any occurrence → ``FOUND``
+    (over-matching a comment/string only causes safe suppression of the gate).
+    A read/walk/declaration-location failure → ``INCOMPLETE_INDEX``. This is
+    repository-source completeness, never whole-program (external modules /
+    generated code absent from the checkout stay unknown → compatible with NMD).
+    """
+
+    status: EvidenceStatus
+    target: SymbolRef
+    matches: tuple[SourceRef, ...] = ()
+    scan_complete: bool = False
+    detail: str = ""
+
+
+@dataclass(frozen=True)
 class EvidenceRequest:
     kind: EvidenceKind
     subject: str

@@ -313,13 +313,74 @@ def _downgrade_cli_path_injection(verdict: Verdict) -> Verdict:
     return verdict
 
 
+_REACHABILITY_GATE = "reachability_gate"
+
+
+def _downgrade_test_only_reachability(verdict, finding, provider, analysis_line):
+    """Withhold a Go CWE-208 True Positive whose exact enclosing function is
+    test-only (P5b).
+
+    Fires only when: the final verdict is a legacy-model True Positive on a Go
+    ``CWE-208`` finding; the resolved sink line lands in exactly one, repository-
+    wide-uniquely-named, non-test, non-``main``/``init`` function; that function
+    has >= 1 recorded caller and every recorded caller sits in a ``*_test.go``
+    file (unbounded, file-qualified enumeration); AND a complete scan finds no
+    reference to the function anywhere in visible non-test Go source. The verdict
+    then becomes Needs-More-Data (``decision_source="reachability_gate"``) — a
+    timing side channel reached only from tests has unresolved production
+    reachability, and a static call graph cannot prove absence, so this abstains
+    and NEVER dismisses. Any failure/uncertainty leaves the verdict unchanged.
+    """
+    if verdict.verdict not in ("True Positive", "TP"):
+        return verdict
+    if getattr(verdict, "decision_source", "legacy_model") != "legacy_model":
+        return verdict
+    if (finding.lang or "").lower() != "go":
+        return verdict
+    if "CWE-208" not in set(getattr(finding, "cwe_ids", None) or []):
+        return verdict
+    if not isinstance(provider, ContextProvider):
+        return verdict
+    sym = provider.resolve_repo_unique_enclosing_function(
+        finding.repo_name, finding.lang, finding.file, analysis_line
+    )
+    if sym.status is not EvidenceStatus.FOUND or sym.symbol is None:
+        return verdict
+    if sym.symbol.name in ("main", "init"):
+        return verdict
+    if (sym.symbol.source_ref.file or "").endswith("_test.go"):
+        return verdict
+    callers = provider.resolve_all_recorded_callers(finding.repo_name, finding.lang, sym.symbol)
+    if not callers.enumerated_all_rows or callers.status is not EvidenceStatus.FOUND:
+        return verdict
+    if not callers.callers:
+        return verdict
+    if not all(
+        c.source_ref.file.rsplit("/", 1)[-1].endswith("_test.go") for c in callers.callers
+    ):
+        return verdict
+    scan = provider.scan_non_test_go_name_occurrences(finding.repo_name, sym.symbol)
+    if scan.status is not EvidenceStatus.NOT_FOUND_COMPLETE:
+        return verdict
+    verdict.verdict = "Needs More Data"
+    verdict.confidence = "Low"
+    verdict.confidence_score = min(verdict.confidence_score or 1.0, 0.3)
+    verdict.decision_source = _REACHABILITY_GATE
+    verdict.reasoning = (verdict.reasoning or "") + (
+        " [reachability_gate: model TP withheld; the exact enclosing function has "
+        "only _test.go references/callers in the analyzed repository, while the "
+        "call graph remains non-authoritative for absence]"
+    )
+    return verdict
+
+
 from vuln_hunter_x.context.anchor import (
     REANCHORED_UNIQUE,
     STRUCTURAL_NMD_RESOLUTIONS,
     AnchorResolution,
     resolve_anchor,
 )
-from vuln_hunter_x.context.evidence import SourceRef
+from vuln_hunter_x.context.evidence import EvidenceStatus, SourceRef
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider
 from vuln_hunter_x.context.repo_signals import (
@@ -1431,6 +1492,12 @@ class VerificationEngine:
         # Path-injection trust-boundary calibration: a TP whose path source is a
         # CLI argv (operator-controlled, no privilege boundary) is not CWE-22.
         verdict = _downgrade_cli_path_injection(verdict)
+        # Reachability gate (P5b, #162): withhold a Go CWE-208 TP whose exact
+        # enclosing function is reached only from *_test.go — abstain to NMD, never
+        # dismiss (the call graph cannot prove absence of a production caller).
+        verdict = _downgrade_test_only_reachability(
+            verdict, finding, effective_provider, anchor.analysis_line
+        )
 
         return verdict
 
