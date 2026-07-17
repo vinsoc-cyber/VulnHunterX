@@ -23,7 +23,7 @@ from vuln_hunter_x.verification.policy.models import (
     FamilyPolicy,
     HandoffSelector,
 )
-from vuln_hunter_x.verification.policy.support import PROFILE_NAMES
+from vuln_hunter_x.verification.policy.support import PROFILE_NAMES, SELECTABLE_PROFILES
 
 
 class PolicyError(ValueError):
@@ -74,6 +74,22 @@ def _validate_admissibility(
             if profile not in PROFILE_NAMES:
                 raise PolicyError(
                     f"admissibility: unknown profile {profile!r} for {slot}={value}"
+                )
+            if profile not in SELECTABLE_PROFILES:
+                raise PolicyError(
+                    f"admissibility: profile {profile!r} for {slot}={value} cannot be "
+                    f"satisfied by any evidence the toolchain produces. Offering a value "
+                    f"the model can never substantiate does not make the finding safe — "
+                    f"it forces Needs-More-Data on findings that warrant that value."
+                )
+    # Totality. is_admissible fails closed on a value with no declared profile, so
+    # leaving one out is the same dead value, arrived at silently.
+    for slot, values in fact_slots.items():
+        declared = admissibility.get(slot, {})
+        for value in values:
+            if value not in declared:
+                raise PolicyError(
+                    f"admissibility: {slot}={value} has no admissibility profile"
                 )
 
 

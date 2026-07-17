@@ -144,11 +144,11 @@ def test_unresolved_neutralization_triggers_retrieval_then_finalizes():
 
 # ---- anti-over-confirmation: inadmissible claim cannot finalize ----
 
-def test_inadmissible_complete_absence_claim_does_not_finalize():
-    # Model claims NONE_FOUND_COMPLETE but cites only the local slice (not a
-    # NOT_FOUND_COMPLETE result) -> inadmissible -> treated as unresolved.
+def test_inadmissible_coverage_claim_does_not_finalize():
+    # Model claims every reaching path is covered but cites only the local slice
+    # (not an exhaustive retrieval) -> inadmissible -> treated as unresolved.
     ctrl = _ctrl(_FakeProvider(_result(EvidenceStatus.INCOMPLETE_INDEX)))
-    parsed = _tp_ish(neutralization="NONE_FOUND_COMPLETE", neut_ev=["L1"], extra_request=False)
+    parsed = _tp_ish(neutralization="ALL_REACHING_PATHS", neut_ev=["L1"], extra_request=False)
     action = ctrl.evaluate(parsed)
     assert not isinstance(action, Finalize)
     assert isinstance(action, Abstain)

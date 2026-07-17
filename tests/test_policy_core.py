@@ -33,11 +33,7 @@ _TOY_MAPPING = {
         "attacker_control": ["PROVEN", "REFUTED"],
         "flow_to_sink": ["REACHES", "NO_PATH_COMPLETE"],
         "record_boundary": ["BREAKABLE", "PRESERVED"],
-        "neutralization_coverage": [
-            "BYPASS_PATH_FOUND",
-            "ALL_REACHING_PATHS",
-            "NONE_FOUND_COMPLETE",
-        ],
+        "neutralization_coverage": ["BYPASS_PATH_FOUND", "ALL_REACHING_PATHS"],
     },
     "decisive_slots": [
         "sink_binding",
@@ -52,7 +48,7 @@ _TOY_MAPPING = {
             "attacker_control": "PROVEN",
             "flow_to_sink": "REACHES",
             "record_boundary": "BREAKABLE",
-            "neutralization_coverage": ["BYPASS_PATH_FOUND", "NONE_FOUND_COMPLETE"],
+            "neutralization_coverage": "BYPASS_PATH_FOUND",
         },
         "false_positive_if_any": [
             {"sink_binding": "NOT_LOG_SINK"},
@@ -61,6 +57,24 @@ _TOY_MAPPING = {
             {"record_boundary": "PRESERVED"},
             {"neutralization_coverage": "ALL_REACHING_PATHS"},
         ],
+    },
+    # A policy may only offer values the evidence layer can substantiate, so every
+    # declared value carries a profile (loader._validate_admissibility).
+    "admissibility": {
+        "sink_binding": {
+            "QUALIFYING_LOG_SINK": "LOCAL_POSITIVE",
+            "NOT_LOG_SINK": "LOCAL_POSITIVE",
+        },
+        "attacker_control": {"PROVEN": "LOCAL_OR_DATAFLOW", "REFUTED": "LOCAL_POSITIVE"},
+        "flow_to_sink": {
+            "REACHES": "LOCAL_OR_DATAFLOW",
+            "NO_PATH_COMPLETE": "LOCAL_OR_COMPLETE_ABSENCE",
+        },
+        "record_boundary": {"BREAKABLE": "LOCAL_OR_FOUND", "PRESERVED": "LOCAL_OR_FOUND"},
+        "neutralization_coverage": {
+            "BYPASS_PATH_FOUND": "CONCRETE_PATH",
+            "ALL_REACHING_PATHS": "EXHAUSTIVE_ENCODER",
+        },
     },
 }
 
@@ -141,9 +155,30 @@ def test_entail_true_positive():
     assert d.verdict == TP
 
 
-def test_entail_true_positive_with_complete_absence_neutralizer():
-    facts = {**_TP_FACTS, "neutralization_coverage": "NONE_FOUND_COMPLETE"}
-    assert entail(_toy(), facts).verdict == TP
+def test_entail_true_positive_accepts_any_declared_alternative():
+    # A true_positive condition written as a list is a disjunction: any listed
+    # value satisfies that slot.
+    policy = load_policy_from_mapping(
+        {
+            "family": "toy_disjunction",
+            "selectors": {"cwes": ["CWE-000"], "rule_aliases": ["*/toy-disjunction"]},
+            "fact_slots": {"sink_binding": ["DIRECT", "WRAPPED", "ABSENT"]},
+            "decisive_slots": ["sink_binding"],
+            "entailment": {
+                "true_positive": {"sink_binding": ["DIRECT", "WRAPPED"]},
+                "false_positive_if_any": [{"sink_binding": "ABSENT"}],
+            },
+            "admissibility": {
+                "sink_binding": {
+                    "DIRECT": "LOCAL_POSITIVE",
+                    "WRAPPED": "LOCAL_POSITIVE",
+                    "ABSENT": "LOCAL_POSITIVE",
+                }
+            },
+        }
+    )
+    for value in ("DIRECT", "WRAPPED"):
+        assert entail(policy, {"sink_binding": value}).verdict == TP
 
 
 def test_entail_false_positive_when_refuted_control():

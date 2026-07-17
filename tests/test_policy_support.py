@@ -66,26 +66,6 @@ def test_all_reaching_paths_rejects_framework_marker():
     assert not is_admissible(_CWE117, "neutralization_coverage", "ALL_REACHING_PATHS", [fw])
 
 
-def test_none_found_complete_needs_not_found_complete():
-    led = EvidenceLedger()
-    complete = led.add_retrieved(_res(EvidenceStatus.NOT_FOUND_COMPLETE))
-    assert is_admissible(_CWE117, "neutralization_coverage", "NONE_FOUND_COMPLETE", [complete])
-
-
-def test_none_found_complete_rejects_incomplete_index():
-    led = EvidenceLedger()
-    weak = led.add_retrieved(_res(EvidenceStatus.INCOMPLETE_INDEX))
-    assert not is_admissible(_CWE117, "neutralization_coverage", "NONE_FOUND_COMPLETE", [weak])
-
-
-def test_none_found_complete_rejects_snippet_scope_miss():
-    led = EvidenceLedger()
-    snip = led.add_retrieved(
-        _res(EvidenceStatus.NOT_FOUND_COMPLETE, scope=EvidenceScope.SNIPPET)
-    )
-    assert not is_admissible(_CWE117, "neutralization_coverage", "NONE_FOUND_COMPLETE", [snip])
-
-
 def test_bypass_path_found_needs_a_concrete_path():
     led = EvidenceLedger()
     slice_e = led.add_local_slice(_REF, "userName -> console.log, no encode")

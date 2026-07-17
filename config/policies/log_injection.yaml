@@ -10,7 +10,7 @@
 # a later phase); it is intentionally absent from decisive_slots.
 
 family: log_injection
-version: "1"
+version: "2"
 
 selectors:
   cwes: ["CWE-117"]
@@ -21,7 +21,7 @@ fact_slots:
   attacker_control: [PROVEN, REFUTED]
   flow_to_sink: [REACHES, NO_PATH_COMPLETE]
   record_boundary: [BREAKABLE, PRESERVED]
-  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS, NONE_FOUND_COMPLETE]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
   production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
 
 decisive_slots:
@@ -37,7 +37,7 @@ entailment:
     attacker_control: PROVEN
     flow_to_sink: REACHES
     record_boundary: BREAKABLE
-    neutralization_coverage: [BYPASS_PATH_FOUND, NONE_FOUND_COMPLETE]
+    neutralization_coverage: BYPASS_PATH_FOUND
   false_positive_if_any:
     - sink_binding: NOT_LOG_SINK
     - attacker_control: REFUTED
@@ -47,7 +47,10 @@ entailment:
 
 # Evidence-shape profile required to admit each (slot, value) — see
 # verification/policy/support.py PROFILE_NAMES. A claimed value is only accepted
-# when the cited ledger evidence satisfies its profile.
+# when the cited ledger evidence satisfies its profile. Note there is no
+# NONE_FOUND_COMPLETE value: no evidence kind can exhaustively establish "no log
+# neutralizer anywhere in the repository", so a witnessed unencoded reaching path
+# is required for TP, otherwise the finding stays Needs-More-Data.
 admissibility:
   sink_binding:
     QUALIFYING_LOG_SINK: LOCAL_POSITIVE
@@ -64,10 +67,17 @@ admissibility:
   neutralization_coverage:
     BYPASS_PATH_FOUND: CONCRETE_PATH
     ALL_REACHING_PATHS: EXHAUSTIVE_ENCODER
-    NONE_FOUND_COMPLETE: COMPLETE_REPO_ABSENCE
   production_scope:
     PROD: ANY_CITATION
     TEST_ONLY: ANY_CITATION
     EXAMPLE_DEV: ANY_CITATION
     GENERATED_VENDOR: ANY_CITATION
     UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_LOG_SINK when the flagged call writes the value into a log record (a logger call, console output collected as logs, a syslog/journal write); NOT_LOG_SINK when it is not a logging operation."
+  - "attacker_control: PROVEN when external input reaches the logged value — the scanner data-flow SOURCE (a request body/query/header/cookie field) establishes this; REFUTED when the value is a fixed constant or operator-only input."
+  - "flow_to_sink: REACHES when the controlled value reaches the log call on some path; NO_PATH_COMPLETE only with complete evidence that no path reaches it."
+  - "record_boundary: BREAKABLE when the log record is delimited so that separators carried in the value can forge or split a record (newline-delimited plain-text lines are the common case; carriage returns and other control characters the collector honours count too); PRESERVED when the record cannot be broken — a structured/JSON encoder that escapes the value, or a framing that encodes separators."
+  - "neutralization_coverage: identify every transformation applied to the value between the source and the log call, and the value's possible output after the last one. BYPASS_PATH_FOUND when at least one reaching path arrives at the log call with no effective neutralizer for the separators the record honours — this INCLUDES the ordinary case where no neutralizer is applied anywhere on that path, and the case where one is applied but does not cover every separator (for example stripping newlines while leaving carriage returns). A defense on a sibling branch does not cover the flagged branch, and a comment describing an absent fix is not a defense. ALL_REACHING_PATHS only when every reaching path is covered by an effective neutralizer."

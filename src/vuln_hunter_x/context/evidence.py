@@ -195,6 +195,21 @@ def _kind_csv_name(kind: EvidenceKind, lang: str) -> str | None:
     return _CSV_FOR_KIND.get(kind)
 
 
+def authoritative_for_absence(kind: EvidenceKind) -> bool:
+    """Whether an exhaustive miss of this kind may be reported NOT_FOUND_COMPLETE.
+
+    Framework markers are grep-based and complete under their bounds, so their
+    absence is a real answer. Symbol and call-graph indexes are not authoritative:
+    a lookup that misses there is INCOMPLETE_INDEX, never a proof of absence.
+
+    Static — a property of the producers, not of any repo's artifact state. Both
+    the runtime status mapping (``inspect_capability`` -> ``_absence_status``) and
+    the policy layer's static emit space read this one rule, so the shapes the
+    toolchain can emit and the shapes a policy may rely on cannot drift apart.
+    """
+    return kind in _FRAMEWORK_KINDS
+
+
 def _supported(kind: EvidenceKind, lang: str) -> bool:
     """Whether the toolchain has any producer for this kind+language."""
     if kind in _FRAMEWORK_KINDS:
@@ -241,7 +256,7 @@ def inspect_capability(context_dir: Path, lang: str, kind: EvidenceKind) -> Capa
             if kind in _FRAMEWORK_KINDS
             else EvidenceScope.REPOSITORY_INDEX
         ),
-        authoritative_for_absence=kind in _FRAMEWORK_KINDS,
+        authoritative_for_absence=authoritative_for_absence(kind),
     )
 
 

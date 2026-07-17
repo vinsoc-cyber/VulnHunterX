@@ -25,6 +25,12 @@ _LOG = {  # language-agnostic (no selectors.languages) — like CWE-117
         "true_positive": {"sink_binding": "QUALIFYING_LOG_SINK"},
         "false_positive_if_any": [{"sink_binding": "NOT_LOG_SINK"}],
     },
+    "admissibility": {
+        "sink_binding": {
+            "QUALIFYING_LOG_SINK": "LOCAL_POSITIVE",
+            "NOT_LOG_SINK": "LOCAL_POSITIVE",
+        }
+    },
 }
 
 _XPATH = {  # python-scoped
@@ -39,6 +45,12 @@ _XPATH = {  # python-scoped
     "entailment": {
         "true_positive": {"sink_binding": "QUALIFYING_XPATH_SINK"},
         "false_positive_if_any": [{"sink_binding": "NOT_XPATH_SINK"}],
+    },
+    "admissibility": {
+        "sink_binding": {
+            "QUALIFYING_XPATH_SINK": "LOCAL_POSITIVE",
+            "NOT_XPATH_SINK": "LOCAL_POSITIVE",
+        }
     },
 }
 

@@ -33,8 +33,14 @@ only the typed ledger fields.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from itertools import product
 
-from vuln_hunter_x.context.evidence import EvidenceKind, EvidenceScope, EvidenceStatus
+from vuln_hunter_x.context.evidence import (
+    EvidenceKind,
+    EvidenceScope,
+    EvidenceStatus,
+    authoritative_for_absence,
+)
 from vuln_hunter_x.verification.policy.ledger import EvidenceEntry, EvidenceOrigin
 from vuln_hunter_x.verification.policy.models import FamilyPolicy
 
@@ -99,6 +105,71 @@ _PROFILES: dict[str, Callable[[Sequence[EvidenceEntry]], bool]] = {
 }
 
 PROFILE_NAMES = frozenset(_PROFILES)
+
+# Profiles whose predicate is defensible but whose *semantics* are not trustworthy
+# yet, and which are therefore never selectable from a policy — regardless of what
+# the producers can emit. Satisfiability is not semantic correctness, so promotion
+# must be a reviewed decision, not a side effect of some unrelated producer gaining
+# authority for absence.
+#
+# COMPLETE_REPO_ABSENCE: counts FILE scope as repository scope and encodes no search
+# domain, so a complete miss for `function:encodeForLog` would prove only that one
+# symbol absent — not that no effective neutralizer exists anywhere.
+DORMANT_PROFILES = frozenset({"COMPLETE_REPO_ABSENCE"})
+
+
+def producible_witnesses() -> tuple[EvidenceEntry, ...]:
+    """One witness per evidence shape the producers can ever emit.
+
+    Static: a property of the producers, not of a repo's artifact state (whether a
+    given index happens to be present is runtime readiness, and linting against it
+    would let a policy load in one checkout and fail in another).
+
+    Deliberately an OVER-approximation — any constraint not modelled here admits
+    more shapes, never fewer. So a profile this proves unsatisfiable is *provably*
+    dead, and a working family can never be rejected by mistake. The converse does
+    not hold: a merely impractical profile still looks satisfiable here.
+    """
+    witnesses = [
+        EvidenceEntry(id="L", origin=EvidenceOrigin.LOCAL_SLICE, summary=""),
+        EvidenceEntry(id="D", origin=EvidenceOrigin.SCANNER_DATAFLOW, summary=""),
+    ]
+    for kind, status, scope, exhaustive in product(
+        EvidenceKind, EvidenceStatus, EvidenceScope, (True, False)
+    ):
+        if status is EvidenceStatus.NOT_FOUND_COMPLETE and not authoritative_for_absence(kind):
+            continue  # provider._absence_status can never report this pairing
+        witnesses.append(
+            EvidenceEntry(
+                id="R",
+                origin=EvidenceOrigin.RETRIEVED,
+                summary="",
+                status=status,
+                scope=scope,
+                exhaustive=exhaustive,
+                kind=kind,
+            )
+        )
+    return tuple(witnesses)
+
+
+def is_profile_satisfiable(profile: str) -> bool:
+    """Whether any evidence the toolchain can produce would admit ``profile``.
+
+    Single-entry witnesses are enough because every profile is an ``any(...)`` over
+    the cited entries. A future profile needing several entries at once would need a
+    bundle here; it would read as unsatisfiable rather than pass unchecked.
+    """
+    predicate = _PROFILES.get(profile)
+    return predicate is not None and any(predicate([w]) for w in producible_witnesses())
+
+
+# The profiles a policy may declare: satisfiable by real evidence, and not dormant.
+SELECTABLE_PROFILES = frozenset(
+    name
+    for name in _PROFILES
+    if name not in DORMANT_PROFILES and is_profile_satisfiable(name)
+)
 
 
 def is_admissible(
