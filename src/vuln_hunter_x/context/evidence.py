@@ -115,6 +115,34 @@ class SymbolResolution:
 
 
 @dataclass(frozen=True)
+class CallerRef:
+    """One recorded caller of a target symbol (name + where it calls from)."""
+
+    name: str
+    source_ref: SourceRef
+
+
+@dataclass(frozen=True)
+class RecordedCallersResult:
+    """Unbounded, file-qualified enumeration of a target's recorded callers (P5b).
+
+    ``enumerated_all_rows`` distinguishes 'complete over recorded rows' (the
+    achievable completeness the reachability gate requires) from the capped
+    prompt-facing ``_resolve_all_callers``. An empty-but-valid result is
+    ``INCOMPLETE_INDEX`` with ``enumerated_all_rows=True`` (no recorded caller —
+    could be an entrypoint or a missing index; the gate must not fire). Ambiguity
+    or a malformed/escaping row → a non-FOUND status with
+    ``enumerated_all_rows=False``.
+    """
+
+    status: EvidenceStatus
+    target: SymbolRef
+    callers: tuple[CallerRef, ...] = ()
+    enumerated_all_rows: bool = False
+    detail: str = ""
+
+
+@dataclass(frozen=True)
 class EvidenceRequest:
     kind: EvidenceKind
     subject: str

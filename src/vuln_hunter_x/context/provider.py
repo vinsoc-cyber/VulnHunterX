@@ -15,11 +15,13 @@ from pathlib import Path
 from vuln_hunter_x.context.evidence import (
     ArtifactState,
     Capability,
+    CallerRef,
     EvidenceKind,
     EvidenceRequest,
     EvidenceResult,
     EvidenceScope,
     EvidenceStatus,
+    RecordedCallersResult,
     SourceRef,
     SymbolRef,
     SymbolResolution,
@@ -28,6 +30,27 @@ from vuln_hunter_x.context.evidence import (
 from vuln_hunter_x.context.repo_paths import resolve_repo_file, resolve_repo_root
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_repo_rel(path: str) -> str | None:
+    """Normalize a repo-relative path, rejecting escapes; no existence check.
+
+    Returns a forward-slash, dot-collapsed relative path, or ``None`` for an
+    empty, absolute, or ``..``-escaping path. Used to classify recorded caller
+    paths (only their basename matters) without forcing every caller file to
+    exist on disk.
+    """
+    n = (path or "").replace("\\", "/").strip()
+    if not n or n.startswith("/"):
+        return None
+    parts: list[str] = []
+    for seg in n.split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            return None
+        parts.append(seg)
+    return "/".join(parts) if parts else None
 
 # Directories never worth walking when grepping a repo for framework config —
 # pruned in os.walk so a node_modules tree doesn't dominate the scan.
@@ -380,6 +403,63 @@ class ContextProvider:
         return SymbolResolution(
             EvidenceStatus.FOUND,
             SymbolRef(name, "function", SourceRef(repo_name, lang, canonical, start, end)),
+        )
+
+    def resolve_all_recorded_callers(
+        self, repo_name: str, lang: str, target: SymbolRef
+    ) -> RecordedCallersResult:
+        """Enumerate EVERY recorded caller of ``target``, file-qualified via the
+        P5a binding, with NO cap (P5b).
+
+        Unlike the prompt-facing ``_resolve_all_callers`` (capped at 10, always
+        non-exhaustive), this is the reachability signal's complete-over-recorded
+        -rows enumeration. Fail-closed: an ambiguous callee scope, a malformed
+        row, or a caller path escaping the repo → ``enumerated_all_rows=False``.
+        An empty result is ``INCOMPLETE_INDEX`` with ``enumerated_all_rows=True``.
+        """
+        req = EvidenceRequest(
+            EvidenceKind.ALL_CALLERS, target.name, f"all_callers:{target.name}", target=target
+        )
+        callee_file, short = self._qualified_scope(req, repo_name, lang)
+        if short is not None:
+            return RecordedCallersResult(short.status, target, detail="ambiguous callee scope")
+        callers: list[CallerRef] = []
+        seen: set[tuple] = set()
+        for row in self._load_csv(repo_name, lang, "callers"):
+            if row.get("callee_name") != target.name:
+                continue
+            if callee_file is not None and row.get("callee_file") != callee_file:
+                continue
+            rel = _safe_repo_rel(row.get("caller_file", ""))
+            if rel is None:
+                return RecordedCallersResult(
+                    EvidenceStatus.INCOMPLETE_INDEX, target, detail="invalid caller path"
+                )
+            try:
+                start = int(row.get("caller_start_line", ""))
+                end = int(row.get("caller_end_line", ""))
+            except (TypeError, ValueError):
+                return RecordedCallersResult(
+                    EvidenceStatus.INCOMPLETE_INDEX, target, detail="malformed caller row"
+                )
+            key = (rel, start, end, row.get("caller_name", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            callers.append(
+                CallerRef(
+                    row.get("caller_name", "") or "unknown",
+                    SourceRef(repo_name, lang, rel, start, end),
+                )
+            )
+        callers.sort(key=lambda c: (c.source_ref.file, c.source_ref.start, c.source_ref.end, c.name))
+        if not callers:
+            return RecordedCallersResult(
+                EvidenceStatus.INCOMPLETE_INDEX, target, (), enumerated_all_rows=True,
+                detail="no recorded callers",
+            )
+        return RecordedCallersResult(
+            EvidenceStatus.FOUND, target, tuple(callers), enumerated_all_rows=True
         )
 
     def _resolve_caller(
