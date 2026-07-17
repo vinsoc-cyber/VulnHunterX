@@ -21,6 +21,7 @@ from vuln_hunter_x.context.evidence import (
     EvidenceScope,
     EvidenceStatus,
     SourceRef,
+    SymbolRef,
 )
 
 
@@ -42,6 +43,12 @@ class EvidenceEntry:
     scope: EvidenceScope | None = None
     exhaustive: bool | None = None
     kind: EvidenceKind | None = None
+    # P5a binding envelope (preserved, not yet enforced — a P5b consumer reads it):
+    # the obligation slots this retrieval was requested for, the queried symbol,
+    # and the full provenance of the returned evidence.
+    requested_for_slots: frozenset[str] = frozenset()
+    target: SymbolRef | None = None
+    provenance: tuple[SourceRef | SymbolRef, ...] = ()
 
 
 class EvidenceLedger:
@@ -80,7 +87,9 @@ class EvidenceLedger:
         self._entries.append(entry)
         return entry
 
-    def add_retrieved(self, result: EvidenceResult) -> EvidenceEntry:
+    def add_retrieved(
+        self, result: EvidenceResult, requested_for: frozenset[str] = frozenset()
+    ) -> EvidenceEntry:
         entry = EvidenceEntry(
             id=self._next_id(EvidenceOrigin.RETRIEVED),
             origin=EvidenceOrigin.RETRIEVED,
@@ -89,6 +98,9 @@ class EvidenceLedger:
             scope=result.scope,
             exhaustive=result.exhaustive,
             kind=result.request.kind,
+            requested_for_slots=requested_for,
+            target=result.request.target,
+            provenance=result.provenance,
         )
         self._entries.append(entry)
         return entry

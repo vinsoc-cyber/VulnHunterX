@@ -166,14 +166,16 @@ class ContextProvider:
         lang: str,
         requests: list[EvidenceRequest],
     ) -> dict[str, EvidenceResult]:
-        """Typed retrieval entrypoint (P2a), keyed by ``raw_request``.
+        """Typed retrieval entrypoint (P2a), keyed by ``request_key``.
 
         ``get_additional_context`` is the legacy string adapter over the same
         ``_resolve_*`` handlers; this returns the full typed result (status /
         scope / exhaustive / provenance) for the P2b policy gate to consume.
+        ``request_key`` equals ``raw_request`` for an unqualified request, so
+        two target-qualified requests sharing a ``raw_request`` do not collide.
         """
         return {
-            req.raw_request: self._dispatch_resolve(req, repo_name, lang)
+            req.request_key: self._dispatch_resolve(req, repo_name, lang)
             for req in requests
         }
 
@@ -292,6 +294,43 @@ class ContextProvider:
         except Exception as e:
             return f"[Error reading file: {e}]"
 
+    def _qualified_scope(
+        self, req: EvidenceRequest, repo_name: str, lang: str
+    ) -> tuple[str | None, EvidenceResult | None]:
+        """For a target-qualified caller request, resolve the exact callee file.
+
+        Returns ``(callee_file_filter, short_circuit_result)``. A name-only
+        request (``target is None``) yields ``(None, None)`` — behaviour is
+        unchanged. A qualified request is disambiguated against ``functions.csv``
+        and FAILS CLOSED: ``AMBIGUOUS`` when the ``(name, file)`` definition is
+        not unique (same-file overloads), ``INCOMPLETE_INDEX`` when it is not
+        found. It never falls back to a name-only (homonym-merging) lookup.
+        """
+        if req.target is None:
+            return None, None
+        callee_file = req.target.source_ref.file if req.target.source_ref else None
+        defs = 0
+        if callee_file is not None:
+            defs = sum(
+                1
+                for r in self._load_csv(repo_name, lang, "functions")
+                if r.get("name") == req.subject and r.get("file") == callee_file
+            )
+        if defs == 1:
+            return callee_file, None
+        if defs > 1:
+            content = (
+                f"[Ambiguous symbol: {req.subject} is defined more than once in "
+                f"{callee_file}; cannot bind callers to a single definition.]"
+            )
+            return None, EvidenceResult(
+                req, EvidenceStatus.AMBIGUOUS, content, EvidenceScope.REPOSITORY_INDEX
+            )
+        content = f"[No unique definition of {req.subject} in {callee_file}.]"
+        return None, EvidenceResult(
+            req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.REPOSITORY_INDEX
+        )
+
     def _resolve_caller(
         self,
         req: EvidenceRequest,
@@ -300,9 +339,14 @@ class ContextProvider:
     ) -> EvidenceResult:
         """Resolve the first caller function for the given callee."""
         callee_name = req.subject
+        callee_file, short = self._qualified_scope(req, repo_name, lang)
+        if short is not None:
+            return short
         rows = self._load_csv(repo_name, lang, "callers")
         for row in rows:
             if row.get("callee_name") == callee_name:
+                if callee_file is not None and row.get("callee_file") != callee_file:
+                    continue
                 caller_file = row.get("caller_file", "")
                 try:
                     start = int(row.get("caller_start_line", 0))
@@ -720,12 +764,17 @@ class ContextProvider:
     ) -> EvidenceResult:
         """Resolve source code for ALL callers of callee_name (up to max_callers)."""
         callee_name = req.subject
+        callee_file, short = self._qualified_scope(req, repo_name, lang)
+        if short is not None:
+            return short
         rows = self._load_csv(repo_name, lang, "callers")
         # Deduplicate by (caller_name, caller_file, caller_start_line)
         seen: set[tuple] = set()
         caller_rows: list[dict] = []
         for row in rows:
             if row.get("callee_name") != callee_name:
+                continue
+            if callee_file is not None and row.get("callee_file") != callee_file:
                 continue
             key = (row.get("caller_name"), row.get("caller_file"), row.get("caller_start_line"))
             if key not in seen:

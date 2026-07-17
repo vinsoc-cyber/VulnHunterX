@@ -104,6 +104,20 @@ class EvidenceRequest:
     kind: EvidenceKind
     subject: str
     raw_request: str
+    # Optional exact symbol this request targets. ``None`` (the legacy default)
+    # means name-only retrieval, byte-for-byte as before. When set for a caller
+    # kind, retrieval is disambiguated to that symbol's file (see the provider).
+    target: SymbolRef | None = None
+
+    @property
+    def request_key(self) -> str:
+        """Retrieval identity. Equals ``raw_request`` for an unqualified request,
+        so two qualified requests sharing a ``raw_request`` (e.g. callers of a
+        homonym in different files) do not collide in the result mapping."""
+        if self.target is None:
+            return self.raw_request
+        file = self.target.source_ref.file if self.target.source_ref else ""
+        return f"{self.raw_request}\x00{file}#{self.target.name}"
 
     @classmethod
     def parse(cls, raw: str) -> EvidenceRequest | None:

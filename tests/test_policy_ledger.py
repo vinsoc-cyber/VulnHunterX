@@ -12,6 +12,7 @@ from vuln_hunter_x.context.evidence import (
     EvidenceScope,
     EvidenceStatus,
     SourceRef,
+    SymbolRef,
 )
 from vuln_hunter_x.verification.policy.ledger import EvidenceLedger, EvidenceOrigin
 
@@ -25,6 +26,33 @@ def _retrieved(status=EvidenceStatus.FOUND, exhaustive=True, kind=EvidenceKind.F
         scope=EvidenceScope.REPOSITORY_INDEX,
         exhaustive=exhaustive,
     )
+
+
+def test_add_retrieved_preserves_provenance_target_and_slots():
+    led = EvidenceLedger()
+    prov = (SourceRef("r", "cpp", "a.c", 1, 3),)
+    tgt = SymbolRef("isSafe", "function", SourceRef("r", "cpp", "a.c", 5, 7))
+    req = EvidenceRequest(
+        EvidenceKind.ALL_CALLERS, "isSafe", "all_callers:isSafe", target=tgt
+    )
+    res = EvidenceResult(
+        req, EvidenceStatus.FOUND, "// callers", EvidenceScope.REPOSITORY_INDEX,
+        exhaustive=False, provenance=prov,
+    )
+    e = led.add_retrieved(res, requested_for=frozenset({"flow_to_sink"}))
+    assert e.provenance == prov
+    assert e.target == tgt
+    assert e.requested_for_slots == frozenset({"flow_to_sink"})
+
+
+def test_add_retrieved_defaults_are_empty():
+    led = EvidenceLedger()
+    req = EvidenceRequest(EvidenceKind.FUNCTION, "x", "function:x")
+    res = EvidenceResult(req, EvidenceStatus.FOUND, "b", EvidenceScope.REPOSITORY_INDEX)
+    e = led.add_retrieved(res)  # no requested_for; no provenance/target on the result
+    assert e.requested_for_slots == frozenset()
+    assert e.provenance == ()
+    assert e.target is None
 
 
 def test_local_slice_gets_l_id():

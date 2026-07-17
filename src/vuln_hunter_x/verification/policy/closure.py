@@ -160,8 +160,13 @@ class PolicyClosureController:
 
     def _retrieve(self, specs) -> bool:
         requests = []
+        # The obligation slots each (kind, subject) retrieval was requested for.
+        # One symbol may be asked for by several slots; retrieved evidence is
+        # bound to the union so a P5b consumer can tell what it was gathered for.
+        slots_for: dict[tuple[EvidenceKind, str], set[str]] = {}
         for s in specs:
             self._seen.add((s.kind, s.subject))
+            slots_for.setdefault((s.kind, s.subject), set()).add(s.for_slot)
             requests.append(
                 EvidenceRequest(
                     kind=s.kind, subject=s.subject, raw_request=f"{s.kind.value}:{s.subject}"
@@ -173,10 +178,12 @@ class PolicyClosureController:
         self._pending = []
         added = False
         for req in requests:
-            res = results.get(req.raw_request)
+            res = results.get(req.request_key)
             if res is None:
                 continue
-            entry = self._ledger.add_retrieved(res)
+            entry = self._ledger.add_retrieved(
+                res, requested_for=frozenset(slots_for[(req.kind, req.subject)])
+            )
             self._pending.append((entry.id, res))
             added = True
         return added
