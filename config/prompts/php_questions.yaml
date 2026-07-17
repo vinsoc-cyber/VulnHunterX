@@ -34,7 +34,7 @@ php/sql-injection:
   context_hint: "Trace from $_GET/$_POST through all assignments to query execution."
   additional_context: ["caller"]
 
-php/command-injection:
+php/command-injection: &php_command_injection
   short_description: "User input passed to exec(), shell_exec(), system(), or backticks in PHP"
   questions:
     - "Where does the INPUT originate - $_GET, $_POST, $_COOKIE, or other superglobal?"
@@ -45,6 +45,15 @@ php/command-injection:
     - "Is the user input embedded in a single shell command string, or passed as a separate argument to the executable?"
   context_hint: "Trace from input superglobal to shell execution function."
   additional_context: ["caller"]
+
+# The three OpenGrep PHP exec rule ids route to the command-injection question set
+# by EXACT rule id. Two of them (exec-use, tainted-exec) are tagged CWE-94, which
+# would otherwise resolve them to a code-injection / generic set; the
+# command_injection policy family drives its evidence assessment from the reported
+# rule's guided questions, so they must match the family.
+php.lang.security.injection.tainted-exec.tainted-exec: *php_command_injection
+php.lang.security.exec-use.exec-use: *php_command_injection
+php.lang.security.tainted-exec.tainted-exec: *php_command_injection
 
 php/xss:
   short_description: "User input echoed to HTML output without escaping in PHP"
