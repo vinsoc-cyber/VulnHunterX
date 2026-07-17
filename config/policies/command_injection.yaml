@@ -1,0 +1,114 @@
+# OS command-injection (CWE-78) family policy — PHP.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-78 is about attacker data entering an OS command. Two DISTINCT defensive
+# facts decide it and must not be collapsed: command_channel (does the value
+# reach a SHELL-interpreted command string, or is every reaching path a fixed
+# executable receiving the value only as a bounded data operand) and
+# neutralization_coverage (for a value that does reach a shell string, is an
+# effective, CONTEXT-APPROPRIATE guard present on every reaching path).
+#
+# An argv boundary removes only the SHELL parser; it does not, by itself, prove
+# the value is safe, because the launched program still parses options,
+# subcommands, and its own inputs. So an argv-isolated launch is a False Positive
+# only when the executable is fixed AND every attacker value is proven to be a
+# bounded data operand that cannot act as an option. Attacker control of an
+# option / flag to an otherwise-isolated command (argument injection, CWE-88) is
+# a separate concern intentionally NOT decided here: such a case proves neither
+# the positive shell-text state nor the strong data-operand state, so it stays
+# Needs More Data rather than being dismissed.
+#
+# Selection is by rule alias ONLY — deliberately no CWE selector. The three exec
+# rules disagree on their CWE tag (injection.tainted-exec=CWE-78, exec-use and
+# tainted-exec=CWE-94) yet flag the same shell/exec sinks, and a CWE selector
+# cannot own them cleanly: CWE-78 is ALSO carried by php eval-use (a
+# code-injection rule that path_access hands off) and by a GitHub-Actions YAML
+# shell-injection rule, so selecting CWE-78 would wrongly claim those. exec-use is
+# an AUDIT rule that fires broadly on exec() usage including constant/operator-only
+# calls — those resolve to REFUTED -> False Positive.
+
+family: command_injection
+version: "1"
+
+selectors:
+  languages: [php]
+  rule_aliases:
+    - php.lang.security.injection.tainted-exec.tainted-exec
+    - php.lang.security.exec-use.exec-use
+    - php.lang.security.tainted-exec.tainted-exec
+
+fact_slots:
+  sink_binding: [QUALIFYING_OS_COMMAND_SINK, NOT_OS_COMMAND_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  command_channel: [SHELL_COMMAND_TEXT_PATH_FOUND, FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - command_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_OS_COMMAND_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    command_channel: SHELL_COMMAND_TEXT_PATH_FOUND
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_OS_COMMAND_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - command_channel: FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS
+    # Coverage dismisses only a PROVEN shell path. Outside a shell channel,
+    # neutralization is a category error (nothing to neutralize) and must not
+    # vacuously dismiss — an argument-injection case with command_channel
+    # unresolved stays Needs More Data, never a false dismissal.
+    - command_channel: SHELL_COMMAND_TEXT_PATH_FOUND
+      neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a concrete
+# unsafe shell-string path proves the positive case, otherwise stay Needs More
+# Data. ALL_REACHING_PATHS / FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS use
+# LOCAL_OR_EXHAUSTIVE, NOT EXHAUSTIVE_ENCODER: a fixed executable with a strict
+# operand allowlist, or a complete neutralizer over every path, is proven by
+# locally visible code, and is not encoder coverage.
+admissibility:
+  sink_binding:
+    QUALIFYING_OS_COMMAND_SINK: LOCAL_POSITIVE
+    NOT_OS_COMMAND_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  command_channel:
+    SHELL_COMMAND_TEXT_PATH_FOUND: CONCRETE_PATH
+    FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_OS_COMMAND_SINK when the flagged call launches an OS command (exec, shell_exec, system, passthru, proc_open, popen, expect_popen, the backtick operator, pcntl_exec — expect_popen runs the command through the Bourne shell); NOT_OS_COMMAND_SINK when it is not a command execution — a pure string operation, or a user-defined / namespaced function that merely shares the name the audit rule matched."
+  - "attacker_control: PROVEN when external input reaches the command — the scanner data-flow SOURCE (a request superglobal such as $_GET/$_POST/$_REQUEST/$_COOKIE, a request header, or a request body) establishes this; REFUTED when the executed command and all of its arguments are fixed constants or operator-only input (no request-derived value)."
+  - "flow_to_sink: REACHES when the controlled value reaches the executed command on some path; NO_PATH_COMPLETE only with complete evidence that no path reaches it."
+  - "command_channel: determine how the attacker value is passed to the command. SHELL_COMMAND_TEXT_PATH_FOUND when, on some reaching path, the value becomes part of a command string a shell interprets (concatenation / interpolation into exec/shell_exec/system/passthru/backticks/expect_popen, or proc_open/popen given a string command) so shell metacharacters in the value are honoured. FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS only when, on EVERY reaching path, all of these hold: the executable is a fixed literal or a strict allowlist; no shell is invoked (an argument-array proc_open, or pcntl_exec with an explicit argument list); and each attacker value is a bounded DATA operand that cannot be parsed as an option, flag, subcommand, executable, or interpreter input — a strict local allowlist or enum establishes this, and 'the value is inside an argument array' does NOT. If the value could act as an option/flag, or the launched program's argument semantics are unknown, do not assert this value; leave command_channel unresolved."
+  - "neutralization_coverage: for each attacker value that reaches a shell command string, identify its position and its possible output after the last transformation. BYPASS_PATH_FOUND requires a WITNESSED command-control sequence, not merely that some metacharacter is admitted: a reaching path on which the attacker can inject command CONTROL — a separator that can be followed by attacker-controlled command text (';', '&', a newline, then a command), a command substitution ('$(...)', backticks), a pipe to an attacker command, or a redirection — with no effective neutralizer. This INCLUDES the ordinary case where no neutralizer is applied at all, and a blacklist / str_replace that misses any honoured control character (for example removing ';' and '&&' while leaving '|', a backtick, '$(...)', or a newline). A value constrained so that no executable command text can follow an admitted character (for example a trailing separator with only whitespace after it, where every reaching path validates the remainder) is NOT command control. escapeshellarg() neutralizes SHELL metacharacters for a value placed as one complete quoted argument (provided the quoting boundary is not broken and no untrusted content is appended inside it), but it does NOT make the value's PROGRAM-LEVEL meaning safe — an escaped value can still act as an option, flag, subcommand, a controlled executable, or interpreter input the launched program acts on (argument injection: a value beginning with '-' passed to tar/find/git, or a controlled script path passed to 'php'/'sh'). On a shell path an escaped value therefore establishes coverage ONLY when, on every path, each attacker value is ALSO a bounded DATA operand that cannot control an option, flag, subcommand, executable, or interpreter input (a strict allowlist or enum establishes this; an end-of-options '--' the utility honours addresses only options, not a controlled executable/interpreter input); if that is not ruled out, leave neutralization_coverage UNRESOLVED (honest Needs More Data), do not assert ALL_REACHING_PATHS. escapeshellcmd() escapes metacharacters but still permits additional arguments, so it does not by itself establish coverage. A complete allowlist or integer coercion that constrains the value to safe content covers it. A defense on a sibling branch does not cover the flagged branch. ALL_REACHING_PATHS only when every reaching path is covered against BOTH shell-metacharacter injection AND each attacker value being a bounded data operand that cannot control an option, flag, subcommand, executable, or interpreter input; one uncovered branch or one unsafe interpoland with a witnessed control sequence is BYPASS_PATH_FOUND."

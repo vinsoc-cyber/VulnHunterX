@@ -155,6 +155,7 @@ def test_satisfiable_and_total_policy_loads():
 def test_all_bundled_policies_offer_only_substantiable_values():
     # The release gate: every shipped family must load under the check.
     assert sorted(load_policy_registry().families) == [
+        "command_injection",
         "log_injection",
         "path_access",
         "sql_injection",
