@@ -143,6 +143,26 @@ class RecordedCallersResult:
 
 
 @dataclass(frozen=True)
+class ReferenceScanResult:
+    """Conservative textual scan for a symbol name across visible non-test source.
+
+    The negative veto for the reachability gate: ``NOT_FOUND_COMPLETE`` only when
+    a complete scan of every non-``*_test.go`` file found zero occurrences of the
+    name (the declaration token itself excluded). Any occurrence → ``FOUND``
+    (over-matching a comment/string only causes safe suppression of the gate).
+    A read/walk/declaration-location failure → ``INCOMPLETE_INDEX``. This is
+    repository-source completeness, never whole-program (external modules /
+    generated code absent from the checkout stay unknown → compatible with NMD).
+    """
+
+    status: EvidenceStatus
+    target: SymbolRef
+    matches: tuple[SourceRef, ...] = ()
+    scan_complete: bool = False
+    detail: str = ""
+
+
+@dataclass(frozen=True)
 class EvidenceRequest:
     kind: EvidenceKind
     subject: str

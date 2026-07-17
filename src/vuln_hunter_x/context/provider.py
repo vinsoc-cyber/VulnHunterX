@@ -8,20 +8,22 @@ from __future__ import annotations
 import csv
 import logging
 import os
+import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from vuln_hunter_x.context.evidence import (
     ArtifactState,
-    Capability,
     CallerRef,
+    Capability,
     EvidenceKind,
     EvidenceRequest,
     EvidenceResult,
     EvidenceScope,
     EvidenceStatus,
     RecordedCallersResult,
+    ReferenceScanResult,
     SourceRef,
     SymbolRef,
     SymbolResolution,
@@ -460,6 +462,79 @@ class ContextProvider:
             )
         return RecordedCallersResult(
             EvidenceStatus.FOUND, target, tuple(callers), enumerated_all_rows=True
+        )
+
+    def _locate_go_decl_token(
+        self, resolved_root: Path, decl_file_rel: str, name: str, start_line: int
+    ) -> tuple[str, int, int] | None:
+        """Locate the single declaration-name token of ``name`` on its ``func``
+        line, returning ``(decl_file_rel, line, col)`` — or ``None`` if it cannot
+        be uniquely located (so the scan abstains rather than mis-exclude)."""
+        decl_path = resolved_root / decl_file_rel
+        try:
+            if not decl_path.is_file():
+                return None
+            lines = decl_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        if start_line < 1 or start_line > len(lines):
+            return None
+        decl_re = re.compile(r"\bfunc\b\s+(?:\([^)]*\)\s*)?(" + re.escape(name) + r")\b")
+        hits = [
+            (decl_file_rel, start_line, m.start(1))
+            for m in decl_re.finditer(lines[start_line - 1])
+        ]
+        return hits[0] if len(hits) == 1 else None
+
+    def scan_non_test_go_name_occurrences(
+        self, repo_name: str, target: SymbolRef
+    ) -> ReferenceScanResult:
+        """Scan every non-``*_test.go`` Go file for occurrences of ``target.name``,
+        excluding exactly the declaration token (P5b negative veto).
+
+        Conservative by construction: a word-boundary textual match over-includes
+        comments/strings (safe suppression) but never under-suppresses a real
+        call / function-value / registration reference. Scans ALL Go source
+        (including ``vendor/``, ``tests/``, generated, demo, mock) — only exact
+        ``_test.go`` basenames are excluded. ``NOT_FOUND_COMPLETE`` only after a
+        complete zero-occurrence scan; any read/walk/decl-location failure →
+        ``INCOMPLETE_INDEX``.
+        """
+        sr = target.source_ref
+        if sr is None:
+            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="no symbol ref")
+        root = resolve_repo_root(self.repos_dir, sr.lang, repo_name)
+        if root is None:
+            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="no repo root")
+        try:
+            resolved_root = root.resolve()
+        except OSError:
+            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="unresolvable root")
+        decl_pos = self._locate_go_decl_token(resolved_root, sr.file, target.name, sr.start)
+        if decl_pos is None:
+            return ReferenceScanResult(
+                EvidenceStatus.INCOMPLETE_INDEX, target, detail="declaration token not located"
+            )
+        pat = re.compile(r"(?<!\w)" + re.escape(target.name) + r"(?!\w)")
+        matches: list[SourceRef] = []
+        try:
+            for path in sorted(resolved_root.rglob("*.go")):
+                if not path.is_file() or path.name.endswith("_test.go"):
+                    continue
+                rel = path.resolve().relative_to(resolved_root).as_posix()
+                for i, line in enumerate(
+                    path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+                ):
+                    for m in pat.finditer(line):
+                        if (rel, i, m.start()) == decl_pos:
+                            continue
+                        matches.append(SourceRef(repo_name, sr.lang, rel, i, i))
+        except (OSError, ValueError):
+            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="scan read error")
+        if matches:
+            return ReferenceScanResult(EvidenceStatus.FOUND, target, tuple(matches), scan_complete=True)
+        return ReferenceScanResult(
+            EvidenceStatus.NOT_FOUND_COMPLETE, target, (), scan_complete=True
         )
 
     def _resolve_caller(

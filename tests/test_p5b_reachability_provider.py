@@ -227,3 +227,90 @@ def test_caller_path_escape_abstains(tmp_path):
     )
     res = p.resolve_all_recorded_callers("svc", "go", _target())
     assert res.enumerated_all_rows is False
+
+
+# ---- Task 3: scan_non_test_go_name_occurrences (declaration-token-excluded veto) ----
+
+# verifySig declared on line 3 (aligns with _target(start=3)).
+_DECL_ONLY = "package crypto\n\nfunc verifySig(a, b string) bool {\n\treturn a == b\n}\n"
+
+
+def test_scan_zero_non_test_occurrences_complete(tmp_path):
+    p = _provider(
+        tmp_path,
+        functions=[_fn("verifySig", _SIG_FILE, 3, 5)],
+        sources={
+            _SIG_FILE: _DECL_ONLY,
+            "internal/crypto/signature_test.go": "package crypto\n\nfunc TestV(t any){ verifySig(\"a\",\"b\") }\n",
+        },
+    )
+    res = p.scan_non_test_go_name_occurrences("svc", _target())
+    assert res.status is EvidenceStatus.NOT_FOUND_COMPLETE
+    assert res.scan_complete is True
+
+
+def test_scan_finds_production_reference(tmp_path):
+    p = _provider(
+        tmp_path,
+        functions=[_fn("verifySig", _SIG_FILE, 3, 5)],
+        sources={
+            _SIG_FILE: _DECL_ONLY,
+            "internal/crypto/crypto.go": "package crypto\n\nfunc live(){ verifySig(\"a\",\"b\") }\n",
+        },
+    )
+    res = p.scan_non_test_go_name_occurrences("svc", _target())
+    assert res.status is EvidenceStatus.FOUND
+    assert any(m.file == "internal/crypto/crypto.go" for m in res.matches)
+
+
+def test_scan_decl_line_registration_still_found(tmp_path):
+    # decl and a function-value registration on the SAME line: exclude the decl
+    # TOKEN, keep the registration reference. (Under-suppression guard.)
+    src = "package crypto\n\nfunc verifySig() { register(verifySig) }\n"
+    p = _provider(
+        tmp_path,
+        functions=[_fn("verifySig", _SIG_FILE, 3, 3)],
+        sources={_SIG_FILE: src},
+    )
+    res = p.scan_non_test_go_name_occurrences("svc", _target(start=3, end=3))
+    assert res.status is EvidenceStatus.FOUND
+
+
+def test_scan_vendor_tests_demo_are_scanned(tmp_path):
+    for rel in ("vendor/x/foo.go", "internal/tests/foo.go", "cmd/demo.go"):
+        p = _provider(
+            tmp_path / rel.replace("/", "_"),
+            functions=[_fn("verifySig", _SIG_FILE, 3, 5)],
+            sources={
+                _SIG_FILE: _DECL_ONLY,
+                rel: "package x\n\nfunc f(){ verifySig(\"a\",\"b\") }\n",
+            },
+        )
+        res = p.scan_non_test_go_name_occurrences("svc", _target())
+        assert res.status is EvidenceStatus.FOUND, rel  # only *_test.go basenames are excluded
+
+
+def test_scan_word_boundary(tmp_path):
+    p = _provider(
+        tmp_path,
+        functions=[_fn("verifySig", _SIG_FILE, 3, 5)],
+        sources={
+            _SIG_FILE: _DECL_ONLY,
+            "internal/crypto/other.go": "package crypto\n\nfunc f(){ verifySigExtra() }\n",
+        },
+    )
+    res = p.scan_non_test_go_name_occurrences("svc", _target())
+    assert res.status is EvidenceStatus.NOT_FOUND_COMPLETE
+
+
+def test_scan_missing_root_incomplete(tmp_path):
+    p = _provider(tmp_path, functions=[_fn("verifySig", _SIG_FILE, 3, 5)], sources={_SIG_FILE: _DECL_ONLY})
+    res = p.scan_non_test_go_name_occurrences("ghost-repo", _target())
+    assert res.status is EvidenceStatus.INCOMPLETE_INDEX
+
+
+def test_scan_decl_token_not_located_incomplete(tmp_path):
+    # start_line points nowhere near the func decl -> cannot safely exclude -> abstain.
+    p = _provider(tmp_path, functions=[_fn("verifySig", _SIG_FILE, 3, 5)], sources={_SIG_FILE: _DECL_ONLY})
+    res = p.scan_non_test_go_name_occurrences("svc", _target(start=1, end=1))
+    assert res.status is EvidenceStatus.INCOMPLETE_INDEX
