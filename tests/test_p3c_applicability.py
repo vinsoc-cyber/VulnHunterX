@@ -36,6 +36,10 @@ def _with_applicability():
             "not_applicable_values": ["NOT_PATH_ACCESS_SINK"],
         },
         "fact_slots": {"sink_binding": ["QUALIFYING_PATH_ACCESS_SINK", "NOT_PATH_ACCESS_SINK"]},
+        "admissibility": {"sink_binding": {
+            "QUALIFYING_PATH_ACCESS_SINK": "LOCAL_POSITIVE",
+            "NOT_PATH_ACCESS_SINK": "LOCAL_POSITIVE",
+        }},
         "decisive_slots": ["sink_binding"],
         "entailment": {"true_positive": {"sink_binding": "QUALIFYING_PATH_ACCESS_SINK"}},
     })
@@ -46,6 +50,10 @@ def _without_applicability():
         "family": "log_injection",
         "selectors": {"cwes": ["CWE-117"]},
         "fact_slots": {"sink_binding": ["QUALIFYING_LOG_SINK", "NOT_LOG_SINK"]},
+        "admissibility": {"sink_binding": {
+            "QUALIFYING_LOG_SINK": "LOCAL_POSITIVE",
+            "NOT_LOG_SINK": "LOCAL_POSITIVE",
+        }},
         "decisive_slots": ["sink_binding"],
         "entailment": {
             "true_positive": {"sink_binding": "QUALIFYING_LOG_SINK"},
@@ -77,12 +85,16 @@ def test_family_without_applicability_is_always_applicable():
 
 
 def test_handoff_without_applicability_fails_to_load():
-    with pytest.raises(PolicyError):
+    with pytest.raises(PolicyError, match="handoff_from requires applicability"):
         load_policy_from_mapping({
             "family": "bad",
             "selectors": {"languages": ["php"]},
             "handoff_from": {"rule_aliases": ["*/tainted-filename"]},
             "fact_slots": {"sink_binding": ["QUALIFYING_PATH_ACCESS_SINK", "NOT_PATH_ACCESS_SINK"]},
+            "admissibility": {"sink_binding": {
+                "QUALIFYING_PATH_ACCESS_SINK": "LOCAL_POSITIVE",
+                "NOT_PATH_ACCESS_SINK": "LOCAL_POSITIVE",
+            }},
             "decisive_slots": ["sink_binding"],
             "entailment": {"true_positive": {"sink_binding": "QUALIFYING_PATH_ACCESS_SINK"}},
         })
