@@ -25,12 +25,12 @@
 php/sql-injection:
   short_description: "User input concatenated into SQL query in PHP"
   questions:
-    - "Where does the INPUT originate - $_GET, $_POST, $_REQUEST, $_COOKIE, $_SERVER?"
-    - "Is the query built with string concatenation or sprintf (vulnerable)?"
-    - "Or is a PREPARED STATEMENT used with PDO::prepare() + bindParam() or MySQLi bind_param() (safe)?"
-    - "Trace the INPUT - is it passed through mysql_real_escape_string() or similar (insufficient for safety)?"
-    - "Could SQL metacharacters (quotes, semicolons, comments) in the input alter the query structure?"
-    - "If using an ORM (Eloquent, Doctrine), is the query built via query builder (.where(), .findBy()) with bound parameters, or via raw() / DB::select() with string interpolation?"
+    - "Where does the INPUT originate - $_GET, $_POST, $_REQUEST, $_COOKIE, $_SERVER, or a request header?"
+    - "Is the query built with string concatenation / interpolation / sprintf, or via a prepared statement (PDO::prepare + bindParam / MySQLi bind_param) with placeholders?"
+    - "For each attacker-controlled value in the statement, is it concatenated into the SQL text or passed as a bound parameter?"
+    - "For any value concatenated into the SQL text, what is its exact grammar position - quoted string literal, unquoted numeric literal, identifier, or keyword?"
+    - "Is a transformation applied before interpolation - mysqli_real_escape_string, addslashes, an intval / (int) cast, is_numeric, an allowlist - and does it neutralize the value IN THAT position?"
+    - "If an ORM/query builder is used (Eloquent, Doctrine), is the query built via bound parameters (.where(), .findBy()) or via raw() / DB::select() with string interpolation?"
   context_hint: "Trace from $_GET/$_POST through all assignments to query execution."
   additional_context: ["caller"]
 

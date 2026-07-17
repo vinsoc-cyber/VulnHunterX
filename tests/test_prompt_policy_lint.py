@@ -23,6 +23,14 @@ _VERDICT_CMD = re.compile(
     r"verdict\s+(?:False|True)\s+Positive|the rule is likely correct", re.IGNORECASE
 )
 _COACHING = re.compile(r"OWASP FP|FP trap|FP case", re.IGNORECASE)
+# PHP rules coach with parenthetical verdict labels — "(vulnerable)", "(safe)",
+# "(insufficient for safety)" — rather than the explicit-verdict phrasing above.
+# These bias the fact-slot assessment because the rule's guided questions are
+# still rendered into the policy (assessment-mode) prompt (only the trailing
+# verdict command is stripped).
+_PHP_PAREN_VERDICT = re.compile(
+    r"\((?:vulnerable|unsafe|safe|insufficient[^)]*)\)", re.IGNORECASE
+)
 
 # Python rules that STILL command a verdict (the closed-world contradiction is
 # closed only for the covered families). py/xpath-injection and py/log-injection
@@ -40,6 +48,9 @@ _EXPECTED_PY_VERDICT_CMD = frozenset({
 _EXPECTED_PY_COACHING = frozenset({
     "py/open-redirect", "py/path-injection", "py/url-redirection",
 })
+# PHP rules that STILL carry parenthetical verdict labels. php/sql-injection is
+# deliberately absent — it is covered by the CWE-89 evidence-closure policy.
+_EXPECTED_PHP_PAREN_VERDICT = frozenset({"php/regex-injection"})
 
 
 def _rule_text(entry: dict) -> str:
@@ -82,6 +93,21 @@ def test_python_verdict_command_inventory_is_exact():
 
 def test_python_coaching_inventory_is_exact():
     assert _rules_matching("python", _COACHING) == _EXPECTED_PY_COACHING
+
+
+def test_php_sql_injection_rule_is_locators_only():
+    data = yaml.safe_load((_PROMPTS / "php_questions.yaml").read_text())
+    text = _rule_text(data["php/sql-injection"])
+    assert not _PHP_PAREN_VERDICT.search(text), (
+        "the covered CWE-89 rule must gather facts, not label answers "
+        "(vulnerable)/(safe)/(insufficient) — the family entailment decides the verdict"
+    )
+
+
+def test_php_paren_verdict_inventory_is_exact():
+    # Exact residual: php/sql-injection is de-coached (covered by the CWE-89
+    # policy); php/regex-injection is not yet covered and is left unchanged.
+    assert _rules_matching("php", _PHP_PAREN_VERDICT) == _EXPECTED_PHP_PAREN_VERDICT
 
 
 def test_other_languages_still_have_verdict_commands():

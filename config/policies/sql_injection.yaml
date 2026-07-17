@@ -1,0 +1,92 @@
+# Relational SQL-injection (CWE-89) family policy — PHP.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-89 is about attacker data entering the SQL command. Two DISTINCT defensive
+# facts decide it and must not be collapsed: query_channel (does the value enter
+# the SQL grammar as query TEXT, or only as BOUND DATA on every reaching path)
+# and neutralization_coverage (for a value still interpolated into SQL text, is
+# an effective, CONTEXT-APPROPRIATE guard present on every reaching path). String
+# escaping covers a quoted-literal context but NOT a numeric / identifier /
+# keyword / raw-fragment context, so "an escape is present" is not sufficient.
+#
+# Scope: relational SQL only. NoSQL / MongoDB query-object injection is a separate
+# family (different sink, different neutralization) and is intentionally NOT here.
+
+family: sql_injection
+version: "1"
+
+selectors:
+  languages: [php]
+  cwes: ["CWE-89"]
+  rule_aliases:
+    - php.lang.security.injection.tainted-sql-string.tainted-sql-string
+
+fact_slots:
+  sink_binding: [QUALIFYING_RELATIONAL_SQL_SINK, NOT_RELATIONAL_SQL_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  query_channel: [SQL_TEXT_PATH_FOUND, BOUND_DATA_ONLY_ALL_PATHS]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - query_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_RELATIONAL_SQL_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    query_channel: SQL_TEXT_PATH_FOUND
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_RELATIONAL_SQL_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - query_channel: BOUND_DATA_ONLY_ALL_PATHS
+    - neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a concrete
+# unsafe SQL-text path proves the positive case, otherwise stay Needs-More-Data.
+# ALL_REACHING_PATHS / BOUND_DATA_ONLY_ALL_PATHS use LOCAL_OR_EXHAUSTIVE, NOT
+# EXHAUSTIVE_ENCODER: parameter binding is not encoding, and a prepared statement
+# or an integer cast is proven by locally visible code.
+admissibility:
+  sink_binding:
+    QUALIFYING_RELATIONAL_SQL_SINK: LOCAL_POSITIVE
+    NOT_RELATIONAL_SQL_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  query_channel:
+    SQL_TEXT_PATH_FOUND: CONCRETE_PATH
+    BOUND_DATA_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_RELATIONAL_SQL_SINK when the flagged call executes a relational SQL statement (mysqli_query, PDO::query/exec, $pdo->prepare(...)->execute, a query-builder raw()); NOT_RELATIONAL_SQL_SINK when it is not a SQL execution (a NoSQL/document query, a pure string operation, logging)."
+  - "attacker_control: PROVEN when external input reaches the statement — the scanner data-flow SOURCE (a request superglobal such as $_GET/$_POST/$_REQUEST/$_COOKIE or a request header) establishes this; REFUTED when the value is a fixed constant or operator-only input."
+  - "flow_to_sink: REACHES when the controlled value reaches the executed statement on some path; NO_PATH_COMPLETE only with complete evidence that no path reaches it."
+  - "query_channel: for the flagged statement, enumerate EVERY attacker-controlled value that is interpolated. SQL_TEXT_PATH_FOUND when at least one such value becomes part of the SQL text (string concatenation / interpolation / sprintf) on some reaching path; BOUND_DATA_ONLY_ALL_PATHS only when, on EVERY reaching path, every attacker value is passed as a bound parameter (prepared statement placeholder + bindParam/bind_param / a query-builder bound argument) and none is concatenated into the text."
+  - "neutralization_coverage: for each attacker value that enters the SQL text, identify its exact grammar position (quoted string literal, unquoted numeric literal, identifier, keyword/direction, or raw fragment) and the value's possible output after the last transformation. A defense covers a path only when every possible output stays data-only IN THAT EXACT POSITION: string escaping (mysqli_real_escape_string / addslashes / quote) covers a quoted-literal context but NOT a numeric/identifier/keyword/raw position; integer coercion or a complete numeric allowlist covers a numeric position; a dynamic identifier or syntax fragment needs a finite allowlist. A defense on a sibling branch does not cover the flagged branch. ALL_REACHING_PATHS only when every reaching path is covered; one unsafe interpoland or one uncovered branch is BYPASS_PATH_FOUND."
