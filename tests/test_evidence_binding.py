@@ -131,3 +131,45 @@ def test_resolve_evidence_unqualified_key_is_raw_request(qual_provider):
     r = EvidenceRequest(EvidenceKind.ALL_CALLERS, "isSafe", "all_callers:isSafe")
     res = qual_provider.resolve_evidence("testrepo", "cpp", [r])
     assert set(res) == {"all_callers:isSafe"}
+
+
+# ---- Task 3: file-qualified caller resolver (opt-in; ambiguity fails closed) ----
+
+def test_qualified_callers_distinct_by_file(qual_provider):
+    a = _qualified("isSafe", "a.c")
+    b = _qualified("isSafe", "b.c")
+    res = qual_provider.resolve_evidence("testrepo", "cpp", [a, b])
+    ra, rb = res[a.request_key], res[b.request_key]
+    assert ra.status is EvidenceStatus.FOUND and rb.status is EvidenceStatus.FOUND
+    assert "AAA" in ra.prompt_content and "BBB" not in ra.prompt_content
+    assert "BBB" in rb.prompt_content and "AAA" not in rb.prompt_content
+
+
+def test_qualified_ambiguous_same_name_same_file(qual_provider):
+    r = _qualified("dup", "dup.c")  # defined twice in dup.c
+    out = qual_provider.resolve_evidence("testrepo", "cpp", [r])[r.request_key]
+    assert out.status is EvidenceStatus.AMBIGUOUS
+
+
+def test_qualified_miss_does_not_fall_back(qual_provider):
+    r = _qualified("isSafe", "nonexistent.c")
+    out = qual_provider.resolve_evidence("testrepo", "cpp", [r])[r.request_key]
+    assert out.status is EvidenceStatus.INCOMPLETE_INDEX
+    assert "AAA" not in out.prompt_content and "BBB" not in out.prompt_content
+
+
+def test_name_only_still_merges_homonyms(qual_provider):
+    r = EvidenceRequest(EvidenceKind.ALL_CALLERS, "isSafe", "all_callers:isSafe")
+    out = qual_provider.resolve_evidence("testrepo", "cpp", [r])[r.request_key]
+    assert out.status is EvidenceStatus.FOUND
+    assert "AAA" in out.prompt_content and "BBB" in out.prompt_content  # merge unchanged
+
+
+def test_qualified_single_caller_resolver(qual_provider):
+    r = EvidenceRequest(
+        EvidenceKind.CALLER, "isSafe", "caller:isSafe",
+        target=SymbolRef("isSafe", "function", SourceRef("testrepo", "cpp", "b.c", 1, 2)),
+    )
+    out = qual_provider.resolve_evidence("testrepo", "cpp", [r])[r.request_key]
+    assert out.status is EvidenceStatus.FOUND
+    assert "BBB" in out.prompt_content and "AAA" not in out.prompt_content
