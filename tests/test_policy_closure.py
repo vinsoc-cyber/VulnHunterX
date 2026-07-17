@@ -125,6 +125,47 @@ def test_preserved_record_finalizes_fp_even_if_neutralization_unresolved():
     assert action.verdict.verdict == FP
 
 
+# ---- P5a: retrieved evidence is bound to its requesting obligation slots ----
+
+def _retrieved_entries(ctrl):
+    return [e for e in ctrl._ledger.entries if e.origin.name == "RETRIEVED"]
+
+
+def test_retrieved_entry_records_its_requesting_slot():
+    ctrl = _ctrl(_FakeProvider(_result(EvidenceStatus.FOUND)))
+    ctrl.evaluate(_tp_ish(neutralization="UNRESOLVED", extra_request=True))
+    entries = _retrieved_entries(ctrl)
+    assert entries
+    assert all(
+        e.requested_for_slots == frozenset({"neutralization_coverage"}) for e in entries
+    )
+
+
+def test_same_symbol_for_two_slots_binds_union():
+    ctrl = _ctrl(_FakeProvider(_result(EvidenceStatus.FOUND)))
+    parsed = {
+        "fact_slots": {
+            "sink_binding": {"value": "QUALIFYING_LOG_SINK", "evidence": ["L1"]},
+            "attacker_control": {"value": "PROVEN", "evidence": ["D1"]},
+            "flow_to_sink": {"value": "UNRESOLVED", "evidence": []},
+            "record_boundary": {"value": "BREAKABLE", "evidence": ["L1"]},
+            "neutralization_coverage": {"value": "UNRESOLVED", "evidence": []},
+        },
+        "reasoning": "need helper",
+        "evidence_requests": [
+            {"kind": "function", "subject": "helper", "for_slot": "flow_to_sink"},
+            {"kind": "function", "subject": "helper", "for_slot": "neutralization_coverage"},
+        ],
+    }
+    ctrl.evaluate(parsed)
+    entries = _retrieved_entries(ctrl)
+    assert entries
+    assert all(
+        e.requested_for_slots == frozenset({"flow_to_sink", "neutralization_coverage"})
+        for e in entries
+    )
+
+
 # ---- reactive retrieval then finalize ----
 
 def test_unresolved_neutralization_triggers_retrieval_then_finalizes():
