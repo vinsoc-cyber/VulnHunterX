@@ -42,6 +42,10 @@ def _path_access(name: str = "path_access"):
             "not_applicable_values": ["NOT_PATH_ACCESS_SINK"],
         },
         "fact_slots": {"sink_binding": ["QUALIFYING_PATH_ACCESS_SINK", "NOT_PATH_ACCESS_SINK"]},
+        "admissibility": {"sink_binding": {
+            "QUALIFYING_PATH_ACCESS_SINK": "LOCAL_POSITIVE",
+            "NOT_PATH_ACCESS_SINK": "LOCAL_POSITIVE",
+        }},
         "decisive_slots": ["sink_binding"],
         "entailment": {"true_positive": {"sink_binding": "QUALIFYING_PATH_ACCESS_SINK"}},
     })
@@ -53,6 +57,10 @@ def _log_injection():
         "family": "log_injection",
         "selectors": {"cwes": ["CWE-117"]},
         "fact_slots": {"sink_binding": ["QUALIFYING_LOG_SINK", "NOT_LOG_SINK"]},
+        "admissibility": {"sink_binding": {
+            "QUALIFYING_LOG_SINK": "LOCAL_POSITIVE",
+            "NOT_LOG_SINK": "LOCAL_POSITIVE",
+        }},
         "decisive_slots": ["sink_binding"],
         "entailment": {"true_positive": {"sink_binding": "QUALIFYING_LOG_SINK"}},
     })
