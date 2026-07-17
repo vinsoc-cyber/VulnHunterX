@@ -100,6 +100,21 @@ class SymbolRef:
 
 
 @dataclass(frozen=True)
+class SymbolResolution:
+    """Result of resolving a (file, line) to its uniquely-named enclosing symbol.
+
+    ``FOUND`` with a ``symbol`` only when the line lands in exactly one function
+    whose name is unique repository-wide (the tree-sitter caller producer is
+    homonym-fragile, so a repeated name cannot be bound to reliable caller
+    evidence). Everything else fails closed with ``symbol=None`` (P5b).
+    """
+
+    status: EvidenceStatus
+    symbol: SymbolRef | None = None
+    detail: str = ""
+
+
+@dataclass(frozen=True)
 class EvidenceRequest:
     kind: EvidenceKind
     subject: str

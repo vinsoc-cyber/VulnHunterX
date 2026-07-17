@@ -21,6 +21,8 @@ from vuln_hunter_x.context.evidence import (
     EvidenceScope,
     EvidenceStatus,
     SourceRef,
+    SymbolRef,
+    SymbolResolution,
     inspect_capability,
 )
 from vuln_hunter_x.context.repo_paths import resolve_repo_file, resolve_repo_root
@@ -329,6 +331,55 @@ class ContextProvider:
         content = f"[No unique definition of {req.subject} in {callee_file}.]"
         return None, EvidenceResult(
             req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.REPOSITORY_INDEX
+        )
+
+    def resolve_repo_unique_enclosing_function(
+        self, repo_name: str, lang: str, file_path: str, line: int
+    ) -> SymbolResolution:
+        """Resolve ``(file_path, line)`` to its enclosing function IFF that
+        function's name is unique repository-wide (P5b).
+
+        The reachability gate needs an exact, homonym-free symbol to bind caller
+        evidence to: the tree-sitter caller producer stamps one file per bare
+        name, so a repeated name cannot be trusted. Fail-closed — a path escaping
+        the repo, no containing function, or a name defined more than once
+        anywhere in ``functions.csv`` all return a non-FOUND status with
+        ``symbol=None``.
+        """
+        abs_file = resolve_repo_file(self.repos_dir, lang, repo_name, file_path)
+        root = resolve_repo_root(self.repos_dir, lang, repo_name)
+        if abs_file is None or root is None:
+            return SymbolResolution(EvidenceStatus.INCOMPLETE_INDEX, detail="file not in repo")
+        try:
+            canonical = abs_file.resolve().relative_to(root.resolve()).as_posix()
+        except (OSError, ValueError):
+            return SymbolResolution(EvidenceStatus.INCOMPLETE_INDEX, detail="uncanonicalizable path")
+        rows = self._load_csv(repo_name, lang, "functions")
+        best: tuple[int, dict] | None = None
+        for r in rows:
+            if (r.get("file") or "").replace("\\", "/").strip() != canonical:
+                continue
+            try:
+                start = int(r.get("start_line", 0))
+                end = int(r.get("end_line", 0))
+            except (TypeError, ValueError):
+                continue
+            if start <= line <= end and (best is None or end - start < best[0]):
+                best = (end - start, r)
+        if best is None:
+            return SymbolResolution(EvidenceStatus.INCOMPLETE_INDEX, detail="no containing function")
+        name = (best[1].get("name") or "").strip()
+        if not name:
+            return SymbolResolution(EvidenceStatus.INCOMPLETE_INDEX, detail="unnamed function")
+        defs = sum(1 for r in rows if (r.get("name") or "").strip() == name)
+        if defs != 1:
+            return SymbolResolution(
+                EvidenceStatus.AMBIGUOUS, detail=f"{name} defined {defs}x repository-wide"
+            )
+        start, end = int(best[1]["start_line"]), int(best[1]["end_line"])
+        return SymbolResolution(
+            EvidenceStatus.FOUND,
+            SymbolRef(name, "function", SourceRef(repo_name, lang, canonical, start, end)),
         )
 
     def _resolve_caller(
