@@ -17,7 +17,6 @@ from vuln_hunter_x.context.treesitter_extractor import (
     discover_repos_for_context,
 )
 
-
 # ── Fixtures ──────────────────────────────────────────────────────
 
 
@@ -73,9 +72,7 @@ class TestDiscoverRepos:
         # Discovery no longer excludes a repo that also has a CodeQL DB: it
         # returns every source+SARIF candidate, and backend preference (prefer
         # CodeQL when it covers the repo) is applied by the caller's auto-dedup.
-        repos_dir, output_dir, lang, name = setup_repo(
-            "c", "myrepo", {"main.c": "int main() {}"}
-        )
+        repos_dir, output_dir, lang, name = setup_repo("c", "myrepo", {"main.c": "int main() {}"})
         db_dir = output_dir / "c" / "myrepo" / "database"
         db_dir.mkdir(parents=True)
         (db_dir / "codeql-database.yml").write_text("")
