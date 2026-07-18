@@ -263,7 +263,7 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--skip-context",
         action="store_true",
-        help="Skip automatic tree-sitter context extraction after a source-only analysis",
+        help="Skip automatic context extraction after a source-only analysis",
     )
     parser.add_argument(
         "-j",

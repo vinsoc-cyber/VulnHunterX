@@ -79,6 +79,20 @@ class TestPostAnalyzeContextHook:
         mock_ctx.assert_called_once()
 
     @patch("vuln_hunter_x.cli.commands._run_context_extraction", return_value=0)
+    @patch("vuln_hunter_x.cli.commands._run_semgrep_analyze", return_value=1)
+    @patch("vuln_hunter_x.cli.commands._run_codeql_analyze", return_value=0)
+    def test_both_codeql_success_source_fail_triggers_once(
+        self, mock_codeql, mock_semgrep, mock_ctx, tmp_path
+    ):
+        # both = "any analyzer succeeds"; CodeQL succeeded so the run is a
+        # success, and auto reconciliation is still correct (addition-only,
+        # honours the skip filter — see the neutrality regression).
+        with patch("pathlib.Path.cwd", return_value=tmp_path):
+            rc = cmd_analyze(_analyze_args(tool="both"))
+        assert rc == 0
+        mock_ctx.assert_called_once()
+
+    @patch("vuln_hunter_x.cli.commands._run_context_extraction", return_value=0)
     @patch("vuln_hunter_x.cli.commands._run_opengrep_analyze", return_value=0)
     @patch("vuln_hunter_x.cli.commands._run_semgrep_analyze", return_value=0)
     @patch("vuln_hunter_x.cli.commands._run_codeql_analyze", return_value=0)

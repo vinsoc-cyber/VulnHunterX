@@ -1035,16 +1035,15 @@ def _run_context_extraction(
                 queries_dir=_BUNDLED_CONFIG / "queries" / "tools",
                 output_dir=output_dir,
             )
-            results = extractor.extract_all(
-                output_dir=output_dir,
-                lang_filter=lang_filter,
-                repo_filter=repo_filter,
-                dry_run=dry_run,
-            )
-            process_names = {n for _, _, n in codeql_dbs}
-            all_results.extend(
-                (n, lg, qr) for n, lg, qr in results if n in process_names
-            )
+            # Iterate the already-skip-filtered list (parallel to the tree-sitter
+            # loop below). extract_all() would re-discover every matching DB and
+            # overwrite context for repos _skip_existing_context just excluded,
+            # defeating force=False in a filter-less (config-mode) reconciliation.
+            for db_path, lg, repo_name in codeql_dbs:
+                query_results = extractor.extract_for_database(
+                    db_path, lg, repo_name, dry_run=dry_run
+                )
+                all_results.append((repo_name, lg, query_results))
 
     # ── Tree-sitter extraction ────────────────────────────────────
     if ts_repos:

@@ -198,7 +198,7 @@ class TestRunContextExtractionCodeQL:
         ):
             mock_discover.return_value = [(db_path, "python", "myrepo")]
             mock_extractor = MagicMock()
-            mock_extractor.extract_all.return_value = [("myrepo", "python", {"functions": (True, "ok")})]
+            mock_extractor.extract_for_database.return_value = {"functions": (True, "ok")}
             mock_extractor_cls.return_value = mock_extractor
 
             rc = _run_context_extraction(
@@ -208,7 +208,7 @@ class TestRunContextExtractionCodeQL:
             )
 
         assert rc == 0
-        mock_extractor.extract_all.assert_called_once()
+        mock_extractor.extract_for_database.assert_called_once()
 
 
 class TestRunContextExtractionTreeSitter:
@@ -266,14 +266,14 @@ class TestRunContextExtractionAutoDedup:
             mock_discover_ts.return_value = [(src_path, "python", "myrepo")]
 
             mock_extractor = MagicMock()
-            mock_extractor.extract_all.return_value = [("myrepo", "python", {"functions": (True, "ok")})]
+            mock_extractor.extract_for_database.return_value = {"functions": (True, "ok")}
             mock_extractor_cls.return_value = mock_extractor
 
             rc = _run_context_extraction(backend="auto")
 
         assert rc == 0
         # CodeQL extraction was called
-        mock_extractor.extract_all.assert_called_once()
+        mock_extractor.extract_for_database.assert_called_once()
         # Tree-sitter should NOT have been called (repo covered by CodeQL)
 
 
@@ -303,12 +303,12 @@ class TestRunContextExtractionRealRouting:
             patch("pathlib.Path.cwd", return_value=tmp_path),
         ):
             mock_db = MagicMock()
-            mock_db.extract_all.return_value = [("dbrepo", "c", {"functions": (True, "ok")})]
+            mock_db.extract_for_database.return_value = {"functions": (True, "ok")}
             mock_db_cls.return_value = mock_db
 
             _run_context_extraction(lang_filter="c", repo_filter="dbrepo", backend="auto")
 
-        mock_db.extract_all.assert_called_once()
+        mock_db.extract_for_database.assert_called_once()
         mock_ts_cls.return_value.extract_for_repo.assert_not_called()
 
     def test_failed_db_log_only_routes_to_treesitter(self, tmp_path):
@@ -325,7 +325,35 @@ class TestRunContextExtractionRealRouting:
             _run_context_extraction(lang_filter="c", repo_filter="failrepo", backend="auto")
 
         mock_ts.extract_for_repo.assert_called_once()
-        mock_db_cls.return_value.extract_all.assert_not_called()
+        mock_db_cls.return_value.extract_for_database.assert_not_called()
+
+    def test_codeql_skips_existing_context_no_reextract(self, tmp_path):
+        # Neutrality: a repo that already has context must NOT be re-extracted
+        # (which would overwrite existing CSVs) just because a sibling repo in
+        # the same filter-less run needs extraction.
+        self._layout(tmp_path, "hascsv", db_marker="yml")
+        ctx = tmp_path / "output" / "c" / "hascsv" / "context"
+        ctx.mkdir(parents=True)
+        (ctx / "functions.csv").write_text("name\n")
+        self._layout(tmp_path, "nocsv", db_marker="yml")
+
+        with (
+            patch("vuln_hunter_x.codeql.context_extractor.ContextExtractorDB") as mock_db_cls,
+            patch("vuln_hunter_x.context.treesitter_extractor.TreeSitterContextExtractor"),
+            patch("pathlib.Path.cwd", return_value=tmp_path),
+        ):
+            mock_db = MagicMock()
+            mock_db.extract_for_database.return_value = {"functions": (True, "ok")}
+            mock_db_cls.return_value = mock_db
+
+            # No repo_filter — the config-mode reconciliation path.
+            _run_context_extraction(lang_filter="c", backend="codeql", force=False)
+
+        extracted = {
+            (c.args[2] if len(c.args) > 2 else c.kwargs["repo_name"])
+            for c in mock_db.extract_for_database.call_args_list
+        }
+        assert extracted == {"nocsv"}
 
 
 class TestRunContextExtractionSkipExisting:
