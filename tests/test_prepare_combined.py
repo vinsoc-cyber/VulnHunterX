@@ -277,6 +277,57 @@ class TestRunContextExtractionAutoDedup:
         # Tree-sitter should NOT have been called (repo covered by CodeQL)
 
 
+class TestRunContextExtractionRealRouting:
+    """Auto routing against the REAL discovery predicates (not mocked): a
+    valid CodeQL DB routes to CodeQL; a failed DB (log/ only) routes to
+    tree-sitter instead of being shadowed."""
+
+    def _layout(self, tmp_path, repo, *, db_marker):
+        """repo with source + SARIF; db_marker in {"yml", "log", None}."""
+        (tmp_path / "repos" / "c" / repo).mkdir(parents=True)
+        (tmp_path / "repos" / "c" / repo / "main.c").write_text("int main(){}")
+        out = tmp_path / "output" / "c" / repo
+        out.mkdir(parents=True)
+        (out / f"{repo}_semgrep.sarif").write_text("{}")
+        if db_marker == "yml":
+            (out / "database").mkdir()
+            (out / "database" / "codeql-database.yml").write_text("")
+        elif db_marker == "log":
+            (out / "database" / "log").mkdir(parents=True)
+
+    def test_valid_db_routes_to_codeql_not_treesitter(self, tmp_path):
+        self._layout(tmp_path, "dbrepo", db_marker="yml")
+        with (
+            patch("vuln_hunter_x.codeql.context_extractor.ContextExtractorDB") as mock_db_cls,
+            patch("vuln_hunter_x.context.treesitter_extractor.TreeSitterContextExtractor") as mock_ts_cls,
+            patch("pathlib.Path.cwd", return_value=tmp_path),
+        ):
+            mock_db = MagicMock()
+            mock_db.extract_all.return_value = [("dbrepo", "c", {"functions": (True, "ok")})]
+            mock_db_cls.return_value = mock_db
+
+            _run_context_extraction(lang_filter="c", repo_filter="dbrepo", backend="auto")
+
+        mock_db.extract_all.assert_called_once()
+        mock_ts_cls.return_value.extract_for_repo.assert_not_called()
+
+    def test_failed_db_log_only_routes_to_treesitter(self, tmp_path):
+        self._layout(tmp_path, "failrepo", db_marker="log")
+        with (
+            patch("vuln_hunter_x.codeql.context_extractor.ContextExtractorDB") as mock_db_cls,
+            patch("vuln_hunter_x.context.treesitter_extractor.TreeSitterContextExtractor") as mock_ts_cls,
+            patch("pathlib.Path.cwd", return_value=tmp_path),
+        ):
+            mock_ts = MagicMock()
+            mock_ts.extract_for_repo.return_value = {"functions": (True, "ok")}
+            mock_ts_cls.return_value = mock_ts
+
+            _run_context_extraction(lang_filter="c", repo_filter="failrepo", backend="auto")
+
+        mock_ts.extract_for_repo.assert_called_once()
+        mock_db_cls.return_value.extract_all.assert_not_called()
+
+
 class TestRunContextExtractionSkipExisting:
     """Skips repos with existing CSVs unless --force."""
 

@@ -69,17 +69,35 @@ class TestDiscoverRepos:
         assert result[0][1] == "c"
         assert result[0][2] == "myrepo"
 
-    def test_skips_repo_with_codeql_db(self, setup_repo):
+    def test_discovers_source_repo_even_with_codeql_db(self, setup_repo):
+        # Discovery no longer excludes a repo that also has a CodeQL DB: it
+        # returns every source+SARIF candidate, and backend preference (prefer
+        # CodeQL when it covers the repo) is applied by the caller's auto-dedup.
         repos_dir, output_dir, lang, name = setup_repo(
             "c", "myrepo", {"main.c": "int main() {}"}
         )
-        # Add CodeQL database marker
         db_dir = output_dir / "c" / "myrepo" / "database"
         db_dir.mkdir(parents=True)
         (db_dir / "codeql-database.yml").write_text("")
 
         result = discover_repos_for_context(output_dir, repos_dir)
-        assert len(result) == 0
+        assert len(result) == 1
+        assert result[0][2] == "myrepo"
+
+    def test_finds_csharp_repo_with_db(self, setup_repo):
+        # C# is tree-sitter-supported but has no CodeQL context queries, so a
+        # C# repo with a DB must still be reachable via tree-sitter — it would
+        # otherwise get context from neither backend.
+        repos_dir, output_dir, lang, name = setup_repo(
+            "csharp", "csrepo", {"Foo.cs": "class Foo {}"}
+        )
+        db_dir = output_dir / "csharp" / "csrepo" / "database"
+        db_dir.mkdir(parents=True)
+        (db_dir / "codeql-database.yml").write_text("")
+
+        result = discover_repos_for_context(output_dir, repos_dir)
+        assert len(result) == 1
+        assert result[0][1] == "csharp"
 
     def test_skips_repo_without_sarif(self, tmp_path):
         repos_dir = tmp_path / "repos" / "c" / "myrepo"
