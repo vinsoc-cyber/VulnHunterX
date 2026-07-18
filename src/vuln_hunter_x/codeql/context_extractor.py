@@ -83,7 +83,11 @@ def discover_databases(output_dir: Path) -> list[tuple[Path, str, str]]:
 
             repo_name = repo_dir.name
             db_dir = repo_dir / "database"
-            if (db_dir / "codeql-database.yml").exists() or (db_dir / "log").exists():
+            # Require the DB manifest: a bare database/log/ is the residue of a
+            # FAILED extraction, not a usable database. Counting it as one both
+            # shadows the tree-sitter fallback and drives context extraction at
+            # a broken DB. (Matches the yml-marker predicate in database.py.)
+            if (db_dir / "codeql-database.yml").is_file():
                 results.append((db_dir, lang, repo_name))
 
     return results

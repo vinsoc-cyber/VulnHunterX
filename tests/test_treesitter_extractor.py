@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from vuln_hunter_x.codeql.context_extractor import discover_databases
 from vuln_hunter_x.context.treesitter_extractor import (
     CSV_FIELDS,
     TreeSitterContextExtractor,
@@ -98,6 +99,30 @@ class TestDiscoverRepos:
         # No repos dir
 
         result = discover_repos_for_context(tmp_path / "output", tmp_path / "repos")
+        assert len(result) == 0
+
+
+# ── discover_databases (CodeQL side) ──────────────────────────────
+
+
+class TestDiscoverDatabases:
+    def test_yml_marker_is_a_database(self, tmp_path):
+        db_dir = tmp_path / "output" / "c" / "myrepo" / "database"
+        db_dir.mkdir(parents=True)
+        (db_dir / "codeql-database.yml").write_text("")
+
+        result = discover_databases(tmp_path / "output")
+        assert len(result) == 1
+        assert result[0][1] == "c"
+        assert result[0][2] == "myrepo"
+
+    def test_log_only_is_not_a_database(self, tmp_path):
+        # A failed CodeQL DB attempt leaves only database/log/ (no yml). It
+        # must NOT count as a database, else it shadows the tree-sitter path.
+        db_dir = tmp_path / "output" / "c" / "myrepo" / "database"
+        (db_dir / "log").mkdir(parents=True)
+
+        result = discover_databases(tmp_path / "output")
         assert len(result) == 0
 
 
