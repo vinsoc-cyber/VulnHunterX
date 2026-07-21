@@ -842,23 +842,55 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             print(f"Warning: failed to load rule profile {profile_name!r}: {exc}", file=sys.stderr)
 
     if tool == "codeql":
-        return _run_codeql_analyze(args, base_path, output_dir, verbose, force)
-    if tool == "semgrep":
-        return _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
-    if tool == "opengrep":
-        return _run_opengrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
-    if tool == "both":
+        analysis_rc = _run_codeql_analyze(args, base_path, output_dir, verbose, force)
+    elif tool == "semgrep":
+        analysis_rc = _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
+    elif tool == "opengrep":
+        analysis_rc = _run_opengrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
+    elif tool == "both":
         codeql_code = _run_codeql_analyze(args, base_path, output_dir, verbose, force)
         semgrep_code = _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
-        return 0 if semgrep_code == 0 or codeql_code == 0 else 1
-    if tool == "all":
+        analysis_rc = 0 if semgrep_code == 0 or codeql_code == 0 else 1
+    elif tool == "all":
         codeql_code = _run_codeql_analyze(args, base_path, output_dir, verbose, force)
         semgrep_code = _run_semgrep_analyze(args, base_path, output_dir, repos_dir, verbose, force)
         opengrep_code = _run_opengrep_analyze(
             args, base_path, output_dir, repos_dir, verbose, force
         )
-        return 0 if any(c == 0 for c in (codeql_code, semgrep_code, opengrep_code)) else 1
-    return 1
+        analysis_rc = 0 if any(c == 0 for c in (codeql_code, semgrep_code, opengrep_code)) else 1
+    else:
+        return 1
+
+    # ── Post-analyze context reconciliation (#159) ──
+    # A source scanner (Semgrep/OpenGrep) writes SARIF but, unlike prepare, never
+    # extracted context, so a source-only run reached verification with no context
+    # CSVs. Now that SARIF exists, extract context (backend="auto" prefers a real
+    # CodeQL DB when it covers the repo, else tree-sitter). Non-fatal: a context
+    # failure must not redefine scanner success. force=False so existing CSVs are
+    # never overwritten — analyze's --force means "re-analysis", not "re-extract".
+    # Only source scanners get this; a codeql-only run keeps its prepare-time
+    # lifecycle. Skipped for --dry-run (no SARIF is produced) and --skip-context.
+    if (
+        analysis_rc == 0
+        and tool in ("semgrep", "opengrep", "both", "all")
+        and not getattr(args, "dry_run", False)
+        and not getattr(args, "skip_context", False)
+    ):
+        print("\n--- Context extraction ---\n")
+        try:
+            ctx_rc = _run_context_extraction(
+                lang_filter=args.lang,
+                repo_filter=args.repo,
+                backend="auto",
+                force=False,
+                dry_run=False,
+            )
+            if ctx_rc != 0:
+                print("[WARN] Context extraction had failures (non-fatal)")
+        except Exception as exc:  # noqa: BLE001 - context is best-effort, never fatal
+            print(f"[WARN] Context extraction failed (non-fatal): {exc}")
+
+    return analysis_rc
 
 
 def _skip_existing_context(
@@ -1003,16 +1035,15 @@ def _run_context_extraction(
                 queries_dir=_BUNDLED_CONFIG / "queries" / "tools",
                 output_dir=output_dir,
             )
-            results = extractor.extract_all(
-                output_dir=output_dir,
-                lang_filter=lang_filter,
-                repo_filter=repo_filter,
-                dry_run=dry_run,
-            )
-            process_names = {n for _, _, n in codeql_dbs}
-            all_results.extend(
-                (n, lg, qr) for n, lg, qr in results if n in process_names
-            )
+            # Iterate the already-skip-filtered list (parallel to the tree-sitter
+            # loop below). extract_all() would re-discover every matching DB and
+            # overwrite context for repos _skip_existing_context just excluded,
+            # defeating force=False in a filter-less (config-mode) reconciliation.
+            for db_path, lg, repo_name in codeql_dbs:
+                query_results = extractor.extract_for_database(
+                    db_path, lg, repo_name, dry_run=dry_run
+                )
+                all_results.append((repo_name, lg, query_results))
 
     # ── Tree-sitter extraction ────────────────────────────────────
     if ts_repos:

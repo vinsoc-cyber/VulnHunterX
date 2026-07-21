@@ -261,6 +261,11 @@ def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
     parser.add_argument(
+        "--skip-context",
+        action="store_true",
+        help="Skip automatic context extraction after a source-only analysis",
+    )
+    parser.add_argument(
         "-j",
         "--jobs",
         type=int,

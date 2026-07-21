@@ -187,7 +187,13 @@ def discover_repos_for_context(
     repos_dir: Path,
 ) -> list[tuple[Path, str, str]]:
     """
-    Discover repos that have SARIF output and source code but no CodeQL database.
+    Discover repos that have SARIF output and source code.
+
+    Returns every source+SARIF candidate regardless of CodeQL DB presence.
+    Backend preference — prefer CodeQL where it actually covers the repo — is
+    applied by the caller's ``auto`` dedup, not here, so that an explicit
+    tree-sitter request is honoured and a language CodeQL cannot extract
+    context for (e.g. C#) is still reachable when a DB happens to exist.
 
     Returns:
         List of (repo_source_path, lang, repo_name) tuples.
@@ -211,11 +217,6 @@ def discover_repos_for_context(
             # Must have at least one SARIF file
             sarif_files = list(repo_dir.glob("*.sarif"))
             if not sarif_files:
-                continue
-
-            # Must NOT have a valid CodeQL database (log/ alone may be from a failed attempt)
-            db_dir = repo_dir / "database"
-            if (db_dir / "codeql-database.yml").exists():
                 continue
 
             # Must have source code

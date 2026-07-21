@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
+from vuln_hunter_x.codeql.context_extractor import discover_databases
 from vuln_hunter_x.context.treesitter_extractor import (
     CSV_FIELDS,
     TreeSitterContextExtractor,
     discover_repos_for_context,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────
 
@@ -68,17 +68,33 @@ class TestDiscoverRepos:
         assert result[0][1] == "c"
         assert result[0][2] == "myrepo"
 
-    def test_skips_repo_with_codeql_db(self, setup_repo):
-        repos_dir, output_dir, lang, name = setup_repo(
-            "c", "myrepo", {"main.c": "int main() {}"}
-        )
-        # Add CodeQL database marker
+    def test_discovers_source_repo_even_with_codeql_db(self, setup_repo):
+        # Discovery no longer excludes a repo that also has a CodeQL DB: it
+        # returns every source+SARIF candidate, and backend preference (prefer
+        # CodeQL when it covers the repo) is applied by the caller's auto-dedup.
+        repos_dir, output_dir, lang, name = setup_repo("c", "myrepo", {"main.c": "int main() {}"})
         db_dir = output_dir / "c" / "myrepo" / "database"
         db_dir.mkdir(parents=True)
         (db_dir / "codeql-database.yml").write_text("")
 
         result = discover_repos_for_context(output_dir, repos_dir)
-        assert len(result) == 0
+        assert len(result) == 1
+        assert result[0][2] == "myrepo"
+
+    def test_finds_csharp_repo_with_db(self, setup_repo):
+        # C# is tree-sitter-supported but has no CodeQL context queries, so a
+        # C# repo with a DB must still be reachable via tree-sitter — it would
+        # otherwise get context from neither backend.
+        repos_dir, output_dir, lang, name = setup_repo(
+            "csharp", "csrepo", {"Foo.cs": "class Foo {}"}
+        )
+        db_dir = output_dir / "csharp" / "csrepo" / "database"
+        db_dir.mkdir(parents=True)
+        (db_dir / "codeql-database.yml").write_text("")
+
+        result = discover_repos_for_context(output_dir, repos_dir)
+        assert len(result) == 1
+        assert result[0][1] == "csharp"
 
     def test_skips_repo_without_sarif(self, tmp_path):
         repos_dir = tmp_path / "repos" / "c" / "myrepo"
@@ -98,6 +114,30 @@ class TestDiscoverRepos:
         # No repos dir
 
         result = discover_repos_for_context(tmp_path / "output", tmp_path / "repos")
+        assert len(result) == 0
+
+
+# ── discover_databases (CodeQL side) ──────────────────────────────
+
+
+class TestDiscoverDatabases:
+    def test_yml_marker_is_a_database(self, tmp_path):
+        db_dir = tmp_path / "output" / "c" / "myrepo" / "database"
+        db_dir.mkdir(parents=True)
+        (db_dir / "codeql-database.yml").write_text("")
+
+        result = discover_databases(tmp_path / "output")
+        assert len(result) == 1
+        assert result[0][1] == "c"
+        assert result[0][2] == "myrepo"
+
+    def test_log_only_is_not_a_database(self, tmp_path):
+        # A failed CodeQL DB attempt leaves only database/log/ (no yml). It
+        # must NOT count as a database, else it shadows the tree-sitter path.
+        db_dir = tmp_path / "output" / "c" / "myrepo" / "database"
+        (db_dir / "log").mkdir(parents=True)
+
+        result = discover_databases(tmp_path / "output")
         assert len(result) == 0
 
 
