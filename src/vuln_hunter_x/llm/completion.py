@@ -4,7 +4,7 @@
 """Shared litellm.completion helper for the non-verification call sites.
 
 Centralizes kwargs assembly, OpenAI-compat extras, and optional LiteLLM retry
-so fuzz-repair / build-help / report-translation no longer each re-implement the
+so build-help / report-translation no longer each re-implement the
 call. The verification path keeps using ``LLMClient`` (which owns the key pool +
 cost tracking); this helper deliberately does NOT — the callers pass an already
 provider-prefixed ``model`` and their derived ``api_key`` / ``api_base``.

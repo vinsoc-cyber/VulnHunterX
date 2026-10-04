@@ -42,7 +42,6 @@ body:
         - LLM verification / triage
         - SARIF parsing
         - CLI
-        - Fuzzing
         - Reporting
         - Configuration
         - Other / not sure

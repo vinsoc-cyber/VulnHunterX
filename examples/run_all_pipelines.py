@@ -384,90 +384,6 @@ def stage_verify(
         return "FAIL", error_msg[:80]
 
 
-def stage_build_sanitized(
-    repo_name: str,
-    force: bool = False,
-    dry_run: bool = False,
-) -> tuple[str, str]:
-    """
-    Stage 5 (fuzz): Build repo with sanitizers for fuzz harness linking.
-    C/C++ only.
-    """
-    cmd = _CLI + ["build-sanitized", "--repo", repo_name]
-    if force:
-        cmd.append("--force")
-    if dry_run:
-        return "DRY-RUN", "Would run build-sanitized"
-    success, output = run_command(cmd, timeout=2400)
-    if success:
-        if "OK" in output:
-            return "OK", "Sanitized build done"
-        return "SKIP", "Build skipped or already exists"
-    return "FAIL", (output or "Build failed")[:80]
-
-
-def stage_extract_fuzz_context(
-    repo_name: str,
-    dry_run: bool = False,
-) -> tuple[str, str]:
-    """
-    Stage 6 (fuzz): Extract fuzz context CSVs (function_signatures, includes).
-    C/C++ only.
-    """
-    cmd = _CLI + ["extract-fuzz-context", "--repo", repo_name]
-    if dry_run:
-        return "DRY-RUN", "Would extract fuzz context"
-    success, output = run_command(cmd)
-    if success:
-        return "OK", "Fuzz context extracted"
-    return "FAIL", (output or "Extract failed")[:80]
-
-
-def stage_generate_fuzz_drivers(
-    repo_name: str,
-    build: bool = True,
-    dry_run: bool = False,
-) -> tuple[str, str]:
-    """
-    Stage 7 (fuzz): Generate fuzz drivers and optionally build.
-    C/C++ only.
-    """
-    cmd = _CLI + ["generate-fuzz-drivers", "--repo", repo_name, "--verdict", "tp,nmd"]
-    if build:
-        cmd.extend(["--build", "--llm-fix"])
-    if dry_run:
-        return "DRY-RUN", "Would generate (and build) fuzz drivers"
-    success, output = run_command(cmd, timeout=600)
-    if success:
-        count = output.count(".cc:") or output.count("harness")
-        return "OK", f"Drivers generated (build={'yes' if build else 'no'})"
-    return "FAIL", (output or "Generate failed")[:80]
-
-
-def stage_fuzz_run(
-    repo_name: str,
-    timeout: int = 60,
-    max_fuzz_time: int = 30,
-    dry_run: bool = False,
-) -> tuple[str, str]:
-    """
-    Stage 8 (fuzz): Run libFuzzer for compiled harnesses, collect crashes.
-    C/C++ only.
-    """
-    cmd = _CLI + [
-        "fuzz-run",
-        "--repo", repo_name,
-        "--timeout", str(timeout),
-        "--max-fuzz-time", str(max_fuzz_time),
-    ]
-    if dry_run:
-        return "DRY-RUN", "Would run fuzzers"
-    success, output = run_command(cmd, timeout=timeout * 20)  # allow multiple harnesses
-    if success:
-        return "OK", "Fuzz run done"
-    return "FAIL", (output or "Fuzz run failed")[:80]
-
-
 # =============================================================================
 # Main Pipeline Runner
 # =============================================================================
@@ -482,14 +398,10 @@ def run_pipeline(
     verify_limit: int = 10,
     dry_run: bool = False,
     base_path: Path | None = None,
-    run_fuzz: bool = False,
-    fuzz_timeout: int = 60,
-    fuzz_max_time: int = 30,
+    max_iterations: int = 5,
 ) -> dict:
     """
     Run the pipeline for all repositories.
-    If run_fuzz is True, run stages 5-8 (build-sanitized, extract-fuzz-context,
-    generate-fuzz-drivers --build, fuzz-run) for C/C++ repos after stage 4.
     
     Returns:
         Summary statistics dictionary
@@ -531,10 +443,6 @@ def run_pipeline(
             "analyze": None,
             "extract": None,
             "verify": None,
-            "build_sanitized": None,
-            "extract_fuzz_context": None,
-            "generate_fuzz_drivers": None,
-            "fuzz_run": None,
         }
         
         # Stage 1: Clone
@@ -577,7 +485,7 @@ def run_pipeline(
                 name,
                 lang=lang,
                 limit=verify_limit,
-                max_iterations=args.max_iterations,
+                max_iterations=max_iterations,
                 force=force or force_verify,
                 dry_run=dry_run,
                 base_path=base_path,
@@ -629,40 +537,6 @@ def run_pipeline(
         else:
             stats["successful"] += 1
 
-        # Stages 5-8 (fuzz): C/C++ only, when --fuzz
-        if run_fuzz and lang in ("c", "cpp"):
-            # Stage 5: build-sanitized
-            print(f"[{timestamp()}] BuildSan: ", end="", flush=True)
-            status, msg = stage_build_sanitized(name, force=force, dry_run=dry_run)
-            print(f"[{status}] {msg}")
-            repo_stats["build_sanitized"] = {"status": status, "message": msg}
-            if status == "FAIL":
-                stats["failed"] += 1
-                stats["repos"][name] = repo_stats
-                continue
-
-            # Stage 6: extract-fuzz-context
-            print(f"[{timestamp()}] FuzzCtx:  ", end="", flush=True)
-            status, msg = stage_extract_fuzz_context(name, dry_run=dry_run)
-            print(f"[{status}] {msg}")
-            repo_stats["extract_fuzz_context"] = {"status": status, "message": msg}
-            if status == "FAIL":
-                stats["failed"] += 1
-                stats["repos"][name] = repo_stats
-                continue
-
-            # Stage 7: generate-fuzz-drivers --build
-            print(f"[{timestamp()}] GenFuzz:  ", end="", flush=True)
-            status, msg = stage_generate_fuzz_drivers(name, build=True, dry_run=dry_run)
-            print(f"[{status}] {msg}")
-            repo_stats["generate_fuzz_drivers"] = {"status": status, "message": msg}
-
-            # Stage 8: fuzz-run
-            print(f"[{timestamp()}] FuzzRun:  ", end="", flush=True)
-            status, msg = stage_fuzz_run(name, timeout=fuzz_timeout, max_fuzz_time=fuzz_max_time, dry_run=dry_run)
-            print(f"[{status}] {msg}")
-            repo_stats["fuzz_run"] = {"status": status, "message": msg}
-        
         # Count skips
         stages_to_check = [repo_stats["clone"], repo_stats["analyze"], repo_stats["extract"]]
         if run_verify and repo_stats["verify"]:
@@ -941,24 +815,6 @@ def main():
         default=Path("config/repos.yaml"),
         help="Path to repos.yaml (default: config/repos.yaml)",
     )
-    parser.add_argument(
-        "--fuzz",
-        action="store_true",
-        help="Run fuzz stages 5-8 for C/C++ repos (build-sanitized, extract-fuzz-context, generate-fuzz-drivers --build, fuzz-run)",
-    )
-    parser.add_argument(
-        "--fuzz-timeout",
-        type=int,
-        default=60,
-        help="Timeout per harness for fuzz-run in seconds (default: 60)",
-    )
-    parser.add_argument(
-        "--fuzz-max-time",
-        type=int,
-        default=30,
-        help="libFuzzer -max_total_time per harness (default: 30)",
-    )
-    
     args = parser.parse_args()
     
     # Setup
@@ -1014,8 +870,6 @@ def main():
                 print(f"  Verify: LLM mode, limit={args.verify_limit}")
             else:
                 print("  Verify: DISABLED (--no-verify)")
-            if args.fuzz:
-                print("  Fuzz: ENABLED (stages 5-8 for C/C++)")
             print("=" * 70)
             
             # Run pipeline
@@ -1031,9 +885,7 @@ def main():
                 verify_limit=args.verify_limit,
                 dry_run=args.dry_run,
                 base_path=base_path,
-                run_fuzz=args.fuzz,
-                fuzz_timeout=args.fuzz_timeout,
-                fuzz_max_time=args.fuzz_max_time,
+                max_iterations=args.max_iterations,
             )
             
             elapsed = time.time() - start_time

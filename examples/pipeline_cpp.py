@@ -18,6 +18,7 @@ Usage:
     python examples/pipeline_cpp.py --api        # Use Python API instead of CLI
 """
 
+import argparse
 import subprocess
 import sys
 import time
@@ -95,28 +96,6 @@ def run_pipeline(repo: str, dry_run: bool, skip_clone: bool) -> dict[str, bool]:
     return results
 
 
-def run_fuzz(repo: str, dry_run: bool) -> dict[str, bool]:
-    """Stages 5-8: fuzz confirmation."""
-    results: dict[str, bool] = {}
-    print_header(f"[{repo}] Stage 5: Build Sanitized")
-    results["build-sanitized"] = run_command(
-        _CLI + ["build-sanitized", "--repo", repo], dry_run
-    )
-    print_header(f"[{repo}] Stage 6: Extract Fuzz Context")
-    results["extract-fuzz-context"] = run_command(
-        _CLI + ["extract-fuzz-context", "--repo", repo], dry_run
-    )
-    print_header(f"[{repo}] Stage 7: Generate Fuzz Drivers")
-    results["generate-fuzz-drivers"] = run_command(
-        _CLI + ["generate-fuzz-drivers", "--repo", repo, "--build", "--llm-fix"], dry_run
-    )
-    print_header(f"[{repo}] Stage 8: Fuzz Run")
-    results["fuzz-run"] = run_command(
-        _CLI + ["fuzz-run", "--repo", repo, "--triage"], dry_run
-    )
-    return results
-
-
 def run_with_api(repo: str) -> None:
     print_header(f"Python API — {repo}")
     sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -133,10 +112,14 @@ def run_with_api(repo: str) -> None:
 
 
 def main() -> None:
-    dry_run = "--dry-run" in sys.argv
-    skip_clone = "--skip-clone" in sys.argv
-    use_api = "--api" in sys.argv
-    do_fuzz = "--fuzz" in sys.argv
+    parser = argparse.ArgumentParser(description="Run the C++ static-analysis pipeline.")
+    parser.add_argument("--dry-run", action="store_true", help="Preview without executing")
+    parser.add_argument("--skip-clone", action="store_true", help="Reuse an existing checkout")
+    parser.add_argument("--api", action="store_true", help="Use the Python verification API")
+    args = parser.parse_args()
+    dry_run = args.dry_run
+    skip_clone = args.skip_clone
+    use_api = args.api
 
     print("""
 ╔══════════════════════════════════════════════════════════════════════╗
@@ -157,8 +140,6 @@ def main() -> None:
     for repo_cfg in REPOS:
         repo = repo_cfg["name"]
         all_results[repo] = run_pipeline(repo, dry_run, skip_clone)
-        if do_fuzz:
-            all_results[repo].update(run_fuzz(repo, dry_run))
 
     print_header("Pipeline Summary")
     for repo_cfg in REPOS:
