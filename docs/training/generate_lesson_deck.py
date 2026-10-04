@@ -8,7 +8,7 @@ This is the teaching deck that accompanies docs/training/LESSON.md — a broader
 more foundational talk than the product-intro 60-min deck in docs/presentation/:
 SAST vs DAST, how CodeQL/Semgrep scan, AST + control/data flow (CodeQL vs
 tree-sitter), LLM-verification pros/cons, then VulnHunterX architecture, CLI, and
-results/limitations (static + LLM only; fuzzing out of scope).
+results/limitations of the supported static-analysis and LLM pipeline.
 
 The visual toolkit (theme, slide templates, code/flow helpers) is copied from
 docs/presentation/generate_deck.py — that module builds its own deck at import
@@ -674,7 +674,7 @@ bullets_slide(
      ("How CodeQL & Semgrep actually find bugs", 0, INK, True),
      ("AST, control flow & data flow (CodeQL vs tree-sitter)", 0, INK, True),
      ("LLM vulnerability verification — pros & cons", 0, INK, True),
-     ("VulnHunterX architecture & stages (no fuzzing)", 0, INK, True),
+     ("VulnHunterX architecture & stages", 0, INK, True),
      ("Using it: CLI + a worked example", 0, INK, True),
      ("Results & limitations  →  then the hands-on workshop", 0, INK, True)],
     notes="Seven parts. The first four are vendor-neutral fundamentals you can "
@@ -709,8 +709,7 @@ table_slide(
     notes="SAST reads code like a pedantic reviewer — sees everything, can't "
           "prove reachability, over-reports. DAST throws real traffic at a live "
           "app — exploitable but only covers what it hit. Complementary. "
-          "VulnHunterX is a SAST tool (its optional fuzzing stage adds DAST-like "
-          "runtime confirmation for C/C++ — out of scope today).")
+          "VulnHunterX combines SAST with evidence-based LLM verification.")
 
 bullets_slide(
     "The SAST false-positive problem",
@@ -1145,7 +1144,7 @@ table_slide(
           "dismissed on turn one. That's the engineering behind a reliable pipeline.")
 
 # 5 — VulnHunterX architecture ----------------------------------------------- #
-section_slide(5, "Part 5", "VulnHunterX (no fuzzing): architecture & stages")
+section_slide(5, "Part 5", "VulnHunterX architecture & stages")
 
 code_slide(
     "The big picture",
@@ -1169,7 +1168,7 @@ table_slide(
      ["3", "verify", "SARIF + context → verdicts (TP/FP/NMD + confidence)"],
      ["4", "report", "verdicts → Markdown report (EN / VI)"]],
     col_widths=[1.1, 2.0, 8.85],
-    caption="Stages 5–8 add ASan build + fuzzing for C/C++ — out of scope today.",
+    caption="scan runs all four supported stages in one command.",
     notes="Four stages to a report. 'scan' runs all four; the individual commands "
           "let you re-run one stage (e.g. re-verify with a different model without "
           "rebuilding the DB). Stage 1 creates the AST context CSVs from Part 3.")

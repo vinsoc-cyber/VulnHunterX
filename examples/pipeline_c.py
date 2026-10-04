@@ -16,7 +16,6 @@ Usage:
     python examples/pipeline_c.py --dry-run    # Preview without executing
     python examples/pipeline_c.py --skip-clone # Skip clone if already exists
     python examples/pipeline_c.py --api        # Use Python API instead of CLI
-    python examples/pipeline_c.py --fuzz       # Include fuzz stages 5-8 (c-ares only)
 """
 
 import subprocess

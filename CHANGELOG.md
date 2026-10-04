@@ -7,6 +7,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Removed documentation and configuration examples for unsupported fuzzing
+  stages 5–8. Current guides, workshops, and slide decks describe the supported
+  `prepare → analyze → verify → report` pipeline. Legacy implementation cleanup
+  remains tracked in `docs/FUZZING_REMOVAL_PLAN.md`.
+
 ### Added
 - **C# / .NET language support** to full parity with the other languages:
   CLI wiring, tree-sitter context extraction (`.cs`), CodeQL

@@ -85,7 +85,7 @@ repositories: []
 repos_dir: repos
 
 # Output directory: all stage outputs live under output/<lang>/<repo_name>/
-# (database, SARIF, context, verification_results, sanitized_build, fuzz_targets, fuzz_results)
+# (database, SARIF, context, verification_results)
 output_dir: output
 
 # Guided questions prompts:
@@ -107,26 +107,3 @@ output_dir: output
 #   - "injection"
 #   - "xss"
 #   - "auth"
-
-# =============================================================================
-# Fuzz Pipeline Settings (Stages 5-8, C/C++ only)
-# =============================================================================
-
-fuzz:
-  # Max LLM fix attempts for compile/link errors in fuzz harnesses (Stage 7.5)
-  max_fix_iterations: 5
-
-  # Extra include directories for harness compilation (-I flags)
-  extra_include_dirs: []
-
-  # Extra library directories for harness linking (-L flags)
-  extra_lib_dirs: []
-
-  # Extra libraries to link (-l flags, e.g. ["m", "pthread"])
-  extra_link_libs: []
-
-  # Extra compiler flags for harness compilation
-  extra_cflags: []
-
-  # Extra linker flags for harness linking
-  extra_ldflags: []

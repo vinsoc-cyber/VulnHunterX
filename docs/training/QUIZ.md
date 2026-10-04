@@ -99,8 +99,8 @@ answer key (with brief explanations) is at the bottom.
 **Q13. What are pipeline Stages 1–4, in order?**
 - A. verify → analyze → prepare → report
 - B. prepare → analyze → verify → report
-- C. analyze → verify → fuzz → report
-- D. scan → build → fuzz → triage
+- C. analyze → verify → prepare → report
+- D. scan → build → report → analyze
 
 **Q14. Which `--profile` loads the in-repo custom CodeQL and Semgrep rules (best for offline use)?**
 - A. `standard`

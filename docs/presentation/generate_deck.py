@@ -574,7 +574,7 @@ card_grid_slide("Key features", [
     {"head": "Multi-turn verification", "body": "context expansion → verdict + confidence", "accent": EMERALD},
     {"head": "Flexible inputs", "body": "Git URL · local dir · batch repos.yaml", "accent": SLATE},
     {"head": "Reports", "body": "Markdown EN/VI — summary + per-finding detail", "accent": INDIGO},
-    {"head": "Fuzzing (C/C++)", "body": "libFuzzer / Atheris / Jazzer + crash triage", "accent": ROSE},
+    {"head": "Guided questions", "body": "Rule-specific checklists grounded in source evidence", "accent": ROSE},
 ], cols=2, top=1.55, card_h=1.18, gap=0.28,
    notes="""
 C# is the newest language — buildless CodeQL extraction, no dotnet build needed.
@@ -582,7 +582,7 @@ Most of the room will have at least one of these 8 languages in their stack.
 """)
 
 # 7 — Pipeline flowchart (diagram)
-s = content_slide("The pipeline — 5 steps, 1 command")
+s = content_slide("The pipeline — 4 stages, 1 command")
 nodes = [
     ("Source", "git / local / repos.yaml", SLATE),
     ("Static Analysis", "CodeQL · Semgrep · OpenGrep", INDIGO),
@@ -610,23 +610,12 @@ for i, lab in enumerate(labels):
     pill(s, int(x + nw / 2 - Inches(0.75)), int(y + nh + Inches(0.25)),
          Inches(1.5), Inches(0.42), lab, fillc, color=txc, size=12)
     x = int(x + nw + gap)
-# fuzz sub-row
-fz = soft_shadow(shape(s, RR, Inches(0.55), Inches(5.55), Inches(12.2), Inches(1.15),
-                       fill=RGBColor(0xEE, 0xF2, 0xF7), line=BORDER))
-textbox(s, Inches(0.8), Inches(5.66), Inches(11.6), Inches(0.4),
-        [[("+ 4 optional fuzz stages  (C/C++ only)", 13, GREY, True, False)]])
-fstages = ["build-sanitized", "extract-fuzz-context", "generate-fuzz-drivers", "fuzz-run"]
-x = Inches(0.85)
-for i, fs in enumerate(fstages):
-    pill(s, x, Inches(6.08), Inches(2.6), Inches(0.46), fs, AMBER, size=11.5)
-    if i < len(fstages) - 1:
-        textbox(s, int(x + Inches(2.62)), Inches(6.12), Inches(0.3), Inches(0.4),
-                [[("→", 16, AMBER, True, False)]], align=CENTER)
-    x = int(x + Inches(2.92))
+textbox(s, Inches(0.8), Inches(5.55), Inches(11.6), Inches(0.7),
+        [[("scan runs prepare → analyze → verify → report", 18, NAVY_TX, True, False)]],
+        align=CENTER)
 _notes(s, """
-README "Pipeline Stages". prepare → analyze → verify → report are the core four;
-`scan` runs them in one command. Fuzz stages only apply to C/C++ and only on
-Linux/macOS (covered under Windows support).
+README "Pipeline Stages". prepare → analyze → verify → report are the four
+supported stages; `scan` runs them in one command.
 """)
 
 # 8 — 4-stage stepper (diagram)
@@ -1126,7 +1115,7 @@ compare their report.md verdicts against this list.
 section_slide("Part 4", "Homework — dvcp")
 
 # 28 — dvcp homework + run (NEW)
-code_slide("Homework — scan dvcp (Damn Vulnerable C Program)", [
+code_slide("Homework — scan dvcp", [
     "# config/repos.yaml already defines dvcp (C needs a build command):",
     "#   url: github.com/hardik05/Damn_Vulnerable_C_Program",
     "#   build_command: gcc -g -o dvcp imgRead.c",
@@ -1138,15 +1127,11 @@ code_slide("Homework — scan dvcp (Damn Vulnerable C Program)", [
     "vuln-hunter-x prepare --repo dvcp             # clone + build + CodeQL DB",
     "vuln-hunter-x analyze --repo dvcp",
     "vuln-hunter-x verify  --repo dvcp --limit 5 --report",
-    "",
-    "# stretch (Linux/macOS): fuzz the real library",
-    "python examples/pipeline_c.py --fuzz",
 ], caption="Your task: run it, open the report, list the TPs and FPs — then check against the answer key.",
    notes="""
 dvcp = Damn Vulnerable C Program (hardik05), a single imgRead.c. C requires a
 build_command for CodeQL DB creation — already set in config/repos.yaml.
-examples/pipeline_c.py runs c-ares (real-world) + dvcp. The --fuzz stretch runs a
-sanitizer build + libFuzzer on c-ares (Linux/macOS only). Bring your TP/FP list to
+examples/pipeline_c.py runs c-ares (real-world) + dvcp. Bring your TP/FP list to
 compare against the next slide.
 """)
 
