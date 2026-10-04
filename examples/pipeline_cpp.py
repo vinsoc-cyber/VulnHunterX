@@ -16,7 +16,6 @@ Usage:
     python examples/pipeline_cpp.py --dry-run    # Preview without executing
     python examples/pipeline_cpp.py --skip-clone # Skip clone if already exists
     python examples/pipeline_cpp.py --api        # Use Python API instead of CLI
-    python examples/pipeline_cpp.py --fuzz       # Include fuzz stages 5-8
 """
 
 import subprocess

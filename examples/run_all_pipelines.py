@@ -14,10 +14,6 @@ Stages:
 2. Analyze: Run CodeQL security analysis (generates SARIF)
 3. Extract: Extract context CSVs for multi-turn verification
 4. Verify: Verify findings with LLM (LLM mode)
-5. [optional] Build with sanitizers for fuzz harness linking (C/C++ only)
-6. [optional] Extract fuzz context CSVs (function_signatures, includes) from C/C++ databases (C/C++ only)
-7. [optional] Generate libFuzzer harness .cc from verified findings (C/C++ only)
-8. [optional] Run libFuzzer for each compiled harness; collect crashes and write a summary. (C/C++ only)
 
 Features:
 - Skips stages if results already exist (use --force to override)
@@ -32,7 +28,6 @@ Usage:
     python examples/run_all_pipelines.py --dry-run    # Preview without executing
     python examples/run_all_pipelines.py --no-verify  # Skip verification stage
     python examples/run_all_pipelines.py --verify-limit 5
-    python examples/run_all_pipelines.py --fuzz --repo libucl   # Include fuzz stages 5-8 (C/C++)
 """
 
 import argparse

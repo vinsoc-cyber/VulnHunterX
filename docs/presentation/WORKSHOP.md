@@ -94,12 +94,6 @@ vuln-hunter-x verify --repo pyyaml --provider ollama  --model ollama/llama3.2 --
 #   edit config/semgrep-custom/<lang>.yaml  (set metadata.cwe: ["CWE-NNN"])
 vuln-hunter-x analyze --repo pyyaml --profile full        # custom rules only fire under `full`
 python scripts/audit_rule_coverage.py --fail-on-gaps
-
-# H4 — stretch (Linux/macOS only): fuzz a C target
-vuln-hunter-x build-sanitized       --repo libucl
-vuln-hunter-x extract-fuzz-context  --repo libucl
-vuln-hunter-x generate-fuzz-drivers --repo libucl --build --llm-fix
-vuln-hunter-x fuzz-run              --repo libucl --triage
 ```
 
 ---

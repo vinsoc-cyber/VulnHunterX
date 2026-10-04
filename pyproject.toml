@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vulnhunterx"
 version = "1.0.0"
-description = "SAST (CodeQL, Semgrep) + fuzzing + LLM vulnerability hunting and verification"
+description = "SAST (CodeQL, Semgrep, OpenGrep) + LLM vulnerability hunting and verification"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = { text = "MIT" }

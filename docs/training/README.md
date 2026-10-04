@@ -3,7 +3,7 @@
 A complete developer lesson on using VulnHunterX to scan your own source: a
 **120-minute presentation** (64 slides, dark theme), a **30-minute hands-on workshop** on a
 vulnerable C++ repo, and a **20-question quiz**. Scope is static analysis + LLM
-verification (pipeline Stages 1–4); fuzzing (Stages 5–8) is intentionally excluded.
+verification through the four supported pipeline stages.
 
 > This is a teaching set, distinct from the product-intro deck in
 > [`../presentation/`](../presentation/). It builds the fundamentals (SAST/DAST,
@@ -40,7 +40,7 @@ talk track). Open the result in PowerPoint, LibreOffice Impress, or Google Slide
 | 2 | How CodeQL & Semgrep scan | 24 |
 | 3 | AST, control flow & data flow (CodeQL vs tree-sitter) | 22 |
 | 4 | LLM vulnerability verification — pros & cons | 14 |
-| 5 | VulnHunterX architecture & stages (no fuzzing) | 30 |
+| 5 | VulnHunterX architecture & stages | 30 |
 | 6 | How to use it: CLI + a worked example | 10 |
 | 7 | Results & limitations + benchmarks | 16 |
 | — | **Hands-on workshop** (`WORKSHOP-cpp.md`) | 30 |

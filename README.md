@@ -1,6 +1,6 @@
 # VulnHunterX
 
-**SAST (CodeQL, Semgrep, OpenGrep) + fuzzing + LLM vulnerability hunting and verification**
+**SAST (CodeQL, Semgrep, OpenGrep) + LLM vulnerability hunting and verification**
 
 A Python framework that pairs static analysis with multi-turn LLM verification to suppress false positives in SAST findings, implementing the *Vulnhalla* methodology of guided-question, evidence-anchored triage.
 
@@ -54,7 +54,6 @@ The **Vulnhalla** methodology forces the LLM to:
 | **Multi-turn verification** | Dynamic context expansion (callers, structs, globals, macros, free-sites) |
 | **Inputs** | Git URL, local directory, or batch list (`repos.yaml`) |
 | **Reports** | Markdown, EN/VI, executive summary + per-finding detail |
-| **Fuzz confirmation** | libFuzzer / Atheris / Jazzer / Jazzer.js / php-fuzzer harness generation + crash triage |
 | **Benchmarking** | Precision/recall across 6 ground-truth datasets (see [benchmarks/README.md](benchmarks/README.md)) |
 
 ---
@@ -88,7 +87,7 @@ The fastest path is one of the per-language example scripts under [examples/](ex
 
 ```bash
 python examples/pipeline_python.py
-# Common flags: --dry-run, --skip-clone, --api ; C/C++ scripts also support --fuzz
+# Common flags: --dry-run, --skip-clone, --api
 ```
 
 | Script | Language | Real-world | Vulnerable |
@@ -167,16 +166,11 @@ Or list it under `repos:` in [config/repos.yaml](config/repos.yaml) and run `vul
 | 2 | `analyze` | CodeQL DB and/or source tree | SARIF findings |
 | 3 | `verify` | SARIF + context CSVs | JSON verdicts + reasoning |
 | 4 | `report` | Verification results | Markdown report (EN/VI) |
-| 5 | `build-sanitized` | Verified C/C++ findings | ASan/UBSan build manifest |
-| 6 | `extract-fuzz-context` | C/C++ source | Function signatures for harness generation |
-| 7 | `generate-fuzz-drivers` | Fuzz context + sanitized build | libFuzzer / Atheris / Jazzer harnesses |
-| 8 | `fuzz-run` | Compiled harnesses | Crash files + triage results |
 
 | Goal | Required stages | Optional |
 |---|---|---|
 | Static analysis only | 1, 2 | — |
 | LLM verification | 1, 2, 3 | 4 (`report`) |
-| Fuzz confirmation | 1, 2, 3, 5, 6, 7, 8 | 4 (`report`) |
 
 Stages 2–3 accept `--local-path` to operate directly on an arbitrary directory.
 
@@ -304,15 +298,6 @@ vuln-hunter-x report --repo libucl -o my-report.md --lang-report en
 | `--lang-report {en,vi,all}` | Report language(s) | `all` |
 
 Report sections: executive summary · findings overview (before/after verdicting) · severity breakdown · CWE distribution · per-finding detail (verdict, confidence, reasoning, dataflow).
-
-### Fuzz stages (C/C++ only)
-
-```bash
-vuln-hunter-x build-sanitized       --repo libucl
-vuln-hunter-x extract-fuzz-context  --repo libucl
-vuln-hunter-x generate-fuzz-drivers --repo libucl --build --llm-fix
-vuln-hunter-x fuzz-run              --repo libucl --triage
-```
 
 Run any subcommand with `--help` for full options.
 
@@ -491,8 +476,6 @@ VulnHunterX/
 │   ├── codeql/        # Database creation, analysis, context extraction
 │   ├── context/       # Heuristic + tree-sitter context extraction
 │   ├── core/          # Types, config, constants
-│   ├── dyntest/       # Language backends for fuzz stages 5–8
-│   ├── fuzz/          # C/C++ fuzz shims
 │   ├── llm/           # LLM client (LiteLLM) and prompt construction
 │   ├── opengrep/      # OpenGrep integration
 │   ├── questions/     # Guided-question loader
@@ -518,10 +501,7 @@ VulnHunterX/
         ├── database/              # CodeQL database
         ├── *.sarif                # SARIF results
         ├── context/               # Extracted CSVs
-        ├── verification_results/  # Verdict JSON + report.md
-        ├── sanitized_build/       # (C/C++) sanitizer build
-        ├── fuzz_targets/          # (C/C++) harnesses
-        └── fuzz_results/          # (C/C++) crashes
+        └── verification_results/  # Verdict JSON + report.md
 ```
 
 ---
