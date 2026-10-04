@@ -19,17 +19,17 @@ the LLM-backed verify stage (useful for smoke-testing the wiring).
 
 | Script | Language | Real-world target | Vulnerable target |
 | --- | --- | --- | --- |
-| [`basic_usage.py`](basic_usage.py) | — | Minimal Python-API smoke test (no clone, no LLM call) — verifies `import vuln_hunter_x` works. |
-| [`pipeline_c.py`](pipeline_c.py) | C | libxml2 | dvpwa-c (deliberately vulnerable C demo) |
-| [`pipeline_cpp.py`](pipeline_cpp.py) | C++ | leveldb | dvpwa-cpp |
+| [`basic_usage.py`](basic_usage.py) | — | Python API usage examples | — |
+| [`pipeline_c.py`](pipeline_c.py) | C | c-ares | dvcp |
+| [`pipeline_cpp.py`](pipeline_cpp.py) | C++ | re2 | insecure-coding-examples |
 | [`pipeline_python.py`](pipeline_python.py) | Python | PyYAML | dvpwa |
-| [`pipeline_javascript.py`](pipeline_javascript.py) | JavaScript | express | NodeGoat-style demo |
-| [`pipeline_java.py`](pipeline_java.py) | Java | jackson-databind | WebGoat-style demo |
-| [`pipeline_php.py`](pipeline_php.py) | PHP | symfony | DVWA-style demo |
-| [`pipeline_go.py`](pipeline_go.py) | Go | gin | gosec-baseline demo |
+| [`pipeline_javascript.py`](pipeline_javascript.py) | JavaScript | minimist | nodegoat |
+| [`pipeline_java.py`](pipeline_java.py) | Java | commons-collections | webgoat |
+| [`pipeline_php.py`](pipeline_php.py) | PHP | monolog | dvwa |
+| [`pipeline_go.py`](pipeline_go.py) | Go | gin | govwa |
 | [`pipeline_csharp.py`](pipeline_csharp.py) | C# | newtonsoft-json | WebGoat.NET demo (buildless CodeQL; `--scan` for one-shot) |
 | [`pipeline_zlib.py`](pipeline_zlib.py) | C | zlib (single-target, deeper dive) | — |
-| [`run_all_pipelines.py`](run_all_pipelines.py) | All | Iterates every per-language pipeline above. Heavy — use a local Ollama model. |
+| [`run_all_pipelines.py`](run_all_pipelines.py) | All | Processes repositories from `config/repos.yaml` | — |
 
 Per-script config (target repo names, `MAX_FINDINGS`, `MAX_ITERATIONS`)
 lives at the top of each file. Override targets by editing the `REPOS`
@@ -45,13 +45,16 @@ list in place.
 
 ## How a pipeline runs
 
-1. Clone the real + vulnerable repos under `repos/<lang>/<name>/` and
-   create CodeQL databases.
+1. `prepare` clones the targets under `repos/<lang>/<name>/`, creates CodeQL
+   databases, and extracts context CSVs.
 2. `analyze` with the configured rule profile.
-3. `extract-context` to populate `output/<lang>/<repo>/context/*.csv`.
-4. `verify` against the SARIF output with the LLM, producing
+3. `verify` against the SARIF output with the LLM, producing
    `output/<lang>/<repo>/verification_results/*.json`.
-5. Print a per-repo summary table.
+4. Verification generates a report; use `report` to regenerate it from saved
+   verdicts. The examples print a per-repository summary.
 
 Pass `--skip-clone` (most scripts) to reuse an existing checkout and
 database.
+
+The C, C++, zlib, and batch scripts reject obsolete fuzzing options. Their
+supported modes perform static analysis and LLM verification only.

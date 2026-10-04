@@ -49,9 +49,6 @@ PROMPT_SLICE_BUDGET_WINDOW_LINES = 80
 # ── Verification defaults ─────────────────────────────────────────────
 DEFAULT_MAX_ITERATIONS = 10
 
-# ── Fuzz fix-loop defaults ───────────────────────────────────────────
-DEFAULT_MAX_FIX_ITERATIONS = 5
-
 # ── Timeout defaults (seconds) ────────────────────────────────────────
 TIMEOUT_GIT_CLONE = 300  # 5 minutes
 TIMEOUT_CODEQL_DB_CREATE = 1800  # 30 minutes
@@ -59,7 +56,6 @@ TIMEOUT_CODEQL_ANALYSIS = 3600  # 1 hour
 TIMEOUT_CODEQL_QUERY = 600  # 10 minutes
 TIMEOUT_CODEQL_FINALIZE = 120  # 2 minutes
 TIMEOUT_SEMGREP_ANALYSIS = 3600  # 1 hour
-TIMEOUT_SANITIZED_BUILD = 1800  # 30 minutes
 
 # ── LLM request timeouts (seconds, forwarded to litellm.completion) ───
 # Distinct from the subprocess timeouts above. The verify path is bounded by
@@ -67,7 +63,7 @@ TIMEOUT_SANITIZED_BUILD = 1800  # 30 minutes
 # litellm.completion calls that do NOT go through LLMClient, so a stalled
 # backend can't hang the process (#131).
 TIMEOUT_LLM_HEALTH_CHECK = 30  # `vhx check` connectivity pings (max_tokens=10) — fail fast
-TIMEOUT_LLM_REQUEST = 180  # CodeQL build-help + fuzz driver-fix; mirrors LLMConfig.request_timeout default
+TIMEOUT_LLM_REQUEST = 180  # CodeQL build-help; mirrors LLMConfig.request_timeout default
 
 # ── CodeQL resource defaults ──────────────────────────────────────────
 CODEQL_THREADS = min(max(1, multiprocessing.cpu_count()), 8)  # cap at 8 to limit memory pressure
@@ -81,7 +77,3 @@ TRUNCATION_VERBOSE_MESSAGE = 2000
 TRUNCATION_TYPE_CONTEXT = 2000
 TRUNCATION_REASONING = 500
 TRUNCATION_ERROR_OUTPUT = 2000
-
-# ── Build log limits (characters) ────────────────────────────────────
-BUILD_LOG_LLM_PREVIEW_CHARS = 500  # LLM response preview per fix iteration
-BUILD_LOG_MAX_ERROR_CHARS = 10000  # full error text in build_log.json

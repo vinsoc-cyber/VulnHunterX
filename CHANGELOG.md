@@ -11,8 +11,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 - Removed documentation and configuration examples for unsupported fuzzing
   stages 5–8. Current guides, workshops, and slide decks describe the supported
-  `prepare → analyze → verify → report` pipeline. Legacy implementation cleanup
-  remains tracked in `docs/FUZZING_REMOVAL_PLAN.md`.
+  `prepare → analyze → verify → report` pipeline.
+
+### Removed
+
+- **Unsupported fuzzing implementation (stages 5–8)**: the four fuzz commands,
+  `vuln_hunter_x.fuzz`, `FuzzConfig`, `Config.fuzz`, and the `sanitized_build`,
+  `fuzz_targets`, and `fuzz_results` fields on `RepoPaths`. This breaks callers
+  of those Python interfaces and commands. The C/C++ example scripts and batch
+  runner reject the old fuzz options. Shared context queries, verification,
+  CodeQL build assistance, and report translation remain available.
+- Legacy YAML `fuzz:` sections and `MAX_FIX_ITERATIONS` are ignored with warnings
+  for the transition release; remove these settings from operator configuration.
+  Warning messages contain no setting values. See `docs/FUZZING_REMOVAL_PLAN.md`
+  for migration details. Existing scan results and benchmark history are retained.
 
 ### Added
 - **C# / .NET language support** to full parity with the other languages:

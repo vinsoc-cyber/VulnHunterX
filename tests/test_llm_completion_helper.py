@@ -53,29 +53,3 @@ def test_openai_compat_kwargs_applied(monkeypatch) -> None:
     )
     assert seen.get("enable_thinking") is True   # from openai_compat_kwargs
     assert seen["api_base"] == "http://dashscope.local"
-
-
-def test_fuzz_repair_passes_temperature_and_retry(monkeypatch) -> None:
-    """#152: the fuzz-repair path must opt into a defined temperature + retry
-    (was an unset temperature with no retry — a transient error aborted repair)."""
-    from types import SimpleNamespace
-
-    from vuln_hunter_x.core.constants import DEFAULT_LLM_TEMPERATURE
-    from vuln_hunter_x.fuzz.driver_fix_loop import make_llm_fix_fn
-
-    seen: dict = {}
-
-    def fake_run_completion(**kwargs):
-        seen.update(kwargs)
-        return SimpleNamespace(choices=[{"message": {"content": "int main(){return 0;}"}}])
-
-    monkeypatch.setattr(
-        "vuln_hunter_x.llm.completion.run_completion", fake_run_completion
-    )
-
-    fix_fn = make_llm_fix_fn(provider="openai", model="gpt-4o")
-    fix_fn("int main(){}", "error: undefined reference to foo", "g++ x.cpp")
-
-    assert seen["temperature"] == DEFAULT_LLM_TEMPERATURE   # defined, was provider-default
-    assert seen["num_retries"] == 2                          # retry, was none
-    assert seen["provider"] == "openai" and "gpt-4o" in seen["model"]
