@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
@@ -22,8 +21,6 @@ from vuln_hunter_x.core.constants import (
     DEFAULT_MAX_ITERATIONS,
     DEFAULT_OLLAMA_BASE_URL,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def _load_ollama_api_keys() -> list[str]:
@@ -193,12 +190,6 @@ class Config:
     @classmethod
     def from_dict(cls, data: dict[str, Any], base_path: Path | None = None) -> Config:
         """Create config from dictionary."""
-        # Transition release: accept legacy files without exposing their values.
-        if "fuzz" in data:
-            logger.warning(
-                "The 'fuzz' configuration section is ignored because fuzzing support "
-                "has been removed. Remove it from your configuration."
-            )
         # Ollama URL comes from environment only (not from YAML config)
         ollama_url = os.environ.get("OLLAMA_API_BASE", DEFAULT_OLLAMA_BASE_URL)
 
@@ -352,12 +343,5 @@ def load_config(
         config.llm.provider = env_provider
     if env_model:
         config.llm.model = env_model
-
-    # Transition release: this legacy setting no longer controls any behavior.
-    if "MAX_FIX_ITERATIONS" in os.environ:
-        logger.warning(
-            "MAX_FIX_ITERATIONS is ignored because fuzzing support has been removed. "
-            "Remove it from your environment."
-        )
 
     return config

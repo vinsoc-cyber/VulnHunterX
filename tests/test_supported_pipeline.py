@@ -104,7 +104,7 @@ def test_scan_preserves_source_only_fallback(tool, expected, tmp_path, monkeypat
 
 
 @pytest.mark.parametrize("legacy", [{"max_fix_iterations": "PRIVATE-SETTING"}, None, []])
-def test_legacy_yaml_warns_without_parsing_or_logging_values(legacy, tmp_path, caplog):
+def test_removed_yaml_settings_are_ignored_without_logging(legacy, tmp_path, caplog):
     import yaml
 
     path = tmp_path / "config" / "settings.yaml"
@@ -114,19 +114,16 @@ def test_legacy_yaml_warns_without_parsing_or_logging_values(legacy, tmp_path, c
         config = load_config(path)
     assert config.verification.jobs == 2
     assert not hasattr(config, "fuzz")
-    assert "'fuzz' configuration section is ignored" in caplog.text
-    assert "PRIVATE-SETTING" not in caplog.text
+    assert not caplog.records
 
 
 @pytest.mark.parametrize("legacy", ["PRIVATE-SETTING", "", "123"])
-def test_legacy_environment_is_ignored_without_logging_values(legacy, monkeypatch, caplog):
+def test_removed_environment_settings_are_ignored_without_logging(legacy, monkeypatch, caplog):
     monkeypatch.setenv("MAX_FIX_ITERATIONS", legacy)
     with caplog.at_level(logging.WARNING, logger="vuln_hunter_x.core.config"):
         config = load_config()
     assert not hasattr(config, "fuzz")
-    assert "MAX_FIX_ITERATIONS is ignored" in caplog.text
-    assert "PRIVATE-SETTING" not in caplog.text
-    assert "123" not in caplog.text
+    assert not caplog.records
 
 
 def test_current_configuration_and_merge_keep_supported_settings(monkeypatch, caplog):
