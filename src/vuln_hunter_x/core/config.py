@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-import contextlib
+import logging
 import os
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
@@ -19,10 +19,11 @@ from vuln_hunter_x.core.constants import (
     DEFAULT_LLM_PROVIDER,
     DEFAULT_LLM_SEED,
     DEFAULT_LLM_TEMPERATURE,
-    DEFAULT_MAX_FIX_ITERATIONS,
     DEFAULT_MAX_ITERATIONS,
     DEFAULT_OLLAMA_BASE_URL,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _load_ollama_api_keys() -> list[str]:
@@ -113,18 +114,6 @@ class VerificationConfig:
 
 
 @dataclass
-class FuzzConfig:
-    """Fuzz pipeline configuration (Stages 5-8, C/C++ only)."""
-
-    max_fix_iterations: int = DEFAULT_MAX_FIX_ITERATIONS
-    extra_include_dirs: list[str] = field(default_factory=list)
-    extra_lib_dirs: list[str] = field(default_factory=list)
-    extra_link_libs: list[str] = field(default_factory=list)
-    extra_cflags: list[str] = field(default_factory=list)
-    extra_ldflags: list[str] = field(default_factory=list)
-
-
-@dataclass
 class RepoPaths:
     """Paths for a single repo under output/<lang>/<repo_name>/."""
 
@@ -133,9 +122,6 @@ class RepoPaths:
     sarif_file: Path
     context: Path
     verification_results: Path
-    sanitized_build: Path
-    fuzz_targets: Path
-    fuzz_results: Path
 
 
 @dataclass
@@ -165,9 +151,6 @@ class PathsConfig:
             sarif_file=root / f"{repo_name}.sarif",
             context=root / "context",
             verification_results=root / "verification_results",
-            sanitized_build=root / "sanitized_build",
-            fuzz_targets=root / "fuzz_targets",
-            fuzz_results=root / "fuzz_results",
         )
 
 
@@ -198,7 +181,6 @@ class Config:
     verification: VerificationConfig = field(default_factory=VerificationConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
-    fuzz: FuzzConfig = field(default_factory=FuzzConfig)
 
     # Processing limits
     limit: int = 0
@@ -211,6 +193,12 @@ class Config:
     @classmethod
     def from_dict(cls, data: dict[str, Any], base_path: Path | None = None) -> Config:
         """Create config from dictionary."""
+        # Transition release: accept legacy files without exposing their values.
+        if "fuzz" in data:
+            logger.warning(
+                "The 'fuzz' configuration section is ignored because fuzzing support "
+                "has been removed. Remove it from your configuration."
+            )
         # Ollama URL comes from environment only (not from YAML config)
         ollama_url = os.environ.get("OLLAMA_API_BASE", DEFAULT_OLLAMA_BASE_URL)
 
@@ -261,22 +249,11 @@ class Config:
             persist_raw_response=bool(data.get("persist_raw_response", False)),
         )
 
-        fuzz_data = data.get("fuzz") or {}
-        fuzz = FuzzConfig(
-            max_fix_iterations=fuzz_data.get("max_fix_iterations", DEFAULT_MAX_FIX_ITERATIONS),
-            extra_include_dirs=fuzz_data.get("extra_include_dirs") or [],
-            extra_lib_dirs=fuzz_data.get("extra_lib_dirs") or [],
-            extra_link_libs=fuzz_data.get("extra_link_libs") or [],
-            extra_cflags=fuzz_data.get("extra_cflags") or [],
-            extra_ldflags=fuzz_data.get("extra_ldflags") or [],
-        )
-
         return cls(
             llm=llm,
             verification=verification,
             paths=paths,
             output=output,
-            fuzz=fuzz,
             limit=data.get("limit", 0),
             languages=data.get("languages", []),
             repositories=data.get("repositories", []),
@@ -327,7 +304,6 @@ class Config:
             verification=replace(self.verification, **_own(self.verification)),
             paths=self.paths,
             output=replace(self.output, **_own(self.output)),
-            fuzz=replace(self.fuzz, **_own(self.fuzz)),
             limit=kwargs.get("limit", self.limit),
             languages=kwargs.get("languages", self.languages),
             repositories=kwargs.get("repositories", self.repositories),
@@ -354,7 +330,6 @@ def load_config(
     - LLM_MODEL: LLM model name
     - OLLAMA_API_BASE: Ollama server URL (environment-specific)
     - CODEQL_PATH: CodeQL CLI path (environment-specific)
-    - MAX_FIX_ITERATIONS: Max LLM fix attempts for fuzz harnesses
     """
     # Start with defaults
     config = Config()
@@ -378,10 +353,11 @@ def load_config(
     if env_model:
         config.llm.model = env_model
 
-    # Fuzz environment overrides
-    env_max_fix = os.environ.get("MAX_FIX_ITERATIONS")
-    if env_max_fix:
-        with contextlib.suppress(ValueError):
-            config.fuzz.max_fix_iterations = int(env_max_fix)
+    # Transition release: this legacy setting no longer controls any behavior.
+    if "MAX_FIX_ITERATIONS" in os.environ:
+        logger.warning(
+            "MAX_FIX_ITERATIONS is ignored because fuzzing support has been removed. "
+            "Remove it from your environment."
+        )
 
     return config

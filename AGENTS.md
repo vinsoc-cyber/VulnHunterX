@@ -6,7 +6,7 @@ These instructions apply to Codex, Claude, and other coding agents working in th
 
 Read [README.md](README.md), [CONTRIBUTING.md](CONTRIBUTING.md), [security rules](docs/SECURITY_RULES.md), and [code standards](docs/CODE_STANDARDS.md). Read the relevant implementation and tests before editing. Use [Git workflow](docs/GIT_WORKFLOW.md) for branch and review conventions.
 
-The supported pipeline has four stages. Fuzzing is unsupported; residual implementation cleanup is tracked in [the removal plan](docs/FUZZING_REMOVAL_PLAN.md). Do not advertise legacy code as a supported capability.
+The supported pipeline has four stages. Fuzzing has been removed; [the completed removal plan](docs/FUZZING_REMOVAL_PLAN.md) records the migration policy and validation. Do not reintroduce the removed API as a supported capability.
 
 ## Project and architecture
 

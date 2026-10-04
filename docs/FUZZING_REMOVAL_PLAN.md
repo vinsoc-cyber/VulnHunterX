@@ -1,127 +1,118 @@
-# Plan to remove unsupported VulnHunterX fuzzing implementation
+# Fuzzing removal: implementation and migration
 
-Fuzzing is unsupported. Current product documentation, example configuration, and training materials describe only `prepare → analyze → verify → report`. Recommend removing the residual implementation in one focused breaking-change release. The current `scan` command already composes those four stages, so code cleanup primarily affects legacy CLI commands, configuration types, the fuzz package, and example scripts.
+The removal plan was implemented on 4 October 2026. VulnHunterX supports
+`prepare → analyze → verify → report` for C, C++, Python, JavaScript, PHP,
+Java, Go, and C#. `scan` composes these stages; `interactive` and its `wizard`
+alias dispatch a scan. Unsupported stages 5–8 have been removed.
 
-This maintainer plan is based on the local checkout reviewed on 4 October 2026. The documentation cleanup is complete; the remaining steps propose runtime code removal. Legacy symbols below are a deletion inventory, not usage instructions. External callers and their compatibility needs have not been inventoried.
+This document records the completed cleanup and migration policy. Names of
+removed interfaces below identify breaking changes, not supported operations.
+The changes are recorded under **Unreleased** in [CHANGELOG.md](../CHANGELOG.md).
 
-## Desired behavior and scope
+## Completed implementation
 
-The resulting product performs static analysis, evidence-based LLM triage, and report generation for all eight currently supported languages. It retains CodeQL database preparation, source-only Semgrep/OpenGrep scanning, CodeQL/tree-sitter/snippet context, guided questions, typed evidence, deterministic policies, provider routing, and EN/VI reports.
+| Area | Delivered change |
+| --- | --- |
+| [CLI parser](../src/vuln_hunter_x/cli/main.py) and [handlers](../src/vuln_hunter_x/cli/commands.py) | Removed imports, registrations, argument helpers, handlers, and dispatch for `build-sanitized`, `extract-fuzz-context`, `generate-fuzz-drivers`, and `fuzz-run` |
+| Python package | Deleted all 11 modules under `src/vuln_hunter_x/fuzz/`, including exports, harness generation, compilation repair, execution, corpus handling, and crash triage |
+| [Configuration](../src/vuln_hunter_x/core/config.py) | Removed `FuzzConfig`, `Config.fuzz`, construction and argument merging; removed `RepoPaths.sanitized_build`, `.fuzz_targets`, and `.fuzz_results` |
+| [Constants](../src/vuln_hunter_x/core/constants.py) | Removed `DEFAULT_MAX_FIX_ITERATIONS`, `TIMEOUT_SANITIZED_BUILD`, `BUILD_LOG_LLM_PREVIEW_CHARS`, and `BUILD_LOG_MAX_ERROR_CHARS`; retained `TIMEOUT_LLM_REQUEST` |
+| C++ queries | Deleted only `config/queries/tools/cpp/function_signatures.ql` and `includes.ql`, which had no remaining consumers |
+| [Examples](../examples/README.md) | Removed optional functions, invocations, flags, statistics, timeouts, and output hints from the C, C++, zlib, and batch scripts; refreshed target and stage descriptions |
+| Tests | Removed five dedicated fuzz/crash modules and the obsolete fuzz-repair test from the shared completion-helper module; added [supported-pipeline regressions](../tests/test_supported_pipeline.py) |
+| Documentation | Current guides, configuration examples, issue components, workshops, and regenerated decks describe the four supported stages; agent instructions now reflect completed removal |
 
-Remove stages 5–8 and their harness-generation, compilation repair, execution, corpus, and crash-triage behavior. Existing TP/FP/NMD verdicts remain static/LLM judgments and must not be presented as runtime exploit confirmation. NMD remains an abstention when evidence is inadequate; removal adds no substitute confirmation mechanism.
+The example dry-run check also exposed an existing out-of-scope `args` reference
+in the batch runner. Verification's `max_iterations` is now passed explicitly
+from the parser through `run_pipeline()` to `stage_verify()` and regression-tested.
 
-```mermaid
-flowchart LR
-    A[Prepare source and context] --> B[Analyze with SAST]
-    B --> C[Verify findings with evidence and LLM]
-    C --> D[Generate EN and VI reports]
-```
+## Migration policy
 
-## Findings and dependencies
+This is a breaking removal of the four commands and the Python APIs listed
+above. Removed commands fail with argparse's invalid-command error (exit code 2)
+and list the remaining choices. There are no compatibility imports or command
+aliases for fuzzing. Update automation to use the supported static pipeline.
 
-| Area | Observed dependency | Proposed action |
-| --- | --- | --- |
-| [cli/main.py](../src/vuln_hunter_x/cli/main.py) | Imports, parser registrations, argument helpers, and dispatch for four fuzz commands | Remove all four layers for those commands |
-| [cli/commands.py](../src/vuln_hunter_x/cli/commands.py) | `cmd_build_sanitized`, `cmd_extract_fuzz_context`, `cmd_generate_fuzz_drivers`, and `cmd_fuzz_run`; fuzz imports are local to handlers | Delete these handlers; keep `cmd_scan` and shared stage functions |
-| [fuzz package](../src/vuln_hunter_x/fuzz/__init__.py) | 11 Python files, 3,810 lines in this checkout, including package exports | Delete the package after detaching its consumers |
-| [core/config.py](../src/vuln_hunter_x/core/config.py) | `FuzzConfig`, `Config.fuzz`, YAML construction, argument merging, environment override, and three `RepoPaths` fields | Remove the feature's configuration and path fields throughout |
-| [core/constants.py](../src/vuln_hunter_x/core/constants.py) | Fuzz defaults and build-log limits; an LLM timeout is shared | Remove unused fuzz constants; retain shared timeout |
-| [confirm_findings.yaml](../config/confirm_findings.yaml) | The unsupported settings and output-directory descriptions have been removed | Complete; keep them out of the supported configuration example |
-| [C++ context queries](../config/queries/tools/cpp/qlpack.yml) | Stage 6 runs only `function_signatures.ql` and `includes.ql` | Delete these two feature-specific queries after checking remaining consumers |
-| [examples](../examples/README.md) | Four scripts have optional fuzz functions, flags, statistics, and output references | Retain scripts and stages 1–4; remove their optional fuzz paths |
-| Tests | Five dedicated fuzz/crash test modules plus one fuzz-specific test in a shared helper module | Remove dedicated tests and only the obsolete shared test; add removal regressions |
-| Packaging and documentation | Current product claims, issue option, workshops, and decks now describe the supported pipeline | Documentation cleanup complete; preserve historical results and add API migration guidance with code removal |
+For one transition release, an old YAML file containing `fuzz:` still loads:
+the entire section is ignored and a warning asks the operator to remove it.
+Its values are neither parsed nor logged. `MAX_FIX_ITERATIONS` is also ignored
+with a warning on presence, including an empty value. Remove that environment
+setting; it controls no remaining behavior. These warnings are transitional;
+a later release can remove the special diagnostics. Unrelated unknown YAML
+keys retain their existing handling.
 
-The legacy implementation and CLI are centered on C/C++ libFuzzer. Historical changelog text also mentions Atheris/Jazzer/php-fuzzer, but this reviewed package does not contain corresponding generators or runners. Do not assume separate implementations exist.
+The four affected examples reject obsolete `--fuzz`, `--fuzz-timeout`, and
+`--fuzz-max-time` options before starting work, including options supplied with
+`=`. Supported options such as `--dry-run`, `--skip-clone`, and `--api` remain
+available where previously provided.
 
-## Shared functionality to preserve
+Consumers importing `vuln_hunter_x.fuzz` or constructing the removed configuration
+fields must remove those calls. Install into a clean environment when checking
+migration so stale files from earlier installations cannot mask package removal.
 
-- Keep `llm/completion.py:run_completion()`, `codeql/repository.py` build assistance, and `reporting/markdown.py` translation. Keep `TIMEOUT_LLM_REQUEST`; revise its fuzz-related comment and the completion helper docstring.
-- Keep `codeql/context_extractor.py`, its `ContextExtractorDB`, database discovery, query execution, and `QUERIES_BY_LANG`. Stage 6 imports this shared module; the dependency direction does not make it a fuzz feature.
-- Keep ordinary `functions`, `callers`, `structs`, `globals`, `macros`, `free_sites`, `destructors`, and `field_writes` queries and CSVs. Keep `enums.ql` and `typedefs.ql`: `context/provider.py` and `context/evidence.py` also consume enum/typedef evidence, with tests for those CSVs. They are not currently in the ordinary C/C++ extraction list; any change to that coverage is a separate task.
-- Keep framework sanitizer/guard evidence, source-to-sink validation, prompt vocabulary, and security rules. Input sanitizers are distinct from the removed ASan/UBSan build stage.
-- Keep `_is_nonproduction_path()` and related prompt/tests that recognize test, benchmark, and fuzz harnesses in target repositories. Keep benchmark references to files such as `imgRead_libfuzzer.c` and targets such as fuzzgoat.
-- Keep normal target build commands and compiler support required by CodeQL preparation. Removing fuzzing does not make all compiled-language builds unnecessary.
-- Keep provider libraries, tree-sitter language bindings, YAML support, and the benchmark extras. `pyproject.toml` declares no dedicated fuzz dependency or fuzz extra to remove.
+## Preserved behavior and data
 
-## Recommended compatibility policy
+- CodeQL database preparation, normal target build commands and LLM build
+  assistance, source-only Semgrep/OpenGrep fallback, local-path mode, and all
+  eight language choices remain supported.
+- CodeQL/tree-sitter/snippet context, `ContextExtractorDB`, database discovery,
+  query execution, and `QUERIES_BY_LANG` remain. Ordinary functions, callers,
+  structs, globals, macros, free-site, destructor, and field-write queries and
+  CSVs remain. `enums.ql` and `typedefs.ql` remain because typed evidence consumes
+  them; their ordinary extraction coverage is unchanged.
+- Input sanitizer/guard evidence, source-to-sink validation, guided questions,
+  deterministic policies, provider routing, and repository-scoped source lookup
+  remain. Detection of test, benchmark, and fuzz harness files in scanned
+  projects remains, as do fuzzgoat targets and historical benchmark references.
+- Finding identity, anchors, TP/FP/NMD semantics, saved verdicts, opt-in raw
+  responses, and English/Vietnamese reports remain. These verdicts are
+  static/LLM judgments; they do not constitute executed exploit confirmation.
+- Provider dependencies, tree-sitter bindings, YAML support, and benchmark
+  extras remain. `pyproject.toml` had no dedicated fuzz dependency or extra.
+- Existing `output/`, `repos/`, crash/corpus artifacts, benchmark baselines, and
+  historical changelog entries were not deleted or migrated.
 
-Treat deletion of the four commands, `vuln_hunter_x.fuzz` imports, `FuzzConfig`, `Config.fuzz`, and the three `RepoPaths` fields as breaking changes. Document them in the next release's migration notes. The recommended end state has no fuzz implementation or compatibility stubs.
+## Validation record
 
-For operator configuration, preserve loading of an old YAML containing `fuzz:` for one transition release: ignore that section and emit a clear warning without printing its values. Remove the `MAX_FIX_ITERATIONS` override and document that it no longer controls anything; if warning on its presence during the transition, never log its value. Then remove the special compatibility warning in a later release according to the announced policy. Current `Config.from_dict()` already ignores unrelated keys, so strict validation of every unknown setting would be a separate behavior change.
+Checks used Python 3.12 in an isolated development environment, with synthetic
+targets and mocked providers for pipeline and report checks. No live provider
+or precision/recall benchmark run was required.
 
-Removed commands should exit nonzero with argparse's invalid-command error and list the remaining commands. Do not silently turn `fuzz-run` into `scan`. Examples that manually inspect `sys.argv` must explicitly reject obsolete `--fuzz`, `--fuzz-timeout`, and `--fuzz-max-time` options instead of silently ignoring them.
+- Before removal, the available main suite passed **1,810 tests**. The normal
+  `python -m pytest tests/` command cannot collect
+  `tests/test_recall_1192_services.py` because the ignored fixture
+  `benchmarks/results/test_proj/1192/ground-truth.json` is absent. The same
+  collection failure occurs after removal. The broader comparison excludes
+  only that module; its source and fixture handling are unchanged.
+- After removal, the available main suite passed **1,702 tests**. Comparing test
+  identities confirmed that all **1,657** retained baseline tests still pass;
+  **153** obsolete tests were removed and **45** new regressions passed. The
+  subsequently added batch-runner regression passed in the final focused run:
+  **192 tests** covering pipeline composition, configuration, local paths, the
+  wizard, saved verdicts, context, and reporting, including all **46** new tests.
+- The separate `benchmark/tests/` suite passed **58 tests** before and after.
+- Mocked saved verdicts (including opt-in raw responses) and English/Vietnamese
+  reports match the pre-removal revision byte for byte using fixed timestamps
+  and a deterministic translation stub.
+- C, C++, zlib, and synthetic batch example dry-runs pass. Removed-option
+  rejection and verification-option forwarding pass regression checks.
+- Wheel and sdist builds pass. Both archives contain verification and reporting
+  and omit the fuzz package. A clean wheel install passes remaining command
+  help checks, rejects the four removed commands with exit code 2, and cannot
+  import `vuln_hunter_x.fuzz`.
+- Required Ruff, formatting, and MyPy checks still report baseline issues:
+  **31 lint findings** remain; **28 source files** would reformat (31 before);
+  **30 type errors in 8 files** remain (49 in 11 files before). Comparison by
+  file and diagnostic found no new lint/type errors or newly unformatted files.
+  The new regression module passes Ruff and formatting checks.
 
-If external consumers require a prior deprecation release, stage warnings in that release before deleting the API. This is an alternative rollout choice, not a requirement to maintain fuzzing indefinitely.
+## Release and rollback
 
-## Implementation sequence
+Publish these removals as breaking changes with the migration policy above.
+External Python consumers have not been inventoried, so their migration needs
+remain a release consideration. The changes do not establish speed gains or
+unchanged real-world precision/recall; ordinary scans already omitted fuzzing.
 
-### 1 Establish a baseline
-
-Record focused tests and the main suite on the pre-removal revision in the selected development environment. Use mocked providers and subprocesses to capture parser choices, stage composition, local-path wiring, config merging, source-only fallback, saved verdict loading, and report generation. Record existing failures separately.
-
-Inventory callers of the removed imports and configuration fields. Confirm source and test references with `rg`; source counts above are a snapshot rather than a maintenance target.
-
-### 2 Detach interfaces and remove the package
-
-Remove `cmd_*` imports, four parser registrations, `_add_build_sanitized_args`, `_add_extract_fuzz_context_args`, `_add_generate_fuzz_drivers_args`, `_add_fuzz_run_args`, and dispatch branches from `cli/main.py`. Remove the matching four handlers from `cli/commands.py`, then delete all 11 modules under `src/vuln_hunter_x/fuzz/`.
-
-Remove `FuzzConfig`, the `Config.fuzz` field, parsing/construction, the `replace(self.fuzz, ...)` branch of `merge_with_args()`, and the environment override. Remove `RepoPaths.sanitized_build`, `.fuzz_targets`, and `.fuzz_results` plus their factory assignments. Retain the ordinary output paths.
-
-Remove `DEFAULT_MAX_FIX_ITERATIONS`, `TIMEOUT_SANITIZED_BUILD`, `BUILD_LOG_LLM_PREVIEW_CHARS`, and `BUILD_LOG_MAX_ERROR_CHARS` after a final consumer search. Preserve shared LLM constants. Update the default YAML and add the proposed legacy-configuration warning with regression coverage.
-
-### 3 Remove query and example paths
-
-Delete `config/queries/tools/cpp/function_signatures.ql` and `includes.ql` after confirming no remaining references. Keep the query pack and all shared queries described above.
-
-Update `examples/pipeline_c.py`, `pipeline_cpp.py`, `pipeline_zlib.py`, and `run_all_pipelines.py`: remove fuzz stage functions, flags, invocation blocks, timeout handling, result/statistics keys, and output hints. Preserve existing target definitions and static pipelines. Review `examples/README.md` against the scripts; it already contains stale stage and target descriptions.
-
-### 4 Update tests and documentation
-
-Remove `tests/test_fuzz_context_enriched.py`, `test_fuzz_driver_generator.py`, `test_fuzz_improvements.py`, `test_fuzz_symbol_analysis.py`, and `test_crash_triage.py`. In `tests/test_llm_completion_helper.py`, remove only `test_fuzz_repair_passes_temperature_and_retry`; retain kwargs, retry, and provider-compatibility tests.
-
-Add focused tests for remaining CLI commands and aliases, rejection of removed commands/options, current and legacy configuration behavior, config merging, and expected repository paths. Keep end-to-end stage composition mocked. Preserve existing tests for target-project fuzz filenames and enum/typedef/sanitizer evidence.
-
-Documentation cleanup completed: README title/features, pipeline tables, CLI reference, quick-start flags, project tree, output descriptions, `pyproject.toml`'s description, and `.github/ISSUE_TEMPLATE/bug-report.yml` now reflect the supported pipeline. Add a changelog entry with the removed API and migration policy when code removal lands rather than rewriting historical release entries. Refresh agent documents when the removal is implemented.
-
-Workshop and training documentation and deck sources now describe only the supported pipeline. Preserve general explanations of sanitizers and runtime testing and references to target-project harnesses; those remain relevant to static analysis.
-
-Slide decks and existing presentation previews are regenerated as part of the documentation cleanup. Keep future distributed assets synchronized with their generator sources and visually inspect changed slides.
-
-### 5 Validate and release
-
-Run affected regressions, then the configured Python checks and both test roots:
-
-```bash
-python -m ruff check src/
-python -m ruff format --check src/
-python -m mypy src/
-python -m pytest tests/
-python -m pytest benchmark/tests/
-python -m vuln_hunter_x.cli.main --help
-```
-
-Run representative example dry-runs after reviewing each script's dry-run behavior. Use synthetic targets and mocked stage commands to avoid downloads, builds, and paid provider calls for the core regression gate. Validate removed-option rejection separately.
-
-Build a wheel and sdist in the chosen packaging environment, inspect their contents for the absent fuzz package, and smoke-test the remaining CLI in a clean install. Verify packaged import failure for `vuln_hunter_x.fuzz`; an editable environment can hide stale installed files. Packaging tooling may need installation beyond the declared `dev` extra. Do not use the release script as a harmless check: it deletes `dist/` before rebuilding.
-
-Search source, config, tests, examples, and current docs for feature references. Review remaining matches by meaning; a blanket requirement that the word `fuzz` or `sanitizer` disappear would damage verification and historical evidence. Compare mocked verdict/report outputs with the baseline; a real precision/recall comparison is optional additional evidence and requires consistent targets and provider settings.
-
-## Acceptance criteria
-
-- Core CLI commands, aliases, `scan`, and `interactive` work; the four fuzz commands are absent and fail explicitly when invoked.
-- No runtime code imports the removed package or accesses removed configuration/path fields. Wheel and sdist contain no fuzz package.
-- Current configuration loads, legacy settings follow the announced migration policy, and ordinary config merging and paths still work.
-- All eight language choices, source-only scanner fallback, local-path mode, shared context queries, enum/typedef evidence, and sanitizer/guard evidence remain supported.
-- Verification identity, anchors, TP/FP/NMD semantics, saved verdicts, and EN/VI reports pass relevant regressions.
-- Examples retain stages 1–4 and reject obsolete fuzz options; current docs and distributed decks match delivered behavior.
-- Relevant tests, both test roots, and tooling results are recorded honestly, including pre-existing failures or missing tools.
-- Existing `output/`, `repos/`, benchmark baselines, and historical changelog records remain intact.
-
-## Risks and rollback
-
-The largest risks are breaking external Python consumers, leaving stale parser/config references, deleting shared evidence queries, or weakening verification because a text search matched target-project fuzzing. The dependency inventory, migration policy, clean-install checks, and preserved regressions address those risks.
-
-Package deletion should reduce code maintenance and remove optional harness execution, but this review does not measure speed or quality gains. Ordinary scans already skip fuzzing, so do not promise faster stages 1–4. Runtime confirmation is lost; static/LLM triage remains useful but is not a substitute for an executed reproducer.
-
-Rollback by reverting the focused removal change or pinning the prior release. Do not delete artifacts during removal: stored crashes and corpora can still be inspected with the previous version. Any artifact cleanup should be a separately requested operation with an explicit scope.
+Rollback by reverting the removal commit or pinning the previous release.
+Stored artifacts can be inspected with that version. Deleting old artifacts
+requires a separate, explicitly scoped request.

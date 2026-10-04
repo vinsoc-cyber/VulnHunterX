@@ -25,7 +25,7 @@ The reference documents were left intact. Their implementation claims were not a
 
 - [pyproject.toml](../pyproject.toml) specifies Python `>=3.12,<3.14`, Ruff `py312`, MyPy 3.12, and pytest `testpaths = ["tests"]`. It configures coverage output but no percentage gate.
 - [CONTRIBUTING.md](../CONTRIBUTING.md) specifies Ruff, MyPy, pytest, focused PRs, and private security reporting. No committed workflow exists under `.github/workflows/` in the reviewed checkout.
-- [cli/commands.py](../src/vuln_hunter_x/cli/commands.py) composes the four supported stages in `cmd_scan()`. Unsupported legacy code is inventoried separately in the cleanup plan.
+- [cli/commands.py](../src/vuln_hunter_x/cli/commands.py) composes the four supported stages in `cmd_scan()`. The completed cleanup plan records the removed legacy interfaces and migration policy.
 - [context/repo_paths.py](../src/vuln_hunter_x/context/repo_paths.py) resolves source within the named repository and supports symlinked checkout roots. [context/evidence.py](../src/vuln_hunter_x/context/evidence.py) defines typed evidence states and kinds.
 - [core/config.py](../src/vuln_hunter_x/core/config.py) defaults raw-response persistence to false, while [confirm_findings.yaml](../config/confirm_findings.yaml) configures a conversation log. Privacy guidance must account for both.
 - [llm/completion.py](../src/vuln_hunter_x/llm/completion.py) supports CodeQL build advice and report translation; legacy feature cleanup cannot justify deleting that helper.
@@ -33,4 +33,4 @@ The reference documents were left intact. Their implementation claims were not a
 
 ## Scope and limitations
 
-This is a local document and code review, dated 4 October 2026. It does not establish remote branch protection, a completed security audit, or current external provider capabilities. Current documentation describes the four supported stages. The removal plan tracks cleanup of unsupported legacy implementation; runtime code removal remains a separate task.
+This is a local document and code review, dated 4 October 2026. It does not establish remote branch protection, a completed security audit, or current external provider capabilities. Current documentation describes the four supported stages. Runtime cleanup has been implemented; the completed removal plan records the compatibility policy and validation limits.

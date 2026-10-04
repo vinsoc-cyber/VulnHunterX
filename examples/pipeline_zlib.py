@@ -15,6 +15,7 @@ Usage:
     python examples/pipeline_c.py --api        # Use Python API instead of CLI
 """
 
+import argparse
 import subprocess
 import sys
 import time
@@ -201,82 +202,6 @@ def stage_verify(dry_run: bool = False) -> bool:
     return success
 
 
-def stage_build_sanitized(dry_run: bool = False) -> bool:
-    """Stage 5 (fuzz): Build repo with sanitizers for fuzz harness linking."""
-    print_header("Stage 5: Build with Sanitizers")
-    print("Building with ASan/UBSan for fuzz harness linking...")
-    print()
-    success, error = run_command(
-        _CLI + ["build-sanitized", "--repo", REPO_NAME],
-        dry_run,
-        timeout=2400,
-    )
-    if success:
-        print(f"\n[OK] Sanitized build done")
-    else:
-        print(f"\n[FAIL] Build failed: {error}")
-    return success
-
-
-def stage_extract_fuzz_context(dry_run: bool = False) -> bool:
-    """Stage 6 (fuzz): Extract fuzz context CSVs (function_signatures, includes)."""
-    print_header("Stage 6: Extract Fuzz Context")
-    print("Extracting function signatures and includes for harness generation...")
-    print()
-    success, error = run_command(
-        _CLI + ["extract-fuzz-context", "--repo", REPO_NAME],
-        dry_run,
-    )
-    if success:
-        print(f"\n[OK] Fuzz context extracted")
-    else:
-        print(f"\n[FAIL] Extract failed: {error}")
-    return success
-
-
-def stage_generate_fuzz_drivers(dry_run: bool = False) -> bool:
-    """Stage 7 (fuzz): Generate fuzz drivers and build."""
-    print_header("Stage 7: Generate Fuzz Drivers")
-    print("Generating libFuzzer harnesses from verified findings and building...")
-    print()
-    success, error = run_command(
-        _CLI + ["generate-fuzz-drivers", "--repo", REPO_NAME, "--verdict", "tp,nmd", "--build", "--llm-fix"],
-        dry_run,
-        timeout=600,
-    )
-    if success:
-        print(f"\n[OK] Fuzz drivers generated and built")
-    else:
-        print(f"\n[FAIL] Generate/build failed: {error}")
-    return success
-
-
-def stage_fuzz_run(
-    dry_run: bool = False,
-    timeout: int = 60,
-    max_fuzz_time: int = 30,
-) -> bool:
-    """Stage 8 (fuzz): Run libFuzzer for compiled harnesses, collect crashes."""
-    print_header("Stage 8: Run Fuzzers")
-    print(f"Running libFuzzer (timeout={timeout}s per harness, max_fuzz_time={max_fuzz_time}s)...")
-    print()
-    success, error = run_command(
-        _CLI + [
-            "fuzz-run",
-            "--repo", REPO_NAME,
-            "--timeout", str(timeout),
-            "--max-fuzz-time", str(max_fuzz_time),
-        ],
-        dry_run,
-        timeout=600,
-    )
-    if success:
-        print(f"\n[OK] Fuzz run done")
-    else:
-        print(f"\n[FAIL] Fuzz run failed: {error}")
-    return success
-
-
 def run_with_api() -> None:
     """Run pipeline using Python API instead of CLI."""
     print_header("Running Pipeline with Python API")
@@ -336,7 +261,7 @@ def run_with_api() -> None:
     print(f"\nResults saved to: {summary_path}")
 
 
-def print_summary(results: dict[str, bool], elapsed: float, run_fuzz: bool = False) -> None:
+def print_summary(results: dict[str, bool], elapsed: float) -> None:
     """Print pipeline summary."""
     print_header("Pipeline Summary")
 
@@ -358,9 +283,6 @@ def print_summary(results: dict[str, bool], elapsed: float, run_fuzz: bool = Fal
         print(f"  - View SARIF: output/{LANGUAGE}/{REPO_NAME}/{REPO_NAME}.sarif")
         print(f"  - View results: output/{LANGUAGE}/{REPO_NAME}/verification_results/")
         print(f"  - View context: output/{LANGUAGE}/{REPO_NAME}/context/")
-        if run_fuzz:
-            print(f"  - View fuzz targets: output/{LANGUAGE}/{REPO_NAME}/fuzz_targets/")
-            print(f"  - View fuzz results: output/{LANGUAGE}/{REPO_NAME}/fuzz_results/")
     else:
         print("Pipeline completed with errors. Check the logs above.")
 
@@ -372,26 +294,14 @@ def print_summary(results: dict[str, bool], elapsed: float, run_fuzz: bool = Fal
 def main():
     """Run the full pipeline."""
     # Parse arguments
-    dry_run = "--dry-run" in sys.argv
-    skip_clone = "--skip-clone" in sys.argv
-    use_api = "--api" in sys.argv
-    run_fuzz = "--fuzz" in sys.argv
-    fuzz_timeout = 60
-    fuzz_max_time = 30
-    if "--fuzz-timeout" in sys.argv:
-        i = sys.argv.index("--fuzz-timeout")
-        if i + 1 < len(sys.argv):
-            try:
-                fuzz_timeout = int(sys.argv[i + 1])
-            except ValueError:
-                pass
-    if "--fuzz-max-time" in sys.argv:
-        i = sys.argv.index("--fuzz-max-time")
-        if i + 1 < len(sys.argv):
-            try:
-                fuzz_max_time = int(sys.argv[i + 1])
-            except ValueError:
-                pass
+    parser = argparse.ArgumentParser(description="Run the zlib static-analysis pipeline.")
+    parser.add_argument("--dry-run", action="store_true", help="Preview without executing")
+    parser.add_argument("--skip-clone", action="store_true", help="Reuse an existing checkout")
+    parser.add_argument("--api", action="store_true", help="Use the Python verification API")
+    args = parser.parse_args()
+    dry_run = args.dry_run
+    skip_clone = args.skip_clone
+    use_api = args.api
     
     print(f"""
 ╔══════════════════════════════════════════════════════════════════════╗
@@ -433,15 +343,8 @@ def main():
     else:
         results["LLM Verification"] = False
 
-    # Stages 5-8 (fuzz): optional, run when --fuzz
-    if run_fuzz:
-        results["Build sanitized"] = stage_build_sanitized(dry_run)
-        results["Extract fuzz context"] = stage_extract_fuzz_context(dry_run)
-        results["Generate fuzz drivers"] = stage_generate_fuzz_drivers(dry_run)
-        results["Fuzz run"] = stage_fuzz_run(dry_run, timeout=fuzz_timeout, max_fuzz_time=fuzz_max_time)
-
     elapsed = time.time() - start_time
-    print_summary(results, elapsed, run_fuzz=run_fuzz)
+    print_summary(results, elapsed)
     
     # Exit with appropriate code
     sys.exit(0 if all(results.values()) else 1)
