@@ -55,6 +55,3 @@ list in place.
 
 Pass `--skip-clone` (most scripts) to reuse an existing checkout and
 database.
-
-The C, C++, zlib, and batch scripts reject obsolete fuzzing options. Their
-supported modes perform static analysis and LLM verification only.

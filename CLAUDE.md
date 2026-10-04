@@ -11,7 +11,7 @@ Read [AGENTS.md](AGENTS.md) completely. It provides the shared repository instru
 - Preserve repository-scoped source resolution, source-only analysis fallback, and both CodeQL and tree-sitter context providers.
 - Use mocked providers and synthetic fixtures for default tests. Avoid live scans and paid provider calls unless they are part of the authorized task.
 - Keep shared helpers when removing a feature. The completion helper supports CodeQL build assistance and report translation.
-- Fuzzing has been removed. Use [the completed cleanup plan](docs/FUZZING_REMOVAL_PLAN.md) for migration notes. Preserve input-sanitizer evidence and identification of target-project fuzz harnesses.
+- Keep the supported four-stage pipeline documented consistently. Preserve input-sanitizer evidence and identification of target-project fuzz harnesses.
 - Preserve user changes and local artifacts. Use [the Git workflow](docs/GIT_WORKFLOW.md) for review conventions.
 
 ## Completion report

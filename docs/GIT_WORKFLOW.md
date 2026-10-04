@@ -8,7 +8,7 @@ Inspect `git status --short` and the current branch. Preserve user changes and l
 
 ## Reviewable changes
 
-Keep one coherent change per PR. [The completed fuzzing removal plan](FUZZING_REMOVAL_PLAN.md) records the implementation scope and migration policy. No unrelated phase plan or Telegram task branches apply to this repository.
+Keep one coherent change per PR and keep the final PR testable as a whole. No unrelated phase plan or Telegram task branches apply to this repository.
 
 Use the established commit prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, and `chore:`. Keep mechanical formatting separate from behavioral changes when practical.
 

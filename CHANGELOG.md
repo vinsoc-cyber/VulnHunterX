@@ -9,13 +9,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Changed
 
-- Removed documentation and configuration examples for unsupported fuzzing
-  stages 5–8. Current guides, workshops, and slide decks describe the supported
-  `prepare → analyze → verify → report` pipeline.
+- Current guides, workshops, configuration examples, and slide decks describe
+  the supported `prepare → analyze → verify → report` pipeline.
 
 ### Removed
 
-- **Unsupported fuzzing implementation (stages 5–8)**: the four fuzz commands,
+- **Unsupported fuzzing implementation**: the four fuzz commands,
   `vuln_hunter_x.fuzz`, `FuzzConfig`, `Config.fuzz`, and the `sanitized_build`,
   `fuzz_targets`, and `fuzz_results` fields on `RepoPaths`. This breaks callers
   of those Python interfaces and commands. The C/C++ example scripts and batch
@@ -23,8 +22,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   CodeQL build assistance, and report translation remain available.
 - Legacy YAML `fuzz:` sections and `MAX_FIX_ITERATIONS` are ignored with warnings
   for the transition release; remove these settings from operator configuration.
-  Warning messages contain no setting values. See `docs/FUZZING_REMOVAL_PLAN.md`
-  for migration details. Existing scan results and benchmark history are retained.
+  Warning messages contain no setting values. Existing scan results and
+  benchmark history are retained.
 
 ### Added
 - **C# / .NET language support** to full parity with the other languages:
@@ -93,8 +92,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   mass-assignment, and SSRF. Golden fixtures back the custom rules.
 - ContextProvider can now fetch full function bodies and callee
   implementations on demand, deepening multi-turn verification context.
-- Fuzzing corpus support and crash triage: ASan/UBSan parsing,
-  crash deduplication, and severity classification.
 - Dataset / approach registry pattern in the benchmark harness. Adding
   a new dataset or benchmark approach is now a single-file change via
   `@register_adapter` / `@register_approach`.
@@ -183,17 +180,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Initial release.
 
 ### Added
-- 8-stage SAST + LLM-verification pipeline (clone, analyze,
-  extract-context, verify, build-sanitized, extract-fuzz-context,
-  generate-fuzz-drivers, fuzz-run).
+- SAST and LLM verification with source preparation, analysis, context
+  extraction, and guided triage.
 - Multi-language support: C, C++, Python, JavaScript, PHP, Java, Go.
 - CodeQL, Semgrep, and OpenGrep SAST backends.
 - Per-language guided question banks for LLM verification.
 - Rule profiles (`standard`, `extended`, `maximum`, `extended-registry`,
   `full`) with CWE-keyed security categories.
-- Dynamic fuzzing harness generation: libFuzzer (.cc), Atheris (.py),
-  Jazzer (.java), Jazzer.js (.js), php-fuzzer (.php).
-- LLM-assisted fuzz-harness fix loop.
 - Initial benchmark harness with SecLLMHolmes, Juliet, DiverseVul.
 - Markdown reporting with per-CWE breakdowns, confidence calibration,
   and cost/latency tracking.

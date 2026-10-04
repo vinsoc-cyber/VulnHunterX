@@ -6,7 +6,7 @@ These instructions apply to Codex, Claude, and other coding agents working in th
 
 Read [README.md](README.md), [CONTRIBUTING.md](CONTRIBUTING.md), [security rules](docs/SECURITY_RULES.md), and [code standards](docs/CODE_STANDARDS.md). Read the relevant implementation and tests before editing. Use [Git workflow](docs/GIT_WORKFLOW.md) for branch and review conventions.
 
-The supported pipeline has four stages. Fuzzing has been removed; [the completed removal plan](docs/FUZZING_REMOVAL_PLAN.md) records the migration policy and validation. Do not reintroduce the removed API as a supported capability.
+The supported pipeline has four stages: `prepare → analyze → verify → report`. Keep agent guidance and documentation aligned with these commands.
 
 ## Project and architecture
 
@@ -40,7 +40,7 @@ Generated outputs normally live under `output/<lang>/<repo>/`; target checkouts 
 - Use configured LLM providers for the requested workflow. Do not introduce a new provider, endpoint, or transmission of unrelated private files as a side effect of a change.
 - Keep credentials out of code, fixtures, logs, and commits. Source snippets, full conversations, and raw responses may also contain sensitive material; preserve existing opt-in controls and document actual persistence behavior.
 - Preserve finding identity, source anchors, line numbering, evidence status, and TP/FP/NMD semantics. Unsupported or incomplete context must not become proof that a vulnerability is absent.
-- Do not remove application sanitizer/guard evidence, or detection of fuzz harnesses inside scanned projects, when removing this tool's own fuzzing feature.
+- Preserve application sanitizer/guard evidence and detection of fuzz harnesses inside scanned projects.
 
 ## Implementation conventions
 
