@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from vuln_hunter_x.context.evidence import (
     SymbolRef,
     SymbolResolution,
     inspect_capability,
+    struct_csv_name,
 )
 from vuln_hunter_x.context.repo_paths import resolve_repo_file, resolve_repo_root
 
@@ -203,14 +205,38 @@ class ContextProvider:
         self.repos_dir = Path(repos_dir)
         self._cache: dict[str, list[dict]] = {}
         self._cache_lock = threading.Lock()
+        # Small LRU of source files split into lines: caller/callee/function
+        # lookups for one finding usually hit the same few files repeatedly.
+        self._lines_cache: OrderedDict[Path, list[str]] = OrderedDict()
+        self._lines_cache_lock = threading.Lock()
 
     def _context_dir(self, lang: str, repo_name: str) -> Path:
         """Return context directory for a repo: output/<lang>/<repo_name>/context."""
         return self.output_dir / lang / repo_name / "context"
 
+    _LINES_CACHE_MAX = 128
+
     def clear_cache(self) -> None:
-        """Clear the CSV cache."""
-        self._cache.clear()
+        """Clear the CSV and source-line caches."""
+        with self._cache_lock:
+            self._cache.clear()
+        with self._lines_cache_lock:
+            self._lines_cache.clear()
+
+    def _file_lines(self, full_path: Path) -> list[str]:
+        """Return ``full_path`` split into lines, via a bounded LRU cache."""
+        with self._lines_cache_lock:
+            cached = self._lines_cache.get(full_path)
+            if cached is not None:
+                self._lines_cache.move_to_end(full_path)
+                return cached
+        lines = full_path.read_text(errors="replace").splitlines()
+        with self._lines_cache_lock:
+            self._lines_cache[full_path] = lines
+            self._lines_cache.move_to_end(full_path)
+            while len(self._lines_cache) > self._LINES_CACHE_MAX:
+                self._lines_cache.popitem(last=False)
+        return lines
 
     def get_additional_context(
         self,
@@ -403,12 +429,46 @@ class ContextProvider:
             return f"[File not found: {file_path}]"
 
         try:
-            lines = full_path.read_text(errors="replace").splitlines()
+            lines = self._file_lines(full_path)
             start_idx = max(0, start - 1)
             end_idx = min(len(lines), end)
             return "\n".join(lines[start_idx:end_idx])
         except Exception as e:
             return f"[Error reading file: {e}]"
+
+    @staticmethod
+    def _definitions_result(
+        req: EvidenceRequest,
+        parts: list[str],
+        provs: list[SourceRef],
+        total: int,
+        scope: EvidenceScope,
+        label: str,
+    ) -> EvidenceResult:
+        """Package one-or-more rendered definitions of a symbol.
+
+        A single definition is ``FOUND`` with exactly the legacy content. Several
+        distinct definitions (``#ifdef`` platform variants, the same class name in
+        two modules) are all shown, capped, and reported ``AMBIGUOUS``: returning
+        only the first row as ``FOUND`` let the model reason over an arbitrary
+        variant as if it were the only one.
+        """
+        shown = len(parts)
+        truncated = total > shown
+        if truncated:
+            parts = [
+                *parts,
+                f"// ... and {total - shown} more definition(s) of {label} (truncated)",
+            ]
+        status = EvidenceStatus.AMBIGUOUS if total > 1 else EvidenceStatus.FOUND
+        return EvidenceResult(
+            req,
+            status,
+            "\n\n".join(parts),
+            scope,
+            exhaustive=not truncated,
+            provenance=tuple(provs),
+        )
 
     def _qualified_scope(
         self, req: EvidenceRequest, repo_name: str, lang: str
@@ -963,12 +1023,15 @@ class ContextProvider:
         req: EvidenceRequest,
         repo_name: str,
         lang: str,
+        max_defs: int = 3,
     ) -> EvidenceResult:
         """Resolve a struct/class definition."""
         struct_name = req.subject
-        csv_name = "classes" if lang in ("python", "javascript", "csharp") else "structs"
+        csv_name = struct_csv_name(lang)
         rows = self._load_csv(repo_name, lang, csv_name)
         saw_name = False
+        # structs.csv carries one row per MEMBER, so dedupe on the definition span.
+        spans: list[tuple[str, int, int]] = []
         for row in rows:
             if row.get("name") == struct_name:
                 saw_name = True
@@ -978,16 +1041,18 @@ class ContextProvider:
                     end = int(row.get("end_line", 0))
                 except ValueError:
                     continue
-                if start > 0 and end >= start:
-                    code = self._read_lines(repo_name, lang, file_path, start, end)
-                    content = f"// Struct/Class: {struct_name}\n// File: {file_path}\n{code}"
-                    return EvidenceResult(
-                        req,
-                        EvidenceStatus.FOUND,
-                        content,
-                        EvidenceScope.FILE,
-                        provenance=(SourceRef(repo_name, lang, file_path, start, end),),
-                    )
+                if start > 0 and end >= start and (file_path, start, end) not in spans:
+                    spans.append((file_path, start, end))
+        if spans:
+            parts: list[str] = []
+            provs: list[SourceRef] = []
+            for file_path, start, end in spans[:max_defs]:
+                code = self._read_lines(repo_name, lang, file_path, start, end)
+                parts.append(f"// Struct/Class: {struct_name}\n// File: {file_path}\n{code}")
+                provs.append(SourceRef(repo_name, lang, file_path, start, end))
+            return self._definitions_result(
+                req, parts, provs, len(spans), EvidenceScope.FILE, struct_name
+            )
 
         content = (
             f"[Struct/Class not found: {struct_name} — it may be a typedef alias. "
@@ -1021,10 +1086,12 @@ class ContextProvider:
         req: EvidenceRequest,
         repo_name: str,
         lang: str,
+        max_defs: int = 3,
     ) -> EvidenceResult:
         """Resolve a global variable definition."""
         var_name = req.subject
         rows = self._load_csv(repo_name, lang, "globals")
+        defs: list[tuple[str, int, int, str]] = []
         for row in rows:
             if row.get("name") == var_name:
                 file_path = row.get("file", "")
@@ -1033,16 +1100,21 @@ class ContextProvider:
                     end = int(row.get("end_line", start))
                 except ValueError:
                     continue
-                var_type = row.get("type", "unknown")
+                key = (file_path, start, end, row.get("type", "unknown"))
+                if key not in defs:
+                    defs.append(key)
+        if defs:
+            parts: list[str] = []
+            provs: list[SourceRef] = []
+            for file_path, start, end, var_type in defs[:max_defs]:
                 code = self._read_lines(repo_name, lang, file_path, start, end)
-                content = f"// Global: {var_name} (type: {var_type})\n// File: {file_path}\n{code}"
-                return EvidenceResult(
-                    req,
-                    EvidenceStatus.FOUND,
-                    content,
-                    EvidenceScope.FILE,
-                    provenance=(SourceRef(repo_name, lang, file_path, start, end),),
+                parts.append(
+                    f"// Global: {var_name} (type: {var_type})\n// File: {file_path}\n{code}"
                 )
+                provs.append(SourceRef(repo_name, lang, file_path, start, end))
+            return self._definitions_result(
+                req, parts, provs, len(defs), EvidenceScope.FILE, var_name
+            )
 
         content = f"[Global variable not found: {var_name}]"
         cap = inspect_capability(
@@ -1069,19 +1141,25 @@ class ContextProvider:
         req: EvidenceRequest,
         repo_name: str,
         lang: str,
+        max_defs: int = 3,
     ) -> EvidenceResult:
         """Resolve a macro definition."""
         macro_name = req.subject
         rows = self._load_csv(repo_name, lang, "macros")
+        defs: list[tuple[str, str, str]] = []
         for row in rows:
             if row.get("name") == macro_name:
-                file_path = row.get("file", "")
-                line = row.get("line", "?")
-                body = row.get("body", "")
-                content = f"// Macro: {macro_name}\n// File: {file_path}:{line}\n#define {macro_name} {body}"
-                return EvidenceResult(
-                    req, EvidenceStatus.FOUND, content, EvidenceScope.FILE
-                )
+                key = (row.get("file", ""), row.get("line", "?"), row.get("body", ""))
+                if key not in defs:
+                    defs.append(key)
+        if defs:
+            parts = [
+                f"// Macro: {macro_name}\n// File: {file_path}:{line}\n#define {macro_name} {body}"
+                for file_path, line, body in defs[:max_defs]
+            ]
+            return self._definitions_result(
+                req, parts, [], len(defs), EvidenceScope.FILE, macro_name
+            )
 
         content = f"[Macro not found: {macro_name}]"
         cap = inspect_capability(
@@ -1232,22 +1310,25 @@ class ContextProvider:
         req: EvidenceRequest,
         repo_name: str,
         lang: str,
+        max_defs: int = 3,
     ) -> EvidenceResult:
         """Resolve a typedef/type alias definition."""
         type_name = req.subject
         rows = self._load_csv(repo_name, lang, "typedefs")
+        defs: list[tuple[str, str, str]] = []
         for row in rows:
             if row.get("name") == type_name:
-                file_path = row.get("file", "")
-                line = row.get("line", "?")
-                underlying = row.get("underlying_type", "")
-                content = (
-                    f"// Typedef: {type_name} = {underlying}\n"
-                    f"// File: {file_path}:{line}"
-                )
-                return EvidenceResult(
-                    req, EvidenceStatus.FOUND, content, EvidenceScope.FILE
-                )
+                key = (row.get("file", ""), row.get("line", "?"), row.get("underlying_type", ""))
+                if key not in defs:
+                    defs.append(key)
+        if defs:
+            parts = [
+                f"// Typedef: {type_name} = {underlying}\n// File: {file_path}:{line}"
+                for file_path, line, underlying in defs[:max_defs]
+            ]
+            return self._definitions_result(
+                req, parts, [], len(defs), EvidenceScope.FILE, type_name
+            )
 
         content = f"[Typedef not found: {type_name}]"
         cap = inspect_capability(

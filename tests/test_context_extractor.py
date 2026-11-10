@@ -85,3 +85,62 @@ def test_empty_repo_name_yields_fallback_not_sibling(tmp_path):
     ex = ContextExtractor(repos_base=tmp_path)
     ctx = ex.get_context("app.py", 1, "python")  # no repo_name
     assert "SECRET" not in ctx.code
+
+
+def _write_functions_csv(output_dir: Path, lang: str, repo: str, rows: list[tuple]) -> Path:
+    ctx = output_dir / lang / repo / "context"
+    ctx.mkdir(parents=True, exist_ok=True)
+    path = ctx / "functions.csv"
+    lines = ["name,file,start_line,end_line"] + [",".join(map(str, r)) for r in rows]
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def test_python_regex_fallback_ignores_dict_literal_braces(tmp_path):
+    # Brace counting used to "close" the function on the dict-literal line,
+    # dropping the flagged line out of the slice and losing the function name.
+    content = textwrap.dedent(
+        """\
+        def f(x):
+            d = {"a": 1}
+            y = x + 1
+            return eval(y)
+
+        def g():
+            pass
+        """
+    )
+    _write(tmp_path, "python", "demo", "m.py", content)
+    ex = ContextExtractor(repos_base=tmp_path)
+    ctx = ex.get_context("m.py", 4, "python", repo_name="demo")
+    assert ctx.function_name == "f"
+    # Ends before `def g` (the indentation walk keeps the trailing blank line).
+    assert ctx.start_line == 1 and 4 <= ctx.end_line < 6
+
+
+def test_csv_lookup_returns_innermost_function(tmp_path):
+    repos = tmp_path / "repos"
+    out = tmp_path / "output"
+    _write(repos, "javascript", "demo", "app.js", "\n".join(f"// {i}" for i in range(1, 41)))
+    _write_functions_csv(
+        out, "javascript", "demo", [("wrapper", "app.js", 1, 40), ("handler", "app.js", 10, 20)]
+    )
+    ex = ContextExtractor(repos_base=repos, output_dir=out)
+    ctx = ex.get_context("app.js", 15, "javascript", repo_name="demo")
+    assert ctx.function_name == "handler"
+    assert (ctx.start_line, ctx.end_line) == (10, 20)
+    # Outside the inner function, the outer one still encloses.
+    assert ex.get_context("app.js", 30, "javascript", repo_name="demo").function_name == "wrapper"
+
+
+def test_functions_csv_is_loaded_once_per_repo(tmp_path):
+    repos = tmp_path / "repos"
+    out = tmp_path / "output"
+    _write(repos, "c", "demo", "a.c", "\n".join(f"// {i}" for i in range(1, 11)))
+    csv_path = _write_functions_csv(out, "c", "demo", [("fn", "a.c", 2, 8)])
+    ex = ContextExtractor(repos_base=repos, output_dir=out)
+    assert ex.get_context("a.c", 5, "c", repo_name="demo").function_name == "fn"
+    csv_path.unlink()  # a cached index must not re-read the CSV
+    assert ex.get_context("a.c", 6, "c", repo_name="demo").function_name == "fn"
+    ex.clear_cache()
+    assert ex.get_context("a.c", 6, "c", repo_name="demo").function_name != "fn"

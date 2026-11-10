@@ -17,7 +17,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Unsupported runtime fuzzing and its CLI/Python interfaces. The supported
   pipeline remains `prepare → analyze → verify → report`.
 
+### Fixed
+
+- Context extraction gaps that silently withheld evidence from the verifier:
+  - tree-sitter missed C functions returning pointers, recorded the receiver
+    instead of the method for Java `obj.m()`, dropped Go `pkg.F()` calls, and
+    dropped calls inside JS anonymous callbacks.
+  - CodeQL `typedefs`/`enums` queries were never run.
+  - `struct:` lookups for Java/Go/PHP read a CSV that is never produced.
+  - Engine prefetch looked up placeholder names such as `caller:<unknown>`.
+- Struct, macro, typedef and global lookups with several distinct definitions
+  now show up to three and report `AMBIGUOUS` instead of an arbitrary first
+  match reported as `FOUND`.
+- tree-sitter leaves `callee_file` empty when the callee name has more than
+  one defining file, instead of binding it to the last definition seen.
+- tree-sitter extraction now parses each file once, walks syntax trees without
+  recursion, and skips `node_modules/`.
+
 ### Added
+- TypeScript context extraction with the tree-sitter backend. `.ts`/`.tsx`
+  files in `javascript` repos are parsed with `tree-sitter-typescript` (new
+  dependency). Re-run `prepare --force` to rebuild existing context CSVs.
 - **C# / .NET language support** to full parity with the other languages:
   CLI wiring, tree-sitter context extraction (`.cs`), CodeQL
   `csharp-security-extended` analysis, a custom CodeQL pack

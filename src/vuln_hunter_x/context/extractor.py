@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import bisect
+import csv
 import re
+import threading
 from pathlib import Path
 
 from vuln_hunter_x.context.repo_paths import resolve_repo_file
@@ -59,11 +62,82 @@ class ContextExtractor:
         self.output_dir = Path(output_dir) if output_dir is not None else None
         self._file_cache: dict[str, list[str]] = {}
         self._path_cache: dict[tuple[str, str, str], Path | None] = {}
+        # (lang, repo_name) -> {file: [(start, end, name), ...] sorted by start}.
+        # Built once per repo from functions.csv; None marks "no usable CSV".
+        self._func_index: dict[tuple[str, str], dict[str, list[tuple[int, int, str]]] | None] = {}
+        self._func_index_lock = threading.Lock()
 
     def clear_cache(self) -> None:
         """Clear all caches."""
         self._file_cache.clear()
         self._path_cache.clear()
+        with self._func_index_lock:
+            self._func_index.clear()
+
+    def _function_index(
+        self, lang: str, repo_name: str
+    ) -> dict[str, list[tuple[int, int, str]]] | None:
+        """Per-file function ranges from ``functions.csv``, loaded once per repo.
+
+        Returns ``None`` when there is no output dir or no readable CSV, so the
+        caller falls back to the regex heuristics.
+        """
+        if self.output_dir is None or not repo_name:
+            return None
+        key = (lang, repo_name)
+        with self._func_index_lock:
+            if key in self._func_index:
+                return self._func_index[key]
+            csv_path = self.output_dir / lang / repo_name / "context" / "functions.csv"
+            index: dict[str, list[tuple[int, int, str]]] | None = None
+            if csv_path.is_file():
+                try:
+                    built: dict[str, list[tuple[int, int, str]]] = {}
+                    with open(csv_path, newline="", encoding="utf-8") as f:
+                        for row in csv.DictReader(f):
+                            try:
+                                start = int(row["start_line"])
+                                end = int(row["end_line"])
+                            except (KeyError, TypeError, ValueError):
+                                continue
+                            if start < 1 or end < start:
+                                continue
+                            built.setdefault(row.get("file") or "", []).append(
+                                (start, end, row.get("name") or "")
+                            )
+                    for ranges in built.values():
+                        ranges.sort()
+                    index = built
+                except (OSError, UnicodeDecodeError, csv.Error):
+                    index = None
+            self._func_index[key] = index
+            return index
+
+    def _csv_function_bounds(
+        self, lang: str, repo_name: str, file_path: str, line_1based: int
+    ) -> tuple[int, int, str | None] | None:
+        """Innermost ``functions.csv`` range in *file_path* containing the line.
+
+        Innermost (smallest span) matches ``ContextProvider.
+        resolve_repo_unique_enclosing_function``, so the slice and the
+        reachability gate agree on which function encloses a finding, and a
+        nested handler is not swallowed by a module-sized wrapper.
+        """
+        index = self._function_index(lang, repo_name)
+        if not index:
+            return None
+        ranges = index.get(file_path)
+        if not ranges:
+            return None
+        # Only ranges starting at or before the line can contain it.
+        hi = bisect.bisect_right(ranges, (line_1based, float("inf"), ""))
+        best: tuple[int, int, str] | None = None
+        for start, end, name in ranges[:hi]:
+            if end >= line_1based and (best is None or end - start < best[1] - best[0]):
+                best = (start, end, name)
+        if best is None:
+            return None
+        return best[0], best[1], best[2] or None
 
     def get_context(
         self,
@@ -201,25 +275,11 @@ class ContextExtractor:
     ) -> tuple[int | None, int | None, str | None]:
         """Find the enclosing function boundaries for a target line."""
         # 1. CSV lookup — primary: uses AST-derived data, no false positives from control flow
-        if self.output_dir and repo_name and file_path:
-            csv_path = self.output_dir / lang / repo_name / "context" / "functions.csv"
-            if csv_path.is_file():
-                try:
-                    import csv
-
-                    with open(csv_path, newline="", encoding="utf-8") as f:
-                        for row in csv.DictReader(f):
-                            if row.get("file", "") != file_path:
-                                continue
-                            try:
-                                start = int(row["start_line"])
-                                end = int(row["end_line"])
-                            except (KeyError, ValueError):
-                                continue
-                            if start <= target_line + 1 <= end:  # target_line is 0-indexed
-                                return start - 1, end - 1, row.get("name")
-                except OSError:
-                    pass  # fallback to regex
+        if repo_name and file_path:
+            hit = self._csv_function_bounds(lang, repo_name, file_path, target_line + 1)
+            if hit is not None:
+                start, end, name = hit
+                return start - 1, end - 1, name
 
         # 2. Regex fallback
         patterns = self._FUNCTION_PATTERNS.get(lang, self._FUNCTION_PATTERNS.get("c", []))
@@ -244,21 +304,24 @@ class ContextExtractor:
         if func_start is None:
             return None, None, None
 
-        # Search forward for function end (matching braces)
-        brace_depth = 0
-        in_function = False
         func_end: int | None = None
 
-        for i in range(func_start, len(lines)):
-            line = lines[i]
-            brace_depth += line.count("{") - line.count("}")
+        # Brace languages: search forward for the matching close brace. Python
+        # is skipped — a `{...}` dict/set literal would otherwise "close" the
+        # function on its first line and drop the flagged line from the slice.
+        if lang != "python":
+            brace_depth = 0
+            in_function = False
+            for i in range(func_start, len(lines)):
+                line = lines[i]
+                brace_depth += line.count("{") - line.count("}")
 
-            if "{" in line:
-                in_function = True
+                if "{" in line:
+                    in_function = True
 
-            if in_function and brace_depth <= 0:
-                func_end = i
-                break
+                if in_function and brace_depth <= 0:
+                    func_end = i
+                    break
 
         # For Python, use indentation
         if lang == "python" and func_end is None:

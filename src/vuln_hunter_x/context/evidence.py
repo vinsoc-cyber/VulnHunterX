@@ -264,11 +264,20 @@ _CSV_FOR_KIND: dict[EvidenceKind, str] = {
 }
 
 
+def struct_csv_name(lang: str) -> str:
+    """CSV backing STRUCT lookups for *lang*.
+
+    Only the C family emits ``structs.csv``; every other language's producers
+    (CodeQL and tree-sitter alike) emit ``classes.csv``. Single source of truth
+    for both ``ContextProvider._resolve_struct`` and capability inspection.
+    """
+    return "structs" if (lang or "").lower() in _C_FAMILY_LANGS else "classes"
+
+
 def _kind_csv_name(kind: EvidenceKind, lang: str) -> str | None:
     """Primary CSV a handler reads for this kind+lang, or None if not CSV-backed."""
     if kind is EvidenceKind.STRUCT:
-        # Mirrors ContextProvider._get_struct_context.
-        return "classes" if lang in ("python", "javascript", "csharp") else "structs"
+        return struct_csv_name(lang)
     return _CSV_FOR_KIND.get(kind)
 
 

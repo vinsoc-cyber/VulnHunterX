@@ -528,3 +528,246 @@ class TestExtractAll:
 
         assert len(results) == 1
         assert results[0][0] == "repo1"
+
+
+# ── Coverage regressions (callbacks, constructors, qualified calls) ──
+
+
+def _extract(setup_repo, lang: str, files: dict[str, str]) -> dict[str, list[dict]]:
+    repos_dir, output_dir, _, name = setup_repo(lang, "covrepo", files)
+    TreeSitterContextExtractor(repos_dir, output_dir).extract_for_repo(lang, name)
+    ctx = output_dir / lang / name / "context"
+    return {p.stem: _read_csv(p) for p in ctx.glob("*.csv")}
+
+
+def _edges(rows: list[dict]) -> set[tuple[str, str]]:
+    return {(r["caller_name"], r["callee_name"]) for r in rows}
+
+
+class TestCallerAttribution:
+    def test_js_call_inside_anonymous_callback_is_attributed_to_outer(self, setup_repo):
+        src = (
+            "function outer(app) {\n"
+            "  app.get('/', (req, res) => {\n"
+            "    exec(req.query.x);\n"
+            "  });\n"
+            "}\n"
+        )
+        csvs = _extract(setup_repo, "javascript", {"app.js": src})
+        assert ("outer", "exec") in _edges(csvs["callers"])
+        row = next(r for r in csvs["callers"] if r["callee_name"] == "exec")
+        assert (row["caller_start_line"], row["caller_end_line"]) == ("1", "5")
+
+    def test_js_bound_function_expressions_are_functions(self, setup_repo):
+        src = (
+            "const handler = async (req, res) => { run(req); };\n"
+            "obj.method = function () { other(); };\n"
+            "const single = x => x + 1;\n"
+        )
+        csvs = _extract(setup_repo, "javascript", {"h.js": src})
+        funcs = {r["name"]: r for r in csvs["functions"]}
+        assert {"handler", "method", "single"} <= set(funcs)
+        assert funcs["handler"]["param_count"] == "2"
+        # An arrow's single parameter is not mistaken for its name.
+        assert "x" not in funcs
+        assert funcs["single"]["param_count"] == "1"
+        assert {("handler", "run"), ("method", "other")} <= _edges(csvs["callers"])
+
+    def test_c_pointer_returning_function_is_extracted(self, setup_repo):
+        src = "char *dup(const char *s) {\n  return strcpy(malloc(9), s);\n}\n"
+        csvs = _extract(setup_repo, "c", {"a.c": src})
+        assert [r["name"] for r in csvs["functions"]] == ["dup"]
+        assert csvs["functions"][0]["param_count"] == "1"
+        assert {("dup", "strcpy"), ("dup", "malloc")} <= _edges(csvs["callers"])
+
+    def test_java_method_call_records_method_not_receiver(self, setup_repo):
+        src = (
+            "class A {\n"
+            "  A() { init(); }\n"
+            "  void run(String q) { stmt.executeQuery(q); }\n"
+            "}\n"
+        )
+        csvs = _extract(setup_repo, "java", {"A.java": src})
+        edges = _edges(csvs["callers"])
+        assert ("run", "executeQuery") in edges
+        assert not any(callee == "stmt" for _, callee in edges)
+        # Constructors are functions and enclose calls.
+        assert "A" in {r["name"] for r in csvs["functions"]}
+        assert ("A", "init") in edges
+
+    def test_go_selector_calls_are_recorded(self, setup_repo):
+        src = "package m\nfunc Run(q string) {\n  db.Query(q)\n  exec.Command(q)\n}\n"
+        csvs = _extract(setup_repo, "go", {"m.go": src})
+        assert {("Run", "Query"), ("Run", "Command")} <= _edges(csvs["callers"])
+
+    def test_go_types_are_classes(self, setup_repo):
+        src = "package m\ntype Server struct {\n  addr string\n}\n"
+        csvs = _extract(setup_repo, "go", {"m.go": src})
+        assert [r["name"] for r in csvs["classes"]] == ["Server"]
+
+    def test_cpp_qualified_names_are_unqualified(self, setup_repo):
+        src = "int Foo::bar(int x) {\n  std::move(x);\n  return 0;\n}\n"
+        csvs = _extract(setup_repo, "cpp", {"f.cpp": src})
+        assert [r["name"] for r in csvs["functions"]] == ["bar"]
+        assert ("bar", "move") in _edges(csvs["callers"])
+
+    def test_php_member_and_static_calls(self, setup_repo):
+        src = "<?php\nfunction h($q) {\n  $db->query($q);\n  Util::clean($q);\n}\n"
+        csvs = _extract(setup_repo, "php", {"h.php": src})
+        assert {("h", "query"), ("h", "clean")} <= _edges(csvs["callers"])
+
+    def test_csharp_constructor_encloses_calls(self, setup_repo):
+        src = "class S {\n  public S() { Init(); }\n}\n"
+        csvs = _extract(setup_repo, "csharp", {"S.cs": src})
+        assert ("S", "Init") in _edges(csvs["callers"])
+
+
+class TestCalleeFileBinding:
+    def test_unique_definition_binds_callee_file(self, setup_repo):
+        csvs = _extract(
+            setup_repo,
+            "c",
+            {"a.c": "void sink(void) {}\n", "b.c": "void f(void) { sink(); }\n"},
+        )
+        row = next(r for r in csvs["callers"] if r["callee_name"] == "sink")
+        assert row["callee_file"] == "a.c"
+
+    def test_homonym_leaves_callee_file_unbound(self, setup_repo):
+        csvs = _extract(
+            setup_repo,
+            "c",
+            {
+                "a.c": "static void init(void) {}\n",
+                "b.c": "static void init(void) {}\nvoid f(void) { init(); }\n",
+            },
+        )
+        row = next(r for r in csvs["callers"] if r["callee_name"] == "init")
+        assert row["callee_file"] == ""
+
+
+class TestCSymbols:
+    def test_anonymous_and_aliased_typedef_structs(self, setup_repo):
+        src = (
+            "typedef struct { int len; char *buf; } Msg;\n"
+            "typedef struct node { struct node *next; } node_t;\n"
+            "struct empty {};\n"
+        )
+        csvs = _extract(setup_repo, "c", {"t.h": src})
+        by_name: dict[str, set[str]] = {}
+        for r in csvs["structs"]:
+            by_name.setdefault(r["name"], set()).add(r["member_name"])
+        assert by_name["Msg"] == {"len", "buf"}
+        assert by_name["node"] == {"next"} and by_name["node_t"] == {"next"}
+        assert "empty" in by_name
+
+    def test_pointer_array_and_multi_declarator_globals(self, setup_repo):
+        src = (
+            "char *gbuf = 0, *g2;\n"
+            "int arr[10];\n"
+            "static const int limit = 4;\n"
+            "int proto(int);\n"
+            "#ifdef DEBUG\n"
+            "int dbg_level;\n"
+            "#endif\n"
+        )
+        csvs = _extract(setup_repo, "c", {"g.c": src})
+        globs = {r["name"]: r["type"] for r in csvs["globals"]}
+        assert globs["gbuf"] == "char *" and globs["g2"] == "char *"
+        assert "arr" in globs and "dbg_level" in globs
+        assert globs["limit"] == "static const int"
+        # A function prototype is not a global variable.
+        assert "proto" not in globs
+
+
+class TestExtractionRobustness:
+    def test_each_file_is_parsed_once(self, setup_repo, monkeypatch):
+        repos_dir, output_dir, _, name = setup_repo(
+            "c", "once", {"main.c": C_SOURCE, "types.c": C_STRUCT_SOURCE}
+        )
+        ext = TreeSitterContextExtractor(repos_dir, output_dir)
+        calls: list[Path] = []
+        original = ext._parse_file
+
+        def counting(parser, path):
+            calls.append(path)
+            return original(parser, path)
+
+        monkeypatch.setattr(ext, "_parse_file", counting)
+        ext.extract_for_repo("c", name)
+        assert sorted(p.name for p in calls) == ["main.c", "types.c"]
+
+    def test_deeply_nested_source_does_not_recurse_out(self, setup_repo):
+        depth = 5000
+        src = "function deep() { return " + "[" * depth + "]" * depth + "; }\n"
+        csvs = _extract(setup_repo, "javascript", {"deep.js": src})
+        assert [r["name"] for r in csvs["functions"]] == ["deep"]
+
+    def test_node_modules_is_not_indexed(self, setup_repo):
+        csvs = _extract(
+            setup_repo,
+            "javascript",
+            {
+                "src/app.js": "function mine() {}\n",
+                "node_modules/lib/index.js": "function theirs() {}\n",
+            },
+        )
+        assert {r["name"] for r in csvs["functions"]} == {"mine"}
+        assert {r["file"] for r in csvs["functions"]} == {"src/app.js"}
+
+
+class TestTypeScript:
+    """.ts/.tsx are parsed with the TypeScript grammars into the javascript index."""
+
+    TS_CONTROLLER = (
+        "@Controller('rescue')\n"
+        "export class RescueController {\n"
+        "  constructor(private readonly svc: RescueService) {}\n"
+        "  @Post()\n"
+        "  create(@Body() dto: CreateRescueDto): Promise<void> {\n"
+        "    return this.svc.merge(dto);\n"
+        "  }\n"
+        "}\n"
+        "export const handler = async (req: Request): Promise<void> => {\n"
+        "  exec(req.query.cmd as string);\n"
+        "};\n"
+        "function ident<T>(x: T): T { return wrap<T>(x); }\n"
+    )
+
+    def test_ts_functions_callers_and_classes(self, setup_repo):
+        csvs = _extract(setup_repo, "javascript", {"src/rescue.controller.ts": self.TS_CONTROLLER})
+        funcs = {r["name"] for r in csvs["functions"]}
+        assert {"constructor", "create", "handler", "ident"} <= funcs
+        edges = _edges(csvs["callers"])
+        assert {("create", "merge"), ("handler", "exec"), ("ident", "wrap")} <= edges
+        assert {r["file"] for r in csvs["functions"]} == {"src/rescue.controller.ts"}
+        assert "RescueController" in {r["name"] for r in csvs["classes"]}
+
+    def test_ts_dto_classes_and_interfaces_are_indexed(self, setup_repo):
+        src = (
+            "export class CreateRescueDto {\n"
+            "  @IsString() name: string;\n"
+            "}\n"
+            "export abstract class Base { abstract run(): void; }\n"
+            "interface Opts { a: string }\n"
+        )
+        csvs = _extract(setup_repo, "javascript", {"dto.ts": src})
+        assert {"CreateRescueDto", "Base", "Opts"} <= {r["name"] for r in csvs["classes"]}
+
+    def test_tsx_uses_tsx_grammar(self, setup_repo):
+        src = (
+            "export function View(props: { html: string }) {\n"
+            "  track(props.html);\n"
+            "  return <div dangerouslySetInnerHTML={{ __html: props.html }} />;\n"
+            "}\n"
+        )
+        csvs = _extract(setup_repo, "javascript", {"view.tsx": src})
+        assert ("View", "track") in _edges(csvs["callers"])
+
+    def test_mixed_js_and_ts_repo(self, setup_repo):
+        csvs = _extract(
+            setup_repo,
+            "javascript",
+            {"a.js": "function fromJs() { fromTs(); }\n", "b.ts": "export function fromTs(): void {}\n"},
+        )
+        row = next(r for r in csvs["callers"] if r["callee_name"] == "fromTs")
+        assert row["caller_name"] == "fromJs" and row["callee_file"] == "b.ts"
