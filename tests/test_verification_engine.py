@@ -249,6 +249,21 @@ class TestBuildPrefetchRequests:
     def test_empty_func_name_yields_no_requests(self):
         assert VerificationEngine._build_prefetch_requests(["caller", "callees"], "") == []
 
+    def test_placeholder_func_name_is_never_looked_up(self):
+        # `<unknown>` / `<anonymous>` are display labels from the slice fallback;
+        # `caller:<unknown>` would waste a lookup and mislead the model.
+        for placeholder in ("<unknown>", "<anonymous>", "<sliced>"):
+            reqs = VerificationEngine._build_prefetch_requests(
+                ["caller", "callees", "all_callers"], placeholder
+            )
+            assert reqs == []
+
+    def test_framework_hints_do_not_need_a_function_name(self):
+        reqs = VerificationEngine._build_prefetch_requests(
+            ["caller", "framework_guards"], "<unknown>"
+        )
+        assert reqs == ["framework_guards:repo"]
+
     def test_class_hint_is_not_prefetched(self):
         # 'class' needs a specific type name, so it stays reactive (not prefetched).
         reqs = VerificationEngine._build_prefetch_requests(["caller", "class"], "fn")

@@ -428,6 +428,7 @@ from vuln_hunter_x.core.types import (
     Verdict,
     VerdictType,
     VerificationResult,
+    is_real_symbol,
 )
 from vuln_hunter_x.llm.client import LLMClient
 from vuln_hunter_x.questions.loader import QuestionsLoader
@@ -2024,20 +2025,22 @@ class VerificationEngine:
         macro, typedef, enum) remain reactive — the LLM requests them at runtime.
         """
         requests: list[str] = []
-        if not func_name:
-            return requests
+        name_keyed = is_real_symbol(func_name)
         for ctx_type in context_types:
             ctx_type = ctx_type.lower().strip()
             if ctx_type == "caller":
-                requests.append(f"caller:{func_name}")
+                if name_keyed:
+                    requests.append(f"caller:{func_name}")
             elif ctx_type in ("callees", "callee_bodies"):
                 # Prefetch the SINK helper bodies, not just their names — the
                 # verdict for sink-implementation-dependent CWEs (prototype
                 # pollution, command/SQL injection via helpers) hinges on the
                 # callee's implementation.
-                requests.append(f"callee_bodies:{func_name}")
+                if name_keyed:
+                    requests.append(f"callee_bodies:{func_name}")
             elif ctx_type == "all_callers":
-                requests.append(f"all_callers:{func_name}")
+                if name_keyed:
+                    requests.append(f"all_callers:{func_name}")
             elif ctx_type in ("framework_sanitizers", "framework_validation"):
                 # Repo-wide grep for the global input-validation boundary
                 # (NestJS ValidationPipe whitelist/forbidNonWhitelisted). The

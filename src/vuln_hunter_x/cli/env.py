@@ -116,7 +116,8 @@ def check_treesitter() -> tuple[bool, str]:
             "tree-sitter not installed; run: "
             "pip install tree-sitter tree-sitter-c tree-sitter-cpp "
             "tree-sitter-python tree-sitter-javascript "
-            "tree-sitter-java tree-sitter-php tree-sitter-go"
+            "tree-sitter-typescript tree-sitter-java tree-sitter-php tree-sitter-go "
+            "tree-sitter-c-sharp"
         )
 
     lang_modules = {
@@ -128,6 +129,8 @@ def check_treesitter() -> tuple[bool, str]:
         "php": "tree_sitter_php",
         "go": "tree_sitter_go",
         "csharp": "tree_sitter_c_sharp",
+        # Parses .ts/.tsx inside the javascript index.
+        "typescript": "tree_sitter_typescript",
     }
     # PyPI package names differ from the language key only for C# (the wheel is
     # published as ``tree-sitter-c-sharp``).
@@ -145,7 +148,7 @@ def check_treesitter() -> tuple[bool, str]:
 
     return True, (
         f"tree-sitter {version} with all language bindings "
-        "(c, cpp, python, javascript, java, php, go, csharp)"
+        "(c, cpp, python, javascript, typescript, java, php, go, csharp)"
     )
 
 

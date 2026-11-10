@@ -132,6 +132,18 @@ class GuidedQuestions:
         }
 
 
+def is_real_symbol(name: str | None) -> bool:
+    """True when *name* is a concrete symbol, not a placeholder.
+
+    Context extraction falls back to ``<unknown>`` / ``<anonymous>`` /
+    ``<sliced>`` when no enclosing function was resolved. Those are display
+    labels only: keying an index lookup off them (``caller:<unknown>``) wastes
+    a request and feeds the model a misleading "not found" message.
+    """
+    stripped = (name or "").strip()
+    return bool(stripped) and not stripped.startswith("<")
+
+
 @dataclass
 class CodeContext:
     """Code context extracted for a finding."""
