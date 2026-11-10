@@ -38,6 +38,9 @@ _VALID_LABELS = {LABEL_TP, LABEL_FP, LABEL_BENIGN}
         "diversevul_sample.json",
         "owasp_benchmark_sample.json",
         "realvuln_sample.json",
+        "castle_sample.json",
+        "juliet-java_sample.json",
+        "cvefixes-diff_sample.json",
     ],
 )
 def test_adapter_contract(fixture: str):

@@ -32,10 +32,12 @@ scores for raw-sast comparison).
 from __future__ import annotations
 
 import csv
+import json
 import logging
 import re
+from collections import Counter
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
 from benchmarks.adapters.registry import DatasetAdapter, register_adapter
@@ -65,6 +67,38 @@ def _rule_id_from_filename(filename: str) -> tuple[str, str]:
         return "", "java"
     lang = m.group("lang")
     return f"{lang}/{m.group('slug')}", lang
+
+
+def _sarif_results(path: Path) -> list[dict[str, Any]]:
+    """Flatten ``runs[*].results`` of a SARIF file (empty on any read/parse failure)."""
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out: list[dict[str, Any]] = []
+    for run in doc.get("runs") or []:
+        out.extend(r for r in (run.get("results") or []) if isinstance(r, dict))
+    return out
+
+
+def _result_location(result: dict[str, Any]) -> tuple[str, int] | None:
+    """(uri, startLine) of a SARIF result's primary location, if present."""
+    for loc in result.get("locations") or []:
+        phys = (loc or {}).get("physicalLocation") or {}
+        line = (phys.get("region") or {}).get("startLine")
+        uri = (phys.get("artifactLocation") or {}).get("uri") or ""
+        if isinstance(line, int) and line > 0:
+            return uri, line
+    return None
+
+
+def _rule_matches(result: dict[str, Any], rule_id: str) -> bool:
+    """True when the SARIF rule id agrees with the code-context filename's rule slug."""
+    if not rule_id:
+        return True  # nothing to cross-check against
+    slug = rule_id.split("/", 1)[-1]
+    rid = str(result.get("ruleId") or "")
+    return rid in (rule_id, slug) or rid.endswith("/" + slug)
 
 
 @register_adapter
@@ -109,6 +143,48 @@ class OpenVulnAdapter(DatasetAdapter):
         except OSError:
             return ""
 
+    def _sink_from_sarif(
+        self,
+        slug: str,
+        alert: str,
+        rule_id: str,
+        cache: dict[str, list[dict[str, Any]]],
+    ) -> tuple[int | None, str, str]:
+        """Return ``(sink_line, source, uri_or_reason)`` for one alert.
+
+        The shipped ``sarif-files/<project_slug>.sarif`` is the real CodeQL output the
+        alert came from. The alert is located by an explicit ``alertNumber`` property
+        when present, else by treating ``alert_number`` as a 1-based index into the
+        results; either match must agree with the filename's rule slug, otherwise the
+        line is left unset rather than guessed.
+        """
+        if slug not in cache:
+            sarif = self.base / "sarif-files" / f"{slug}.sarif"
+            cache[slug] = _sarif_results(sarif) if sarif.is_file() else []
+        results = cache[slug]
+        if not results:
+            return None, "unavailable", "sarif_missing_or_empty"
+        chosen: dict[str, Any] | None = None
+        for r in results:
+            props = r.get("properties") or {}
+            if str(props.get("alertNumber", props.get("alert_number", ""))) == alert:
+                chosen = r
+                break
+        if chosen is None:
+            try:
+                idx = int(alert) - 1
+            except ValueError:
+                return None, "unavailable", "alert_number_not_numeric"
+            if not 0 <= idx < len(results):
+                return None, "unavailable", "alert_index_out_of_range"
+            chosen = results[idx]
+        if not _rule_matches(chosen, rule_id):
+            return None, "unavailable", "sarif_rule_mismatch"
+        loc = _result_location(chosen)
+        if loc is None:
+            return None, "unavailable", "sarif_result_without_line"
+        return loc[1], "sarif", loc[0]
+
     def load(self, limit: int = 0) -> list[GroundTruthEntry]:
         gt = self.base / "ground_truth.csv"
         if not gt.is_file():
@@ -120,6 +196,8 @@ class OpenVulnAdapter(DatasetAdapter):
 
         entries: list[GroundTruthEntry] = []
         missing_snippets = 0
+        sarif_cache: dict[str, list[dict[str, Any]]] = {}
+        sink_reasons: Counter[str] = Counter()
         with gt.open(encoding="utf-8") as fh:
             for row in csv.DictReader(fh):
                 slug = (row.get("project_slug") or "").strip()
@@ -136,6 +214,11 @@ class OpenVulnAdapter(DatasetAdapter):
                 if not snippet:
                     missing_snippets += 1
 
+                sink_line, sink_source, sink_detail = self._sink_from_sarif(
+                    slug, alert, rule_id, sarif_cache
+                )
+                sink_reasons[sink_detail if sink_line is None else "anchored"] += 1
+
                 entries.append(
                     GroundTruthEntry(
                         id=f"openvuln-{slug}-{alert}",
@@ -148,7 +231,11 @@ class OpenVulnAdapter(DatasetAdapter):
                         lang=lang,
                         label=LABEL_TP if is_vuln else LABEL_FP,
                         code_snippet=snippet,
+                        sink_line=sink_line,
                         metadata={
+                            "sink_line_source": sink_source,
+                            **({"sarif_uri": sink_detail} if sink_line else {}),
+                            **({} if sink_line else {"sink_line_reason": sink_detail}),
                             "project_slug": slug,
                             "alert_number": alert,
                             "cve_id": (row.get("cve_id") or "").strip(),
@@ -159,6 +246,7 @@ class OpenVulnAdapter(DatasetAdapter):
                 if limit and len(entries) >= limit:
                     break
 
+        logger.info("openvuln: sink_line from SARIF — %s", dict(sink_reasons))
         logger.info(
             "openvuln: loaded %d entries (%d TP, %d FP); %d missing snippets",
             len(entries),

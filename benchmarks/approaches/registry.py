@@ -159,6 +159,9 @@ def _ensure_loaded() -> None:
         "benchmarks.approaches.raw_sast",
         "benchmarks.approaches.vulnhunterx",
         "benchmarks.approaches.ablation",
+        "benchmarks.approaches.single_shot_cwe",
+        "benchmarks.approaches.agent_baseline",
+        "benchmarks.approaches.repo_context",
     ):
         try:
             __import__(modname)

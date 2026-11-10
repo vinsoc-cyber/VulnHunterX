@@ -1,0 +1,138 @@
+[
+  {
+    "id": "juliet-java_s0t",
+    "source_dataset": "juliet-java",
+    "cwe_id": "CWE-89",
+    "rule_id": "java/sql-injection",
+    "file_path": "src/testcases/CWE89_X/CWE_Sample_00.java",
+    "function_name": "bad()",
+    "start_line": 4,
+    "lang": "java",
+    "label": "TP",
+    "code_snippet": "package testcases.CWE89_SQL_Injection;\n\npublic class CWE89_Sample_01 {\n    public void bad() throws Throwable {\n        String data = System.getProperty(\"user.name\");\n        stmt.execute(\"select * from t where n='\" + data + \"'\");\n    }\n}\n",
+    "metadata": {
+      "cwe_dir": "CWE89_X",
+      "filename": "CWE_Sample_00.java"
+    },
+    "sink_line": null
+  },
+  {
+    "id": "juliet-java_s0f",
+    "source_dataset": "juliet-java",
+    "cwe_id": "CWE-89",
+    "rule_id": "java/sql-injection",
+    "file_path": "src/testcases/CWE89_X/CWE_Sample_00.java",
+    "function_name": "good()",
+    "start_line": 4,
+    "lang": "java",
+    "label": "FP",
+    "code_snippet": "package testcases.CWE89_SQL_Injection;\n\npublic class CWE89_Sample_01 {\n    public void good1() throws Throwable {\n        String data = System.getProperty(\"user.name\");\n        stmt.execute(\"select * from t where n=1\");\n    }\n}\n",
+    "metadata": {
+      "cwe_dir": "CWE89_X",
+      "filename": "CWE_Sample_00.java"
+    },
+    "sink_line": null
+  },
+  {
+    "id": "juliet-java_s1t",
+    "source_dataset": "juliet-java",
+    "cwe_id": "CWE-89",
+    "rule_id": "java/sql-injection",
+    "file_path": "src/testcases/CWE89_X/CWE_Sample_01.java",
+    "function_name": "bad()",
+    "start_line": 4,
+    "lang": "java",
+    "label": "TP",
+    "code_snippet": "package testcases.CWE89_SQL_Injection;\n\npublic class CWE89_Sample_01 {\n    public void bad() throws Throwable {\n        String data = System.getProperty(\"user.name\");\n        stmt.execute(\"select * from t where n='\" + data + \"'\");\n    }\n}\n",
+    "metadata": {
+      "cwe_dir": "CWE89_X",
+      "filename": "CWE_Sample_01.java"
+    },
+    "sink_line": null
+  },
+  {
+    "id": "juliet-java_s1f",
+    "source_dataset": "juliet-java",
+    "cwe_id": "CWE-89",
+    "rule_id": "java/sql-injection",
+    "file_path": "src/testcases/CWE89_X/CWE_Sample_01.java",
+    "function_name": "good()",
+    "start_line": 4,
+    "lang": "java",
+    "label": "FP",
+    "code_snippet": "package testcases.CWE89_SQL_Injection;\n\npublic class CWE89_Sample_01 {\n    public void good1() throws Throwable {\n        String data = System.getProperty(\"user.name\");\n        stmt.execute(\"select * from t where n=1\");\n    }\n}\n",
+    "metadata": {
+      "cwe_dir": "CWE89_X",
+      "filename": "CWE_Sample_01.java"
+    },
+    "sink_line": null
+  },
+  {
+    "id": "juliet-java_s2t",
+    "source_dataset": "juliet-java",
+    "cwe_id": "CWE-78",
+    "rule_id": "java/command-line-injection",
+    "file_path": "src/testcases/CWE78_X/CWE_Sample_02.java",
+    "function_name": "bad()",
+    "start_line": 4,
+    "lang": "java",
+    "label": "TP",
+    "code_snippet": "package testcases.CWE89_SQL_Injection;\n\npublic class CWE89_Sample_01 {\n    public void bad() throws Throwable {\n        String data = System.getProperty(\"user.name\");\n        stmt.execute(\"select * from t where n='\" + data + \"'\");\n    }\n}\n",
+    "metadata": {
+      "cwe_dir": "CWE78_X",
+      "filename": "CWE_Sample_02.java"
+    },
+    "sink_line": null
+  },
+  {
+    "id": "juliet-java_s2f",
+    "source_dataset": "juliet-java",
+    "cwe_id": "CWE-78",
+    "rule_id": "java/command-line-injection",
+    "file_path": "src/testcases/CWE78_X/CWE_Sample_02.java",
+    "function_name": "good()",
+    "start_line": 4,
+    "lang": "java",
+    "label": "FP",
+    "code_snippet": "package testcases.CWE89_SQL_Injection;\n\npublic class CWE89_Sample_01 {\n    public void good1() throws Throwable {\n        String data = System.getProperty(\"user.name\");\n        stmt.execute(\"select * from t where n=1\");\n    }\n}\n",
+    "metadata": {
+      "cwe_dir": "CWE78_X",
+      "filename": "CWE_Sample_02.java"
+    },
+    "sink_line": null
+  },
+  {
+    "id": "juliet-java_s3t",
+    "source_dataset": "juliet-java",
+    "cwe_id": "CWE-78",
+    "rule_id": "java/command-line-injection",
+    "file_path": "src/testcases/CWE78_X/CWE_Sample_03.java",
+    "function_name": "bad()",
+    "start_line": 4,
+    "lang": "java",
+    "label": "TP",
+    "code_snippet": "package testcases.CWE89_SQL_Injection;\n\npublic class CWE89_Sample_01 {\n    public void bad() throws Throwable {\n        String data = System.getProperty(\"user.name\");\n        stmt.execute(\"select * from t where n='\" + data + \"'\");\n    }\n}\n",
+    "metadata": {
+      "cwe_dir": "CWE78_X",
+      "filename": "CWE_Sample_03.java"
+    },
+    "sink_line": null
+  },
+  {
+    "id": "juliet-java_s3f",
+    "source_dataset": "juliet-java",
+    "cwe_id": "CWE-78",
+    "rule_id": "java/command-line-injection",
+    "file_path": "src/testcases/CWE78_X/CWE_Sample_03.java",
+    "function_name": "good()",
+    "start_line": 4,
+    "lang": "java",
+    "label": "FP",
+    "code_snippet": "package testcases.CWE89_SQL_Injection;\n\npublic class CWE89_Sample_01 {\n    public void good1() throws Throwable {\n        String data = System.getProperty(\"user.name\");\n        stmt.execute(\"select * from t where n=1\");\n    }\n}\n",
+    "metadata": {
+      "cwe_dir": "CWE78_X",
+      "filename": "CWE_Sample_03.java"
+    },
+    "sink_line": null
+  }
+]

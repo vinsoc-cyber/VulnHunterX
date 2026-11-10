@@ -18,6 +18,7 @@ Computes per-dataset and per-CWE:
 
 from __future__ import annotations
 
+import math
 import statistics
 from dataclasses import dataclass, field
 from typing import Any
@@ -182,6 +183,19 @@ class ApproachMetrics:
     # Per-language breakdown (reuses CWEMetrics structure, keyed by lang)
     lang_metrics: dict[str, CWEMetrics] = field(default_factory=dict)
 
+    # Per-label-tier breakdown (keyed by ``entry.metadata["label_tier"]``; entries
+    # without the field are not bucketed). Reuses CWEMetrics.
+    tier_metrics: dict[str, CWEMetrics] = field(default_factory=dict)
+
+    # Every evaluated entry predicted FP (incl. NMD under nmd_handling="fp"), as
+    # (ground-truth label, confidence). Feeds suppression_at_dismissal_budget().
+    dismissals: list[tuple[str, str]] = field(default_factory=list)
+
+    # Results skipped via ``entry.metadata["excluded_from_scoring"]`` (e.g. the
+    # vulnhunterx route=policy-only option), by reason.
+    n_excluded: int = 0
+    excluded_reasons: dict[str, int] = field(default_factory=dict)
+
     # Question match type distribution
     question_match_counts: dict[str, int] = field(default_factory=dict)
 
@@ -233,6 +247,87 @@ class ApproachMetrics:
         """Recall including NMD-TPs as missed: tp_correct / (tp_correct + tp_missed + nmd_tp_count)."""
         denom = self.tp_correct + self.tp_missed + self.nmd_tp_count
         return self.tp_correct / denom if denom else None
+
+    # Confusion-matrix conventions for the next three metrics: positive = label TP.
+    # TP=tp_correct, FN=tp_missed, TN=fp_caught, FP=fp_missed. ERROR results and
+    # BENIGN entries never enter the matrix. NMD follows ``nmd_handling``:
+    # "exclude" leaves NMD out of the matrix entirely (so an abstaining model is
+    # not penalised here; see nmd_rate / effective_recall), while "fp" counts NMD
+    # as an FP *prediction* (a TP-labelled NMD becomes a FN, an FP-labelled NMD a TN).
+
+    @property
+    def specificity(self) -> float | None:
+        """TNR = fp_caught / (fp_caught + fp_missed): share of label-FP entries dismissed."""
+        denom = self.fp_caught + self.fp_missed
+        return self.fp_caught / denom if denom else None
+
+    @property
+    def youden_j(self) -> float | None:
+        """Youden's J = TPR + TNR - 1 (0 = chance, 1 = perfect). None if a class is empty."""
+        r, sp = self.recall, self.specificity
+        if r is None or sp is None:
+            return None
+        return r + sp - 1
+
+    @property
+    def mcc(self) -> float | None:
+        """Matthews correlation coefficient; None if any marginal total is zero."""
+        tp, fn, tn, fp = self.tp_correct, self.tp_missed, self.fp_caught, self.fp_missed
+        denom = math.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+        if denom == 0:
+            return None
+        return (tp * tn - fp * fn) / denom
+
+    def suppression_at_dismissal_budget(self, budget: float) -> dict[str, Any]:
+        """Max share of label-FP entries dismissed while harmful dismissals stay in budget.
+
+        A dismissal is an evaluated entry predicted FP. It is *harmful* when its
+        label is TP. With confidence available, dismissals are ranked High > Medium
+        > Low (ties within a confidence level are unordered, so whole levels are
+        admitted together) and the largest prefix whose harmful-dismissal rate
+        (dismissed label-TP / all label-TP) is <= ``budget`` is chosen. Without any
+        confidence information the observed values are reported unranked.
+        """
+        n_tp, n_fp = self.true_labels_tp, self.true_labels_fp
+        rank = {"High": 0, "Medium": 1, "Low": 2}
+        has_conf = any(c in rank for _, c in self.dismissals)
+
+        def _rates(items: list[tuple[str, str]]) -> tuple[float | None, float | None]:
+            harmful = sum(1 for lab, _ in items if lab == LABEL_TP)
+            good = sum(1 for lab, _ in items if lab == LABEL_FP)
+            return (good / n_fp if n_fp else None, harmful / n_tp if n_tp else None)
+
+        if not has_conf:
+            supp, harm = _rates(self.dismissals)
+            return {
+                "budget": budget,
+                "ranked": False,
+                "suppression": supp,
+                "harmful_dismissal_rate": harm,
+                "n_dismissed": len(self.dismissals),
+                "within_budget": harm is not None and harm <= budget,
+            }
+
+        levels = sorted({rank.get(c, 3) for _, c in self.dismissals})
+        chosen: list[tuple[str, str]] = []
+        threshold: int | None = None
+        for lvl in levels:
+            trial = [d for d in self.dismissals if rank.get(d[1], 3) <= lvl]
+            _, harm = _rates(trial)
+            if harm is not None and harm > budget:
+                break
+            chosen, threshold = trial, lvl
+        supp, harm = _rates(chosen)
+        names = {0: "High", 1: "Medium", 2: "Low", 3: "Unknown"}
+        return {
+            "budget": budget,
+            "ranked": True,
+            "suppression": supp,
+            "harmful_dismissal_rate": harm,
+            "n_dismissed": len(chosen),
+            "min_confidence": names[threshold] if threshold is not None else None,
+            "within_budget": True,
+        }
 
     @property
     def f1(self) -> float | None:
@@ -360,6 +455,9 @@ class ApproachMetrics:
             "precision": _fmt(self.precision),
             "recall": _fmt(self.recall),
             "f1": _fmt(self.f1),
+            "specificity": _fmt(self.specificity),
+            "youden_j": _fmt(self.youden_j),
+            "mcc": _fmt(self.mcc),
             "effective_recall": _fmt(self.effective_recall),
             "nmd_rate": _fmt(self.nmd_rate),
             "error_rate": _fmt(self.error_rate),
@@ -485,6 +583,28 @@ class ApproachMetrics:
             )
         d["per_lang"] = lang_summary
 
+        # Per-label-tier (only when entries carry metadata.label_tier)
+        if self.tier_metrics:
+            d["per_label_tier"] = [
+                {
+                    "label_tier": tier,
+                    "total": tm.total,
+                    "precision": _fmt(tm.precision),
+                    "recall": _fmt(tm.recall),
+                    "f1": _fmt(tm.f1),
+                    "fp_missed": tm.fp_missed,
+                    "fp_total": tm.fp_caught + tm.fp_missed,
+                }
+                for tier, tm in sorted(self.tier_metrics.items())
+            ]
+
+        d["suppression_at_dismissal_budget"] = [
+            self.suppression_at_dismissal_budget(b) for b in (0.0, 0.01, 0.05)
+        ]
+        if self.n_excluded:
+            d["n_excluded"] = self.n_excluded
+            d["excluded_reasons"] = dict(self.excluded_reasons)
+
         # Question match type distribution
         d["question_match_counts"] = dict(self.question_match_counts)
 
@@ -516,6 +636,14 @@ def evaluate(
     )
 
     for r in results:
+        # Results explicitly excluded from scoring (e.g. route=policy-only).
+        excl = r.entry.metadata.get("excluded_from_scoring")
+        if excl:
+            metrics.n_excluded += 1
+            reason = str(excl) if excl is not True else "excluded"
+            metrics.excluded_reasons[reason] = metrics.excluded_reasons.get(reason, 0) + 1
+            continue
+
         # Track question match type distribution for all results
         match_type = getattr(r, "question_match_type", "") or ""
         if match_type:
@@ -599,6 +727,7 @@ def evaluate(
             metrics.pred_tp += 1
         else:
             metrics.pred_fp += 1
+            metrics.dismissals.append((gt_label, r.confidence or "Unknown"))
 
         # Per-finding paired outcome (1=TP, 0=FP) for McNemar / bootstrap.
         gt_bin = 1 if gt_label == LABEL_TP else 0
@@ -669,6 +798,23 @@ def evaluate(
                 lm.fp_caught += 1
             else:
                 lm.fp_missed += 1
+
+        # Per-label-tier metrics
+        tier = r.entry.metadata.get("label_tier")
+        if tier:
+            tier = str(tier)
+            tm = metrics.tier_metrics.setdefault(tier, CWEMetrics(cwe_id=tier))
+            tm.total += 1
+            if gt_label == LABEL_TP:
+                if pred == PRED_TP:
+                    tm.tp_correct += 1
+                else:
+                    tm.tp_missed += 1
+            elif gt_label == LABEL_FP:
+                if pred == PRED_FP:
+                    tm.fp_caught += 1
+                else:
+                    tm.fp_missed += 1
 
         # Calibration
         confidence = r.confidence or "Unknown"

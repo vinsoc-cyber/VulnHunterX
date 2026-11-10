@@ -47,7 +47,7 @@ import threading
 import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +78,7 @@ _DEFAULT_MAX_ITERATIONS: int = (
 )
 
 from benchmarks.adapters.ground_truth import GroundTruthEntry, load_entries  # noqa: E402
+from benchmarks.adapters.redaction import has_redaction_rules, redact_entries  # noqa: E402
 from benchmarks.approaches.base import (  # noqa: E402
     PRED_ERROR,
     BenchmarkApproach,
@@ -220,7 +221,16 @@ def _load_dataset(
     ds_path = _resolve_dataset_path(name)
     fixture = _REPO_ROOT / "benchmarks" / "fixtures" / f"{name}_sample.json"
 
-    if ds_path.exists():
+    # An explicit manifest (e.g. cvefixes-diff) names its own data; never
+    # substitute the synthetic fixture for it.
+    built_manifest_dirs = (
+        _REPO_ROOT / "benchmarks" / "manifests",
+        _REPO_ROOT / "output" / "revpair",
+    )
+    has_built_manifest = name == "cvefixes-diff" and any(
+        any(d.glob("cvefixes-*.jsonl")) for d in built_manifest_dirs
+    )
+    if ds_path.exists() or options.get("manifest") or has_built_manifest:
         return load_dataset(name, ds_path, limit=limit, options=options)
 
     if fixture.exists():
@@ -241,6 +251,58 @@ def _load_dataset(
         f"Dataset {name!r} not found at {ds_path}. "
         f"Run: python benchmarks/scripts/setup_datasets.py --dataset {name}"
     )
+
+
+def _parse_cutoff(value: str | None, flag: str) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise SystemExit(f"{flag} must be YYYY-MM-DD, got {value!r}") from exc
+
+
+def _entry_cve_date(entry: GroundTruthEntry) -> date | None:
+    raw = entry.metadata.get("cve_published")
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(str(raw).strip()[:10])
+    except ValueError:
+        return None
+
+
+def _apply_cutoff_filter(
+    entries: list[GroundTruthEntry],
+    after: date | None,
+    before: date | None,
+) -> list[GroundTruthEntry]:
+    """Keep entries whose ``metadata["cve_published"]`` is after/before the dates.
+
+    ``after`` keeps ``published > after``; ``before`` keeps ``published < before``
+    (both strict). Entries lacking a parseable date are dropped (and counted in a
+    log line) whenever either filter is set — they cannot be shown to be outside
+    a model's training window.
+    """
+    if after is None and before is None:
+        return entries
+    kept: list[GroundTruthEntry] = []
+    n_missing = 0
+    for e in entries:
+        d = _entry_cve_date(e)
+        if d is None:
+            n_missing += 1
+            continue
+        if after is not None and d <= after:
+            continue
+        if before is not None and d >= before:
+            continue
+        kept.append(e)
+    logger.info(
+        "cutoff filter (after=%s, before=%s): kept %d/%d; dropped %d without cve_published",
+        after, before, len(kept), len(entries), n_missing,
+    )
+    return kept
 
 
 def _maybe_anchor_dataset(
@@ -1022,6 +1084,28 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--no-redact",
+        action="store_true",
+        help=(
+            "Disable label-leak redaction (FLAW/FIX comments, bad()/good() names, CWE-"
+            "numbered file names, p_/n_ prefixes) for datasets that have redaction rules "
+            "(juliet, secllmholmes). Redaction is ON by default and runs after anchoring."
+        ),
+    )
+    parser.add_argument(
+        "--cutoff-after",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Keep only entries with metadata.cve_published after this date "
+             "(entries lacking the field are dropped, with a logged count).",
+    )
+    parser.add_argument(
+        "--cutoff-before",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Keep only entries with metadata.cve_published before this date.",
+    )
+    parser.add_argument(
         "--nmd-handling",
         choices=["exclude", "fp"],
         default="exclude",
@@ -1253,6 +1337,9 @@ def main() -> int:
         "dry_run": args.dry_run,
         "anchor": args.anchor,
         "anchor_alignment": args.anchor_alignment,
+        "redact": not args.no_redact,
+        "cutoff_after": args.cutoff_after,
+        "cutoff_before": args.cutoff_before,
     }
     _save_run_config(run_dir, current_config)
     if args.resume:
@@ -1344,6 +1431,9 @@ def main() -> int:
             opts.setdefault("benchmark_cwes_only", args.juliet_per_cwe > 0)
         return opts
 
+    cutoff_after = _parse_cutoff(args.cutoff_after, "--cutoff-after")
+    cutoff_before = _parse_cutoff(args.cutoff_before, "--cutoff-before")
+
     try:
         for dataset_name in datasets:
             logger.info("Loading dataset: %s (limit=%d)", dataset_name, args.limit)
@@ -1359,6 +1449,13 @@ def main() -> int:
                 logger.error("%s", exc)
                 continue
             logger.info("  %d entries loaded", len(entries))
+
+            if cutoff_after or cutoff_before:
+                entries = _apply_cutoff_filter(entries, cutoff_after, cutoff_before)
+                if not entries:
+                    logger.error("Skipping dataset %s: no entries after cutoff filter.",
+                                 dataset_name)
+                    continue
 
             # Tier 2A: refuse to start a real (LLM) run on a degenerate dataset.
             # Allow dry-run through unconditionally and let --ignore-quality-check
@@ -1387,6 +1484,12 @@ def main() -> int:
                     dataset_name,
                 )
                 continue
+
+            # Label-leak redaction AFTER anchoring: anchoring locates files on disk via
+            # the original file_path, and blanking keeps line counts so sink_line holds.
+            if not args.no_redact and has_redaction_rules(dataset_name):
+                entries = redact_entries(entries, dataset_name)
+                logger.info("  redacted %d entries (label-leak hints neutralised)", len(entries))
 
             iteration_values = [1, 2, 3] if args.iteration_sweep else [args.max_iterations]
 
