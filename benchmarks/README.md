@@ -39,6 +39,12 @@ The design rationale, papers reviewed, and dataset selection criteria are in [RE
 | `ablation-generic` | The `vulnhunterx` pipeline with only `default_questions.yaml` (generic fallback questions).                           |
 | `ablation-zero`    | The `vulnhunterx` pipeline with no guided questions (zero-shot).                                                      |
 | `all`              | Every registered approach: `raw-sast vulnhunterx ablation-generic ablation-zero` — i.e. baselines + the full guided-question ablation. |
+| `single-shot-cwe`  | One LLM call per alert with CWE-specific guidance (ZeroFalse-style baseline). No multi-turn retrieval.                 |
+| `vulnhunterx-repo` | The `vulnhunterx` pipeline with **full repository context** instead of the snippet. Needs `metadata.repo_name` + a checkout under `repos/<lang>/<repo_name>` (the revision-pair builder provides both). Missing repo → ERROR, never a snippet fallback. |
+| `agent-baseline`   | A general coding agent (`--approach-option agent=claude\|codex`) run headless with **read-only** repo access and a fixed prompt. Sends source to that agent's own provider; ignores `--provider/--model`. |
+
+`vulnhunterx` and `vulnhunterx-repo` accept `--approach-option route=auto|legacy|policy-only`: `legacy` disables the
+evidence policies, `policy-only` scores only findings decided by a family policy (others are excluded and counted).
 
 ---
 
@@ -56,6 +62,34 @@ Two tracks (see [RESEARCH.md § 6](RESEARCH.md#6-dataset-selection-guide--what-t
 | **OWASP BenchmarkPython**| ~1,230 cases   | Python         | `expectedresults-0.1.csv` — GPL-3.0                                                         |
 | **RealVuln Benchmark**   | 796 findings   | Python         | Real CVE TPs + curated FP traps across 26 web-framework repos — MIT                         |
 | **security-rules**       | 14 pairs       | Go/PHP/JS/Py   | In-repo `vuln`/`clean` fixtures for this project's custom rules — no download                |
+| **cvefixes-diff**        | built locally  | multi          | Real scanner alerts on CVE fix commits, auto-labelled by diffing vulnerable vs patched revisions (see below) — **candidate labels, adjudication pending** |
+| **CASTLE**               | 250 programs   | C              | 150 vulnerable (labelled lines) / 100 clean micro-programs, 25 CWEs — MIT                   |
+| **Juliet Java 1.3**      | ~28K cases     | Java           | NIST synthetic `bad()`/`good*()` methods                                                     |
+
+### Tier A: revision-pair alerts (`cvefixes-diff`)
+
+1. Select fix commits from a local CVEfixes SQLite DB (manual download, see `datasets.yaml`):
+   `python -m benchmarks.builders.cvefixes_select --db benchmarks/datasets/cvefixes/CVEfixes.db --langs python,javascript,php --out fixes.jsonl`
+   (run with `--help` for filters: `--max-files`, `--published-after`, `--per-lang`, `--per-cwe`, `--seed`).
+2. Scan both revisions and label each alert:
+   `python benchmarks/scripts/build_revpair_manifest.py --input fixes.jsonl --tools opengrep`
+   (`--dry-run` = checkout + diff only; compiled languages need `--allow-build`, ideally with `--build-container IMAGE`).
+   Writes `output/revpair/cvefixes-<date>.jsonl` (+ `.sha256`) and `revpair_attrition.json`.
+3. Benchmark it: `python benchmarks/scripts/run_benchmark.py --dataset cvefixes-diff --approach raw-sast vulnhunterx-repo`
+   (or `--dataset-option manifest=<path>`; `--cutoff-after YYYY-MM-DD` keeps CVEs published after a model's cutoff).
+
+Label tiers (`metadata.label_tier`): `silver-tp` (alert gone after the fix, overlaps the fix hunk, CWE matches) and
+`silver-tp-weak` → TP; `persistent` (unchanged in both revisions, outside the fixed code) → FP, meaning *persistent alert*,
+not a confirmed false positive; `ambiguous` → excluded and counted in the attrition file. Every entry carries
+`label_source=auto-diff` and `adjudication=pending`. Report results per tier and never as human ground truth.
+
+### Label redaction and robustness
+
+Juliet, Juliet Java, SecLLMHolmes and CASTLE entries are redacted by default before they reach a model (FLAW/FIX
+comments blanked with line numbers kept, `bad`/`good` identifiers renamed, CWE tokens and `p_`/`n_` paths
+neutralised); `--no-redact` disables it for comparison. SecLLMHolmes accepts
+`--dataset-option perturb=rename_locals,misleading_comment,sanitizer_wrap` to emit perturbed copies
+(`<id>__<kind>`) for verdict-flip measurement — a robustness check, not a headline accuracy number.
 
 **Track 2 — detection** (whole-function vuln labels; recall-only, *not* in the headline/model-matrix):
 

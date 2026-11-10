@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: LGPL-2.1-only
 # Copyright (c) 2026 VinSOC Cyber
 #
-# Model matrix for cross-model benchmark comparison (Ollama / GPT / DeepSeek).
+# Model matrix for cross-model benchmark comparison
+# (Anthropic / OpenAI / Gemini / open-weight via Ollama or DeepSeek).
 # Read by benchmarks/scripts/run_model_matrix.py.
 #
 # SETUP: copy this file to `benchmarks/config/models.yaml` (gitignored) and edit
 # it. For each model's `env:`, copy the matching template from
 # `benchmarks/config/.env.<name>.example` to a repo-root `.env.<name>` and fill
-# in real keys. The runner prefers models.yaml and falls back to this .example.
+# in real keys (never commit keys). The runner prefers models.yaml and falls
+# back to this .example.
 #
 # Each entry runs the SAME dataset(s)/approach(es) as a separate
 # `run_benchmark.py` subprocess into its own results subdir, then
@@ -15,41 +17,71 @@
 #
 # Fields per entry:
 #   id        unique label; names the results subdir and the COMPARISON row
-#   provider  openai | ollama | anthropic  (passed as --provider)
+#   provider  openai | ollama | anthropic | deepseek | gemini  (passed as --provider)
 #   model     model id passed as --model (LLMClient adds provider prefixes)
 #   tier      dev | bulk | headline  (documentation; not enforced)
 #   env       optional path (repo-root-relative) to a .env file whose vars are
 #             overlaid on the subprocess environment — gives each model a clean,
-#             isolated credential set (DeepSeek vs OpenAI vs Ollama don't collide)
+#             isolated credential set (providers don't collide)
 #
-# Note: GPT models are gpt-4.1 (cost-effective frontier) and gpt-5 (frontier
-# ceiling). DeepSeek is the cheap frontier-reasoning tier. Ollama (local or
-# cloud pool) is the only viable option at full-Juliet/DiverseVul scale.
+# MODEL IDS: entries marked "VERIFY model id before running" could not be
+# confirmed against the provider's live model list when this file was written.
+# Check the provider's model list (or a 1-token call) before a paid run.
 
 models:
   # ── Headline tier (publishable, fixed-seed Track-1 subset) ──
-  - id: gpt-4.1-mini
+  # Anthropic (provider=anthropic; key in .env.anthropic)
+  - id: claude-sonnet-5-5
+    provider: anthropic
+    model: claude-sonnet-5-5
+    tier: headline
+    env: .env.anthropic
+
+  - id: claude-haiku-5-5
+    provider: anthropic
+    model: claude-haiku-5-5
+    tier: headline
+    env: .env.anthropic
+
+  # OpenAI flagship + small tier.
+  - id: gpt-5-flagship
     provider: openai
-    model: gpt-4.1-mini
+    model: gpt-5.1   # VERIFY model id before running (current GPT-5.x flagship)
     tier: headline
     env: .env.openai
 
-  - id: gpt-5
+  - id: gpt-5-mini
     provider: openai
-    model: gpt-5
+    model: gpt-5-mini   # VERIFY model id before running (current GPT-5.x small tier)
     tier: headline
     env: .env.openai
 
+  # Gemini paid tier (the free tier is ~20 req/day and unusable for a matrix).
+  - id: gemini-pro
+    provider: gemini
+    model: gemini-2.5-pro   # VERIFY model id before running (current paid Gemini Pro)
+    tier: headline
+    env: .env.gemini
+
+  # ── Open-weight tier ──
+  # gpt-oss via Ollama (local or cloud pool); the retired qwen3-coder:480b-cloud
+  # (2026-07-15) is no longer listed.
+  - id: ollama-gpt-oss
+    provider: ollama
+    model: ollama/gpt-oss:120b-cloud   # VERIFY model id before running (cloud tag availability)
+    tier: headline
+    env: .env.ollama
+
+  # Open-weight Qwen via Ollama.
+  - id: ollama-qwen3-coder
+    provider: ollama
+    model: ollama/qwen3-coder:30b   # VERIFY model id before running (local tag; pull first)
+    tier: dev
+    env: .env.ollama
+
+  # DeepSeek — cheap frontier-reasoning open-weight tier.
   - id: deepseek
     provider: deepseek
     model: deepseek-v4-flash
-    tier: headline
+    tier: bulk
     env: .env.deepseek
-
-  # qwen3-coder:480b-cloud was retired 2026-07-15 (API: "model was retired");
-  # gpt-oss:120b-cloud is the README's documented, currently-reachable example.
-  - id: ollama-gpt-oss
-    provider: ollama
-    model: ollama/gpt-oss:120b-cloud
-    tier: headline
-    env: .env.ollama

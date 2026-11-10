@@ -71,3 +71,30 @@ datasets:
     filename: diversevul.json
     dirname: diversevul
     disk_mb: 2000
+
+  castle:
+    description: "CASTLE: 250 C programs (150 vulnerable / 100 clean), 25 CWEs, labelled vulnerable lines (MIT)"
+    type: git
+    url: "https://github.com/CASTLE-Benchmark/CASTLE-Benchmark"
+    dirname: castle
+    disk_mb: 10
+
+  juliet-java:
+    description: "Juliet Java 1.3: NIST SARD Java test cases with bad()/good() methods"
+    type: zip
+    url: "https://samate.nist.gov/SARD/downloads/test-suites/2017-10-01-juliet-test-suite-for-java-v1-3.zip"
+    dirname: juliet-java
+    disk_mb: 300
+
+  # CVEfixes (Bhandari et al., PROMISE 2021): Zenodo DOI 10.5281/zenodo.4476563
+  # (v1.0.8, CVEs through 2024-07-23). The record ships a multi-GB SQL dump /
+  # compressed SQLite DB (see the record's Files list for the exact size);
+  # it is NOT auto-downloaded. Use benchmarks/builders/cvefixes_select.py on
+  # the extracted DB to select fix commits, then build a frozen alert manifest.
+  cvefixes:
+    description: "CVEfixes v1.0.8: CVE fix commits DB (SQLite; CC-BY 4.0) — manual download from Zenodo"
+    type: manual
+    url: "https://zenodo.org/records/4476563"
+    instructions: "Download the CVEfixes archive from https://zenodo.org/records/4476563, extract the SQLite DB to benchmarks/datasets/cvefixes/CVEfixes.db"
+    dirname: cvefixes
+    disk_mb: 15000

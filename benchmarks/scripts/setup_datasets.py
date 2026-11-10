@@ -177,6 +177,9 @@ def setup_dataset(name: str) -> bool:
             _download_and_extract(cfg["url"], cfg["target_dir"])
         elif cfg["type"] == "gdrive":
             _download_gdrive(cfg["gdrive_id"], cfg["filename"], cfg["target_dir"])
+        elif cfg["type"] == "manual":
+            logger.info("%s requires a manual download: %s", name, cfg.get("instructions", ""))
+            return True
         elif cfg["type"] == "builtin":
             logger.info("✓ %s is in-repo (no download needed)", name)
             return True

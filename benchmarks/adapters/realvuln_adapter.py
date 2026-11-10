@@ -47,14 +47,97 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+import shutil
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import urlparse
 
 from benchmarks.adapters.cwe_rule_map import primary_rule_for_lang
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
-from benchmarks.adapters.registry import DatasetAdapter, register_adapter
+from benchmarks.adapters.registry import (
+    DatasetAdapter,
+    OptionSpec,
+    _to_bool,
+    register_adapter,
+)
 
 logger = logging.getLogger(__name__)
+
+
+_SAFE_REPO_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+# RealVuln marks FP "traps" as ``is_vulnerable: false`` entries. The schema has
+# no dedicated trap flag; provenance lives in ``evidence.source``. Manually
+# reviewed entries (e.g. ``manual_review``) are the curated traps; entries
+# derived from a scanner run are "natural" FPs. Anything else is "unknown".
+_TRAP_SOURCES = frozenset({"manual_review", "manual", "human", "trap", "curated"})
+_NATURAL_SOURCES = frozenset(
+    {"semgrep", "codeql", "bandit", "scanner", "sast", "opengrep", "snyk", "sonarqube"}
+)
+
+
+def _fp_origin(finding: dict, evidence: dict) -> str:
+    """Classify an FP entry as "trap" | "natural" | "unknown" (heuristic)."""
+    explicit = finding.get("fp_origin") or ("trap" if finding.get("trap") is True else "")
+    if explicit in ("trap", "natural"):
+        return str(explicit)
+    src = str(evidence.get("source") or "").strip().lower()
+    if src in _TRAP_SOURCES:
+        return "trap"
+    if src in _NATURAL_SOURCES:
+        return "natural"
+    return "unknown"
+
+
+def _run_vcs(args: list[str], cwd: Path | None, timeout: int) -> bool:
+    exe = shutil.which("git")
+    if not exe:
+        return False
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    try:
+        r = subprocess.run(  # noqa: S603
+            [exe, *args], cwd=cwd, env=env, timeout=timeout,
+            capture_output=True, check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return r.returncode == 0
+
+
+def _checkout_commit(
+    repo_dir: Path, repo_id: str, repo_url: str, sha: str, clone: bool
+) -> str:
+    """Check out ``sha`` in ``repo_dir``. Returns a status string.
+
+    No shell. Only touches an existing clone, unless ``clone`` is true and
+    ``repo_url`` (from the dataset's own ground truth) is an https URL.
+    """
+    if not _SAFE_REPO_ID_RE.match(repo_id):
+        return "skipped:unsafe_repo_id"
+    if not _SHA_RE.match(sha):
+        return "skipped:invalid_sha"
+    if not (repo_dir / ".git").exists():
+        if not clone:
+            return "skipped:not_a_clone"
+        u = urlparse(repo_url)
+        if u.scheme != "https" or not u.netloc or any(c.isspace() for c in repo_url):
+            return "skipped:non_https_url"
+        if repo_dir.exists() and any(repo_dir.iterdir()):
+            return "skipped:cache_dir_not_empty"
+        repo_dir.parent.mkdir(parents=True, exist_ok=True)
+        if not _run_vcs(["clone", "--quiet", "--", repo_url, str(repo_dir)], None, 600):
+            return "failed:clone"
+    if not _run_vcs(["cat-file", "-e", f"{sha}^{{commit}}"], repo_dir, 30) and not _run_vcs(
+        ["fetch", "--quiet", "origin", sha], repo_dir, 300
+    ):
+        return "failed:fetch"
+    if not _run_vcs(["checkout", "--quiet", "--detach", sha], repo_dir, 60):
+        return "failed:checkout"
+    return "ok"
 
 
 # (repo_id, finding) -> snippet  (used in tests; production reads from disk)
@@ -102,7 +185,20 @@ class RealVulnAdapter(DatasetAdapter):
     name = "realvuln"
     langs = ("python",)
     family = "cve"
-    option_schema: dict = {}
+    option_schema = {
+        "checkout": OptionSpec(
+            _to_bool,
+            default=False,
+            help="Check out each repo's commit_sha in an EXISTING clone under "
+            "<repos_cache>/<repo_id> (fetch/checkout, no shell).",
+        ),
+        "clone": OptionSpec(
+            _to_bool,
+            default=False,
+            help="With checkout=true: also clone missing repos from the https "
+            "repo_url in the dataset's ground truth. Uses the network.",
+        ),
+    }
     install_url = "https://github.com/kolega-ai/Real-Vuln-Benchmark.git"
     expected_files = ("ground-truth",)
 
@@ -144,7 +240,9 @@ class RealVulnAdapter(DatasetAdapter):
         snippet = _read_lines(candidate, start, end, pad=50)
         return snippet, "window" if snippet else "missing"
 
-    def load(self, limit: int = 0) -> list[GroundTruthEntry]:
+    def load(
+        self, limit: int = 0, checkout: bool = False, clone: bool = False
+    ) -> list[GroundTruthEntry]:
         entries: list[GroundTruthEntry] = []
         for gt_path in self._ground_truth_files():
             try:
@@ -156,6 +254,16 @@ class RealVulnAdapter(DatasetAdapter):
             repo_id = str(manifest.get("repo_id") or gt_path.parent.name)
             commit = str(manifest.get("commit_sha") or "")
             lang = str(manifest.get("language") or "").lower() or "python"
+            checkout_status = ""
+            if checkout:
+                checkout_status = _checkout_commit(
+                    self.repos_cache / repo_id,
+                    repo_id,
+                    str(manifest.get("repo_url") or ""),
+                    commit,
+                    clone,
+                )
+                logger.info("RealVuln checkout %s: %s", repo_id, checkout_status)
 
             for f in manifest.get("findings", []):
                 is_vuln = bool(f.get("is_vulnerable"))
@@ -195,6 +303,8 @@ class RealVulnAdapter(DatasetAdapter):
                         label=label,
                         code_snippet=snippet,
                         metadata={
+                            **({"fp_origin": _fp_origin(f, evidence)} if not is_vuln else {}),
+                            **({"checkout": checkout_status} if checkout else {}),
                             "repo_id": repo_id,
                             "commit_sha": commit,
                             "end_line": end_line,

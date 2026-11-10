@@ -211,6 +211,9 @@ def _ensure_loaded() -> None:
         "benchmarks.adapters.owasp_benchmark_adapter",
         "benchmarks.adapters.security_rules_adapter",
         "benchmarks.adapters.openvuln_adapter",
+        "benchmarks.adapters.castle_adapter",
+        "benchmarks.adapters.juliet_java_adapter",
+        "benchmarks.adapters.cvefixes_diff_adapter",
     ):
         try:
             __import__(modname)

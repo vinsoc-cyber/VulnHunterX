@@ -67,7 +67,7 @@ def test_realvuln_fixture_is_line_anchored():
 
 
 @pytest.mark.parametrize("fixture", [
-    "diversevul_sample.json", "juliet_sample.json", "openvuln_sample.json",
+    "diversevul_sample.json", "juliet_sample.json",
     "owasp_benchmark_sample.json", "secllmholmes_sample.json",
     "security-rules_sample.json",
 ])

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,9 @@ from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
 from vuln_hunter_x.core.config import Config
 from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.verification.engine import VerificationEngine
+from vuln_hunter_x.verification.policy.loader import PolicyRegistry
+
+ROUTES = ("auto", "legacy", "policy-only")
 
 # Default prompts directory containing all per-language *_questions.yaml files
 _PROMPTS_DIR = (
@@ -63,6 +67,18 @@ class VulnHunterXApproach(RegisteredApproach):
             default=False,
             help="Use variable-aware code slicing instead of full snippet.",
         ),
+        "route": OptionSpec(
+            str,
+            default="auto",
+            help=(
+                "Verification route. 'auto': engine decides per finding (policy when a "
+                "family policy matches, else legacy model). 'legacy': disable policies "
+                "(empty PolicyRegistry). 'policy-only': run normally but exclude results "
+                "whose decision_source != 'policy' from scoring "
+                "(metadata.excluded_from_scoring). decision_source is always recorded in "
+                "entry.metadata['decision_source']."
+            ),
+        ),
     }
 
     @classmethod
@@ -77,6 +93,7 @@ class VulnHunterXApproach(RegisteredApproach):
             max_iterations=options.get("max_iterations", 3),
             force_decision=options.get("force_decision", True),
             use_slicing=options.get("use_slicing", False),
+            route=options.get("route", "auto"),
         )
 
     def __init__(
@@ -88,7 +105,11 @@ class VulnHunterXApproach(RegisteredApproach):
         dry_run: bool = False,
         force_decision: bool = True,
         use_slicing: bool = False,
+        route: str = "auto",
     ) -> None:
+        if route not in ROUTES:
+            raise ValueError(f"route must be one of {ROUTES}, got {route!r}")
+        self._route = route
         self._provider = provider
         self._model = model
         self._max_iterations = max_iterations
@@ -140,6 +161,11 @@ class VulnHunterXApproach(RegisteredApproach):
             jobs=1,
         )
 
+        if self._route == "legacy":
+            # Disable deterministic family policies so every finding takes the
+            # legacy (model-driven) path.
+            engine._policy_registry = PolicyRegistry([])
+
         # Mirror the args the engine uses internally (engine.py) so the
         # recorded match type can't diverge from the questions actually fed to
         # the LLM — e.g. a CWE-tier match would otherwise be misreported.
@@ -161,8 +187,13 @@ class VulnHunterXApproach(RegisteredApproach):
             )
 
         v = result.verdicts[0]
+        decision_source = getattr(v, "decision_source", "legacy_model") or "legacy_model"
+        # Annotate a per-result copy: the entry object is shared with other approaches.
+        meta = {**entry.metadata, "decision_source": decision_source}
+        if self._route == "policy-only" and decision_source != "policy":
+            meta["excluded_from_scoring"] = f"route=policy-only:{decision_source}"
         return BenchmarkResult(
-            entry=entry,
+            entry=replace(entry, metadata=meta),
             predicted_label=verdict_to_pred(v.verdict),
             confidence=v.confidence,
             reasoning=v.reasoning,

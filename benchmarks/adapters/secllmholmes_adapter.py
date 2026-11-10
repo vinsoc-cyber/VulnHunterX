@@ -33,7 +33,14 @@ from pathlib import Path
 
 from benchmarks.adapters.cwe_rule_map import primary_rule_for_lang
 from benchmarks.adapters.ground_truth import LABEL_FP, LABEL_TP, GroundTruthEntry
-from benchmarks.adapters.registry import DatasetAdapter, register_adapter
+from benchmarks.adapters.perturbation import KINDS, perturb_entry
+from benchmarks.adapters.registry import (
+    DatasetAdapter,
+    OptionSpec,
+    _to_bool,
+    _to_csv_list,
+    register_adapter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +74,24 @@ class SecLLMHolmesAdapter(DatasetAdapter):
     name = "secllmholmes"
     langs = ("c", "cpp", "python", "javascript", "php")
     family = "academic"
-    option_schema: dict = {}
+    option_schema = {
+        "perturb": OptionSpec(
+            _to_csv_list,
+            default=None,
+            help="Comma list of perturbation kinds ("
+            + ",".join(KINDS)
+            + "); emits extra copies with ids '<id>__<kind>' "
+            "(metadata.perturbation) for verdict-flip-rate analysis.",
+        ),
+        "perturb_seed": OptionSpec(int, default=0, help="Seed for perturbations."),
+        "aug_as_perturbation": OptionSpec(
+            _to_bool,
+            default=False,
+            help="Tag the dataset's own augmented/ variants as perturbations "
+            "(metadata.perturbation.kind='secllmholmes-aug', original_id = the "
+            "hand-crafted entry with the same CWE and filename, if any).",
+        ),
+    }
     install_url = "https://github.com/Ahmed-Ucsd/SecLLMHolmes.git"
     expected_files = ("datasets",)
 
@@ -100,7 +124,44 @@ class SecLLMHolmesAdapter(DatasetAdapter):
             )
         return sorted(dataset_dirs)
 
-    def load(self, limit: int = 0) -> list[GroundTruthEntry]:
+    def load(
+        self,
+        limit: int = 0,
+        perturb: list[str] | None = None,
+        perturb_seed: int = 0,
+        aug_as_perturbation: bool = False,
+    ) -> list[GroundTruthEntry]:
+        """Load scenarios, optionally with perturbed copies / tagged aug variants.
+
+        ``limit`` caps base entries; perturbed copies are appended after it.
+        Defaults leave behaviour unchanged.
+        """
+        entries = self._load_base(limit)
+        if aug_as_perturbation:
+            originals = {
+                (e.cwe_id, e.metadata["filename"]): e.id
+                for e in entries
+                if e.metadata["variant"] == "hand-crafted"
+            }
+            for e in entries:
+                if str(e.metadata["variant"]).startswith("augmented"):
+                    e.metadata["perturbation"] = {
+                        "kind": "secllmholmes-aug",
+                        "seed": None,
+                        "original_id": originals.get((e.cwe_id, e.metadata["filename"])),
+                        "variant": e.metadata["variant"],
+                        "applied": True,
+                    }
+        if perturb:
+            bad = [k for k in perturb if k not in KINDS]
+            if bad:
+                raise ValueError(f"unknown perturbation kinds {bad}; valid: {list(KINDS)}")
+            base = [e for e in entries if "perturbation" not in e.metadata]
+            for kind in perturb:
+                entries.extend(perturb_entry(e, kind, perturb_seed) for e in base)
+        return entries
+
+    def _load_base(self, limit: int = 0) -> list[GroundTruthEntry]:
         """Load all scenarios from the SecLLMHolmes dataset.
 
         Args:

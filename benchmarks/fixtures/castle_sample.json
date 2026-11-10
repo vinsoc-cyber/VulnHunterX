@@ -1,0 +1,122 @@
+[
+  {
+    "id": "castle_787-0",
+    "source_dataset": "castle",
+    "cwe_id": "CWE-787",
+    "rule_id": "cpp/overflow-buffer",
+    "file_path": "CASTLE-787-0.c",
+    "function_name": "",
+    "start_line": 6,
+    "lang": "c",
+    "label": "TP",
+    "code_snippet": "#include <stdio.h>\n#include <string.h>\n\nint main(int argc, char *argv[]) {\n    char buf[16];\n    strcpy(buf, argv[1]);\n    printf(\"%s\\n\", buf);\n    return 0;\n}\n",
+    "metadata": {
+      "cwe": "CWE-787",
+      "original_filename": "CASTLE-787-0.c",
+      "vulnerable_lines": [
+        6
+      ],
+      "description": "synthetic sample"
+    },
+    "sink_line": 6
+  },
+  {
+    "id": "castle_787-1",
+    "source_dataset": "castle",
+    "cwe_id": "CWE-787",
+    "rule_id": "cpp/overflow-buffer",
+    "file_path": "CASTLE-787-1.c",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "c",
+    "label": "FP",
+    "code_snippet": "#include <stdio.h>\n#include <string.h>\n\nint main(int argc, char *argv[]) {\n    char buf[16];\n    strncpy(buf, argv[1], sizeof(buf) - 1);\n    buf[sizeof(buf) - 1] = 0;\n    printf(\"%s\\n\", buf);\n    return 0;\n}\n",
+    "metadata": {
+      "cwe": "CWE-787",
+      "original_filename": "CASTLE-787-1.c",
+      "vulnerable_lines": [],
+      "description": "synthetic sample"
+    },
+    "sink_line": null
+  },
+  {
+    "id": "castle_787-2",
+    "source_dataset": "castle",
+    "cwe_id": "CWE-787",
+    "rule_id": "cpp/overflow-buffer",
+    "file_path": "CASTLE-787-2.c",
+    "function_name": "",
+    "start_line": 6,
+    "lang": "c",
+    "label": "TP",
+    "code_snippet": "#include <stdio.h>\n#include <string.h>\n\nint main(int argc, char *argv[]) {\n    char buf[16];\n    strcpy(buf, argv[1]);\n    printf(\"%s\\n\", buf);\n    return 0;\n}\n",
+    "metadata": {
+      "cwe": "CWE-787",
+      "original_filename": "CASTLE-787-2.c",
+      "vulnerable_lines": [
+        6
+      ],
+      "description": "synthetic sample"
+    },
+    "sink_line": 6
+  },
+  {
+    "id": "castle_787-3",
+    "source_dataset": "castle",
+    "cwe_id": "CWE-787",
+    "rule_id": "cpp/overflow-buffer",
+    "file_path": "CASTLE-787-3.c",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "c",
+    "label": "FP",
+    "code_snippet": "#include <stdio.h>\n#include <string.h>\n\nint main(int argc, char *argv[]) {\n    char buf[16];\n    strncpy(buf, argv[1], sizeof(buf) - 1);\n    buf[sizeof(buf) - 1] = 0;\n    printf(\"%s\\n\", buf);\n    return 0;\n}\n",
+    "metadata": {
+      "cwe": "CWE-787",
+      "original_filename": "CASTLE-787-3.c",
+      "vulnerable_lines": [],
+      "description": "synthetic sample"
+    },
+    "sink_line": null
+  },
+  {
+    "id": "castle_22-4",
+    "source_dataset": "castle",
+    "cwe_id": "CWE-22",
+    "rule_id": "cpp/path-injection",
+    "file_path": "CASTLE-22-4.c",
+    "function_name": "",
+    "start_line": 6,
+    "lang": "c",
+    "label": "TP",
+    "code_snippet": "#include <stdio.h>\n#include <string.h>\n\nint main(int argc, char *argv[]) {\n    char buf[16];\n    strcpy(buf, argv[1]);\n    printf(\"%s\\n\", buf);\n    return 0;\n}\n",
+    "metadata": {
+      "cwe": "CWE-22",
+      "original_filename": "CASTLE-22-4.c",
+      "vulnerable_lines": [
+        6
+      ],
+      "description": "synthetic sample"
+    },
+    "sink_line": 6
+  },
+  {
+    "id": "castle_22-5",
+    "source_dataset": "castle",
+    "cwe_id": "CWE-22",
+    "rule_id": "cpp/path-injection",
+    "file_path": "CASTLE-22-5.c",
+    "function_name": "",
+    "start_line": 1,
+    "lang": "c",
+    "label": "FP",
+    "code_snippet": "#include <stdio.h>\n#include <string.h>\n\nint main(int argc, char *argv[]) {\n    char buf[16];\n    strncpy(buf, argv[1], sizeof(buf) - 1);\n    buf[sizeof(buf) - 1] = 0;\n    printf(\"%s\\n\", buf);\n    return 0;\n}\n",
+    "metadata": {
+      "cwe": "CWE-22",
+      "original_filename": "CASTLE-22-5.c",
+      "vulnerable_lines": [],
+      "description": "synthetic sample"
+    },
+    "sink_line": null
+  }
+]
