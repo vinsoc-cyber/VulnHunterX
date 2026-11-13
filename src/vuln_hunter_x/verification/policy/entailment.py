@@ -47,16 +47,12 @@ def entail(
 
     for cond in policy.false_positive_if_any:
         if _condition_holds(cond, resolved):
-            reason = "false_positive: " + ", ".join(
-                f"{slot}={resolved[slot]}" for slot in cond
-            )
+            reason = "false_positive: " + ", ".join(f"{slot}={resolved[slot]}" for slot in cond)
             return PolicyDecision(FP, policy.family, resolved, reason, evidence_ids)
 
     if _condition_holds(policy.true_positive, resolved):
         return PolicyDecision(TP, policy.family, resolved, None, evidence_ids)
 
     unresolved = sorted(s for s in policy.decisive_slots if resolved.get(s) is None)
-    reason = (
-        "unresolved: " + ", ".join(unresolved) if unresolved else "no_entailment"
-    )
+    reason = "unresolved: " + ", ".join(unresolved) if unresolved else "no_entailment"
     return PolicyDecision(NMD, policy.family, resolved, reason, evidence_ids)

@@ -80,10 +80,9 @@ def _parse_system_prompt(text: str, source: str = "system_prompt.yaml") -> str:
     """Parse a system-prompt YAML document. Raises on a malformed shape."""
     data = yaml.safe_load(text)
     if not isinstance(data, dict) or "system_prompt" not in data:
-        raise RuntimeError(
-            f"{source} is malformed: expected a mapping with a 'system_prompt' key"
-        )
-    return data["system_prompt"]
+        raise RuntimeError(f"{source} is malformed: expected a mapping with a 'system_prompt' key")
+    prompt: str = data["system_prompt"]
+    return prompt
 
 
 def _load_system_prompt_template() -> str:
@@ -91,9 +90,9 @@ def _load_system_prompt_template() -> str:
     means a broken install, a malformed file means bad config; we never silently
     substitute a different prompt."""
     try:
-        text = (
-            importlib.resources.files("vuln_hunter_x.llm") / "system_prompt.yaml"
-        ).read_text(encoding="utf-8")
+        text = (importlib.resources.files("vuln_hunter_x.llm") / "system_prompt.yaml").read_text(
+            encoding="utf-8"
+        )
     except (FileNotFoundError, ModuleNotFoundError) as e:
         raise RuntimeError(
             "Packaged system prompt vuln_hunter_x/llm/system_prompt.yaml is missing "

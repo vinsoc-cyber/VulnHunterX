@@ -95,9 +95,7 @@ FUNC_NODE_TYPES: dict[str, frozenset[str]] = {
             "arrow_function",
         }
     ),
-    "java": frozenset(
-        {"method_declaration", "constructor_declaration", "lambda_expression"}
-    ),
+    "java": frozenset({"method_declaration", "constructor_declaration", "lambda_expression"}),
     "php": frozenset(
         {
             "function_definition",
@@ -339,9 +337,7 @@ def _binding_name(node: tree_sitter.Node) -> str | None:
     if target is None:
         return None
     if target.type in ("member_expression", "attribute"):
-        target = target.child_by_field_name("property") or target.child_by_field_name(
-            "attribute"
-        )
+        target = target.child_by_field_name("property") or target.child_by_field_name("attribute")
     if target is None or target.type not in (
         "identifier",
         "property_identifier",
@@ -719,9 +715,7 @@ class TreeSitterContextExtractor:
             if body is None:
                 continue  # forward declaration / elaborated type use
             names: list[tuple[str, tree_sitter.Node]] = []
-            tag = node.child_by_field_name("name") or _find_child_by_type(
-                node, "type_identifier"
-            )
+            tag = node.child_by_field_name("name") or _find_child_by_type(node, "type_identifier")
             if tag is not None:
                 names.append((_get_node_text(_last_segment(tag)), node))
             parent = node.parent
@@ -804,9 +798,7 @@ class TreeSitterContextExtractor:
     def _macros_in(tree: tree_sitter.Tree, lang: str, rel: str) -> list[dict]:
         rows: list[dict] = []
         for node in _walk_tree(tree.root_node, "preproc_def", "preproc_function_def"):
-            name_node = node.child_by_field_name("name") or _find_child_by_type(
-                node, "identifier"
-            )
+            name_node = node.child_by_field_name("name") or _find_child_by_type(node, "identifier")
             if name_node is None:
                 continue
             body_node = node.child_by_field_name("value") or _find_child_by_type(
@@ -892,9 +884,7 @@ class TreeSitterContextExtractor:
                 rows_by_query[qt].extend(per_tree[qt](tree, lang, rel))
 
         if "callers" in rows_by_query:
-            self._resolve_callee_files(
-                rows_by_query["callers"], rows_by_query.get("functions", [])
-            )
+            self._resolve_callee_files(rows_by_query["callers"], rows_by_query.get("functions", []))
 
         for qt in active:
             rows = rows_by_query[qt]

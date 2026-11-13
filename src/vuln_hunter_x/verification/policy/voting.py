@@ -41,6 +41,4 @@ def aggregate_policy_decisions(
 
     # All NMD — combine the distinct terminal reasons.
     reasons = sorted({d.terminal_reason for d in resolved if d.terminal_reason})
-    return PolicyDecision(
-        NMD, family, {}, terminal_reason="; ".join(reasons) or "unresolved"
-    )
+    return PolicyDecision(NMD, family, {}, terminal_reason="; ".join(reasons) or "unresolved")

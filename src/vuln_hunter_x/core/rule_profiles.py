@@ -160,9 +160,7 @@ class RuleProfileManager:
         """Return a named profile.  Raises ``ValueError`` if unknown."""
         if name not in self._profiles:
             available = ", ".join(sorted(self._profiles))
-            raise ValueError(
-                f"Unknown rule profile {name!r}. Available: {available}"
-            )
+            raise ValueError(f"Unknown rule profile {name!r}. Available: {available}")
         return self._profiles[name]
 
     @property
@@ -256,7 +254,9 @@ class RuleProfileManager:
         return result
 
     def finding_matches_categories(
-        self, cwe_ids: list[str], category_names: list[str],
+        self,
+        cwe_ids: list[str],
+        category_names: list[str],
     ) -> bool:
         """Return ``True`` if any of *cwe_ids* belongs to the requested categories."""
         target_cwes = self.get_cwes_for_categories(category_names)

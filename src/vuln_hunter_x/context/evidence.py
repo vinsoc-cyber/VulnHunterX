@@ -242,9 +242,7 @@ _C_ONLY_KINDS = frozenset(
         EvidenceKind.FIELD_WRITES,
     }
 )
-_FRAMEWORK_KINDS = frozenset(
-    {EvidenceKind.FRAMEWORK_SANITIZERS, EvidenceKind.FRAMEWORK_GUARDS}
-)
+_FRAMEWORK_KINDS = frozenset({EvidenceKind.FRAMEWORK_SANITIZERS, EvidenceKind.FRAMEWORK_GUARDS})
 
 # Primary CSV basename backing each CSV-based kind. STRUCT is language-aware
 # (see _kind_csv_name); framework/unknown kinds have no CSV.
@@ -327,11 +325,7 @@ def inspect_capability(context_dir: Path, lang: str, kind: EvidenceKind) -> Capa
     'expected but the index is missing/invalid' (drives INCOMPLETE_INDEX).
     """
     csv_name = _kind_csv_name(kind, lang)
-    artifact = (
-        ArtifactState.PRESENT
-        if csv_name is None
-        else _artifact_state(context_dir, csv_name)
-    )
+    artifact = ArtifactState.PRESENT if csv_name is None else _artifact_state(context_dir, csv_name)
     return Capability(
         kind=kind,
         lang=lang,

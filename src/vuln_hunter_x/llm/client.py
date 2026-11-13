@@ -25,7 +25,7 @@ def _drop_litellm_aws_preload_warnings(record: logging.LogRecord) -> bool:
 
 logging.getLogger("LiteLLM").addFilter(_drop_litellm_aws_preload_warnings)
 
-import litellm  # noqa: E402 — must follow the logger filter above
+import litellm  # must follow the logger filter above
 
 litellm.suppress_debug_info = True
 # Drop per-model-unsupported params instead of erroring. Reasoning models
@@ -36,6 +36,7 @@ litellm.suppress_debug_info = True
 litellm.drop_params = True
 
 from vuln_hunter_x.context.provider import ContextProvider
+from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
 from vuln_hunter_x.core.config import _load_gemini_api_keys
 from vuln_hunter_x.core.constants import (
     DEFAULT_LLM_MAX_TOKENS,
@@ -197,13 +198,12 @@ class LLMClient:
             # immediately; newer ids report $0 until LiteLLM's table includes them.
             if not self.model.startswith("deepseek/"):
                 self.model = "deepseek/" + self.model
-        elif provider == "gemini":
+        elif provider == "gemini" and not self.model.startswith("gemini/"):
             # Google AI Studio via LiteLLM's native gemini/ route (Vertex AI
             # out of scope). Auth is injected in _build_completion_kwargs from
             # GEMINI_API_KEY (GOOGLE_API_KEY fallback) — NOT left to LiteLLM's
             # auto-read, whose precedence is GOOGLE-first and would invert ours.
-            if not self.model.startswith("gemini/"):
-                self.model = "gemini/" + self.model
+            self.model = "gemini/" + self.model
 
         # Build key pool only when there's something to rotate. A single key
         # is stashed on the client and sent directly. Ollama Cloud and Gemini
@@ -477,7 +477,7 @@ class LLMClient:
         context: str,
         questions: GuidedQuestions,
         func_name: str,
-        context_provider: ContextProvider | None = None,
+        context_provider: ContextProvider | SnippetContextProvider | None = None,
         max_iterations: int = 3,
         verbose: bool = False,
         log_file: Any | None = None,
@@ -518,7 +518,11 @@ class LLMClient:
         # contract, so the free-text verdict framing is dropped from both turns.
         assessment_mode = decision_strategy is not None
         user_prompt = self.prompt_builder.build_user_prompt(
-            finding, context, questions, func_name, context_start_line,
+            finding,
+            context,
+            questions,
+            func_name,
+            context_start_line,
             assessment_mode=assessment_mode,
         )
 
@@ -529,9 +533,8 @@ class LLMClient:
                 if "[No " not in code and "[Unknown" not in code:
                     prefetch_parts.append(f"### {req}\n```\n{code}\n```")
             if prefetch_parts:
-                user_prompt += (
-                    "\n\n## Pre-fetched Additional Context\n\n"
-                    + "\n\n".join(prefetch_parts)
+                user_prompt += "\n\n## Pre-fetched Additional Context\n\n" + "\n\n".join(
+                    prefetch_parts
                 )
 
         # Policy path: append the strategy's fact-slot assessment instructions so
@@ -680,13 +683,11 @@ class LLMClient:
                 # the second turn forces the LLM to re-examine its evidence
                 # under explicit "context unavailable" framing, which the
                 # 2026-05-15 benchmark showed materially flips wrong FPs.
-                if (
-                    iterations < questions.min_iterations
-                    and verdict != "Needs More Data"
-                ):
-                    suggested = ", ".join(
-                        f"'{t}:<name>'" for t in questions.additional_context[:3]
-                    ) or "'caller:<func>', 'struct:<type>'"
+                if iterations < questions.min_iterations and verdict != "Needs More Data":
+                    suggested = (
+                        ", ".join(f"'{t}:<name>'" for t in questions.additional_context[:3])
+                        or "'caller:<func>', 'struct:<type>'"
+                    )
                     if verbose:
                         print(
                             f"    [min_iterations={questions.min_iterations}] "
@@ -694,26 +695,28 @@ class LLMClient:
                             f"requesting deeper analysis"
                         )
                     messages.append({"role": "assistant", "content": raw_response})
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            f"For this rule ({questions.rule_id}), at least "
-                            f"{questions.min_iterations} rounds of analysis are required "
-                            "before a TP/FP verdict. Premature convergence on this CWE "
-                            "class has been a documented source of errors "
-                            "(over-convicting on patterns visible in sibling functions, "
-                            "dismissing real bugs without tracing cross-function lifetime).\n\n"
-                            "DO NOT issue a final verdict yet. In your next response:\n"
-                            f"1. Request additional context — try {suggested}.\n"
-                            "2. Re-quote the EXACT flagged line and identify which "
-                            "function it lives in.\n"
-                            "3. Walk the relevant chain (e.g., alloc -> free -> use) "
-                            "with concrete file:line references.\n\n"
-                            "Set verdict to 'Needs More Data' in this turn and request "
-                            "the context. Only after you have concrete evidence should "
-                            "you commit to TP or FP."
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"For this rule ({questions.rule_id}), at least "
+                                f"{questions.min_iterations} rounds of analysis are required "
+                                "before a TP/FP verdict. Premature convergence on this CWE "
+                                "class has been a documented source of errors "
+                                "(over-convicting on patterns visible in sibling functions, "
+                                "dismissing real bugs without tracing cross-function lifetime).\n\n"
+                                "DO NOT issue a final verdict yet. In your next response:\n"
+                                f"1. Request additional context — try {suggested}.\n"
+                                "2. Re-quote the EXACT flagged line and identify which "
+                                "function it lives in.\n"
+                                "3. Walk the relevant chain (e.g., alloc -> free -> use) "
+                                "with concrete file:line references.\n\n"
+                                "Set verdict to 'Needs More Data' in this turn and request "
+                                "the context. Only after you have concrete evidence should "
+                                "you commit to TP or FP."
+                            ),
+                        }
+                    )
                     continue
 
                 # Final verdict or no context expansion
@@ -781,13 +784,15 @@ class LLMClient:
                         print("    All requested context was already provided in previous turns.")
                     # Tell LLM that context was already provided
                     messages.append({"role": "assistant", "content": raw_response})
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "All requested context was already provided in previous turns. "
-                            "Please provide your verdict based on available information."
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "All requested context was already provided in previous turns. "
+                                "Please provide your verdict based on available information."
+                            ),
+                        }
+                    )
                     continue
 
                 if verbose:
@@ -937,7 +942,7 @@ class LLMClient:
         samples: int = 1,
         voting_temperature: float = 0.7,
         tie_break: str = "fp",
-        context_provider: ContextProvider | None = None,
+        context_provider: ContextProvider | SnippetContextProvider | None = None,
         max_iterations: int = 3,
         verbose: bool = False,
         log_file: Any | None = None,
@@ -1250,9 +1255,8 @@ class LLMClient:
                 if "[No " not in code and "[Unknown" not in code
             ]
             if prefetch_parts:
-                user_prompt += (
-                    "\n\n## Pre-fetched Additional Context\n\n"
-                    + "\n\n".join(prefetch_parts)
+                user_prompt += "\n\n## Pre-fetched Additional Context\n\n" + "\n\n".join(
+                    prefetch_parts
                 )
         sys_prompt = self.prompt_builder.get_system_prompt(
             tool_name=finding.tool or "static analysis",
@@ -1265,11 +1269,13 @@ class LLMClient:
                 "role": "assistant",
                 "content": (
                     previous_verdict.raw_response
-                    or json.dumps({
-                        "verdict": previous_verdict.verdict,
-                        "confidence": previous_verdict.confidence,
-                        "reasoning": previous_verdict.reasoning,
-                    })
+                    or json.dumps(
+                        {
+                            "verdict": previous_verdict.verdict,
+                            "confidence": previous_verdict.confidence,
+                            "reasoning": previous_verdict.reasoning,
+                        }
+                    )
                 ),
             },
             {"role": "user", "content": challenge_prompt or self._SECOND_OPINION_PROMPT},
@@ -1278,11 +1284,7 @@ class LLMClient:
         try:
             kwargs = self._build_completion_kwargs(messages, temperature=temperature)
             response = self._completion(kwargs)
-            raw = (
-                response.choices[0].message.content or ""
-                if response.choices
-                else ""
-            )
+            raw = response.choices[0].message.content or "" if response.choices else ""
         except Exception as e:
             logger.debug("Second-opinion call failed", exc_info=True)
             return Verdict(
@@ -1328,11 +1330,7 @@ class LLMClient:
             confidence=parsed.get("confidence", "Low"),
             reasoning=parsed.get("reasoning", "") + marker,
             answers=parsed.get("answers", previous_verdict.answers),
-            raw_response=(
-                previous_verdict.raw_response
-                + "\n--- SECOND OPINION ---\n"
-                + raw
-            ),
+            raw_response=(previous_verdict.raw_response + "\n--- SECOND OPINION ---\n" + raw),
             model=self.model,
             elapsed_seconds=previous_verdict.elapsed_seconds + elapsed,
             context_needed=parsed.get("context_needed", []),
@@ -1354,8 +1352,8 @@ class LLMClient:
         "EXCEPTION for unresolved reachability: if the flagged sink is dangerous on its face "
         "(no adequate defense on the visible path) and the ONLY fact preventing a decision is "
         "whether any production caller / route / entry point reaches this code (caller context "
-        "was requested but could not be resolved), answer \"Needs More Data\" and set "
-        "signals.sole_blocker = \"unseen_caller\". A potentially real bug must be queued for "
+        'was requested but could not be resolved), answer "Needs More Data" and set '
+        'signals.sole_blocker = "unseen_caller". A potentially real bug must be queued for '
         "review — never dismissed as False Positive for want of an unseen caller.\n\n"
         "GUIDELINE (decide by CONSEQUENCE at the flagged sink, not by absence of a defense): "
         "choose True Positive only when you can name a concrete, attacker-reachable consequence "
@@ -1431,9 +1429,7 @@ class LLMClient:
         ):
             parsed["verdict"] = "Needs More Data"
             parsed["confidence"] = "Low"
-            parsed["confidence_score"] = min(
-                float(parsed.get("confidence_score") or 0.3), 0.3
-            )
+            parsed["confidence_score"] = min(float(parsed.get("confidence_score") or 0.3), 0.3)
             parsed["reasoning"] = (parsed.get("reasoning") or "") + (
                 " [force-decision guard: dismissed while reporting the sole "
                 "blocker is an unseen caller/route — held as Needs More Data (#121)]"
@@ -1489,9 +1485,7 @@ class LLMClient:
         """Normalize confidence label and ensure a numeric confidence_score."""
         parsed["confidence"] = cls._normalize_confidence_label(parsed.get("confidence"))
         if not isinstance(parsed.get("confidence_score"), (int, float)):
-            parsed["confidence_score"] = cls._CONFIDENCE_SCORE_MAP[
-                parsed["confidence"].casefold()
-            ]
+            parsed["confidence_score"] = cls._CONFIDENCE_SCORE_MAP[parsed["confidence"].casefold()]
         return parsed
 
     def _parse_response(self, raw: str) -> dict[str, Any]:

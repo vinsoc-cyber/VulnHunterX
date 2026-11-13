@@ -40,9 +40,16 @@ _LANG_TO_QUESTION_PREFIX: dict[str, str] = {
 #     C-side findings do not have these defenses, and the existing
 #     diversevul CWE-264 results pass — so the taint block is gated to
 #     framework languages to avoid adding cost on C without benefit.
-_FRAMEWORK_LANGS: frozenset[str] = frozenset({
-    "python", "javascript", "java", "php", "go", "csharp",
-})
+_FRAMEWORK_LANGS: frozenset[str] = frozenset(
+    {
+        "python",
+        "javascript",
+        "java",
+        "php",
+        "go",
+        "csharp",
+    }
+)
 
 _CWE_MIN_ITERATIONS_OVERRIDE: dict[str, tuple[int, frozenset[str]]] = {
     # ── Access control / authorization (all languages) ──
@@ -54,28 +61,27 @@ _CWE_MIN_ITERATIONS_OVERRIDE: dict[str, tuple[int, frozenset[str]]] = {
     "CWE-306": (2, frozenset()),  # Missing authentication for critical function
     "CWE-862": (2, frozenset()),  # Missing authorization
     "CWE-863": (2, frozenset()),  # Incorrect authorization
-
     # ── Taint-tracking (framework languages only) ──
-    "CWE-22":   (2, _FRAMEWORK_LANGS),   # Path traversal
-    "CWE-77":   (2, _FRAMEWORK_LANGS),   # Command injection (generic)
-    "CWE-78":   (2, _FRAMEWORK_LANGS),   # OS command injection
-    "CWE-79":   (2, _FRAMEWORK_LANGS),   # Cross-site scripting
-    "CWE-80":   (2, _FRAMEWORK_LANGS),   # Basic XSS
-    "CWE-87":   (2, _FRAMEWORK_LANGS),   # Alternate XSS syntax
-    "CWE-89":   (2, _FRAMEWORK_LANGS),   # SQL injection
-    "CWE-90":   (2, _FRAMEWORK_LANGS),   # LDAP injection
-    "CWE-94":   (2, _FRAMEWORK_LANGS),   # Code injection
-    "CWE-95":   (2, _FRAMEWORK_LANGS),   # Eval injection
-    "CWE-113":  (2, _FRAMEWORK_LANGS),   # HTTP header injection
-    "CWE-134":  (2, _FRAMEWORK_LANGS),   # Uncontrolled format string
-    "CWE-501":  (2, _FRAMEWORK_LANGS),   # Trust boundary violation
-    "CWE-502":  (2, _FRAMEWORK_LANGS),   # Deserialisation of untrusted data
-    "CWE-601":  (2, _FRAMEWORK_LANGS),   # URL redirection to untrusted site (open redirect)
-    "CWE-611":  (2, _FRAMEWORK_LANGS),   # XML external entity (XXE)
-    "CWE-643":  (2, _FRAMEWORK_LANGS),   # XPath injection
-    "CWE-917":  (2, _FRAMEWORK_LANGS),   # Expression/template injection (SSTI)
-    "CWE-918":  (2, _FRAMEWORK_LANGS),   # SSRF
-    "CWE-1333": (2, _FRAMEWORK_LANGS),   # Inefficient regular expression (ReDoS)
+    "CWE-22": (2, _FRAMEWORK_LANGS),  # Path traversal
+    "CWE-77": (2, _FRAMEWORK_LANGS),  # Command injection (generic)
+    "CWE-78": (2, _FRAMEWORK_LANGS),  # OS command injection
+    "CWE-79": (2, _FRAMEWORK_LANGS),  # Cross-site scripting
+    "CWE-80": (2, _FRAMEWORK_LANGS),  # Basic XSS
+    "CWE-87": (2, _FRAMEWORK_LANGS),  # Alternate XSS syntax
+    "CWE-89": (2, _FRAMEWORK_LANGS),  # SQL injection
+    "CWE-90": (2, _FRAMEWORK_LANGS),  # LDAP injection
+    "CWE-94": (2, _FRAMEWORK_LANGS),  # Code injection
+    "CWE-95": (2, _FRAMEWORK_LANGS),  # Eval injection
+    "CWE-113": (2, _FRAMEWORK_LANGS),  # HTTP header injection
+    "CWE-134": (2, _FRAMEWORK_LANGS),  # Uncontrolled format string
+    "CWE-501": (2, _FRAMEWORK_LANGS),  # Trust boundary violation
+    "CWE-502": (2, _FRAMEWORK_LANGS),  # Deserialisation of untrusted data
+    "CWE-601": (2, _FRAMEWORK_LANGS),  # URL redirection to untrusted site (open redirect)
+    "CWE-611": (2, _FRAMEWORK_LANGS),  # XML external entity (XXE)
+    "CWE-643": (2, _FRAMEWORK_LANGS),  # XPath injection
+    "CWE-917": (2, _FRAMEWORK_LANGS),  # Expression/template injection (SSTI)
+    "CWE-918": (2, _FRAMEWORK_LANGS),  # SSRF
+    "CWE-1333": (2, _FRAMEWORK_LANGS),  # Inefficient regular expression (ReDoS)
 }
 
 
@@ -182,7 +188,9 @@ class QuestionsLoader:
             GuidedQuestions for the rule
         """
         questions, _ = self.get_questions_with_match_info(
-            rule_id, cwe_ids=cwe_ids, lang=lang,
+            rule_id,
+            cwe_ids=cwe_ids,
+            lang=lang,
         )
         return questions
 
@@ -350,7 +358,7 @@ class QuestionsLoader:
                     ), "cwe"
 
         return None
-    
+
     def _generate_generic_questions(self, rule_id: str) -> GuidedQuestions:
         """Generate generic questions for unknown rules."""
         return GuidedQuestions(

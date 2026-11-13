@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 
 from vuln_hunter_x.core.types import (
-    Finding,
     Verdict,
     VerdictType,
     VerificationResult,
@@ -123,11 +122,20 @@ def _extract_code_snippet(
     # Detect language from extension for the code fence
     suffix = path.suffix.lower()
     lang_hint = {
-        ".py": "python", ".js": "javascript", ".ts": "typescript",
-        ".java": "java", ".c": "c", ".cpp": "c++", ".cc": "c++",
-        ".go": "go", ".php": "php", ".rb": "ruby", ".rs": "rust",
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".java": "java",
+        ".c": "c",
+        ".cpp": "c++",
+        ".cc": "c++",
+        ".go": "go",
+        ".php": "php",
+        ".rb": "ruby",
+        ".rs": "rust",
         ".cs": "csharp",
-        ".html": "html", ".xml": "xml",
+        ".html": "html",
+        ".xml": "xml",
     }.get(suffix, "")
 
     # Build numbered snippet; mark vulnerable lines with ►
@@ -168,7 +176,7 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
         return texts
 
     # Build a single batch prompt
-    numbered = "\n".join(f"[{i+1}] {t}" for i, t in enumerate(to_translate))
+    numbered = "\n".join(f"[{i + 1}] {t}" for i, t in enumerate(to_translate))
     prompt = (
         "Translate the following security analysis texts from English to Vietnamese. "
         "Keep technical terms (CWE, OWASP, variable names, file names, line numbers) unchanged. "
@@ -193,13 +201,13 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
         llm_model = model or "claude-sonnet-4-20250514"
         if not llm_model.startswith("anthropic/"):
             llm_model = "anthropic/" + llm_model
-        api_base = (os.environ.get("ANTHROPIC_BASE_URL", "").strip() or None)
+        api_base = os.environ.get("ANTHROPIC_BASE_URL", "").strip() or None
         if api_base:
             api_base = api_base.rstrip("/")
     elif provider == "ollama":
         ollama_model = os.environ.get("OLLAMA_MODEL", "ollama/llama3.2")
         raw = model or ollama_model
-        api_base = (os.environ.get("OLLAMA_API_BASE", "").strip() or None)
+        api_base = os.environ.get("OLLAMA_API_BASE", "").strip() or None
 
         # Mirror LLMClient cloud-handling: a :cloud / -cloud tag or an
         # ollama.com api_base means Ollama Cloud, which needs chat-completions
@@ -213,8 +221,7 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
             cloud_keys = _load_ollama_api_keys()
             if not cloud_keys:
                 logger.warning(
-                    "Ollama Cloud detected but OLLAMA_API_KEYS is not set; "
-                    "falling back to English"
+                    "Ollama Cloud detected but OLLAMA_API_KEYS is not set; falling back to English"
                 )
                 return texts
             ollama_cloud_key = cloud_keys[0]
@@ -231,15 +238,17 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
         llm_model = model or "gemini-2.5-flash"
         if not llm_model.startswith("gemini/"):
             llm_model = "gemini/" + llm_model
-        api_base = (os.environ.get("GEMINI_API_BASE", "").strip() or None)
+        api_base = os.environ.get("GEMINI_API_BASE", "").strip() or None
         if api_base:
             api_base = api_base.rstrip("/")
     elif api_key:
         raw = model or "gpt-4o-mini"
         # OpenAI-compatible custom endpoint (e.g. DashScope, Azure)
         openai_base = (
-            os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
-        ).strip().rstrip("/")
+            (os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or "")
+            .strip()
+            .rstrip("/")
+        )
         if openai_base:
             api_base = openai_base
             # LiteLLM needs "openai/<model>" when using a custom base URL
@@ -258,10 +267,14 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
         # never attached to a Gemini call; ollama_cloud_key is only bound in the
         # ollama branch, guarded by the provider check (short-circuits otherwise).
         call_api_key = (
-            anthropic_key if provider == "anthropic"
-            else gemini_key if (provider == "gemini" and gemini_key)
-            else ollama_cloud_key if (provider == "ollama" and ollama_cloud_key)
-            else api_key if (api_key and provider != "ollama")
+            anthropic_key
+            if provider == "anthropic"
+            else gemini_key
+            if (provider == "gemini" and gemini_key)
+            else ollama_cloud_key
+            if (provider == "ollama" and ollama_cloud_key)
+            else api_key
+            if (api_key and provider != "ollama")
             else None
         )
 
@@ -296,7 +309,7 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
                 bracket_end = line.index("]")
                 try:
                     num = int(line[1:bracket_end])
-                    translated[num] = line[bracket_end + 1:].strip()
+                    translated[num] = line[bracket_end + 1 :].strip()
                 except ValueError:
                     continue
 
@@ -432,7 +445,11 @@ class MarkdownReportGenerator:
     # ── Section generators ────────────────────────────────────────
 
     def _header(
-        self, result: VerificationResult, repo_name: str, lang: str, rl: str,
+        self,
+        result: VerificationResult,
+        repo_name: str,
+        lang: str,
+        rl: str,
     ) -> str:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         title = _t("VulnHunterX Verification Report", rl)
@@ -448,7 +465,9 @@ class MarkdownReportGenerator:
     def _executive_summary(self, result: VerificationResult, rl: str) -> str:
         total = result.total_findings
         if total == 0:
-            return f"---\n\n## {_t('Executive Summary', rl)}\n\n{_t('No findings to report.', rl)}\n"
+            return (
+                f"---\n\n## {_t('Executive Summary', rl)}\n\n{_t('No findings to report.', rl)}\n"
+            )
 
         tp = result.stats.get(VerdictType.TRUE_POSITIVE.value, 0)
         fp = result.stats.get(VerdictType.FALSE_POSITIVE.value, 0)
@@ -473,14 +492,16 @@ class MarkdownReportGenerator:
         if err:
             lines.append(f"| {_t('Errors', rl)} | {err} | {pct(err)} |")
 
-        lines.extend([
-            "",
-            f"**{_t('False Positive Rate', rl)}**: {pct(fp)}  ",
-            f"**{_t('Total Verification Time', rl)}**: {result.total_time_seconds:.1f}s  ",
-            f"**{_t('Total Tokens', rl)}**: {total_tokens:,}  ",
-            f"**{_t('Total Cost', rl)}**: ${total_cost:.4f}  ",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                f"**{_t('False Positive Rate', rl)}**: {pct(fp)}  ",
+                f"**{_t('Total Verification Time', rl)}**: {result.total_time_seconds:.1f}s  ",
+                f"**{_t('Total Tokens', rl)}**: {total_tokens:,}  ",
+                f"**{_t('Total Cost', rl)}**: ${total_cost:.4f}  ",
+                "",
+            ]
+        )
         return "\n".join(lines)
 
     # SAST tools we expect the pipeline to be able to run. Used to surface a
@@ -531,17 +552,20 @@ class MarkdownReportGenerator:
             lines.append(f"| {tool} | 0 | 0 | 0 |")
 
         if zero_tools:
-            lines.extend([
-                "",
-                f"> ⚠️ {_t('Warning', rl)}: "
-                + _t(
-                    "the following tools produced 0 findings — likely a "
-                    "configuration/coverage gap (recall blind spot), not a clean "
-                    "result: ", rl,
-                )
-                + ", ".join(zero_tools)
-                + ".",
-            ])
+            lines.extend(
+                [
+                    "",
+                    f"> ⚠️ {_t('Warning', rl)}: "
+                    + _t(
+                        "the following tools produced 0 findings — likely a "
+                        "configuration/coverage gap (recall blind spot), not a clean "
+                        "result: ",
+                        rl,
+                    )
+                    + ", ".join(zero_tools)
+                    + ".",
+                ]
+            )
         lines.append("")
         return "\n".join(lines)
 
@@ -566,24 +590,28 @@ class MarkdownReportGenerator:
                 "SAST analyzes code that is present and parsed. The following "
                 "classes are not reliably detectable by any profile, so 0 "
                 "findings here does NOT mean the code is safe — confirm them by "
-                "manual review:", rl,
+                "manual review:",
+                rl,
             ),
             "",
             "- "
             + _t(
                 "Disabled / commented-out / unregistered security middleware "
                 "(e.g. a CSRF or auth middleware that is defined but never "
-                "wired into the app).", rl,
+                "wired into the app).",
+                rl,
             ),
             "- "
             + _t(
                 "Missing authorization checks on endpoints (absence of a "
-                "decorator or guard cannot be flagged by a pattern).", rl,
+                "decorator or guard cannot be flagged by a pattern).",
+                rl,
             ),
             "- "
             + _t(
                 "Stored XSS / injection whose taint flows through a database or "
-                "other external store the analyzer does not model end-to-end.", rl,
+                "other external store the analyzer does not model end-to-end.",
+                rl,
             ),
             "",
         ]
@@ -656,7 +684,11 @@ class MarkdownReportGenerator:
             "|----------|---:|---:|----:|------:|",
         ]
 
-        vt = [VerdictType.TRUE_POSITIVE.value, VerdictType.FALSE_POSITIVE.value, VerdictType.NEEDS_MORE_DATA.value]
+        vt = [
+            VerdictType.TRUE_POSITIVE.value,
+            VerdictType.FALSE_POSITIVE.value,
+            VerdictType.NEEDS_MORE_DATA.value,
+        ]
         for sev in sorted(severities, key=lambda s: _SEVERITY_ORDER.get(s, 99)):
             counts = severities[sev]
             tp_c = counts.get(vt[0], 0)
@@ -724,7 +756,9 @@ class MarkdownReportGenerator:
             if not verdicts:
                 continue
 
-            verdicts.sort(key=lambda v: (_SEVERITY_ORDER.get(v.finding.severity, 99), -v.confidence_score))
+            verdicts.sort(
+                key=lambda v: (_SEVERITY_ORDER.get(v.finding.severity, 99), -v.confidence_score)
+            )
 
             lines.append(f"### {group_title} ({len(verdicts)})\n")
 
@@ -745,7 +779,9 @@ class MarkdownReportGenerator:
                     lines.append(f"| **{_t('CWE', rl)}** | {', '.join(f.cwe_ids)} |")
                 # OWASP / tags
                 owasp_tags = [t for t in f.tags if "OWASP" in t.upper()]
-                other_tags = [t for t in f.tags if "OWASP" not in t.upper() and t not in ("security",)]
+                other_tags = [
+                    t for t in f.tags if "OWASP" not in t.upper() and t not in ("security",)
+                ]
                 if owasp_tags:
                     lines.append(f"| **OWASP** | {', '.join(owasp_tags)} |")
                 if other_tags:
@@ -754,7 +790,9 @@ class MarkdownReportGenerator:
                     lines.append(f"| **{_t('Tool', rl)}** | {f.tool} |")
                 if f.precision:
                     lines.append(f"| **{_t('Precision', rl)}** | {f.precision} |")
-                lines.append(f"| **{_t('Confidence', rl)}** | {v.confidence} ({v.confidence_score:.2f}) |")
+                lines.append(
+                    f"| **{_t('Confidence', rl)}** | {v.confidence} ({v.confidence_score:.2f}) |"
+                )
                 lines.append(f"| **{_t('Iterations', rl)}** | {v.iterations} |")
                 if v.elapsed_seconds:
                     lines.append(f"| **{_t('Time', rl)}** | {v.elapsed_seconds:.1f}s |")
@@ -785,7 +823,9 @@ class MarkdownReportGenerator:
                     lines.append("")
 
                 # Reasoning
-                reasoning = translated_reasoning.get(global_idx, v.reasoning) if rl == "vi" else v.reasoning
+                reasoning = (
+                    translated_reasoning.get(global_idx, v.reasoning) if rl == "vi" else v.reasoning
+                )
                 lines.append(f"**{_t('Reasoning', rl)}**: {reasoning}")
                 lines.append("")
 

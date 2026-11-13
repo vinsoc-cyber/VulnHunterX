@@ -317,7 +317,11 @@ class RepositoryManager:
         except ValueError as e:
             return False, str(e)
 
-        repo_dir = Path(local_path).resolve() if local_path else (self.repos_dir / language / name).resolve()
+        repo_dir = (
+            Path(local_path).resolve()
+            if local_path
+            else (self.repos_dir / language / name).resolve()
+        )
         db_dir = (self.output_dir / language / name / "database").resolve()
 
         # Clone
@@ -340,8 +344,8 @@ class RepositoryManager:
             if not build_command:
                 return False, (
                     f"C/C++ requires build_command and none could be auto-detected in {repo_dir}. "
-                    "Pass --build-command (e.g. \"./autogen.sh && ./configure && make\" or "
-                    "\"cmake -B build && cmake --build build\")."
+                    'Pass --build-command (e.g. "./autogen.sh && ./configure && make" or '
+                    '"cmake -B build && cmake --build build").'
                 )
             logger.info("[%s] auto-detected build command: %s", name, build_command)
 

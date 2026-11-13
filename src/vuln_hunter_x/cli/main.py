@@ -129,18 +129,14 @@ Examples:
 def _add_prepare_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments for prepare (clone) command."""
     parser.add_argument("--config", type=Path, help="Path to repos.yaml")
-    parser.add_argument(
-        "--url", help="Git repository URL (direct clone without repos.yaml)"
-    )
+    parser.add_argument("--url", help="Git repository URL (direct clone without repos.yaml)")
     parser.add_argument(
         "--local-path",
         type=Path,
         help="Path to existing local repository (skip clone, create DB only)",
     )
     parser.add_argument("--name", help="Repository name (auto-derived from URL/path if omitted)")
-    parser.add_argument(
-        "--build-command", help="Build command for compiled languages (C/C++/Go)"
-    )
+    parser.add_argument("--build-command", help="Build command for compiled languages (C/C++/Go)")
     parser.add_argument(
         "--lang",
         choices=["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"],
@@ -296,7 +292,8 @@ def _add_verify_args(parser: argparse.ArgumentParser) -> None:
     verify_group = parser.add_argument_group("Verification Settings")
     verify_group.add_argument("--max-iterations", type=int, help="Max LLM rounds")
     verify_group.add_argument(
-        "-j", "--jobs",
+        "-j",
+        "--jobs",
         type=int,
         default=None,
         help="Concurrent findings to verify (default: 4; set 1 to disable parallelism)",
@@ -352,13 +349,12 @@ def _add_scan_args(parser: argparse.ArgumentParser) -> None:
     # Source selection (mirrors prepare)
     parser.add_argument("--config", type=Path, help="Path to repos.yaml (config mode)")
     parser.add_argument("--url", help="Git repository URL (direct clone)")
-    parser.add_argument(
-        "--local-path", type=Path, help="Path to an existing local repository"
-    )
+    parser.add_argument("--local-path", type=Path, help="Path to an existing local repository")
     parser.add_argument("--name", help="Repository name (auto-derived from URL/path if omitted)")
     parser.add_argument("--repo", help="Only this repository (config mode filter)")
     parser.add_argument(
-        "--build-command", help="Build command for compiled languages (C/C++; C# uses buildless by default)"
+        "--build-command",
+        help="Build command for compiled languages (C/C++; C# uses buildless by default)",
     )
     parser.add_argument(
         "--lang",
@@ -382,9 +378,7 @@ def _add_scan_args(parser: argparse.ArgumentParser) -> None:
 
     # LLM / verify settings (mirrors verify)
     llm_group = parser.add_argument_group("LLM Settings")
-    llm_group.add_argument(
-        "--provider", choices=list(SUPPORTED_PROVIDERS), help="LLM provider"
-    )
+    llm_group.add_argument("--provider", choices=list(SUPPORTED_PROVIDERS), help="LLM provider")
     llm_group.add_argument("--model", help="LLM model name")
     llm_group.add_argument("--limit", type=int, help="Maximum findings to verify")
 
@@ -397,9 +391,7 @@ def _add_scan_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--skip-report", action="store_true", help="Skip report generation after verify"
     )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Verbose output across stages"
-    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output across stages")
     parser.add_argument("--dry-run", action="store_true", help="Print actions only")
 
 
@@ -410,9 +402,7 @@ def _add_report_args(parser: argparse.ArgumentParser) -> None:
         type=Path,
         help="Path to verification_results directory",
     )
-    parser.add_argument(
-        "--repo", help="Repository name (for auto-discovering results)"
-    )
+    parser.add_argument("--repo", help="Repository name (for auto-discovering results)")
     parser.add_argument(
         "--lang",
         choices=["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"],

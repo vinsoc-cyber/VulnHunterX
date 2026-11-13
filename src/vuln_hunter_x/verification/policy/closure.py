@@ -102,9 +102,7 @@ class PolicyClosureController:
         """Fact-slot assessment instructions appended to the first user turn."""
         return render_assessment_prompt(self._policy, self._ledger)
 
-    def evaluate(
-        self, parsed: Mapping[str, object], raw_response: str = "", iteration: int = 1
-    ):
+    def evaluate(self, parsed: Mapping[str, object], raw_response: str = "", iteration: int = 1):
         try:
             assessment = parse_assessment(parsed, self._policy, self._ledger)
         except SchemaError as exc:
@@ -151,8 +149,8 @@ class PolicyClosureController:
         for slot, claim in assessment.fact_claims.items():
             if claim.value == UNRESOLVED:
                 continue
-            cited = [self._ledger.get(eid) for eid in claim.evidence]
-            cited = [c for c in cited if c is not None]
+            looked_up = (self._ledger.get(eid) for eid in claim.evidence)
+            cited = [entry for entry in looked_up if entry is not None]
             if is_admissible(self._policy, slot, claim.value, cited):
                 facts[slot] = claim.value
                 evidence_ids.extend(claim.evidence)

@@ -30,9 +30,7 @@ def resolve_repo_root(repos_root: Path, lang: str, repo_name: str) -> Path | Non
     return root if root.exists() else None
 
 
-def resolve_repo_file(
-    repos_root: Path, lang: str, repo_name: str, file_path: str
-) -> Path | None:
+def resolve_repo_file(repos_root: Path, lang: str, repo_name: str, file_path: str) -> Path | None:
     """Resolve ``file_path`` strictly within ``repos/<lang>/<repo_name>``, or ``None``.
 
     Fail-closed: empty ``repo_name``, a path escaping the repo root, or a

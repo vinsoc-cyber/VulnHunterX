@@ -203,9 +203,24 @@ class SnippetContextProvider:
         # Match identifier followed by '(' that is not a definition or a keyword.
         call_re = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]{0,127})\s*\(")
         keywords = {
-            "if", "while", "for", "switch", "return", "sizeof", "alignof",
-            "typeof", "do", "case", "catch", "throw", "new", "delete",
-            "static_cast", "dynamic_cast", "const_cast", "reinterpret_cast",
+            "if",
+            "while",
+            "for",
+            "switch",
+            "return",
+            "sizeof",
+            "alignof",
+            "typeof",
+            "do",
+            "case",
+            "catch",
+            "throw",
+            "new",
+            "delete",
+            "static_cast",
+            "dynamic_cast",
+            "const_cast",
+            "reinterpret_cast",
         }
         seen: list[str] = []
         seen_set: set[str] = set()
@@ -260,10 +275,7 @@ class SnippetContextProvider:
                 "definition truncated in snippet",
             )
         line = _line_of_offset(self._snippet, start)
-        return (
-            f"// Struct/Class: {type_name} (snippet line {line})\n"
-            f"{self._snippet[start:end]}"
-        )
+        return f"// Struct/Class: {type_name} (snippet line {line})\n{self._snippet[start:end]}"
 
     def _macro(self, macro_name: str) -> str:
         if not macro_name:

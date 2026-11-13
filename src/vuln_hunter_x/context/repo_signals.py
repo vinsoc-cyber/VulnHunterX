@@ -27,17 +27,38 @@ from pathlib import Path
 
 # Files that mark a repository root, in priority order.
 _ROOT_MARKERS = (
-    "requirements.txt", "pyproject.toml", "setup.py", "setup.cfg",
-    "Pipfile", "go.mod", "package.json", "composer.json", "pom.xml",
+    "requirements.txt",
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "Pipfile",
+    "go.mod",
+    "package.json",
+    "composer.json",
+    "pom.xml",
     ".git",
 )
 
 # Directories never worth scanning (vendored / build / VCS).
-_SKIP_DIRS = frozenset({
-    ".git", ".hg", ".svn", "node_modules", "venv", ".venv", "env",
-    "__pycache__", "dist", "build", ".tox", ".mypy_cache", "site-packages",
-    "vendor", "third_party",
-})
+_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        "node_modules",
+        "venv",
+        ".venv",
+        "env",
+        "__pycache__",
+        "dist",
+        "build",
+        ".tox",
+        ".mypy_cache",
+        "site-packages",
+        "vendor",
+        "third_party",
+    }
+)
 
 # Known web frameworks keyed by an identifying package/import token.
 _PY_FRAMEWORKS = {
@@ -119,9 +140,9 @@ def detect_frameworks(repo_root: str, lang: str) -> tuple[str, ...]:
                 break
             try:
                 for line in py.read_text(encoding="utf-8", errors="ignore").splitlines():
-                    m = import_re.match(line)
-                    if m:
-                        key = m.group(1).lower().replace("-", "_")
+                    import_match = import_re.match(line)
+                    if import_match:
+                        key = import_match.group(1).lower().replace("-", "_")
                         if key in _PY_FRAMEWORKS:
                             found.add(_PY_FRAMEWORKS[key])
             except OSError:
@@ -171,9 +192,9 @@ def _commented_identifier_index(repo_root: str, lang: str) -> frozenset[str]:
     # contribute "create" — that false signal previously downgraded a real
     # SQLi whose method happened to be named ``create``.
     code_ident_re = re.compile(
-        r"\.([A-Za-z_]\w{2,})"            # attribute use:  .bar
-        r"|([A-Za-z_]\w{2,})\s*[(\[]"     # call / index:   foo( / foo[
-        r"|([A-Za-z_]\w{2,})\s*[,=:]"     # list elem / kw: foo, / foo= / foo:
+        r"\.([A-Za-z_]\w{2,})"  # attribute use:  .bar
+        r"|([A-Za-z_]\w{2,})\s*[(\[]"  # call / index:   foo( / foo[
+        r"|([A-Za-z_]\w{2,})\s*[,=:]"  # list elem / kw: foo, / foo= / foo:
     )
     idents: set[str] = set()
     scanned = 0
@@ -189,7 +210,7 @@ def _commented_identifier_index(repo_root: str, lang: str) -> frozenset[str]:
                 # Only whole-line comments — avoids harvesting trailing-comment
                 # prose and keeps the signal to genuinely disabled code lines.
                 if stripped.startswith(prefix):
-                    body = stripped[len(prefix):]
+                    body = stripped[len(prefix) :]
                     for m in code_ident_re.finditer(body):
                         idents.add(next(g for g in m.groups() if g))
         except OSError:
@@ -212,8 +233,12 @@ def _live_called_index(repo_root: str, lang: str) -> frozenset[str]:
         return frozenset()
     lang = (lang or "").lower()
     glob = {
-        "python": "*.py", "javascript": "*.js", "typescript": "*.ts",
-        "go": "*.go", "java": "*.java", "php": "*.php",
+        "python": "*.py",
+        "javascript": "*.js",
+        "typescript": "*.ts",
+        "go": "*.go",
+        "java": "*.java",
+        "php": "*.php",
     }.get(lang, "*.py")
     prefix = "//" if lang in ("javascript", "typescript", "go", "java", "php") else "#"
     def_re = re.compile(r"^\s*(?:async\s+)?(?:def|class|func|function)\b")

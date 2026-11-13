@@ -14,6 +14,7 @@ from __future__ import annotations
 import fnmatch
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -54,9 +55,7 @@ def _validate_condition(
             raise PolicyError(f"{where}: slot {slot!r} is not declared in fact_slots")
         for v in values:
             if v not in fact_slots[slot]:
-                raise PolicyError(
-                    f"{where}: value {v!r} for slot {slot!r} is not a declared value"
-                )
+                raise PolicyError(f"{where}: value {v!r} for slot {slot!r} is not a declared value")
 
 
 def _validate_admissibility(
@@ -72,9 +71,7 @@ def _validate_admissibility(
                     f"admissibility: value {value!r} for slot {slot!r} is not declared"
                 )
             if profile not in PROFILE_NAMES:
-                raise PolicyError(
-                    f"admissibility: unknown profile {profile!r} for {slot}={value}"
-                )
+                raise PolicyError(f"admissibility: unknown profile {profile!r} for {slot}={value}")
             if profile not in SELECTABLE_PROFILES:
                 raise PolicyError(
                     f"admissibility: profile {profile!r} for {slot}={value} cannot be "
@@ -88,12 +85,10 @@ def _validate_admissibility(
         declared = admissibility.get(slot, {})
         for value in values:
             if value not in declared:
-                raise PolicyError(
-                    f"admissibility: {slot}={value} has no admissibility profile"
-                )
+                raise PolicyError(f"admissibility: {slot}={value} has no admissibility profile")
 
 
-def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
+def load_policy_from_mapping(data: Mapping[str, Any]) -> FamilyPolicy:
     """Build a :class:`FamilyPolicy` from a parsed YAML mapping (validated)."""
     try:
         family = str(data["family"])
@@ -103,9 +98,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         languages = frozenset(str(lang).lower() for lang in selectors.get("languages", []))
         raw_slots = data["fact_slots"]
         fact_slots = {str(k): tuple(str(v) for v in vals) for k, vals in raw_slots.items()}
-        decisive = frozenset(
-            str(s) for s in data.get("decisive_slots", list(fact_slots))
-        )
+        decisive = frozenset(str(s) for s in data.get("decisive_slots", list(fact_slots)))
         ent = data["entailment"]
         true_positive = _normalize_condition(ent["true_positive"])
         false_positive_if_any = tuple(
@@ -114,8 +107,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         raw_adm = data.get("admissibility", {}) or {}
         admissibility = {
             str(slot): {
-                str(v): str(prof)
-                for v, prof in (vals.items() if isinstance(vals, Mapping) else [])
+                str(v): str(prof) for v, prof in (vals.items() if isinstance(vals, Mapping) else [])
             }
             for slot, vals in (raw_adm.items() if isinstance(raw_adm, Mapping) else [])
         }
@@ -133,9 +125,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         if raw_appl is not None:
             applicability = Applicability(
                 slot=str(raw_appl["slot"]),
-                applicable_values=frozenset(
-                    str(v) for v in raw_appl.get("applicable_values", [])
-                ),
+                applicable_values=frozenset(str(v) for v in raw_appl.get("applicable_values", [])),
                 not_applicable_values=frozenset(
                     str(v) for v in raw_appl.get("not_applicable_values", [])
                 ),
@@ -160,8 +150,7 @@ def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
         for v in (*applicability.applicable_values, *applicability.not_applicable_values):
             if v not in fact_slots[applicability.slot]:
                 raise PolicyError(
-                    f"applicability: value {v!r} for slot "
-                    f"{applicability.slot!r} is not declared"
+                    f"applicability: value {v!r} for slot {applicability.slot!r} is not declared"
                 )
 
     return FamilyPolicy(
@@ -207,9 +196,7 @@ class PolicyRegistry:
         """Return the single matching policy, ``None`` if none, error if >1."""
         cwe_set = {str(c).upper() for c in cwe_ids}
         matches = [
-            p
-            for p in self._policies
-            if self._matches(p, cwe_set, rule_id or "", lang or "")
+            p for p in self._policies if self._matches(p, cwe_set, rule_id or "", lang or "")
         ]
         if not matches:
             return None
@@ -221,9 +208,7 @@ class PolicyRegistry:
         return matches[0]
 
     @staticmethod
-    def _handoff_matches(
-        h: HandoffSelector, cwe_set: set[str], rule_id: str, lang: str
-    ) -> bool:
+    def _handoff_matches(h: HandoffSelector, cwe_set: set[str], rule_id: str, lang: str) -> bool:
         if h.languages and lang.lower() not in h.languages:
             return False
         if h.cwes and (cwe_set & h.cwes):
