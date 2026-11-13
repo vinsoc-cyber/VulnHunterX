@@ -25,7 +25,7 @@ def _drop_litellm_aws_preload_warnings(record: logging.LogRecord) -> bool:
 
 logging.getLogger("LiteLLM").addFilter(_drop_litellm_aws_preload_warnings)
 
-import litellm  # noqa: E402 — must follow the logger filter above
+import litellm  # must follow the logger filter above
 
 litellm.suppress_debug_info = True
 # Drop per-model-unsupported params instead of erroring. Reasoning models
@@ -197,13 +197,12 @@ class LLMClient:
             # immediately; newer ids report $0 until LiteLLM's table includes them.
             if not self.model.startswith("deepseek/"):
                 self.model = "deepseek/" + self.model
-        elif provider == "gemini":
+        elif provider == "gemini" and not self.model.startswith("gemini/"):
             # Google AI Studio via LiteLLM's native gemini/ route (Vertex AI
             # out of scope). Auth is injected in _build_completion_kwargs from
             # GEMINI_API_KEY (GOOGLE_API_KEY fallback) — NOT left to LiteLLM's
             # auto-read, whose precedence is GOOGLE-first and would invert ours.
-            if not self.model.startswith("gemini/"):
-                self.model = "gemini/" + self.model
+            self.model = "gemini/" + self.model
 
         # Build key pool only when there's something to rotate. A single key
         # is stashed on the client and sent directly. Ollama Cloud and Gemini

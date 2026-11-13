@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 
 from vuln_hunter_x.core.types import (
-    Finding,
     Verdict,
     VerdictType,
     VerificationResult,

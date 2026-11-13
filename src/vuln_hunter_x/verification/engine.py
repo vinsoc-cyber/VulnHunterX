@@ -19,6 +19,48 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from vuln_hunter_x.context.anchor import (
+    REANCHORED_UNIQUE,
+    STRUCTURAL_NMD_RESOLUTIONS,
+    AnchorResolution,
+    _norm,
+    resolve_anchor,
+)
+from vuln_hunter_x.context.evidence import EvidenceStatus, SourceRef
+from vuln_hunter_x.context.extractor import ContextExtractor
+from vuln_hunter_x.context.provider import ContextProvider, scan_convention_for
+from vuln_hunter_x.context.repo_signals import (
+    commented_out_symbol,
+    detect_frameworks_for,
+    find_repo_root,
+)
+from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
+from vuln_hunter_x.core.config import Config, load_config
+from vuln_hunter_x.core.types import (
+    Finding,
+    GuidedQuestions,
+    Verdict,
+    VerdictType,
+    VerificationResult,
+    is_real_symbol,
+)
+from vuln_hunter_x.llm.client import LLMClient
+from vuln_hunter_x.questions.loader import QuestionsLoader
+from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
+from vuln_hunter_x.verification.case import VerificationCase, build_cases, case_key
+from vuln_hunter_x.verification.policy.closure import PolicyClosureController
+from vuln_hunter_x.verification.policy.handoff import (
+    PolicyAttempt,
+    PolicyAttemptStatus,
+    classify_applicability,
+)
+from vuln_hunter_x.verification.policy.ledger import EvidenceLedger
+from vuln_hunter_x.verification.policy.loader import (
+    PolicyOverlapError,
+    load_policy_registry,
+)
+from vuln_hunter_x.verification.policy.voting import aggregate_policy_decisions
+
 logger = logging.getLogger(__name__)
 
 # Pattern that recognises a concrete code citation in reasoning text:
@@ -452,49 +494,6 @@ def _downgrade_test_only_reachability(verdict, finding, provider, analysis_line)
     return verdict
 
 
-from vuln_hunter_x.context.anchor import (
-    REANCHORED_UNIQUE,
-    STRUCTURAL_NMD_RESOLUTIONS,
-    AnchorResolution,
-    _norm,
-    resolve_anchor,
-)
-from vuln_hunter_x.context.evidence import EvidenceStatus, SourceRef
-from vuln_hunter_x.context.extractor import ContextExtractor
-from vuln_hunter_x.context.provider import ContextProvider, scan_convention_for
-from vuln_hunter_x.context.repo_signals import (
-    commented_out_symbol,
-    detect_frameworks_for,
-    find_repo_root,
-)
-from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
-from vuln_hunter_x.core.config import Config, load_config
-from vuln_hunter_x.core.types import (
-    Finding,
-    GuidedQuestions,
-    Verdict,
-    VerdictType,
-    VerificationResult,
-    is_real_symbol,
-)
-from vuln_hunter_x.llm.client import LLMClient
-from vuln_hunter_x.questions.loader import QuestionsLoader
-from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
-from vuln_hunter_x.verification.case import VerificationCase, build_cases, case_key
-from vuln_hunter_x.verification.policy.closure import PolicyClosureController
-from vuln_hunter_x.verification.policy.handoff import (
-    PolicyAttempt,
-    PolicyAttemptStatus,
-    classify_applicability,
-)
-from vuln_hunter_x.verification.policy.ledger import EvidenceLedger
-from vuln_hunter_x.verification.policy.loader import (
-    PolicyOverlapError,
-    load_policy_registry,
-)
-from vuln_hunter_x.verification.policy.voting import aggregate_policy_decisions
-
-
 class _ThreadSafeLogFile:
     """Serializes write/flush on a shared log file handle so parallel
     verification workers cannot interleave bytes mid-write."""
@@ -605,7 +604,7 @@ def _construct_shape(snippet: str) -> str:
     return _SHAPE_IDENT_RE.sub("I", s)
 
 
-def _flag_sibling_contradictions(verdicts: list["Verdict"]) -> list["Verdict"]:
+def _flag_sibling_contradictions(verdicts: list[Verdict]) -> list[Verdict]:
     """Hold dismissals that contradict a confirmed normalized-identical sibling
     (#122 residual).
 
@@ -1048,7 +1047,7 @@ class VerificationEngine:
     def __del__(self) -> None:
         raw = getattr(self, "_raw_log_fh", None)
         if raw is not None:
-            try:
+            try:  # noqa: SIM105 - __del__ may run at shutdown, when contextlib is gone
                 raw.close()
             except Exception:
                 pass

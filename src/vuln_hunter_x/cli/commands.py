@@ -14,7 +14,6 @@ from vuln_hunter_x import __version__
 from vuln_hunter_x.core.config import Config, load_config
 from vuln_hunter_x.core.types import Finding, Verdict, VerificationResult
 
-
 _SUPPORTED_LANGS = {"c", "cpp", "python", "javascript", "php", "java", "go", "csharp"}
 
 # Bundled assets ship with the installed VulnHunterX package, so resolve them
@@ -503,9 +502,12 @@ def _expand_per_repo_configs(
             resolved = c.replace("${LANG}", lang)
             # Registry refs (no path semantics) cannot be filesystem-checked;
             # accept anything that looks like a Semgrep registry handle.
-            if resolved.startswith(("p/", "r/")) or ":" in resolved:
-                expanded.append(resolved)
-            elif Path(resolved).is_file() or Path(resolved).is_dir():
+            if (
+                resolved.startswith(("p/", "r/"))
+                or ":" in resolved
+                or Path(resolved).is_file()
+                or Path(resolved).is_dir()
+            ):
                 expanded.append(resolved)
             # else: drop — local-path template that didn't resolve
         else:
