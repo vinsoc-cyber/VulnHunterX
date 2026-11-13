@@ -140,9 +140,9 @@ def detect_frameworks(repo_root: str, lang: str) -> tuple[str, ...]:
                 break
             try:
                 for line in py.read_text(encoding="utf-8", errors="ignore").splitlines():
-                    m = import_re.match(line)
-                    if m:
-                        key = m.group(1).lower().replace("-", "_")
+                    import_match = import_re.match(line)
+                    if import_match:
+                        key = import_match.group(1).lower().replace("-", "_")
                         if key in _PY_FRAMEWORKS:
                             found.add(_PY_FRAMEWORKS[key])
             except OSError:

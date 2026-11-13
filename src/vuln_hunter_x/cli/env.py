@@ -375,10 +375,10 @@ def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[
     model = model or "gpt-4o-mini"
 
     # Custom base URL for OpenAI-compatible endpoints (e.g. Z.ai)
-    api_base = (
+    raw_api_base = (
         os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
     ).strip()
-    api_base = api_base.rstrip("/") if api_base else None
+    api_base = raw_api_base.rstrip("/") if raw_api_base else None
     if api_base and not model.startswith("openai/"):
         model = "openai/" + model
 

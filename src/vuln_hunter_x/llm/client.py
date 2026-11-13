@@ -36,6 +36,7 @@ litellm.suppress_debug_info = True
 litellm.drop_params = True
 
 from vuln_hunter_x.context.provider import ContextProvider
+from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
 from vuln_hunter_x.core.config import _load_gemini_api_keys
 from vuln_hunter_x.core.constants import (
     DEFAULT_LLM_MAX_TOKENS,
@@ -476,7 +477,7 @@ class LLMClient:
         context: str,
         questions: GuidedQuestions,
         func_name: str,
-        context_provider: ContextProvider | None = None,
+        context_provider: ContextProvider | SnippetContextProvider | None = None,
         max_iterations: int = 3,
         verbose: bool = False,
         log_file: Any | None = None,
@@ -941,7 +942,7 @@ class LLMClient:
         samples: int = 1,
         voting_temperature: float = 0.7,
         tie_break: str = "fp",
-        context_provider: ContextProvider | None = None,
+        context_provider: ContextProvider | SnippetContextProvider | None = None,
         max_iterations: int = 3,
         verbose: bool = False,
         log_file: Any | None = None,

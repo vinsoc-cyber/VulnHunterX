@@ -1669,6 +1669,7 @@ class ContextProvider:
                     if any(m in line for m in markers):
                         s = max(0, i - window)
                         e = min(len(lines), i + window + 1)
+                        rel: Path | str
                         try:
                             rel = fpath.relative_to(root)
                         except ValueError:

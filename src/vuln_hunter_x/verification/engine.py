@@ -506,7 +506,8 @@ class _ThreadSafeLogFile:
 
     def write(self, data: str) -> int:
         with self._lock:
-            return self._fh.write(data)
+            written: int = self._fh.write(data)
+            return written
 
     def flush(self) -> None:
         with self._lock:
@@ -1298,7 +1299,7 @@ class VerificationEngine:
         findings, snippet-less findings, and unplaceable anchors never merge
         (key None → their own singleton case), so the current snippet-less corpus
         is unchanged and no source is read for it."""
-        keys = []
+        keys: list = []
         for finding in findings:
             if self._is_policy_routed(finding):
                 keys.append(None)
@@ -1417,16 +1418,21 @@ class VerificationEngine:
         True Positive stand but downgrades a base False Positive to the handoff's
         honest Needs-More-Data (never erasing the unresolved real-bug possibility)."""
         attempt = self._attempt_policy(finding, handoff_policy, handoff=True)
+        handoff_verdict = attempt.verdict
+        if handoff_verdict is None:
+            # _attempt_policy always attaches a verdict; a handoff with none has
+            # contributed nothing, so the finding's own route decides.
+            return self._run_base(finding, base_policy)
         if (
             attempt.status is PolicyAttemptStatus.DECIDED
-            and attempt.verdict.verdict == VerdictType.TRUE_POSITIVE.value
+            and handoff_verdict.verdict == VerdictType.TRUE_POSITIVE.value
         ):
-            return attempt.verdict
+            return handoff_verdict
         base = self._run_base(finding, base_policy)
         if attempt.status is PolicyAttemptStatus.UNRESOLVED:
             if base.verdict == VerdictType.TRUE_POSITIVE.value:
                 return base
-            return attempt.verdict
+            return handoff_verdict
         return base
 
     def _attempt_policy(self, finding: Finding, policy, *, handoff: bool) -> PolicyAttempt:
@@ -1467,7 +1473,8 @@ class VerificationEngine:
         reader = getattr(self.context_extractor, "read_source", None)
         if reader is None:
             return None
-        return reader(finding.file, finding.lang, repo_name=finding.repo_name)
+        source: str | None = reader(finding.file, finding.lang, repo_name=finding.repo_name)
+        return source
 
     def _resolve_finding_anchor(self, finding: Finding) -> AnchorResolution:
         # Only read source when the scanner gave a construct to confirm; snippet-

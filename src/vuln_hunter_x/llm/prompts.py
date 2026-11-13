@@ -81,7 +81,8 @@ def _parse_system_prompt(text: str, source: str = "system_prompt.yaml") -> str:
     data = yaml.safe_load(text)
     if not isinstance(data, dict) or "system_prompt" not in data:
         raise RuntimeError(f"{source} is malformed: expected a mapping with a 'system_prompt' key")
-    return data["system_prompt"]
+    prompt: str = data["system_prompt"]
+    return prompt
 
 
 def _load_system_prompt_template() -> str:

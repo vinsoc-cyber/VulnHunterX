@@ -14,6 +14,7 @@ from __future__ import annotations
 import fnmatch
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -87,7 +88,7 @@ def _validate_admissibility(
                 raise PolicyError(f"admissibility: {slot}={value} has no admissibility profile")
 
 
-def load_policy_from_mapping(data: Mapping[str, object]) -> FamilyPolicy:
+def load_policy_from_mapping(data: Mapping[str, Any]) -> FamilyPolicy:
     """Build a :class:`FamilyPolicy` from a parsed YAML mapping (validated)."""
     try:
         family = str(data["family"])

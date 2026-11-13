@@ -404,9 +404,9 @@ def _run_codeql_analyze(
             output_dir=output_dir,
             verbose=verbose,
         )
+        log_lines: list[str] = []
         if verbose:
-            lines: list[str] = []
-            analyzer.set_logger(lambda msg, _lines=lines: _lines.append(msg))
+            analyzer.set_logger(log_lines.append)
         # Resolve suite: explicit CLI > profile-based (per-language) > default
         effective_suite = suite
         if not effective_suite and profile_suffix:
@@ -428,8 +428,8 @@ def _run_codeql_analyze(
             suite=effective_suite,
             extra_suites=extra_suites,
         )
-        if verbose and lines:
-            msg = "\n".join(lines) + "\n" + msg
+        if verbose and log_lines:
+            msg = "\n".join(log_lines) + "\n" + msg
         return name, ok, result_path, msg, False
 
     ok_count = 0
@@ -581,7 +581,7 @@ def _run_semgrep_analyze(
 
     raw_configs = getattr(args, "semgrep_configs", None) or ["auto"]
     # Support comma-separated in a single --semgrep-config (e.g. "auto,p/security-audit")
-    configs = []
+    configs: list[str] = []
     for c in raw_configs:
         if isinstance(c, str):
             configs.extend(s.strip() for s in c.split(",") if s.strip())
