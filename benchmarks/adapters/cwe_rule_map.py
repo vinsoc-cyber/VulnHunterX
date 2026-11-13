@@ -54,7 +54,11 @@ CWE_TO_RULES: dict[str, list[str]] = {
     "CWE-601": ["py/url-redirection", "js/url-redirection"],
     "CWE-918": ["py/ssrf", "js/ssrf"],
     "CWE-117": ["py/log-injection"],
-    "CWE-611": ["py/xml-bomb", "py/xpath-injection"],
+    # py/xxe is the XXE rule. py/xpath-injection belongs to CWE-643 only: listing
+    # it here anchored XXE entries on a rule id that the xpath_injection policy
+    # also claims, so they matched two families and failed closed.
+    "CWE-611": ["py/xxe", "java/xxe"],
+    "CWE-776": ["py/xml-bomb"],
     "CWE-327": ["py/weak-cryptography", "js/weak-cryptographic-algorithm",
                  "java/weak-cryptographic-algorithm"],
     "CWE-328": ["java/weak-cryptographic-hash", "py/weak-sensitive-data-hashing"],

@@ -30,7 +30,7 @@ py/sql-injection:
     - "For each LAST assignment, determine whether the value derives from user input (request.args/form/json/cookies/headers/env) or from a constant/safe source. Cite the data-flow chain step by step."
     - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers, and verify the overriding right-hand side is itself constant/safe on that path — a container lookup with a constant key still carries taint when the stored VALUE derives from user input."
     - "What specific defense, if any, sanitises the value before the sink? Name it concretely — e.g. parameterised `cursor.execute(sql, params)`, Django ORM `.filter(**kwargs)`, SQLAlchemy `text(sql).bindparams(...)`. Vague 'sanitisation' is not acceptable."
-    - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
   context_hint: "Trace from request input through all transformations to query execution."
   additional_context: ["caller", "callees"]
   min_iterations: 2
@@ -43,7 +43,7 @@ py/command-injection: &py_command_injection
     - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
     - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
     - "What specific defense, if any, sanitises the value? Name it concretely — e.g. `shlex.quote()` with `shell=True`, `subprocess.run([...], shell=False)` argv list, allow-list of binary names. Vague 'escaping' is not acceptable."
-    - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
   context_hint: "Trace from input source to subprocess/os.system call, including intermediate transformations."
   additional_context: ["caller", "class", "callees"]
   min_iterations: 2
@@ -60,7 +60,7 @@ py/xss:
     - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
     - "What specific defense, if any, escapes the value at the sink? Name it concretely — e.g. Jinja2 auto-escape enabled, Django template auto-escape, explicit `html.escape()` / `markupsafe.escape()` / `bleach.clean(...)` call, framework `safe`-equivalent helper. Vague 'escaping' is not acceptable."
     - "Is `|safe` / `{% autoescape false %}` / `Markup(...)` / `mark_safe(...)` used to DISABLE escaping on the user-tainted path? Quote the disabler with line number."
-    - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
   context_hint: "Trace from input source through template/response construction."
   additional_context: ["caller"]
   min_iterations: 2
@@ -73,7 +73,7 @@ py/unsafe-deserialization:
     - "For each LAST assignment, determine whether the value derives from user input (request body / upload / network / cookie) or from a constant/internal source. Cite the data-flow chain."
     - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
     - "What specific defense, if any, prevents code execution? Name it concretely — e.g. `yaml.safe_load()` (not `yaml.load()`), `json.loads()` instead of `pickle.loads()`, `restrictedpickle` allow-list, HMAC signature verified BEFORE deserialisation, schema validation pre-parse. Vague 'validation' is not acceptable."
-    - "If you cannot point to user-controlled data reaching the unsafe sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
   context_hint: "Trace from data source to deserialization call."
   additional_context: ["caller", "callees"]
   min_iterations: 2
@@ -86,7 +86,7 @@ py/path-injection:
     - "For each LAST assignment, determine whether the value derives from user input (request.args / form / json / path-parameter / upload filename) or from a constant/safe source. Cite the data-flow chain step by step."
     - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers, and verify the overriding right-hand side is itself constant/safe on that path — a container lookup with a constant key still carries taint when the stored VALUE derives from user input, and a substring blocklist (e.g. rejecting `../`) is NOT a complete defense."
     - "What specific defense, if any, contains the path? Name it concretely — e.g. `werkzeug.utils.secure_filename`, `Path(base).resolve() / user_input` then `.is_relative_to(base)`, `os.path.commonpath([base, full]) == base`, `Path.relative_to` raising on escape, allow-list of filenames. Vague 'sanitisation' is not acceptable."
-    - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
   context_hint: "Trace from input through path construction to file operation."
   additional_context: ["caller", "callees"]
   min_iterations: 2
@@ -99,7 +99,7 @@ py/code-injection:
     - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
     - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
     - "What specific defense, if any, prevents arbitrary code? Name it concretely — e.g. `ast.literal_eval()` (data literals only), strict allow-list (e.g. `if expr in {'+', '-', '*'}: …`), restricted globals dict that excludes `__builtins__`. Vague 'validation' is not acceptable."
-    - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
   context_hint: "Trace from input source to eval/exec call."
   additional_context: ["caller", "callees"]
   min_iterations: 2
@@ -112,7 +112,7 @@ py/ssrf:
     - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
     - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
     - "What specific defense, if any, restricts the URL? Name it concretely — e.g. `urlparse(url).netloc in ALLOWED_HOSTS`, scheme allow-list (`urlparse(url).scheme in {'http','https'}`), `ipaddress.ip_address(socket.gethostbyname(host)).is_private` rejection, `allow_redirects=False` + post-redirect re-validation, DNS-rebinding defense. Vague 'allowlist' is not acceptable."
-    - "If you cannot point to user-controlled URL reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
   context_hint: "Trace from URL input through request construction."
   additional_context: ["caller"]
   min_iterations: 2
@@ -192,9 +192,9 @@ py/xxe:
     - "Quote the EXACT XML-parse sink (lxml.etree.parse/fromstring, xml.etree.ElementTree.parse, xml.dom.minidom.parseString, xmltodict.parse, line N) and name the parser/XMLParser object plus the input bytes/text passed to it."
     - "List EVERY assignment to the XML input on each path that reaches the parse call, with line numbers. Identify the LAST assignment on each path."
     - "For each LAST assignment, determine whether the value derives from user input (request body / upload / external API) or from a constant/internal source. Cite the data-flow chain."
-    - "Quote the parser configuration: which options are set (or relied on as defaults)? lxml `XMLParser(resolve_entities=False, no_network=True, load_dtd=False)`; xml.etree's default secure-by-default in py3.7.1+; `defusedxml.ElementTree.fromstring` (always safe)."
+    - "Quote the parser configuration: which options are set (or relied on as defaults)? lxml `XMLParser(resolve_entities=False, no_network=True, load_dtd=False)`; `xml.sax` / `xml.dom.pulldom` `feature_external_ges`; `defusedxml` parsers. State the parser library and, where the behaviour depends on its version, whether the version is visible."
     - "Is the parser one of the safe-by-default constructions above, or is it a configuration that ENABLES external entities / DTD loading / network? Cite the line."
-    - "If you cannot demonstrate that the parser ENABLES external entities AND that the input is user-controlled, verdict False Positive — many Python parsers are safe-by-default."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
   context_hint: "Include XML parser initialization and all parsing options."
   additional_context: ["caller"]
   min_iterations: 2
@@ -235,7 +235,7 @@ py/ldap-injection:
     - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
     - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
     - "What specific defense, if any, escapes the value? Name it concretely — e.g. `ldap3.utils.conv.escape_filter_chars(user)`, `ldap.filter.escape_filter_chars(user)`, strict alphanumeric allow-list. Vague 'escaping' is not acceptable."
-    - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
   context_hint: "Trace from request input through LDAP filter construction to search call."
   additional_context: ["caller"]
   min_iterations: 2
@@ -283,11 +283,11 @@ py/template-injection:
   short_description: "User input embedded in a Jinja2/Mako/Chameleon template string"
   questions:
     - "Quote the EXACT template-render sink (`jinja2.Template(...)(...)`, `Environment.from_string(...).render(...)`, `mako.template.Template(...).render(...)`, `chameleon.PageTemplate(...)`, line N) and name the template-source string passed to it."
-    - "List EVERY assignment to that template-source string on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path. CRITICAL: distinguish the template SOURCE (vulnerable if tainted) from template VARIABLES passed via `render(**ctx)` (safe with auto-escape)."
+    - "List EVERY assignment to that template-source string on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path. CRITICAL: distinguish the template SOURCE from template VARIABLES passed via `render(**ctx)`, and say which of the two the user-tainted value reaches."
     - "For each LAST assignment to the template SOURCE, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
     - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them."
     - "What specific defense, if any, prevents SSTI? Name it concretely — e.g. user input passed only as `render(ctx, name=user)` template variable (not template source), `jinja2.sandbox.SandboxedEnvironment`, allow-listed template file paths. Vague 'sandboxing' is not acceptable."
-    - "If you cannot point to user-controlled data reaching the template SOURCE with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
   context_hint: "Include template engine initialization and where user input enters the template."
   additional_context: ["caller"]
   min_iterations: 2
@@ -342,7 +342,7 @@ py/open-redirect: &py_open_redirect
     - "For each LAST assignment, determine whether the value derives from user input (request.args/form/json/values/cookies/headers, query parameter, path parameter, referer) or from a constant/internal source (route name reverse-lookup, hardcoded URL, session value populated server-side). Cite the data-flow chain."
     - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers, and verify the overriding right-hand side is itself constant/safe on that path — a lookup `MAP[user_key]` is safe only if EVERY value in MAP is a safe URL (quote the map contents), and a substring blocklist is NOT a complete defense."
     - "What specific defense, if any, contains the redirect? Name it concretely — e.g. `django.utils.http.url_has_allowed_host_and_scheme(url, ALLOWED)` (Django's `is_safe_url`), `urllib.parse.urlparse(url).netloc in ALLOWED_HOSTS`, redirect target restricted to relative paths via `url.startswith('/') and not url.startswith('//')`, allow-list lookup `ALLOWED_REDIRECTS[key]`, `werkzeug.urls.url_parse(url).host` check. Vague 'validation' / 'sanitisation' is NOT acceptable. Note: a blocklist of `http://` / `https://` is bypassable via `//evil.com` (protocol-relative) and is NOT a complete defense."
-    - "If you cannot point to the user-tainted value reaching the sink with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
   context_hint: "Trace from request input through any allow-list check to the redirect call."
   additional_context: ["caller"]
   min_iterations: 2
@@ -621,7 +621,7 @@ py/unsafe-yaml:
     - "Where does the YAML INPUT come from — user upload, network, file, config?"
     - "Could an attacker supply a YAML payload with !!python/object to execute arbitrary code?"
     - "Is yaml.safe_load() or yaml.load(data, Loader=SafeLoader) used instead?"
-    - "Is the PyYAML version >= 6.0 (which defaults to SafeLoader) or an older version?"
+    - "Which Loader is passed to `yaml.load` (PyYAML 6.0+ requires an explicit Loader argument), and is the PyYAML version visible?"
     - "Is there any input validation or schema check BEFORE parsing the YAML?"
   context_hint: "Include the yaml.load() call and where the input data originates."
   additional_context: ["caller"]

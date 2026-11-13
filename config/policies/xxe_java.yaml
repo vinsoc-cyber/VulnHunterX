@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+#
+# XML external entity (CWE-611) family policy — Java.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-611 is about attacker-supplied XML being parsed by a parser that resolves
+# external entities or external DTDs. ONE class-specific fact decides it:
+# entity_resolution — does the PARSER INSTANCE that parses the attacker input
+# resolve them on some reaching path, or are they disabled on every path. No
+# separate "neutralization" slot exists because there is nothing to neutralize
+# in the document: the defense is entirely the parser's configuration.
+#
+# The hard part is defaults. The JAXP parsers bundled with the JDK resolve
+# external entities by default, so for them the positive value needs the
+# creation of the factory/parser to be VISIBLE with no effective hardening on
+# that same instance — never merely "no hardening call was seen". A factory that
+# is a field, an injected bean, or built by a helper outside the cited code is
+# an unknown instance: the fact stays unresolved (Needs More Data) unless
+# retrieved evidence shows its configuration. JVM-wide settings (the
+# javax.xml.accessExternalDTD system property, jaxp.properties) are not visible
+# in code and are never assumed.
+#
+# Scope: external entity / external DTD resolution only. Internal entity
+# expansion (CWE-776, "XML bomb") is a different fact — a parser can have
+# external entities disabled and still expand internal ones — and is not
+# decided here.
+#
+# Selection is by rule alias ONLY — deliberately no CWE selector. Every Java
+# rule tagged CWE-611 is an XXE rule except the Semgrep/OpenGrep `xml-decoder`
+# rule, which flags java.beans.XMLDecoder: a deserialization sink (the document
+# names classes and methods to invoke), not an entity-resolution question. A
+# CWE-611 selector would claim it and this table would dismiss it as "not an
+# XML parse sink"; there is no negative selector, so the XXE rules are listed
+# by glob and `xml-decoder` is owned by deserialization_java. The CodeQL rule
+# java/xxe also carries CWE-776 and CWE-827; no family selects those.
+
+family: xxe_java
+version: "1"
+
+selectors:
+  languages: [java]
+  rule_aliases:
+    - "java/xxe"
+    - "*java.lang.security.audit.xxe.*"
+    - "*java.lang.security.xmlinputfactory-*"
+    - "vulnhunterx.java.xml-no-secure-features"
+
+fact_slots:
+  sink_binding: [QUALIFYING_XML_PARSE_SINK, NOT_XML_PARSE_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  entity_resolution: [EXTERNAL_ENTITY_RESOLVING_PATH_FOUND, EXTERNAL_ENTITIES_DISABLED_ALL_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - entity_resolution
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_XML_PARSE_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    entity_resolution: EXTERNAL_ENTITY_RESOLVING_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_XML_PARSE_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - entity_resolution: EXTERNAL_ENTITIES_DISABLED_ALL_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a visible
+# parser instance that resolves external entities proves the positive case,
+# otherwise stay Needs More Data. EXTERNAL_ENTITIES_DISABLED_ALL_PATHS uses
+# LOCAL_OR_EXHAUSTIVE, NOT EXHAUSTIVE_ENCODER: parser hardening is configuration
+# of the instance, proven by locally visible code, and is not encoder coverage.
+admissibility:
+  sink_binding:
+    QUALIFYING_XML_PARSE_SINK: LOCAL_POSITIVE
+    NOT_XML_PARSE_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  entity_resolution:
+    EXTERNAL_ENTITY_RESOLVING_PATH_FOUND: CONCRETE_PATH
+    EXTERNAL_ENTITIES_DISABLED_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_XML_PARSE_SINK when the flagged code parses an XML document, or creates / configures the factory or parser that does: DocumentBuilderFactory.newInstance / DocumentBuilder.parse, SAXParserFactory / SAXParser.parse, XMLReader.parse, XMLInputFactory.createXMLStreamReader / createXMLEventReader, TransformerFactory.newTransformer(Source) / newTemplates / Transformer.transform over a StreamSource, SchemaFactory.newSchema / Validator.validate, JDOM SAXBuilder.build, dom4j SAXReader.read, JAXB Unmarshaller.unmarshal, XPathExpression.evaluate(InputSource), or a setFeature / setProperty / setAttribute call on one of these factories. NOT_XML_PARSE_SINK when the flagged code parses no XML — it serializes or builds a document in memory, handles JSON or another format, or calls a user-defined method that merely shares a name the rule matched."
+  - "attacker_control: PROVEN when the XML document being parsed comes from outside the trust boundary — the scanner data-flow SOURCE establishes this (an HTTP request body, parameter, header or part; an uploaded file; a SOAP or message-queue payload; a response fetched from a URL the client chose). REFUTED when the parsed document is a fixed constant or a resource shipped with the application (a classpath resource, a literal string) with no externally supplied part. A file path, database column or configuration directory is not a trust boundary by itself; if who can write it is not in evidence, leave attacker_control unresolved. For a rule that flags only the creation or configuration of a factory, attacker_control is about the documents THAT factory's parsers go on to parse; if no parse of external input is in evidence, leave it unresolved."
+  - "flow_to_sink: REACHES when the controlled document reaches a parse call of the flagged parser on some path (as an InputStream, Reader, InputSource, StreamSource, File or String); NO_PATH_COMPLETE only with complete evidence that no path carries it there."
+  - "entity_resolution: first identify the exact PARSER INSTANCE that parses the attacker document and where its factory is created; only configuration applied to THAT factory or parser, BEFORE the parser is obtained from it (setFeature on a DocumentBuilderFactory after newDocumentBuilder() does not affect the builder already created), counts. Defaults of the parsers bundled with the JDK: DocumentBuilderFactory, SAXParserFactory / XMLReader, XMLInputFactory, TransformerFactory, SchemaFactory / Validator, and the libraries that delegate to them (JDOM SAXBuilder, dom4j new SAXReader()) accept a DOCTYPE and resolve external general and parameter entities and external DTDs unless configured otherwise. EXTERNAL_ENTITIES_DISABLED_ALL_PATHS only when, on EVERY reaching path, that instance has one of: setFeature(\"http://apache.org/xml/features/disallow-doctype-decl\", true); BOTH setFeature(\"http://xml.org/sax/features/external-general-entities\", false) AND setFeature(\"http://xml.org/sax/features/external-parameter-entities\", false); the JAXP 1.5 property XMLConstants.ACCESS_EXTERNAL_DTD set to the empty string (through setAttribute on DocumentBuilderFactory, TransformerFactory; setProperty on SAXParser, XMLReader, SchemaFactory, Validator, XMLInputFactory), together with ACCESS_EXTERNAL_STYLESHEET \"\" for a TransformerFactory or ACCESS_EXTERNAL_SCHEMA \"\" for a SchemaFactory / Validator; for XMLInputFactory, setProperty(XMLInputFactory.SUPPORT_DTD, false); an EntityResolver / XMLResolver installed on that parser that returns an empty source or throws for EVERY request (a resolver that returns null falls back to default resolution); dom4j SAXReader.createDefault(); or a Transformer / Unmarshaller / Validator that is fed a SAXSource, DOMSource or XMLStreamReader produced by a parser hardened as above instead of a raw stream. The following do NOT establish it on their own: XMLConstants.FEATURE_SECURE_PROCESSING (it limits resource use; whether it also blocks external entity access differs by factory type and implementation); setExpandEntityReferences(false); setValidating(false); setNamespaceAware / setXIncludeAware; only one of the two external-entity features; XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES=false without SUPPORT_DTD=false (it covers external general entities; its effect on an external DTD subset is implementation-dependent — leave unresolved); a hardening call on a DIFFERENT factory instance or on a sibling branch; a schema or content check performed after parsing. EXTERNAL_ENTITY_RESOLVING_PATH_FOUND requires a WITNESSED reaching path on which the creation of the factory/parser is visible in evidence and either no configuration from the list above is applied to it before the parse, or resolution is switched on explicitly (disallow-doctype-decl set to false, an external-entities feature set to true, IS_SUPPORTING_EXTERNAL_ENTITIES set to true). If the factory or parser is a field, a constructor or method parameter, an injected bean, or the result of a helper whose body is not in evidence, its configuration is unknown: request the declaring class or helper, and leave entity_resolution unresolved if it cannot be shown. JAXB Unmarshaller.unmarshal over a raw InputStream / Reader / File / StreamSource uses the provider's internal parser, whose external-entity behaviour depends on the JAXB implementation and version: leave it unresolved unless that is in evidence. JVM-wide settings (system properties such as javax.xml.accessExternalDTD, jaxp.properties) and a third-party parser implementation selected through the classpath are not visible in the code; do not assume them either way. Internal entity expansion (a document that only defines and expands its own entities) is not this fact."

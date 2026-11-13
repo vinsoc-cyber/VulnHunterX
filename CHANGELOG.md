@@ -7,8 +7,38 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Evidence-closure families for injection classes beyond PHP.** Findings in
+  these classes are now decided by a declarative fact table instead of the
+  model's verdict string: SQL injection, OS command injection and path
+  traversal for Java, Python, JavaScript/TypeScript, Go and C# (command
+  injection also for C/C++); SSRF, open redirect, XSS, unsafe deserialization,
+  XXE, code/expression injection and LDAP injection for Java and Python; XPath
+  injection for Java. Facts that the code in evidence cannot establish
+  (framework configuration, off-slice helpers, version-dependent defaults,
+  argument injection into a fixed program) end as Needs More Data. The guided
+  questions for the covered rules no longer command or label a verdict. These
+  families are validated by deterministic tests only; they have not yet been
+  compared with the legacy route on a benchmark. See
+  `docs/POLICY_AUTHORING.md` for the coverage table.
+- **Family-policy selector audit.** `scripts/audit_policy_selectors.py` records,
+  for every scanner rule that carries a CWE tag, which evidence-closure family
+  owns it; `tests/test_policy_selector_audit.py` fails when a selector edit
+  moves a rule or makes it match two families. A parity test keeps the decision
+  tables of per-language families of one class identical.
+  `docs/POLICY_AUTHORING.md` documents how to add a family.
+
 ### Changed
 
+- The PHP `command_injection` family now also selects the rule ids the vendored
+  OpenGrep tree emits (`config.opengrep-rules.php...`); those findings
+  previously went to the legacy route.
+  The PHP `path_access` handoff accepts the vendored ids of `tainted-filename`
+  and `eval-use` as well.
+- Benchmark rule map: CWE-611 anchors on `py/xxe` / `java/xxe` instead of
+  `py/xpath-injection`, which made XXE entries match two families and end as
+  Needs More Data; `py/xml-bomb` moved to CWE-776.
 - Current guides, workshops, configuration examples, and slide decks describe
   the supported `prepare → analyze → verify → report` pipeline.
 

@@ -1,0 +1,234 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# Cross-site scripting (CWE-79 / CWE-80) family policy — Java.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-79 is about attacker data becoming part of markup a browser parses. Two
+# DISTINCT defensive facts decide it and must not be collapsed: output_channel
+# (is the value delivered inside a document the browser parses as markup or
+# script, or only through a channel that cannot be parsed as markup on every
+# reaching path) and encoding_coverage (for a value that does enter markup, is a
+# CONTEXT-APPROPRIATE encoder present on every reaching path). HTML entity
+# encoding covers HTML text and quoted attributes but NOT a JavaScript string, an
+# unquoted attribute or a javascript: URL, so "an escape is present" is not
+# sufficient.
+#
+# Fail closed in both directions. A True Positive needs a WITNESSED path whose
+# whole construction is in evidence; "no encoder visible" while the value passes
+# through an unseen helper, tag or template stays Needs More Data. A dismissal by
+# coverage needs the escaping construct itself in the cited code: escaping that
+# depends on view-technology configuration, a servlet filter, or a JSP/template
+# file not in evidence leaves encoding_coverage unresolved (framework evidence
+# never satisfies LOCAL_OR_EXHAUSTIVE — see verification/policy/support.py).
+#
+# Selection is by rule alias ONLY — deliberately no CWE selector. In Java, CWE-79
+# is also carried by rules that do not locate a response-output sink: the Android
+# WebView rules (java/android/unsafe-android-webview-fetch,
+# websettings-javascript-enabled, webview-addjavascriptinterface) and the
+# xssrequestwrapper-is-insecure audit rule (it flags a filter class, not an
+# output). A CWE selector would claim them and sink_binding would dismiss a real
+# configuration weakness as "not an HTML output sink", so they stay on the legacy
+# route. The JSP template rules (audit.xss.jsp.*, tagged CWE-116) and the JSF
+# autoescape rule (CWE-150) are also left there: they flag template files whose
+# data source is never in the slice. Each Semgrep glob below covers both id forms
+# (config.opengrep-rules.<dirs>.<id> and <dirs>.<file>.<id>).
+#
+# The decision table is identical to xss_python.yaml; only selectors, comments
+# and assessment_guidance differ (tests/test_policy_family_parity.py).
+
+family: xss_java
+version: "1"
+
+selectors:
+  languages: [java]
+  rule_aliases:
+    - java/xss
+    - "*java.lang.security.audit.xss.no-direct-response-writer*"
+    - "*java.lang.security.servletresponse-writer-xss*"
+    - "*java.spring.security.injection.tainted-html-string*"
+
+fact_slots:
+  sink_binding: [QUALIFYING_HTML_OUTPUT_SINK, NOT_HTML_OUTPUT_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  output_channel: [MARKUP_TEXT_PATH_FOUND, NON_MARKUP_ONLY_ALL_PATHS]
+  encoding_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - output_channel
+  - encoding_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_HTML_OUTPUT_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    output_channel: MARKUP_TEXT_PATH_FOUND
+    encoding_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_HTML_OUTPUT_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - output_channel: NON_MARKUP_ONLY_ALL_PATHS
+    # Coverage dismisses only a PROVEN markup path. Without a resolved markup
+    # channel there is no output context to match an encoder against, so
+    # coverage must not vacuously dismiss — it stays Needs More Data.
+    - output_channel: MARKUP_TEXT_PATH_FOUND
+      encoding_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a
+# concrete unencoded markup path proves the positive case, otherwise stay Needs
+# More Data. ALL_REACHING_PATHS / NON_MARKUP_ONLY_ALL_PATHS use
+# LOCAL_OR_EXHAUSTIVE, NOT EXHAUSTIVE_ENCODER: an encoder call or a content-type
+# assignment is normally visible in the local slice next to the write, and
+# EXHAUSTIVE_ENCODER would refuse that local proof and turn every locally
+# encoded output into Needs More Data. The retrieved leg of LOCAL_OR_EXHAUSTIVE
+# still requires an exhaustive, NON-framework FOUND, so a framework-sanitizer
+# lookup ("the view layer auto-escapes") can never establish coverage.
+admissibility:
+  sink_binding:
+    QUALIFYING_HTML_OUTPUT_SINK: LOCAL_POSITIVE
+    NOT_HTML_OUTPUT_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  output_channel:
+    MARKUP_TEXT_PATH_FOUND: CONCRETE_PATH
+    NON_MARKUP_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  encoding_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - >-
+    sink_binding: QUALIFYING_HTML_OUTPUT_SINK when the flagged code writes data
+    into an HTTP response body, or builds markup that the visible code then sends
+    to a browser: HttpServletResponse.getWriter() followed by
+    print/println/write/printf/format/append, ServletOutputStream
+    print/println/write, a JSP expression <%= ... %> or out.print(...), an EL
+    expression ${...} in JSP template text, a Spring handler that returns a
+    String as the response body (@ResponseBody, @RestController,
+    ResponseEntity<String>), or an HTML string built by concatenation,
+    String.format, String.concat or StringBuilder that is returned or written as
+    the response. NOT_HTML_OUTPUT_SINK when the flagged operation does not write
+    to a browser-bound response at all: a logger call, System.out, a database
+    write, a PrintWriter or OutputStream that the code shows wraps a file,
+    socket or byte buffer (some rules match any PrintWriter / OutputStream by
+    type, so establish from the code which stream this is), an HTML string used
+    only for something other than the HTTP response, or a handler returning a
+    non-String object that a JSON message converter serialises. Decide this from
+    what the flagged statement is; whether a response of this kind is parsed as
+    markup on each path is output_channel. A handler that merely looks like an
+    API does not establish NOT_HTML_OUTPUT_SINK. If the stream's origin or the
+    built string's use is not in evidence, leave sink_binding UNRESOLVED and
+    request the enclosing method or caller.
+  - >-
+    attacker_control: PROVEN when a value an external party controls reaches the
+    output — the scanner data-flow SOURCE establishes this, as does visible code
+    reading HttpServletRequest getParameter / getParameterValues /
+    getParameterMap / getHeader / getHeaders / getCookies / getQueryString /
+    getRequestURI / getPathInfo / getReader / getInputStream, or a Spring
+    @RequestParam, @PathVariable, @RequestHeader, @CookieValue, @RequestBody or
+    @ModelAttribute argument. For a PERSISTED value (a field of an entity loaded
+    from a database, a file, a cache entry, a session attribute) PROVEN requires
+    evidence of a write path from request data into that store: the code that
+    saves it, or scanner data-flow that shows it. A database read on its own
+    neither establishes nor refutes control — leave attacker_control UNRESOLVED
+    and request the code that writes the field. REFUTED when the code shows that
+    every value written is a compile-time constant or a server-generated value
+    (a counter, a timestamp, the result of a fixed constant lookup), or that the
+    request-derived value is replaced by a constant before the write on every
+    reaching path. Trace the LAST assignment on each path, and match a map or
+    list read to the key or index that was actually written.
+  - >-
+    flow_to_sink: REACHES when the controlled value reaches the written output on
+    some path, including through concatenation, String.format, StringBuilder, a
+    collection, or a helper whose body is in evidence; NO_PATH_COMPLETE only with
+    complete evidence that no path carries it (the only branch that would carry
+    it is statically dead with the condition's constant operands visible, or the
+    variable written is a different one on every path).
+  - >-
+    output_channel: MARKUP_TEXT_PATH_FOUND when, on some reaching path, the value
+    is delivered inside a document the browser parses as markup or script: a
+    response whose content type is text/html, application/xhtml+xml, text/xml,
+    application/xml or image/svg+xml; a servlet response on which the visible
+    handler sets no content type before the write (the browser may sniff it as
+    HTML); a JSP page; a String returned as the body of a Spring handler whose
+    mapping has no restricting produces attribute. NON_MARKUP_ONLY_ALL_PATHS only
+    when, on EVERY reaching path, code in evidence gives THIS response a type
+    browsers do not parse as markup before the body is written —
+    response.setContentType(...) or setHeader("Content-Type", ...) with
+    application/json, text/plain, text/csv or application/octet-stream, a
+    produces attribute of such a type on the handler mapping, a ResponseEntity
+    built with that content type — or the body is produced from an object by a
+    JSON serialiser. JSON-encoding a value does not change the channel of a
+    text/html response. A content type applied by a servlet filter, an
+    interceptor, global configuration or any code not shown in evidence does not
+    establish NON_MARKUP_ONLY_ALL_PATHS; neither does a Content-Disposition
+    header, a Content-Security-Policy or an X-XSS-Protection header. If one
+    branch sets a non-markup type and another does not, a markup path exists.
+  - >-
+    encoding_coverage: for each attacker value that enters markup, identify its
+    exact output context from the literal text around it — HTML element text, a
+    double-quoted or single-quoted attribute value, an unquoted attribute value,
+    a JavaScript string or code inside a script element or an on* event handler,
+    a URL in href / src / action / formaction, or CSS — and the characters the
+    value can still contain after its last transformation. A transformation
+    covers a path only when it matches that context. OWASP Java Encoder:
+    Encode.forHtml covers HTML text and quoted attributes; Encode.forHtmlContent
+    covers HTML text only; Encode.forHtmlAttribute covers quoted attributes;
+    Encode.forHtmlUnquotedAttribute covers unquoted attributes;
+    Encode.forJavaScript covers a quoted JavaScript string literal;
+    Encode.forUriComponent covers one URL component, not a whole
+    attacker-chosen URL. Spring HtmlUtils.htmlEscape escapes & < > " ' and covers
+    HTML text and quoted attributes. Apache commons-text / commons-lang3
+    StringEscapeUtils.escapeHtml4 escapes & < > " but not the single quote, so it
+    covers HTML text and double-quoted attributes, not a single-quoted
+    attribute. ESAPI encodeForHTML, encodeForHTMLAttribute and
+    encodeForJavaScript cover their named contexts. In a JSP, <c:out> (escapeXml
+    defaults to true) and fn:escapeXml escape & < > " ', while <%= ... %> and a
+    bare ${...} in template text apply no escaping. In Thymeleaf, th:text and
+    [[...]] escape, th:utext and [(...)] do not. HTML entity encoding does NOT
+    cover a JavaScript string, an unquoted attribute, or a URL attribute whose
+    scheme the attacker chooses (javascript:). A value coerced to a number
+    (Integer.parseInt, Long.parseLong, a numeric parameter type), compared
+    against a complete allowlist or enum, or checked by an anchored pattern that
+    admits no markup metacharacter is covered as well. These do not establish
+    coverage: replacing or stripping selected tags or characters, a blocklist, a
+    length check, trim or case folding, a JSON encoder inside a text/html
+    document, an encoder on a sibling branch, or a method whose body is not in
+    evidence (do not infer its behaviour from its name; request it).
+    BYPASS_PATH_FOUND requires a WITNESSED path: the construction from the source
+    to the markup write is in evidence and, on that path, the value enters its
+    context with no covering transformation or with one that does not match the
+    context. Direct concatenation into the written markup with the whole path
+    visible is such a witness. If the value passes through a method, tag, filter
+    or template whose body is not in evidence, leave encoding_coverage
+    UNRESOLVED. ALL_REACHING_PATHS only when every reaching path is covered by a
+    transformation visible in the cited code. Framework or configuration
+    behaviour is not evidence here: a statement that a view technology, servlet
+    filter, request wrapper, web application firewall or security header escapes
+    this output establishes ALL_REACHING_PATHS only when the escaping construct
+    itself (the <c:out>, the th:text, the encoder call) is visible in the cited
+    code for this value. If it depends on configuration, or on a JSP or template
+    file that is not in evidence, leave encoding_coverage UNRESOLVED.

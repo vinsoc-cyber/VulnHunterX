@@ -1,0 +1,112 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+#
+# Unsafe deserialization (CWE-502) family policy — Python.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-502 is about attacker-controlled bytes/text being decoded by a mechanism
+# that can instantiate attacker-chosen types or invoke code while decoding. Two
+# DISTINCT defensive facts decide it and must not be collapsed:
+# deserializer_capability (can the decoding API, as called on the reaching path,
+# import and call attacker-named objects — pickle and its relatives, an unsafe
+# YAML loader, jsonpickle — or is it a data-only decoder on every path) and
+# type_restriction (for a decoder that CAN, is an effective allowlist applied to
+# that stream on every reaching path — in practice a restricted Unpickler).
+#
+# Integrity protection is deliberately NOT a slot. A payload authenticated with a
+# server-side secret before decoding is not attacker-controlled, so it is decided
+# by attacker_control, and only when the verification is visible on every path.
+#
+# Several capabilities depend on the library VERSION (yaml.load without a Loader,
+# yaml.FullLoader, torch.load's weights_only default, numpy.load's allow_pickle
+# default). Versions live in requirement files, not in the code slice, so those
+# cases stay unresolved (Needs More Data) unless the call names the option
+# explicitly or retrieved evidence shows the version.
+#
+# Selection: CWE-502 is clean for Python in the rule inventory (no Python rule
+# carries CWE-502 together with a CWE another family selects). The CWE selector
+# also claims audit rules that fire on any use of a decoder (avoid-pickle,
+# marshal-usage, multiprocessing-recv, the custom unsafe-yaml rule); a constant
+# or trusted input resolves attacker_control, and what the slice cannot show
+# stays unresolved.
+
+family: deserialization_python
+version: "1"
+
+selectors:
+  languages: [python]
+  cwes: ["CWE-502"]
+
+fact_slots:
+  sink_binding: [QUALIFYING_DESERIALIZATION_SINK, NOT_DESERIALIZATION_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  deserializer_capability: [ARBITRARY_TYPE_PATH_FOUND, DATA_ONLY_ALL_PATHS]
+  type_restriction: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - deserializer_capability
+  - type_restriction
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_DESERIALIZATION_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    deserializer_capability: ARBITRARY_TYPE_PATH_FOUND
+    type_restriction: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_DESERIALIZATION_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - deserializer_capability: DATA_ONLY_ALL_PATHS
+    # A type restriction dismisses only a PROVEN arbitrary-type decoder. For a
+    # decoder whose capability is unresolved, "a filter exists" is not yet a fact
+    # about this stream and must not dismiss vacuously.
+    - deserializer_capability: ARBITRARY_TYPE_PATH_FOUND
+      type_restriction: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a concrete
+# unrestricted arbitrary-type decode proves the positive case, otherwise stay
+# Needs More Data. The all-paths values use LOCAL_OR_EXHAUSTIVE, NOT
+# EXHAUSTIVE_ENCODER: a data-only decoder or a restricted Unpickler is proven by
+# the locally visible call, and is not encoder coverage.
+admissibility:
+  sink_binding:
+    QUALIFYING_DESERIALIZATION_SINK: LOCAL_POSITIVE
+    NOT_DESERIALIZATION_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  deserializer_capability:
+    ARBITRARY_TYPE_PATH_FOUND: CONCRETE_PATH
+    DATA_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  type_restriction:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_DESERIALIZATION_SINK when the flagged call decodes a serialized object graph: pickle / cPickle / _pickle load, loads or Unpickler(...).load; dill, cloudpickle or joblib load(s); pandas.read_pickle; shelve.open (values are pickled); marshal.load / loads; yaml.load / load_all / unsafe_load / full_load and ruamel.yaml YAML(...).load; jsonpickle.decode / loads; torch.load; numpy.load; multiprocessing Connection.recv() (it unpickles what it receives); Django signing.loads(..., serializer=PickleSerializer) or a session backend configured with PickleSerializer. NOT_DESERIALIZATION_SINK when the flagged statement does none of these — it only SERIALIZES (pickle.dumps, yaml.dump), is an import statement, or calls a user-defined function that merely shares a name the rule matched."
+  - "attacker_control: PROVEN when the bytes or text being decoded come from outside the trust boundary — the scanner data-flow SOURCE establishes this (Flask request.data / get_data() / form / args / cookies / files, Django request.body / POST / GET / COOKIES / FILES, a FastAPI or aiohttp request body, an AWS Lambda event field, socket.recv, a message from a queue). REFUTED when the decoded data is a fixed constant or a resource shipped with the application, or when it is authenticated with a server-side secret BEFORE decoding: an HMAC or signature over the exact bytes that are decoded (hmac.new(key, data, ...) compared with hmac.compare_digest, itsdangerous Signer.unsign / Serializer.loads, django.core.signing.loads / Signer.unsign), computed with a key the client cannot read, checked on EVERY path that reaches the decode, with the decode skipped when the check fails. The following do NOT establish REFUTED: base64 or hex decoding, zlib decompression, encryption without authentication, a checksum or unkeyed hash, a signature verified AFTER decoding, a verification visible on only one branch, or a key that is a hard-coded default or travels with the payload. A file path, cache entry, database column or the peer of a multiprocessing Connection is not a trust boundary by itself; if who can write it is not in evidence, leave attacker_control unresolved."
+  - "flow_to_sink: REACHES when the controlled bytes or text reach the decoding call on some path (directly, or through base64.b64decode, zlib.decompress, io.BytesIO, or a file the request wrote); NO_PATH_COMPLETE only with complete evidence that no path carries them there."
+  - "deserializer_capability: decide whether the decoding call, WITH THE ARGUMENTS IT IS GIVEN, can import and call attacker-named objects during decoding. ARBITRARY_TYPE_PATH_FOUND when some reaching path uses: pickle / cPickle / _pickle load(s) or Unpickler.load; dill, cloudpickle, joblib.load, pandas.read_pickle, shelve; multiprocessing Connection.recv(); jsonpickle.decode (py/object and py/reduce tags); yaml.load or load_all with Loader=yaml.Loader, yaml.UnsafeLoader or their C variants, yaml.unsafe_load; ruamel.yaml YAML(typ='unsafe'); numpy.load called with allow_pickle=True; torch.load called with weights_only=False. DATA_ONLY_ALL_PATHS only when EVERY reaching path uses a decoder that builds only plain data: json.load(s) (an object_hook that only builds fixed classes keeps it data-only), ast.literal_eval, tomllib, msgpack.unpackb with default options, yaml.safe_load / safe_load_all, yaml.load with Loader=yaml.SafeLoader, CSafeLoader or BaseLoader, ruamel.yaml YAML(typ='safe') or the default round-trip YAML(), numpy.load with allow_pickle=False written explicitly. Version-dependent cases must be found in evidence, not assumed: yaml.load with NO Loader argument uses the unsafe Loader before PyYAML 5.1 and FullLoader from 5.1, and is a TypeError from 6.0; yaml.FullLoader / yaml.full_load allowed arbitrary object construction before PyYAML 5.4 and restricts it from 5.4; torch.load with no weights_only argument defaults to full unpickling before PyTorch 2.6 and to weights-only from 2.6; numpy.load with no allow_pickle argument defaults to False from NumPy 1.16.3. For these, assert a value only when the argument is written explicitly or the installed version is in evidence; otherwise leave deserializer_capability unresolved. marshal.load(s) builds only built-in types and code objects and calls nothing during decoding, but it is not hardened against malformed input: ARBITRARY_TYPE_PATH_FOUND for marshal only when a reaching path goes on to EXECUTE the loaded object (exec, eval, types.FunctionType); otherwise leave it unresolved rather than asserting data-only. A custom Loader subclass or a loader with add_constructor / add_multi_constructor calls must be read before a value is asserted."
+  - "type_restriction: for a decoder that can import and call attacker-named objects, determine whether an effective ALLOWLIST is applied to the SAME decode. Restrictions that count: a pickle.Unpickler subclass whose find_class returns only names in an explicit allowlist and raises for everything else, used for THIS load; torch.load called with weights_only=True (a restricted unpickler limited to tensor and primitive types). These do NOT count: jsonpickle.decode called with safe=True (it is not a type allowlist); an isinstance check or attribute access on the returned object (code has already run); scanning the payload for opcodes or substrings; a denylist of module names; a find_class that falls through to super().find_class for unlisted names; a restriction defined in the module but not used by the flagged call. The module-level functions pickle.load / pickle.loads / cPickle.loads, dill.loads, shelve, joblib.load and Connection.recv() always use the unrestricted Unpickler, and the unsafe YAML loaders have no allowlist: a WITNESSED reaching path that decodes through one of them is BYPASS_PATH_FOUND. If the load is performed by an Unpickler subclass or a helper whose body is not in evidence, leave type_restriction unresolved or request that body. ALL_REACHING_PATHS only when every reaching path decodes through an allowlisting restriction; one unrestricted branch is BYPASS_PATH_FOUND."

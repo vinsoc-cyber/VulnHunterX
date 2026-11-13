@@ -1,0 +1,209 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# Code-injection (CWE-94 / CWE-95) family policy — Java.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-94/95 is about attacker data becoming PROGRAM TEXT that an interpreter
+# evaluates: a script, an expression-language expression, or the SOURCE of a
+# template. Two DISTINCT facts decide it and must not be collapsed:
+# interpreter_channel (does the value become part of the evaluated text on some
+# reaching path, or is it on every path only DATA handed to a fixed program — a
+# bound variable, a template model value) and neutralization_coverage (for a
+# value that does enter the evaluated text, is it constrained on every reaching
+# path to a finite allowlist / exact match).
+#
+# Restricted evaluators are NOT treated as coverage. SimpleEvaluationContext, a
+# JEXL sandbox, an OGNL MemberAccess, Groovy's SecureASTCustomizer or a
+# FreeMarker class resolver narrow what an attacker-chosen expression can do,
+# but they still evaluate attacker-chosen text, they have a history of escapes,
+# and several are configured outside the code slice. Such a case proves neither
+# the witnessed-bypass state nor the all-paths-allowlisted state, so it stays
+# Needs More Data rather than being confirmed or dismissed.
+#
+# Scope: script engines, expression languages (SpEL, OGNL, MVEL, JEXL, EL,
+# Groovy) and server-side template injection through the template SOURCE. OS
+# command execution, deserialization, reflection (CWE-470) and JNDI lookups are
+# other classes and are not decided here.
+#
+# Selectors. CWE-94 is deliberately NOT a selector: there is no negative
+# selector, and in Java it is also carried by java/android/arbitrary-apk-
+# installation, which installs a package and evaluates no program text. A
+# CWE-94 selector would claim it and sink_binding would then dismiss a real
+# finding of another kind. CWE-95 is clean (its only Java rules are the Seam
+# logger EL rule and the <spring:eval> JSP rule, both expression sinks), so it is
+# selected. Every other rule is selected by id; the globs cover both Semgrep id
+# forms (config.opengrep-rules.<dirs>.<id> and <dirs>.<file>.<id>).
+# java/ognl-injection (CWE-917 only) and the custom template-injection rule
+# (CWE-917/1336 only) are included by alias because their sinks are exactly
+# this table's sink.
+
+family: code_injection_java
+version: "1"
+
+selectors:
+  languages: [java]
+  cwes: ["CWE-95"]
+  rule_aliases:
+    - java/groovy-injection
+    - java/insecure-bean-validation
+    - java/jexl-expression-injection
+    - java/mvel-expression-injection
+    - java/ognl-injection
+    - java/server-side-template-injection
+    - java/spel-expression-injection
+    - "*java.lang.security.audit.dangerous-groovy-shell*"
+    - "*java.lang.security.audit.el-injection*"
+    - "*java.lang.security.audit.ognl-injection*"
+    - "*java.lang.security.audit.script-engine-injection*"
+    - "*java.spring.security.audit.spel-injection*"
+    - "*vulnhunterx.java.template-injection"
+
+fact_slots:
+  sink_binding: [QUALIFYING_CODE_EVALUATION_SINK, NOT_CODE_EVALUATION_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  interpreter_channel: [CODE_TEXT_PATH_FOUND, DATA_ONLY_ALL_PATHS]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - interpreter_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_CODE_EVALUATION_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    interpreter_channel: CODE_TEXT_PATH_FOUND
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_CODE_EVALUATION_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - interpreter_channel: DATA_ONLY_ALL_PATHS
+    # Coverage dismisses only a PROVEN code-text path. When the channel is
+    # unresolved there is nothing established to neutralize, so a coverage claim
+    # must not dismiss vacuously — the finding stays Needs More Data.
+    - interpreter_channel: CODE_TEXT_PATH_FOUND
+      neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a
+# concrete unsafe code-text path proves the positive case, otherwise stay Needs
+# More Data. DATA_ONLY_ALL_PATHS / ALL_REACHING_PATHS use LOCAL_OR_EXHAUSTIVE,
+# NOT EXHAUSTIVE_ENCODER: variable binding and a finite allowlist are not
+# encoders, and both are proven by locally visible code.
+admissibility:
+  sink_binding:
+    QUALIFYING_CODE_EVALUATION_SINK: LOCAL_POSITIVE
+    NOT_CODE_EVALUATION_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  interpreter_channel:
+    CODE_TEXT_PATH_FOUND: CONCRETE_PATH
+    DATA_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - >-
+    sink_binding: QUALIFYING_CODE_EVALUATION_SINK when the flagged call hands text
+    to an interpreter that evaluates it as a program, an expression or a template
+    source: javax.script.ScriptEngine.eval / Compilable.compile; Spring SpEL
+    ExpressionParser.parseExpression(...) followed by getValue/setValue, or the
+    expression attribute of a JSP <spring:eval> tag; OGNL Ognl.getValue /
+    Ognl.parseExpression / a ValueStack findValue; MVEL.eval /
+    MVEL.compileExpression + executeExpression; JEXL
+    JexlEngine.createExpression(...).evaluate / createScript(...).execute; Groovy
+    GroovyShell.evaluate / parse / run, GroovyClassLoader.parseClass, Eval.me;
+    javax.el / jakarta.el ExpressionFactory.createValueExpression /
+    createMethodExpression, ELProcessor.eval; a message string given to a logger or
+    validator that interpolates expressions in it (org.jboss.seam.log.Log,
+    ConstraintValidatorContext.buildConstraintViolationWithTemplate); a template
+    engine given the template SOURCE (Velocity.evaluate / VelocityEngine.evaluate,
+    FreeMarker new Template(name, readerOrString, cfg), a string template
+    resolver or loader). NOT_CODE_EVALUATION_SINK when the flagged call evaluates
+    no program text: a pure string operation, a java.util.regex Pattern.compile,
+    a call that only renders a fixed template by NAME, or an unrelated method that
+    merely shares a name such as eval or evaluate. A call that launches an OS
+    command, deserializes an object, loads a class by name or performs a JNDI
+    lookup is a different sink class: it establishes neither value here, so leave
+    sink_binding unresolved.
+  - >-
+    attacker_control: PROVEN when a value from outside the trust boundary reaches
+    the evaluated text; the scanner data-flow SOURCE (HttpServletRequest
+    getParameter / getHeader / getCookies / getInputStream, a Spring @RequestParam
+    / @PathVariable / @RequestBody / @RequestHeader argument, a message or file
+    received from a client) establishes this. REFUTED when the slice shows the
+    evaluated text is a compile-time constant, or is assembled only from constants
+    and values the deployment operator supplies. A value read from a database,
+    configuration store or environment does not establish either value unless the
+    evidence shows who writes it.
+  - >-
+    flow_to_sink: REACHES when the controlled value reaches the evaluating call on
+    some path. NO_PATH_COMPLETE only with complete evidence that no path carries
+    it there, for example the value is unconditionally replaced by a constant
+    before the call. Not seeing the path in the slice is not complete evidence.
+  - >-
+    interpreter_channel: for the flagged call, enumerate EVERY attacker-controlled
+    value and how it is passed. CODE_TEXT_PATH_FOUND when, on some reaching path,
+    a value becomes part of the text the interpreter parses: it is the expression
+    or script itself, it is concatenated or String.format-ted into it, or it is
+    the template source handed to Velocity.evaluate / new Template(...). This
+    holds even when another value on the same call is bound safely.
+    DATA_ONLY_ALL_PATHS only when, on EVERY reaching path, the evaluated text is
+    fixed and each attacker value is supplied as data: ScriptEngine.put / a
+    Bindings entry, EvaluationContext.setVariable with a fixed expression
+    referring to #name, a JEXL MapContext or MVEL variables map entry, a Groovy
+    Binding variable, a numbered or named logger parameter, or an entry in the
+    model / context of a template that is loaded by a fixed name. A model value
+    is data only while the fixed template does not evaluate it again (Velocity
+    #evaluate, FreeMarker ?eval / ?interpret, a second parseExpression over it);
+    if it does, that is a code-text path.
+  - >-
+    neutralization_coverage: applies to a value that enters the evaluated text.
+    BYPASS_PATH_FOUND requires a WITNESSED reaching path on which the attacker
+    chooses expression, script or template syntax with no effective restriction:
+    no check at all between the source and the evaluating call in the visible
+    code, a blocklist of keywords or characters (Runtime, getClass, T(, #, $ and
+    similar can be rewritten or reached another way), a length limit, or
+    quote/HTML escaping. ALL_REACHING_PATHS only when every reaching path
+    restricts the value to a finite set before it is evaluated: an exact-match
+    lookup in a fixed collection or enum of permitted expressions or identifiers,
+    or a full-string pattern that admits only a literal (digits, or a fixed
+    alphanumeric identifier class) in a position where a literal cannot change
+    the program. A check on a sibling branch does not cover the flagged branch.
+    A restricted evaluator establishes NEITHER value on its own: SpEL
+    SimpleEvaluationContext removes type references, constructors and bean
+    references but still evaluates attacker-chosen property and method access
+    (StandardEvaluationContext, also the default when no context is passed,
+    restricts nothing); a JexlSandbox / JexlPermissions, an OGNL MemberAccess or
+    class exclusion list, Groovy SecureASTCustomizer, Velocity
+    SecureUberspector and FreeMarker TemplateClassResolver / new-builtin
+    restrictions narrow the reachable API and are frequently configured outside
+    the slice. Whether a Bean Validation implementation evaluates expressions in
+    a custom violation template depends on the library version and its
+    configuration. When only such a restriction separates the value from the
+    interpreter, or the restriction lives in configuration the evidence does not
+    show, leave neutralization_coverage unresolved.

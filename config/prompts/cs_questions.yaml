@@ -24,7 +24,7 @@ cs/sql-injection:
   short_description: "User input concatenated into a SQL query in C#"
   questions:
     - "Where does the INPUT originate — Request.Query/Form/RouteValues, a [FromBody]/[FromQuery] action parameter, or another user-controlled source?"
-    - "How is the query built — string concatenation/interpolation into SqlCommand.CommandText or EF Core FromSqlRaw/ExecuteSqlRaw (vulnerable), versus parameterized SqlParameter / FromSqlInterpolated / ExecuteSqlInterpolated (safe)?"
+    - "How is the query built — string concatenation/interpolation into SqlCommand.CommandText or EF Core FromSqlRaw/ExecuteSqlRaw, versus parameterized SqlParameter / FromSqlInterpolated / ExecuteSqlInterpolated? Quote the lines."
     - "If a SqlParameter is added, is the tainted value actually bound to the parameter, or is it still spliced into the command text?"
     - "Is an ORM (Entity Framework, Dapper) used? Dapper parameterizes anonymous-object args, but Dapper string concatenation is still injectable — which form is this?"
     - "Trace the INPUT — does it pass through any validation, allow-list, or integer parse before reaching the query?"
@@ -37,9 +37,9 @@ cs/command-injection: &cs_command_injection
   questions:
     - "Where does the INPUT originate — HTTP request, uploaded content, configuration, or database?"
     - "Is it passed to Process.Start, a ProcessStartInfo.Arguments string, or a shell (cmd.exe /c, /bin/sh -c)?"
-    - "Is UseShellExecute true (shell metacharacters interpreted) or false with ArgumentList tokens (safer)?"
+    - "What is ProcessStartInfo.FileName, is it a command interpreter (cmd.exe /c, powershell -Command), and what is UseShellExecute set to? Quote the lines."
     - "Is the command/argument validated against an allow-list of known-safe values?"
-    - "Are arguments passed as a single concatenated string (injectable) or as discrete ArgumentList entries?"
+    - "Are arguments passed as a single concatenated Arguments string or as discrete ArgumentList entries, and which position does the user value occupy?"
     - "Could an attacker inject shell metacharacters (; | & $ ` newline) or extra arguments to change execution?"
   context_hint: "Trace from input through command construction to Process.Start."
   additional_context: ["caller", "class"]

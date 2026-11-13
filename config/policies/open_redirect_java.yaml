@@ -1,0 +1,231 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# Open redirect (CWE-601, URL redirection to an untrusted site) family policy —
+# Java.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-601 is about attacker data choosing the site a BROWSER is redirected to.
+# Two DISTINCT facts decide it and must not be collapsed:
+#
+#   target_control      what the attacker value could select if no check existed:
+#                       an off-site target (an absolute URL, or a scheme-relative
+#                       or backslash form a browser treats as one), or — on every
+#                       reaching path — only a location on the application's own
+#                       origin.
+#   target_restriction  for a value that can select an off-site target, whether
+#                       the target that is actually sent is held to trusted hosts
+#                       or to a local path on every reaching path.
+#
+# target_restriction dismisses only together with a PROVEN external-target
+# channel (the same scoping command_injection uses for its coverage fact), so a
+# restriction claim can never dismiss a finding whose channel is unknown.
+#
+# The table shape is the same as the ssrf class (control, then restriction), but
+# the facts differ: here the URL is parsed by the victim's browser, so the forms
+# that matter are the ones browsers accept ("//host", "/\host", "\\host",
+# "///host"), not the ones a server-side HTTP client accepts.
+#
+# Out of scope, by design: server-side forwards (RequestDispatcher.forward, a
+# Spring "forward:" view), which never send the browser elsewhere; requests the
+# SERVER makes (CWE-918, the ssrf family); header splitting through CR/LF in the
+# Location value (CWE-113); redirect validation done by a servlet filter or by
+# security configuration that the code slice cannot show — never counted as a
+# restriction here.
+#
+# Selectors. CWE-601, gated to Java. The inventory shows every Java rule tagged
+# CWE-601 carries no other CWE: CodeQL java/unvalidated-url-redirection, the
+# vendored audit rules unvalidated-redirect and spring-unvalidated-redirect in
+# both id forms, and the custom rule vulnhunterx.java.open-redirect. No rule
+# alias is needed and no other family selects CWE-601. The two audit rules match
+# any method that redirects to one of its own String parameters, whether or not
+# that method is a request handler; attacker_control decides those.
+# java/android/intent-redirection (CWE-926/940) is a different weakness and is
+# not selected.
+
+family: open_redirect_java
+version: "1"
+
+selectors:
+  languages: [java]
+  cwes: ["CWE-601"]
+
+fact_slots:
+  sink_binding: [QUALIFYING_REDIRECT_SINK, NOT_REDIRECT_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  target_control: [EXTERNAL_TARGET_PATH_FOUND, LOCAL_TARGET_ONLY_ALL_PATHS]
+  target_restriction: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - target_control
+  - target_restriction
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_REDIRECT_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    target_control: EXTERNAL_TARGET_PATH_FOUND
+    target_restriction: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_REDIRECT_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - target_control: LOCAL_TARGET_ONLY_ALL_PATHS
+    # A restriction dismisses only a PROVEN external-target channel. With the
+    # channel unresolved there is nothing established to restrict, so the claim
+    # must not dismiss on its own — the finding stays Needs More Data.
+    - target_control: EXTERNAL_TARGET_PATH_FOUND
+      target_restriction: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. The two "path found" values need
+# a witnessed path (CONCRETE_PATH). The two "all paths" values use
+# LOCAL_OR_EXHAUSTIVE, not EXHAUSTIVE_ENCODER: a fixed local prefix, a lookup in a
+# fixed map, or a host allowlist is ordinary code that is visible in the local
+# slice, not an encoder; when it lives in a helper, the retrieval must be
+# exhaustive.
+admissibility:
+  sink_binding:
+    QUALIFYING_REDIRECT_SINK: LOCAL_POSITIVE
+    NOT_REDIRECT_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  target_control:
+    EXTERNAL_TARGET_PATH_FOUND: CONCRETE_PATH
+    LOCAL_TARGET_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  target_restriction:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - >-
+    sink_binding: QUALIFYING_REDIRECT_SINK when the flagged expression is, or is
+    the target of, a response that tells the browser to navigate elsewhere:
+    HttpServletResponse.sendRedirect(target); a Spring MVC view name beginning
+    "redirect:" (returned from a handler or given to ModelAndView); new
+    RedirectView(target); a ResponseEntity or HttpHeaders with a Location header
+    and a 3xx status (ResponseEntity.status(HttpStatus.FOUND).location(uri),
+    .header("Location", target), HttpHeaders.setLocation); response.setHeader /
+    addHeader("Location", target) with a 3xx status; JAX-RS Response.seeOther /
+    temporaryRedirect / status(3xx).location(uri). When the flagged line only
+    builds the target string, it qualifies when the cited code shows that same
+    value being sent by one of these. NOT_REDIRECT_SINK when the cited code shows no
+    client redirect is produced from the flagged value: a server-side forward
+    (RequestDispatcher.forward / include, a "forward:" view); a URL that is only
+    rendered as a link, logged or stored; a request the server itself makes with an
+    HTTP client; or a user-defined method that merely shares a name the rule
+    matched. If the code that would send the response is outside the evidence, do
+    not assert either value.
+  - >-
+    attacker_control: PROVEN when a value that another party can place in a
+    victim's request becomes part of the redirect target — the scanner data-flow
+    SOURCE establishes this (HttpServletRequest.getParameter / getQueryString /
+    getHeader such as Referer, a Spring @RequestParam / @PathVariable /
+    @RequestBody / @RequestHeader argument, a JAX-RS @QueryParam / @PathParam /
+    @FormParam argument). In a Spring handler method (one mapped with
+    @RequestMapping / @GetMapping / @PostMapping and the like) an un-annotated
+    String parameter is bound from the request parameters. REFUTED when the cited
+    code shows the target is a constant, or is built only from constants,
+    server-side configuration and request.getContextPath(), with no request-derived
+    part. A String parameter of a method that is NOT a request handler establishes
+    neither value: its callers decide, so request them. A target built only from
+    the current request's own host or URL (getServerName(), getRequestURL())
+    establishes neither value by itself. A value read from a database or the
+    session is PROVEN only when the evidence shows a client can write it.
+  - >-
+    flow_to_sink: REACHES when the controlled value reaches the redirect call on
+    some path, including through string concatenation, String.format, a
+    URI / UriComponentsBuilder, a model attribute used in a "redirect:" view name,
+    or a helper method shown in the evidence. NO_PATH_COMPLETE only with complete
+    evidence that no path carries the value to the redirect — for example the
+    variable is unconditionally overwritten with a constant before the call on
+    every path. A reassignment on one branch does not establish it.
+  - >-
+    target_control: decide what the attacker value could select as the redirect
+    target IF NO CHECK EXISTED (checks belong to target_restriction). First write
+    out how the target string is built on each reaching path. A browser leaves the
+    application's origin for an absolute URL ("https://evil.test/"), a
+    scheme-relative reference ("//evil.test"), and the variants it normalises to
+    one: backslashes in place of slashes ("/\evil.test", "\\evil.test",
+    "https:\\evil.test") and extra leading slashes ("///evil.test").
+    EXTERNAL_TARGET_PATH_FOUND when on some reaching path the value can produce
+    such a target: the value is the whole target or its beginning
+    (sendRedirect(value), "redirect:" + value, new RedirectView(value),
+    URI.create(value)); it directly follows a lone "/" ("/" + value and
+    "redirect:/" + value become "//evil.test"); it is placed in the authority
+    ("https://" + value, a host argument of a URI / UriComponentsBuilder); or it
+    follows a fixed absolute prefix that does not end the authority
+    ("https://example.com" + value, where ".evil.test" or "@evil.test" changes the
+    host). LOCAL_TARGET_ONLY_ALL_PATHS only when, on EVERY reaching path, the value
+    cannot reach the start or the authority of the target: it is appended after a
+    fixed prefix that begins with a single "/" followed by at least one further
+    character that is not "/" or "\" ("/account/" + value,
+    "redirect:/orders/" + value), or after a fixed absolute origin that already
+    ends its authority with "/" ("https://example.com/app/" + value); it is placed
+    only in the query string or fragment of a fixed target; it is expanded as a
+    variable of a URI template whose scheme, host and leading path are literal; or
+    it is used only as a key that selects one of a fixed set of constant targets (a
+    Map of constants, an enum, a switch). A prefix of request.getContextPath() alone
+    does not establish it, because the context path is the empty string for an
+    application deployed at the root: leave target_control UNRESOLVED unless
+    another fixed prefix or a constraint on the value is shown. Also leave it
+    UNRESOLVED when the prefix comes from a field, a parameter or a configuration
+    object whose content the evidence does not show.
+  - >-
+    target_restriction: applies to a value that can select an off-site target.
+    Identify every check between the source and the redirect, what exactly it
+    inspects (the raw string, or a parsed component), and whether its result is
+    enforced on the path to the redirect. ALL_REACHING_PATHS only when on EVERY
+    reaching path one of these holds, its failure branch does not reach the
+    redirect, and the string that was checked is the string that is sent: (a) the
+    target is parsed with java.net.URI and its host is compared by exact equality
+    or set membership against fixed trusted hosts (constants or server-side
+    configuration), a null host not being accepted;
+    (b) a local-path test on the raw string requires a leading "/" and rejects a
+    second character of "/" or "\" (for example value.startsWith("/") &&
+    !value.startsWith("//") && !value.startsWith("/\\")); (c) the whole target is
+    compared for equality or membership against a fixed list of complete URLs.
+    BYPASS_PATH_FOUND requires a WITNESSED path, shown in the cited code, on which
+    an off-site-capable value reaches the redirect past no effective restriction:
+    either the complete construction from the source to the redirect is in
+    evidence and applies no check of the target, or the check that is present is
+    one a concrete input passes while naming another site. Checks that do NOT
+    restrict the target: startsWith("/") alone (passes "//evil.test"); rejecting
+    only "http://" / "https://" prefixes or only "://" (passes "//evil.test");
+    contains / startsWith / endsWith / an unanchored regex on the raw string
+    ("https://example.com" as a prefix without a trailing "/" passes
+    "https://example.com.evil.test/" and "https://example.com@evil.test/"); a
+    parsed-host endsWith("example.com") without a leading dot (passes
+    "evilexample.com"); accepting a target because its parsed host is null or
+    because URI.isAbsolute() is false (new URI("///evil.test") has a null host and
+    is not absolute, and new URI("//evil.test") is not absolute either); a check on
+    a different variable from the one sent; a check on a sibling branch; a check
+    whose result is ignored or only logged. Cases to leave UNRESOLVED instead of
+    asserting either value: a host read with java.net.URL.getHost() when "\" is
+    not rejected (java.net.URL does not end the authority at a backslash, browsers
+    do; java.net.URI rejects a backslash with URISyntaxException); a validator or
+    helper whose body is not in evidence (request it); and any claim that rests
+    only on a partial slice showing no check. A servlet filter, an interceptor or
+    framework security configuration that is not in the cited code is not evidence
+    for this slot.

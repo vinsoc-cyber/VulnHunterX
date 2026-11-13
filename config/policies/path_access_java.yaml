@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# Path-access / path-traversal (CWE-22 / CWE-23 / CWE-36 / CWE-73) family policy — Java.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# Decisive facts. A True Positive needs ALL of: the flagged call is a filesystem
+# path access (sink_binding); a value from outside the trust boundary
+# (attacker_control) reaches its path argument (flow_to_path); the way the path
+# is CONSTRUCTED lets that value name a location outside the intended base
+# (path_escape); a witnessed reaching path carries no effective confinement
+# (defense_coverage); and the access has a real consequence (security_effect).
+# "No sanitizer visible" alone is therefore never sufficient. Any one proven
+# safe fact dismisses: not a path access, no attacker control, no flow, a
+# construction that cannot leave the base, an effective guard on EVERY reaching
+# path, or an inert outcome. production_scope is recorded but not decisive.
+#
+# Scope. The decision table is the PHP path_access table with two documented
+# differences, shared by every path_access_<lang> file:
+#   1. No handoff_from / applicability block. This family is selected as the
+#      primary owner, so sink_binding NOT_PATH_ACCESS_SINK is a False Positive
+#      condition here; in the PHP family the same value is a not-applicable
+#      handoff outcome that returns the finding to its base route.
+#   2. defense_coverage ALL_REACHING_PATHS is admitted by LOCAL_OR_EXHAUSTIVE
+#      instead of EXHAUSTIVE_ENCODER: a canonicalise-then-containment check is
+#      visible in the local slice and is not an encoder.
+# Archive extraction ("zip slip" / "tar slip") joins this family: the rules are
+# tagged CWE-22, so the CWE selector claims them and there is no negative
+# selector. An archive entry name used to build the extraction path is a
+# path-access sink; attacker control is established by the ARCHIVE being
+# untrusted, and confinement is the same canonicalise-and-contain test.
+# Facts that live outside retrievable code (container resource resolution,
+# deployment sandboxing, interpreter or framework version defaults) are left
+# unresolved and end as Needs More Data.
+#
+# Selectors. CWE-22, CWE-23 and CWE-36 are the path-traversal CWEs.
+# CWE-23 alone is carried by java/partial-path-traversal, its -from-remote
+# variant and the Spring tainted-file-path rule. CWE-73 is selected for Java
+# because the rule inventory shows no Java rule that carries CWE-73 together
+# with a command-injection CWE (78/77/88); the only carrier is
+# java/path-injection. The CodeQL ids are also listed as aliases so a result
+# without CWE tags is still routed. The zip-slip rules (java/zipslip and the
+# custom java/zip-slip) are tagged CWE-22 and are covered by the guidance.
+
+family: path_access_java
+version: "1"
+
+selectors:
+  languages: [java]
+  cwes: ["CWE-22", "CWE-23", "CWE-36", "CWE-73"]
+  rule_aliases:
+    - "java/path-injection"
+    - "java/partial-path-traversal*"
+    - "java/zipslip"
+    - "java/zip-slip"
+
+fact_slots:
+  sink_binding: [QUALIFYING_PATH_ACCESS_SINK, NOT_PATH_ACCESS_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_path: [REACHES, NO_PATH_COMPLETE]
+  path_escape: [ESCAPE_PATH_FOUND, CONFINED_ALL_PATHS]
+  defense_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  security_effect: [SECURITY_RELEVANT_EFFECT, NO_SECURITY_EFFECT]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_path
+  - path_escape
+  - defense_coverage
+  - security_effect
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_PATH_ACCESS_SINK
+    attacker_control: PROVEN
+    flow_to_path: REACHES
+    path_escape: ESCAPE_PATH_FOUND
+    defense_coverage: BYPASS_PATH_FOUND
+    security_effect: SECURITY_RELEVANT_EFFECT
+  false_positive_if_any:
+    # This family is the PRIMARY owner (selected by CWE, no handoff_from and no
+    # applicability gate), so a flagged call that is provably not a filesystem
+    # path access is dismissed here, as the SQL and command families do.
+    - sink_binding: NOT_PATH_ACCESS_SINK
+    - attacker_control: REFUTED
+    - flow_to_path: NO_PATH_COMPLETE
+    - path_escape: CONFINED_ALL_PATHS
+    - defense_coverage: ALL_REACHING_PATHS
+    - security_effect: NO_SECURITY_EFFECT
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a
+# concrete escaping path proves the positive case, otherwise the finding stays
+# Needs More Data. defense_coverage ALL_REACHING_PATHS uses LOCAL_OR_EXHAUSTIVE,
+# NOT EXHAUSTIVE_ENCODER (the PHP family's choice): a canonicalise-then-prefix
+# check is proven by locally visible code and is not an encoder.
+admissibility:
+  sink_binding:
+    QUALIFYING_PATH_ACCESS_SINK: LOCAL_POSITIVE
+    NOT_PATH_ACCESS_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_path:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  path_escape:
+    ESCAPE_PATH_FOUND: CONCRETE_PATH
+    CONFINED_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  defense_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  security_effect:
+    SECURITY_RELEVANT_EFFECT: LOCAL_OR_DATAFLOW
+    NO_SECURITY_EFFECT: LOCAL_POSITIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_PATH_ACCESS_SINK when the flagged call interprets its argument as a filesystem path and opens, reads, writes, lists, deletes, moves or serves it, or builds the path that such a call then uses: java.io.File constructors whose File is then read, written, listed or deleted; java.nio.file Paths.get / Path.of / Path.resolve feeding Files.* (readAllBytes, readString, readAllLines, lines, newInputStream, newOutputStream, newBufferedReader, newBufferedWriter, write, copy, move, delete, deleteIfExists, list, walk, createFile, createDirectories); FileInputStream / FileOutputStream / FileReader / FileWriter / RandomAccessFile constructors; ServletContext.getResourceAsStream / getResource / getRealPath; Spring resource loading (ResourceLoader.getResource, FileSystemResource, ClassPathResource, UrlResource with a file: location); MultipartFile.transferTo(destination). An archive entry name used to build the path an extracted entry is written to is such a sink: ZipEntry.getName() / JarEntry.getName() from ZipInputStream, ZipFile or JarInputStream, and Apache Commons Compress ArchiveEntry.getName(), passed to new File(destDir, name) or destDir.resolve(name) and then written. NOT_PATH_ACCESS_SINK only when the flagged expression is visibly not a filesystem path access and does not feed one: a pure string operation, a log call, a URL or HTTP client request, a database key, a command execution, or a user-defined method that merely shares a name with a file API. When the flagged expression is a containment test (for example String.startsWith on a canonical path), the sink is the file operation that test guards. A path-building call (new File(...), Paths.get, Path.resolve) whose result is not shown reaching a file operation establishes neither value: leave sink_binding unresolved and request the consumer."
+  - "attacker_control: PROVEN when a value from outside the trust boundary supplies the path or part of it: HttpServletRequest.getParameter / getParameterValues / getHeader / getPathInfo / getRequestURI / getQueryString / getCookies / getInputStream / getPart; Spring @RequestParam, @PathVariable, @RequestHeader, @CookieValue and @RequestBody arguments; MultipartFile.getOriginalFilename() (client-chosen text that may contain separators); JAX-RS @PathParam / @QueryParam / @FormParam / @HeaderParam; socket or message payloads. The scanner data-flow SOURCE establishes this when it is a remote or request source. For an archive-extraction finding the scanner flow starts at the entry name and does not show where the archive comes from: PROVEN then needs evidence that the ARCHIVE is untrusted (an uploaded MultipartFile or Part, a downloaded stream, a request body, or a file chosen by a user of the service). REFUTED when the path is a fixed constant, is built only from constants and server-side configuration, comes only from operator input (command-line arguments, environment variables or configuration files of the deploying operator), or the archive is a fixed resource shipped with the application. A method parameter whose callers are not in evidence establishes neither value: leave attacker_control unresolved and request the callers."
+  - "flow_to_path: REACHES when the controlled value, or a value derived from it by concatenation, joining, decoding or formatting, reaches the path argument of the file operation on some path — the scanner data-flow steps or the local slice show it. For an archive finding the value is the entry name and the path is the extraction target. NO_PATH_COMPLETE only with complete evidence that no path carries the value there (it is overwritten by a constant on every path before use, or the flagged statement cannot execute with an attacker value). Not seeing the flow is not NO_PATH_COMPLETE: leave flow_to_path unresolved and request the missing function."
+  - "path_escape: decide from how the path is CONSTRUCTED which part of it the attacker value occupies and whether that construction lets it leave the intended base directory. ESCAPE_PATH_FOUND when a witnessed reaching path lets the value name a location outside the base: the value is the whole path, or it is joined after a base and may contain a separator or a parent-directory segment, or the joining call lets an absolute value replace the base. new File(parent, child) and Paths.get(base, more...) concatenate, so an absolute child does not replace the base but '..' segments still climb out of it; Path.resolve(other) returns other unchanged when other is absolute; string concatenation base + value permits '..', and when the base does not end with a separator it also permits sibling names; a value used as the entire argument of new File(value), Paths.get(value) or a file: resource location names any path. ServletContext.getResourceAsStream / getRealPath and classpath lookups interpret the value relative to the web-application or classpath root, so a value that is the whole resource path can select application-internal content such as WEB-INF/ or configuration files; whether '..' leaves that root is decided by the container, which the code does not show. An archive entry name is text chosen by whoever built the archive and may be absolute or contain '..': new File(destDir, entry.getName()) climbs out through '..', and destDir.toPath().resolve(name) is additionally replaced by an absolute name. CONFINED_ALL_PATHS only when, on EVERY reaching path, the value cannot change the directory: it only selects among a fixed set of names (a lookup in a constant map, enum or switch), it is converted to a type that cannot hold a separator or a dot segment, or it is reduced to one filename segment that is neither '.' nor '..' and then joined to a fixed base. new File(value).getName() and Paths.get(value).getFileName() keep the last segment using the host separator only (on a non-Windows host a backslash is not a separator); Apache Commons IO FilenameUtils.getName(value) splits on both '/' and the backslash. Each of them still returns '..' for a value whose last segment is '..'. Integer.parseInt / Long.parseLong / UUID.fromString conversions cannot carry a separator. This slot describes the construction; a canonicalise-and-compare guard that rejects the request is assessed under defense_coverage. When the base directory is itself attacker-influenced, or the path is built in a helper that is not in evidence, leave path_escape unresolved and request the helper."
+  - "defense_coverage: BYPASS_PATH_FOUND when, on a witnessed reaching path (the local slice or the scanner data-flow steps), the value reaches the file operation with no guard, or only with one that does not confine it — name the input that still escapes. Guards that do not confine: Path.normalize(), File.getAbsolutePath() (it does not resolve '..') or getCanonicalPath() with no containment test on the result; a containment test on the raw value before canonicalisation; String.startsWith(base) on canonical strings when base has no trailing separator, which also admits sibling directories whose name begins with the base name (/data-evil for base /data — the case a partial-path-traversal finding points at); removing '../' with String.replace, which re-forms it from '....//'; a test performed before URLDecoder.decode or another decode. A reject-if-contains '..' test is a blocklist, not canonical confinement: it leaves absolute values wherever the join lets one replace the base, values decoded or normalised again after the test, and links. It supports ALL_REACHING_PATHS only when it is applied to the final decoded value, an absolute value cannot restart the path (or is rejected too), and no later decode exists; when any of these is not visible, leave defense_coverage unresolved. Effective guards: (a) canonicalise, then contain: File.getCanonicalPath() / getCanonicalFile() or Path.toRealPath() (both resolve '..' and symbolic links; toRealPath requires the file to exist), or Path.toAbsolutePath().normalize() (lexical: resolves '..' but not links), FOLLOWED BY a containment test of that result against the base in the same form — Path.startsWith(basePath), which compares whole name elements, or String.startsWith(baseString + File.separator); (b) a strict allowlist: the whole value compared with a fixed set, or matched against an anchored pattern that admits no separator and no dot-only segment; (c) reduction to one filename segment as described under path_escape. For archive extraction the same test applies to each entry before it is written: the canonical target must start with the canonical destination directory plus File.separator, or destDir.resolve(name).normalize() must satisfy Path.startsWith(destDir) with destDir normalised. A guard on a sibling branch, a guard whose result is ignored, a guard that only logs, or a guard applied to a different variable than the one used at the file operation does not cover the flagged path. An extension or suffix test constrains the file type, not the directory. ALL_REACHING_PATHS only when EVERY reaching path applies an effective guard before the file operation and a failed test prevents the access (throw, return, reject); one unguarded branch is BYPASS_PATH_FOUND. When the value passes through a validator, wrapper, filter or framework hook whose body is not in evidence, or confinement would depend on deployment facts the code does not show (chroot, container volume, filesystem permissions, sandboxing), assert neither value: leave defense_coverage unresolved and request the helper."
+  - "security_effect: SECURITY_RELEVANT_EFFECT when the access at the escaped location has a real consequence shown in evidence: file content is returned, served, rendered or otherwise disclosed to the requester; a file or directory is created, overwritten, appended to, deleted, moved or re-permissioned at an attacker-chosen location (writing an extracted archive entry is such a write); or a directory listing is disclosed. NO_SECURITY_EFFECT when the outcome is visibly inert: the path is computed or logged but never used for a file operation, or the only operation is an existence or metadata test whose result is neither disclosed nor used to gate anything. When the consumer of the path or of the file content is not in evidence, leave security_effect unresolved and request it."

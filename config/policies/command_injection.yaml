@@ -30,6 +30,12 @@
 # shell-injection rule, so selecting CWE-78 would wrongly claim those. exec-use is
 # an AUDIT rule that fires broadly on exec() usage including constant/operator-only
 # calls — those resolve to REFUTED -> False Positive.
+#
+# Each rule is listed in both id forms a scanner can emit: the semgrep.dev
+# registry form (<dirs>.<file>.<id>) and the vendored OpenGrep form
+# (config.opengrep-rules.<dirs>.<id>). The strings are exact on purpose, not
+# globs: config.opengrep-rules.php.lang.security.eval-use and the WordPress
+# wp-command-execution-audit rule are also tagged CWE-78 and must stay unclaimed.
 
 family: command_injection
 version: "1"
@@ -40,6 +46,9 @@ selectors:
     - php.lang.security.injection.tainted-exec.tainted-exec
     - php.lang.security.exec-use.exec-use
     - php.lang.security.tainted-exec.tainted-exec
+    - config.opengrep-rules.php.lang.security.injection.tainted-exec
+    - config.opengrep-rules.php.lang.security.exec-use
+    - config.opengrep-rules.php.lang.security.tainted-exec
 
 fact_slots:
   sink_binding: [QUALIFYING_OS_COMMAND_SINK, NOT_OS_COMMAND_SINK]

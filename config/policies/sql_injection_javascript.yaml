@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# Relational SQL-injection (CWE-89) family policy — JavaScript / TypeScript.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# The DECISION TABLE (fact_slots, decisive_slots, entailment, admissibility) is
+# identical to the PHP reference family config/policies/sql_injection.yaml and
+# must stay so (tests/test_policy_family_parity.py). Only the selectors and the
+# assessment guidance are JavaScript / TypeScript-specific.
+#
+# Decisive facts. Two DISTINCT defensive facts decide CWE-89 and must not be
+# collapsed: query_channel (does an attacker value enter the SQL grammar as
+# query TEXT, or only as BOUND DATA on every reaching path) and
+# neutralization_coverage (for a value still interpolated into SQL text, is an
+# effective guard for its EXACT grammar position present on every reaching
+# path). A True Positive needs a qualifying sink, proven attacker control, a
+# reaching flow, a witnessed SQL-text path AND a witnessed uncovered path;
+# "no sanitizer visible" in a partial slice resolves nothing.
+#
+# Scope: relational SQL (and SQL-like ORM query languages) only. NoSQL /
+# document-store query injection (CWE-943) is a different sink with a different
+# neutralization and is intentionally NOT selected here.
+#
+# Selectors: rule aliases only, NO CWE selector. CodeQL's js/sql-injection is
+# tagged CWE-89, CWE-90 and CWE-943 and is the rule that reports MongoDB /
+# NoSQL query-object injection; a CWE-89 selector would claim it, and this
+# relational table would then dismiss a real NoSQL injection through
+# sink_binding. It therefore stays on the legacy route, together with every
+# CWE-943 rule. The aliases below enumerate the relational Semgrep / OpenGrep
+# rules tagged CWE-89 in both id forms (vendored
+# `config.opengrep-rules.javascript.<dirs>.<id>` and registry
+# `javascript.<dirs>.<file>.<id>`). TypeScript is analysed as `javascript`.
+
+family: sql_injection_javascript
+version: "1"
+
+selectors:
+  languages: [javascript]
+  rule_aliases:
+    - "*javascript.aws-lambda.security.knex-sqli*"
+    - "*javascript.aws-lambda.security.mysql-sqli*"
+    - "*javascript.aws-lambda.security.pg-sqli*"
+    - "*javascript.aws-lambda.security.sequelize-sqli*"
+    - "*javascript.aws-lambda.security.tainted-sql-string*"
+    - "*javascript.express.security.injection.tainted-sql-string*"
+    - "*javascript.lang.security.audit.sqli.node-knex-sqli*"
+    - "*javascript.lang.security.audit.sqli.node-mssql-sqli*"
+    - "*javascript.lang.security.audit.sqli.node-mysql-sqli*"
+    - "*javascript.sequelize.security.audit.*express-sequelize-injection"
+    - "*javascript.sequelize.security.audit.sequelize-raw-query*"
+
+fact_slots:
+  sink_binding: [QUALIFYING_RELATIONAL_SQL_SINK, NOT_RELATIONAL_SQL_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  query_channel: [SQL_TEXT_PATH_FOUND, BOUND_DATA_ONLY_ALL_PATHS]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - query_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_RELATIONAL_SQL_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    query_channel: SQL_TEXT_PATH_FOUND
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_RELATIONAL_SQL_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - query_channel: BOUND_DATA_ONLY_ALL_PATHS
+    - neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a concrete
+# unsafe SQL-text path proves the positive case, otherwise stay Needs-More-Data.
+# ALL_REACHING_PATHS / BOUND_DATA_ONLY_ALL_PATHS use LOCAL_OR_EXHAUSTIVE, NOT
+# EXHAUSTIVE_ENCODER: parameter binding is not encoding, and a prepared statement
+# or an integer cast is proven by locally visible code.
+admissibility:
+  sink_binding:
+    QUALIFYING_RELATIONAL_SQL_SINK: LOCAL_POSITIVE
+    NOT_RELATIONAL_SQL_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  query_channel:
+    SQL_TEXT_PATH_FOUND: CONCRETE_PATH
+    BOUND_DATA_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_RELATIONAL_SQL_SINK when the flagged call builds or executes a relational query: mysql / mysql2 connection.query or execute (and pool equivalents), pg client.query / pool.query, mssql request.query / batch, better-sqlite3 or sqlite3 prepare / exec / run / all / get, sequelize.query or sequelize.literal, knex.raw / whereRaw / orderByRaw / havingRaw / joinRaw, TypeORM query() or a query-builder where() given a string, Prisma $queryRawUnsafe / $executeRawUnsafe. NOT_RELATIONAL_SQL_SINK when the flagged expression is not a relational query execution: a document-store or key-value query (MongoDB / Mongoose find, findOne, $where, aggregate; a DynamoDB request object; Redis), a string that is only logged or sent in a response, or a string operation whose result never reaches a query API."
+  - "attacker_control: PROVEN when the local slice or the scanner data-flow SOURCE shows an externally supplied value reaching the statement (Express req.query / req.body / req.params / req.headers / req.cookies, Koa ctx.query / ctx.request.body / ctx.params, an AWS Lambda event field such as event.queryStringParameters, event.pathParameters or event.body). REFUTED when the local slice shows every value placed in the query is a literal, a module constant, or operator-only input such as deployment configuration. A pattern-only rule match with no data-flow, or a function parameter whose callers are not in evidence, establishes neither value: leave the slot UNRESOLVED and request the callers."
+  - "flow_to_sink: REACHES when the controlled value reaches the executed statement on some path (shown by the local slice or the scanner data-flow). NO_PATH_COMPLETE only when the local slice shows that on EVERY path the value is replaced before the sink (an unconditional reassignment to a constant, a branch whose condition is a compile-time constant, a container read with a key other than the one that stores the controlled value), or with complete evidence that no path reaches it. A path that is merely not shown does not establish NO_PATH_COMPLETE; leave the slot UNRESOLVED and request the missing caller or callee."
+  - "query_channel: for the flagged statement, enumerate EVERY attacker-controlled value that takes part in building it. SQL_TEXT_PATH_FOUND when at least one such value becomes part of the query text on some reaching path: + concatenation, an untagged template literal with ${...}, Array.join, util.format, or String.replace building the string given to query / execute / sequelize.query / knex.raw. A tag only parameterizes when it is applied as a tag: sql.query`...${v}` binds v, while sql.query(`...${v}`) with parentheses receives an already formatted string. BOUND_DATA_ONLY_ALL_PATHS only when, on EVERY reaching path, the query string is fixed and every attacker value is supplied separately: mysql / mysql2 query or execute with ? placeholders and a values array, pg query(text, values) with $1 placeholders, mssql request.input() with @name, sequelize.query with replacements or bind, Sequelize model methods with a where object, knex.raw with a bindings argument or knex query-builder methods such as where(column, value), TypeORM :name parameters with a parameter object, or a parameterizing tagged template (mssql sql.query`...`, postgres.js sql`...`, Prisma $queryRaw`...`, sql-template-strings SQL`...`). With mysql / mysql2 query() a ? value that is an object or array is expanded into key = value pairs or a list rather than one literal, so when the value comes from a parsed body or an extended query string and the slice does not show it is a string or number, leave the slot UNRESOLVED."
+  - "neutralization_coverage: for each attacker value that enters the SQL text, identify its exact grammar position (quoted string literal, unquoted numeric literal, identifier, keyword / ORDER BY direction, or raw fragment) and the value's possible output after its LAST transformation on that path. A defense covers a path only when every possible output stays data-only IN THAT EXACT POSITION: string escaping or quote doubling covers only a quoted-literal position and never a numeric, identifier, keyword or raw-fragment position; integer parsing or coercion (or a complete numeric allowlist) covers a numeric position; a dynamic identifier, an ORDER BY direction or a raw fragment needs a finite allowlist of permitted outputs. In JavaScript, parseInt(value, 10), Number(value) or a unary + conversion (the converted number, not the original string, being what is interpolated) covers a numeric position; mysql.escape / connection.escape and pg escapeLiteral return a complete literal and cover a value position, while mysql.escapeId and pg escapeIdentifier cover an identifier position; a hand-written quote replacement covers a quoted-literal position only on a DBMS that does not also treat backslash as an escape character (MySQL does by default); a regular expression covers a position only when it is anchored at both ends and its character class excludes every character with meaning in that position; membership in a fixed array, Set or object of permitted names is a finite allowlist. A TypeScript type annotation is erased at run time and constrains nothing. A defense on a sibling branch does not cover the flagged branch, and a check whose result is ignored covers nothing. ALL_REACHING_PATHS only when every interpolated attacker value is covered on every reaching path. BYPASS_PATH_FOUND when the evidence shows a concrete path on which one interpolated attacker value has no defense that covers its position. When the value passes through a helper whose body is not in evidence, request it and leave the slot UNRESOLVED; an unseen helper establishes neither value."

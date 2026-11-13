@@ -1,0 +1,185 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# XPath-injection (CWE-643) family policy — Java.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-643 is about attacker data gaining control over the query STRUCTURE, so
+# query_position (expression syntax vs. bound data) is decisive alongside reach
+# and neutralization. security_effect keeps a rule match from being confirmed
+# when the query result has no real consequence.
+#
+# The decision table (fact slots, decisive slots, entailment, admissibility) is
+# the class reference's, config/policies/xpath_injection.yaml, unchanged. That
+# family is scoped to Python on purpose: its guidance names lxml sinks and lxml
+# keyword-variable binding, which would misdirect the assessment of a Java
+# finding (javax.xml.xpath has no keyword binding; its bound-data mechanism is an
+# XPathVariableResolver, and XPath 1.0 string literals have no quote escape).
+# This file is the Java counterpart with Java sinks and defenses; the two
+# families never both match because their language gates are disjoint.
+#
+# Selectors: CWE-643 is clean in Java — its only rules are CodeQL
+# java/xml/xpath-injection and Semgrep tainted-xpath-from-http-request, both
+# tagged CWE-643 alone and both real XPath sinks. The aliases repeat those ids
+# (the glob covers both Semgrep id forms) plus the question-bank / benchmark id
+# java/xpath-injection, so a finding that arrives without a CWE tag is still
+# selected.
+
+family: xpath_injection_java
+version: "1"
+
+selectors:
+  languages: [java]
+  cwes: ["CWE-643"]
+  rule_aliases:
+    - java/xml/xpath-injection
+    - java/xpath-injection
+    - "*java.lang.security.audit.tainted-xpath-from-http-request*"
+
+fact_slots:
+  sink_binding: [QUALIFYING_XPATH_SINK, NOT_XPATH_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  query_position: [EXPRESSION_PATH_FOUND, BOUND_DATA_ONLY_ALL_PATHS]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  security_effect: [SECURITY_RELEVANT_EFFECT, NO_SECURITY_EFFECT]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - query_position
+  - neutralization_coverage
+  - security_effect
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_XPATH_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    query_position: EXPRESSION_PATH_FOUND
+    neutralization_coverage: BYPASS_PATH_FOUND
+    security_effect: SECURITY_RELEVANT_EFFECT
+  false_positive_if_any:
+    - sink_binding: NOT_XPATH_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - query_position: BOUND_DATA_ONLY_ALL_PATHS
+    - neutralization_coverage: ALL_REACHING_PATHS
+    - security_effect: NO_SECURITY_EFFECT
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. There is no NONE_FOUND_COMPLETE
+# value: no evidence kind can exhaustively establish "no XPath defense
+# anywhere", so a witnessed unsafe-expression path is required for TP, otherwise
+# the finding stays Needs More Data.
+admissibility:
+  sink_binding:
+    QUALIFYING_XPATH_SINK: LOCAL_POSITIVE
+    NOT_XPATH_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  query_position:
+    EXPRESSION_PATH_FOUND: CONCRETE_PATH
+    BOUND_DATA_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  security_effect:
+    SECURITY_RELEVANT_EFFECT: LOCAL_POSITIVE
+    NO_SECURITY_EFFECT: LOCAL_POSITIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - >-
+    sink_binding: QUALIFYING_XPATH_SINK when the flagged call compiles or
+    evaluates an XPath expression string: javax.xml.xpath XPath.compile(expr) and
+    XPath.evaluate(expr, source, ...); dom4j Node.selectNodes / selectSingleNode /
+    valueOf / numberValueOf, DocumentHelper.createXPath and Node.createXPath;
+    Jaxen new DOMXPath(expr) and the other BaseXPath constructors; JDOM
+    XPathFactory.compile and XPath.newInstance; Saxon XPathCompiler.compile /
+    evaluate / evaluateSingle; org.apache.xpath.XPathAPI selectNodeList /
+    selectSingleNode / eval. Quote the call and name the expression value passed
+    to it. NOT_XPATH_SINK when the flagged call takes no XPath expression: a pure
+    string operation, logging, a DOM getElementsByTagName / getAttribute lookup,
+    or an unrelated method named evaluate or compile (for example
+    java.util.regex.Pattern.compile).
+  - >-
+    attacker_control: PROVEN when a value from outside the trust boundary reaches
+    the call; the scanner data-flow SOURCE (HttpServletRequest getParameter /
+    getHeader / getCookies, a Spring @RequestParam / @PathVariable / @RequestBody
+    / @RequestHeader argument, a login form field) establishes this. REFUTED when
+    the slice shows the expression is a compile-time constant or is assembled
+    only from constants and values the deployment operator supplies. List every
+    assignment to the expression value on each path that reaches the sink and
+    identify the last one. A value read from a database or configuration store
+    does not establish either value unless the evidence shows who writes it.
+  - >-
+    flow_to_sink: REACHES when the controlled value reaches the XPath call on some
+    path. NO_PATH_COMPLETE only with complete evidence that no path carries it
+    there, for example the variable is unconditionally reassigned a constant
+    before the call. Not seeing the path in the slice is not complete evidence.
+  - >-
+    query_position: EXPRESSION_PATH_FOUND when, on some reaching path, an attacker
+    value becomes part of the XPath EXPRESSION text: concatenation,
+    String.format, StringBuilder.append or MessageFormat into the string given to
+    compile / evaluate / selectNodes. This holds even when another value in the
+    same expression is bound through a resolver. BOUND_DATA_ONLY_ALL_PATHS only
+    when, on EVERY reaching path, the expression text is fixed and each attacker
+    value is supplied as data: a $name reference resolved by an
+    XPathVariableResolver installed with XPath.setXPathVariableResolver (or
+    XPathFactory.setXPathVariableResolver) before the expression is compiled;
+    dom4j XPath.setVariableContext / Jaxen SimpleVariableContext.setVariableValue;
+    Saxon XPathCompiler.declareVariable with XPathSelector.setVariable; the
+    variables map of JDOM XPathFactory.compile; or the value is only the document
+    or context node being queried (the InputSource / Node argument of evaluate)
+    while the expression is constant. Installing a resolver does not establish
+    this value when the expression text still concatenates a value.
+  - >-
+    neutralization_coverage: applies to a value that enters the expression text.
+    Identify its position (inside a '...' literal, inside a "..." literal, an
+    unquoted number, a node or attribute name, a whole predicate) and what was
+    applied to it last. XPath 1.0, which javax.xml.xpath, Jaxen and dom4j
+    implement, has NO escape for a quote inside a literal delimited by the same
+    quote, so a backslash placed before the quote leaves it able to end the
+    literal; doubling the quote is an escape only in XPath 2.0 and later (Saxon).
+    A value in a quoted-literal position is covered when the delimiting quote
+    character cannot occur in it: it is removed, rejected or replaced by other
+    text (for example ESAPI encodeForXPath), or the value passes
+    a full-string allowlist (String.matches / Pattern.matches, which anchor the
+    whole input) that excludes both quote characters. A numeric position is
+    covered by Integer.parseInt / Long.parseLong or a digits-only full match. A
+    node name, attribute name, axis or predicate fragment needs a finite
+    allowlist. A check on a sibling branch does not cover the flagged branch.
+    BYPASS_PATH_FOUND requires a WITNESSED reaching path on which a value enters
+    the expression with no restriction that holds for its position: none applied
+    in the visible code, a filter for the other quote character, a filter for
+    quotes on a value in a numeric or name position, or a backslash escape.
+    ALL_REACHING_PATHS only when every reaching path covers every attacker value
+    in its position. If the check is done by a
+    project helper whose body is not in evidence, leave neutralization_coverage
+    unresolved.
+  - >-
+    security_effect: SECURITY_RELEVANT_EFFECT when the slice shows the query
+    result being used: it decides authentication or authorization (a non-empty
+    NodeList or a boolean result gates a login), it selects data that is returned
+    to the caller or written to the response, or it selects nodes that are then
+    modified. NO_SECURITY_EFFECT when the slice shows the result is discarded or
+    used only in a way that cannot disclose or change anything (for example it is
+    computed and never read). If the use of the result is outside the evidence,
+    leave security_effect unresolved.

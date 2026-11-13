@@ -26,7 +26,7 @@ go/sql-injection: &go_sql_injection
   short_description: "User input concatenated into SQL query in Go"
   questions:
     - "Where does the INPUT originate — http.Request.FormValue(), URL query params, request body, or another user-controlled source?"
-    - "Is the query built with fmt.Sprintf() or string concatenation (vulnerable), or are parameterized queries with $1/? placeholders used (safe)?"
+    - "Is the query text built with fmt.Sprintf() or string concatenation, or is every user value passed as an argument for a $1/? placeholder? Quote the lines."
     - "Which database package is used (database/sql, sqlx, gorm, ent) and is Query/Exec called with args or with an interpolated string?"
     - "Trace the INPUT — is it passed through any validation, escaping, or allowlist before reaching the query?"
     - "Could SQL metacharacters (quotes, semicolons, UNION, comments) in the input alter the query structure?"
@@ -55,7 +55,7 @@ go/command-injection:
     - "Where does the INPUT originate — HTTP request, file content, environment variable, or config?"
     - "Is exec.Command() called with user input as the command name or as arguments?"
     - "Is exec.CommandContext() used with a timeout to limit execution time?"
-    - "Is the command name hardcoded with user input only in arguments (safer), or is the entire command string user-controlled?"
+    - "Is the command name hardcoded with user input only in arguments, or can the user input select the program or reach a shell (`sh -c`)? State which argument position the input occupies."
     - "Is an allowlist used to validate the command name or arguments against known-safe values?"
     - "Could an attacker inject shell metacharacters — note that exec.Command() does NOT invoke a shell unless /bin/sh -c is explicitly used?"
   context_hint: "Trace from input through command construction to exec.Command() invocation."

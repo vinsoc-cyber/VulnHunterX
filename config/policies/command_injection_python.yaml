@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# OS command-injection (CWE-78 / CWE-77) family policy — Python.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# The decision table is shared by every command_injection_<lang> family. It is
+# the PHP table (config/policies/command_injection.yaml) with ONE deliberate
+# change: command_channel has a second positive value.
+#
+#   SHELL_COMMAND_TEXT_PATH_FOUND   the attacker value becomes text that a
+#                                   command interpreter (sh, bash, cmd.exe,
+#                                   PowerShell) parses.
+#   EXECUTABLE_CONTROL_PATH_FOUND   no interpreter parses the value, but it sits
+#                                   in the PROGRAM position: it decides which
+#                                   executable is launched.
+#
+# PHP's exec family always goes through a shell, so one positive state was
+# enough there. In Python a shell runs only for
+# os.system, os.popen, subprocess.getoutput/getstatusoutput and subprocess calls with
+# shell=True; subprocess with a list, os.exec*, os.spawn* and
+# asyncio.create_subprocess_exec are argument-vector launches. Attacker control of
+# the program in such a launch needs its own positive state.
+#
+# neutralization_coverage is judged for the channel that was found, and has an
+# exact meaning for each:
+#   shell text        BYPASS = a witnessed command-control sequence survives;
+#                     ALL_REACHING_PATHS = every path constrains every attacker
+#                     value against shell control AND program-level meaning.
+#   program position  BYPASS = a witnessed path on which the value is not
+#                     restricted to a fixed set of programs;
+#                     ALL_REACHING_PATHS = every path admits it only by exact
+#                     membership in a fixed set, and the other attacker values
+#                     are bounded data operands.
+# Coverage dismisses only together with a PROVEN positive channel. With
+# command_channel unresolved it dismisses nothing, so "there is no shell,
+# therefore everything is neutralized" can never produce a False Positive.
+#
+# Kept limit: pure argument injection (CWE-88) — the attacker controls only an
+# option or argument of a fixed program and no shell is involved — proves
+# neither positive channel nor the strong fixed-executable/data-operand state.
+# command_channel stays unresolved and the finding ends as Needs More Data,
+# exactly as in the PHP family.
+#
+# production_scope is recorded but NOT decisive.
+#
+# Selection is by CWE. Every Python rule in the scanner inventory that carries
+# CWE-78 flags a process launch or a shell string (CodeQL py/command-line-injection
+# and py/shell-command-constructed-from-input, the custom
+# vulnhunterx.python.shell-true rule, and the vendored dangerous-*, subprocess-*,
+# os-system-*, paramiko-exec-command, formatted-string-bashoperator and sh
+# string-concat rules). The audit rules among them also fire on constant commands;
+# those resolve through attacker_control REFUTED, which is what the rule asks.
+# py/shell-command-constructed-from-input also carries CWE-73 and CWE-88; no
+# Python family selects those (the Python path family deliberately omits CWE-73).
+
+family: command_injection_python
+version: "1"
+
+selectors:
+  languages: [python]
+  cwes: ["CWE-78", "CWE-77"]
+
+fact_slots:
+  sink_binding: [QUALIFYING_OS_COMMAND_SINK, NOT_OS_COMMAND_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  command_channel:
+    - SHELL_COMMAND_TEXT_PATH_FOUND
+    - EXECUTABLE_CONTROL_PATH_FOUND
+    - FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - command_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_OS_COMMAND_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    # A list means "any of": either positive channel, plus a witnessed bypass.
+    command_channel: [SHELL_COMMAND_TEXT_PATH_FOUND, EXECUTABLE_CONTROL_PATH_FOUND]
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_OS_COMMAND_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - command_channel: FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS
+    # Coverage dismisses only a PROVEN positive channel. With command_channel
+    # unresolved (argument injection) it must not dismiss vacuously.
+    - command_channel: [SHELL_COMMAND_TEXT_PATH_FOUND, EXECUTABLE_CONTROL_PATH_FOUND]
+      neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py. A positive channel and a bypass are proven by a
+# concrete witnessed path. The two all-path states use LOCAL_OR_EXHAUSTIVE, not
+# EXHAUSTIVE_ENCODER: a fixed executable with bounded operands, an executable
+# allowlist, or a complete neutralizer is proven by locally visible code.
+admissibility:
+  sink_binding:
+    QUALIFYING_OS_COMMAND_SINK: LOCAL_POSITIVE
+    NOT_OS_COMMAND_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  command_channel:
+    SHELL_COMMAND_TEXT_PATH_FOUND: CONCRETE_PATH
+    EXECUTABLE_CONTROL_PATH_FOUND: CONCRETE_PATH
+    FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_OS_COMMAND_SINK when the flagged call starts an operating-system process or hands a string to a shell: os.system, os.popen, subprocess.run / call / check_call / check_output / Popen, subprocess.getoutput / getstatusoutput, the Python 2 commands.getoutput / getstatusoutput and os.popen2/3/4, os.exec* (execl, execle, execlp, execlpe, execv, execve, execvp, execvpe), os.spawn*, os.posix_spawn / posix_spawnp, asyncio.create_subprocess_shell / create_subprocess_exec, pty.spawn, paramiko SSHClient.exec_command (the string is run by the remote account's shell), the 'sh' library, or an Airflow BashOperator bash_command. NOT_OS_COMMAND_SINK when the local slice shows the call is not a process launch: the built-in exec() / eval() (Python code, not an OS command), a database cursor.execute, or a method that merely shares a name (app.run, asyncio.run, a user-defined system / call / run). When the flagged call is a wrapper or helper whose body is not in evidence, neither value is established: request the body and leave sink_binding UNRESOLVED if it cannot be retrieved."
+  - "attacker_control: PROVEN when a value supplied from outside the application reaches the program, the argument list or the command string. The scanner data-flow SOURCE establishes this (Flask request.args / form / values / json / data / headers / cookies / files and view-function route parameters, Django request.GET / POST / body / META / COOKIES and URL-captured view arguments, FastAPI / Starlette path, query and body parameters, an AWS Lambda event, a socket or message payload; for the rules whose declared source is the process environment or command line, os.environ / os.getenv / sys.argv), and so does the same origin shown in the local slice. Decoding, str(), formatting and concatenation do not remove external control. Judge the value that actually reaches the launch after its last assignment: an external value that is overwritten by a constant, or that only selects between constants, does not reach it. REFUTED when the local slice shows that the program and every part of the command or argument vector are constants, or are derived only from constants. A value whose origin lies in code not in evidence (a field, a getter, a parameter with no visible caller) establishes neither value: request the origin and leave attacker_control UNRESOLVED if it cannot be retrieved."
+  - "flow_to_sink: REACHES when the controlled value reaches the launched command (the program, the argument vector or the command string) on some path shown by the scanner data flow or the local slice; NO_PATH_COMPLETE only with complete evidence that no path carries it there. A path that passes through code not in evidence establishes neither value."
+  - "command_channel: determine how the attacker value is handed to the process launch. A shell parses the command in: os.system(s); os.popen(s); subprocess.getoutput(s) / getstatusoutput(s); subprocess.run / call / check_call / check_output / Popen with shell=True (POSIX: '/bin/sh -c <string>'; when a list is given with shell=True its first item is the command text and the other items become arguments of the shell itself; Windows: cmd.exe); asyncio.create_subprocess_shell; paramiko exec_command; a BashOperator bash_command; and an argument list that names the interpreter explicitly, [\"sh\" | \"bash\", \"-c\", S]. No shell runs for subprocess.* with a list and shell=False (the default), os.exec*, os.spawn*, os.posix_spawn and asyncio.create_subprocess_exec: item 0 (or the path / file parameter) is the program and each further item is exactly one argument. On POSIX a plain string given to subprocess with shell=False is taken as the program name as a whole and is not split. shlex.split(s) only tokenises: no shell runs on the result, so text in s can add arguments but shell metacharacters are not interpreted. SHELL_COMMAND_TEXT_PATH_FOUND when, on some reaching path, the attacker value becomes part of a string one of the shell forms above parses (f-string, %-formatting, str.format, concatenation, join). EXECUTABLE_CONTROL_PATH_FOUND when no shell parses the value but, on some reaching path, it is in the program position: item 0 of the argument list, the whole string given with shell=False, the executable= keyword, the path / file parameter of os.exec* / os.spawn* / os.posix_spawn, the program parameter of asyncio.create_subprocess_exec, or the first token of a string passed through shlex.split. An attacker value in a later list item of a fixed program establishes neither positive value. When both a shell-text path and a program-position path exist, report SHELL_COMMAND_TEXT_PATH_FOUND. FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS only when, on EVERY reaching path, all of these hold: no command interpreter parses the value; the program is a fixed literal, or is picked by the code from a fixed set of literals so that the attacker value is never itself used as the program; and each attacker value is a bounded DATA operand that cannot be parsed as an option, flag, subcommand, executable or interpreter input — a strict local allowlist, an enum or a numeric conversion establishes this, and 'the value is a separate argument element' does NOT. If the attacker value can only add or alter options or arguments of a fixed program and no shell is involved (argument injection, CWE-88), or the launched program's argument semantics are unknown, no value of this slot is established: leave command_channel UNRESOLVED."
+  - "neutralization_coverage: judged for the channel that was found, over every path on which the attacker value reaches the launch. (a) Shell-text path: identify the position of each attacker value in the command text and its possible content after the last transformation. BYPASS_PATH_FOUND requires a WITNESSED command-control sequence on a reaching path — a separator followed by attacker command text (';', '&', '&&', '||', a newline), a command substitution ('$(...)', backticks), a pipe to an attacker command, or a redirection — that no effective neutralizer removes. This includes a reaching path with no neutralizer at all, and a blacklist or replace that misses any control character the interpreter honours. ALL_REACHING_PATHS only when every reaching path constrains every attacker value against BOTH shell control AND program-level meaning, so that each is a bounded data operand that cannot act as an option, flag, subcommand, executable or interpreter input. (b) Program-position path: BYPASS_PATH_FOUND requires a witnessed reaching path on which the value used as the program is not restricted to a fixed set of programs — there is no comparison against a fixed set, or the check still lets a different program be named (a blacklist, a suffix, extension or prefix test, a directory prefix without canonicalisation). ALL_REACHING_PATHS only when every reaching path admits the value only by exact membership in a fixed set of literals (equality, a set or map lookup, an enum, a switch) AND every other attacker value in the same launch is a bounded data operand. The absence of a shell is NOT coverage, and shell quoting is NOT coverage for a program-position value. In both cases a defense on a sibling branch does not cover the flagged branch, and a validator, helper or wrapper whose body is not in evidence establishes neither value: request it and leave neutralization_coverage UNRESOLVED if it cannot be retrieved. Python specifics: shlex.quote (pipes.quote in older code) protects ONE complete POSIX-shell word, and only when its result stands unquoted as its own token: placed inside surrounding double quotes or backticks of the template it does not stop expansion, it does not apply to cmd.exe, and it says nothing about program-level meaning (a quoted value that begins with '-' is still parsed as an option). str.replace / re.sub removing some characters is a blacklist. re.fullmatch tests the whole string; re.match anchors only the start, re.search anchors nothing, and '$' also matches before a trailing newline. int() / float() with the converted number used, uuid.UUID(...), an Enum lookup, or membership in a constant set / dict bound the value. str.isalnum / isdigit bound a value only when applied to the whole value that reaches the command."

@@ -1,0 +1,283 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# Cross-site scripting (CWE-79 / CWE-80) family policy — Python.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-79 is about attacker data becoming part of markup a browser parses. Two
+# DISTINCT defensive facts decide it and must not be collapsed: output_channel
+# (is the value delivered inside a document the browser parses as markup or
+# script, or only through a channel that cannot be parsed as markup on every
+# reaching path) and encoding_coverage (for a value that does enter markup, is a
+# CONTEXT-APPROPRIATE encoder present on every reaching path). HTML entity
+# encoding covers HTML text and quoted attributes but NOT a JavaScript string, an
+# unquoted attribute or a javascript: URL, so "an escape is present" is not
+# sufficient.
+#
+# Fail closed in both directions. A True Positive needs a WITNESSED path whose
+# whole construction is in evidence; "no encoder visible" while the value passes
+# through an unseen helper, filter or template stays Needs More Data. A dismissal
+# by coverage needs the escaping construct itself in the cited code: template
+# auto-escaping is framework behaviour that depends on engine configuration and
+# on the template text, so it establishes coverage only when the render call AND
+# the template text that places the value are both in evidence. Otherwise
+# encoding_coverage stays unresolved (framework evidence never satisfies
+# LOCAL_OR_EXHAUSTIVE — see verification/policy/support.py).
+#
+# Selection is by rule alias ONLY — deliberately no CWE selector. In Python,
+# CWE-79 is carried by about thirty rules, and many do not locate a
+# response-output or markup-construction sink:
+#   - py/http-response-splitting (CWE-79 + CWE-113) is a header-injection rule;
+#   - engine-configuration audits: py/jinja2/autoescape-false, the custom
+#     py/jinja-autoescape-disabled and vulnhunterx.python.template-autoescape-
+#     disabled, django global-autoescape-off / context-autoescape-off, flask
+#     direct-use-of-jinja2, unescaped-template-extension, mako-templates-detected;
+#   - declaration audits: class-extends-safestring, html-magic-method, html-safe,
+#     filter-with-is-safe;
+#   - template-file rules: django/flask template-autoescape-off,
+#     template-unescaped-with-safe, template-unquoted-attribute-var,
+#     template-blocktranslate-no-escape, template-translate-as-no-escape,
+#     template-var-unescaped-with-safeseq.
+# A CWE selector would claim all of them, and sink_binding would dismiss a real
+# configuration weakness as "not an HTML output sink" (or the template rules
+# would always end unresolved because the data source is never in the slice).
+# They stay on the legacy route. The aliases below are the rules that flag a
+# response write or a markup-object construction. Each Semgrep glob covers both
+# id forms (config.opengrep-rules.<dirs>.<id> and <dirs>.<file>.<id>); where the
+# registry file name differs from the rule id the glob has an inner wildcard.
+# py/xss and py/reflected-xss are the CWE-anchored ids used when a finding is
+# keyed by its question-bank rule rather than by a scanner rule id.
+#
+# The decision table is identical to xss_java.yaml; only selectors, comments and
+# assessment_guidance differ (tests/test_policy_family_parity.py).
+
+family: xss_python
+version: "1"
+
+selectors:
+  languages: [python]
+  rule_aliases:
+    - py/reflective-xss
+    - py/reflected-xss
+    - py/xss
+    - "*python.aws-lambda.security.tainted-html-response*"
+    - "*python.aws-lambda.security.tainted-html-string*"
+    - "*python.django.security.audit.avoid-mark-safe*"
+    - "*python.django.security.audit.xss.direct-use-of-httpresponse*"
+    - "*python.django.security.audit.xss.formathtml-fstring-parameter*"
+    - "*python.django.security.injection.raw-html-format*"
+    - "*python.django.security.injection.reflected-data-httpresponse*"
+    - "*python.flask.security.audit.directly-returned-format-string*"
+    - "*python.flask.security.audit.xss.make-response-with-unknown-content*"
+    - "*python.flask.security.injection.*raw-html-format"
+    - "*python.flask.security.*response-contains-unsanitized-input"
+    - "*python.flask.security.xss.audit.explicit-unescape-with-markup*"
+    - "*python.pyramid.security.*pyramid-direct-use-of-response"
+
+fact_slots:
+  sink_binding: [QUALIFYING_HTML_OUTPUT_SINK, NOT_HTML_OUTPUT_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  output_channel: [MARKUP_TEXT_PATH_FOUND, NON_MARKUP_ONLY_ALL_PATHS]
+  encoding_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - output_channel
+  - encoding_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_HTML_OUTPUT_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    output_channel: MARKUP_TEXT_PATH_FOUND
+    encoding_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_HTML_OUTPUT_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - output_channel: NON_MARKUP_ONLY_ALL_PATHS
+    # Coverage dismisses only a PROVEN markup path. Without a resolved markup
+    # channel there is no output context to match an encoder against, so
+    # coverage must not vacuously dismiss — it stays Needs More Data.
+    - output_channel: MARKUP_TEXT_PATH_FOUND
+      encoding_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a
+# concrete unencoded markup path proves the positive case, otherwise stay Needs
+# More Data. ALL_REACHING_PATHS / NON_MARKUP_ONLY_ALL_PATHS use
+# LOCAL_OR_EXHAUSTIVE, NOT EXHAUSTIVE_ENCODER: an encoder call or a content-type
+# assignment is normally visible in the local slice next to the write, and
+# EXHAUSTIVE_ENCODER would refuse that local proof and turn every locally
+# encoded output into Needs More Data. The retrieved leg of LOCAL_OR_EXHAUSTIVE
+# still requires an exhaustive, NON-framework FOUND, so a framework-sanitizer
+# lookup ("the view layer auto-escapes") can never establish coverage.
+admissibility:
+  sink_binding:
+    QUALIFYING_HTML_OUTPUT_SINK: LOCAL_POSITIVE
+    NOT_HTML_OUTPUT_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  output_channel:
+    MARKUP_TEXT_PATH_FOUND: CONCRETE_PATH
+    NON_MARKUP_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  encoding_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - >-
+    sink_binding: QUALIFYING_HTML_OUTPUT_SINK when the flagged code writes data
+    into an HTTP response body, or builds markup that is emitted to a browser
+    without further escaping: a Flask view returning a str built with an
+    f-string, concatenation, % or .format; flask.make_response(str) or
+    flask.Response(str); Django HttpResponse and its subclasses
+    (HttpResponseBadRequest, HttpResponseNotFound, HttpResponseForbidden,
+    HttpResponseServerError) given str content, or HttpResponse.write; a Pyramid
+    Response(body) or an assignment to request.response.text / body; an AWS
+    Lambda handler returning a mapping whose body carries the string; a markup
+    object that template engines emit as-is — markupsafe.Markup(x) (also
+    exported as flask.Markup in older Flask), django.utils.safestring
+    mark_safe(x), or format_html whose FORMAT STRING is itself built from data;
+    a template rendered from a source string that has data interpolated into
+    it (flask.render_template_string or jinja2.Template given an f-string or
+    concatenation). That last shape is also a template-injection site; assess
+    only the markup-output facts here. NOT_HTML_OUTPUT_SINK when the flagged
+    operation does not write to a browser-bound response and does not mark data
+    as markup: a logging call, print, a file write, a database write, a message
+    sent other than as the HTTP response, flask.jsonify(...) or a dict returned
+    from a Flask view, django.http.JsonResponse, Markup.escape(x) (it escapes),
+    or an HTML string that the visible code uses only for something other than
+    the response. Decide this from what the flagged statement is; whether a
+    response of this kind is parsed as markup on each path is output_channel. A
+    handler that merely looks like an API does not establish
+    NOT_HTML_OUTPUT_SINK. If the use of a built string or markup object is not
+    in evidence, leave sink_binding UNRESOLVED and request the enclosing
+    function or its caller.
+  - >-
+    attacker_control: PROVEN when a value an external party controls reaches the
+    output — the scanner data-flow SOURCE establishes this, as does visible code
+    reading flask.request args / form / values / json / get_json() / data /
+    headers / cookies / files / path / url, a Flask view argument bound from
+    the URL rule, Django request.GET / POST / body / headers / META / COOKIES /
+    FILES / path / get_full_path() or a URLconf-captured view argument, Pyramid
+    request.params / GET / POST / matchdict / json_body, or the event argument
+    of an AWS Lambda handler behind an HTTP integration. For a PERSISTED value
+    (a model field loaded through an ORM, a file, a cache entry, a session
+    value) PROVEN requires evidence of a write path from request data into that
+    store: the code that saves it, or scanner data-flow that shows it. A
+    database read on its own neither establishes nor refutes control — leave
+    attacker_control UNRESOLVED and request the code that writes the field.
+    REFUTED when the code shows that every value written is a literal constant
+    or a server-generated value (a counter, a timestamp, the result of a fixed
+    constant lookup), or that the request-derived value is replaced by a
+    constant before the write on every reaching path. Trace the LAST assignment
+    on each path, and match a dict or list read to the key or index that was
+    actually written.
+  - >-
+    flow_to_sink: REACHES when the controlled value reaches the written output on
+    some path, including through an f-string, concatenation, % or .format, a
+    container, or a helper whose body is in evidence; NO_PATH_COMPLETE only with
+    complete evidence that no path carries it (the only branch that would carry
+    it is statically dead with the condition's constant operands visible, or the
+    variable written is a different one on every path).
+  - >-
+    output_channel: MARKUP_TEXT_PATH_FOUND when, on some reaching path, the value
+    is delivered inside a document the browser parses as markup or script: a
+    response whose content type is text/html, application/xhtml+xml, text/xml,
+    application/xml or image/svg+xml; a str returned from a Flask view, or
+    make_response(str) / Response(str), with no mimetype or content_type given
+    (the default is text/html); Django HttpResponse(str) with no content_type
+    (the default is text/html); a Pyramid Response with no content_type (the
+    default is text/html); a rendered HTML template; a Markup or mark_safe
+    object that the visible code passes to a template or response.
+    NON_MARKUP_ONLY_ALL_PATHS only when, on EVERY reaching path, code in
+    evidence gives THIS response a type browsers do not parse as markup —
+    mimetype= or content_type= of application/json, text/plain, text/csv or
+    application/octet-stream on the response constructor, the same value
+    assigned to response.mimetype / response.content_type /
+    response.headers["Content-Type"], or returned in the headers element of the
+    view's return tuple — or the body is produced by flask.jsonify or
+    JsonResponse. Passing a value through json.dumps does not change the
+    channel of a text/html response. A content type applied by middleware, an
+    after_request hook, settings or any code not shown in evidence does not
+    establish NON_MARKUP_ONLY_ALL_PATHS; neither does a Content-Disposition
+    header, a Content-Security-Policy or an X-XSS-Protection header. If one
+    branch sets a non-markup type and another does not, a markup path exists.
+  - >-
+    encoding_coverage: for each attacker value that enters markup, identify its
+    exact output context from the literal text around it — HTML element text, a
+    double-quoted or single-quoted attribute value, an unquoted attribute value,
+    a JavaScript string or code inside a script element or an on* event handler,
+    a URL in href / src / action / formaction, or CSS — and the characters the
+    value can still contain after its last transformation. A transformation
+    covers a path only when it matches that context. html.escape(s) escapes
+    & < > " ' (quote defaults to True) and covers HTML text and quoted
+    attributes; html.escape(s, quote=False) leaves both quote characters and
+    covers HTML text only. markupsafe.escape and Markup.escape, and
+    django.utils.html escape and conditional_escape, escape & < > " ' and cover
+    HTML text and quoted attributes. django.utils.html.format_html(fmt, *args)
+    escapes its arguments but not the format string, so data placed in the
+    format string by an f-string, % or .format is not escaped. Markup("...%s") %
+    x and Markup("...{}").format(x) escape x, while Markup(f"...{x}"),
+    Markup("..." + x), Markup(x) and mark_safe(x) apply no escaping.
+    bleach.clean and nh3.clean sanitise for an HTML-text context only, not for
+    an attribute value, script or CSS. json.dumps does not neutralise < or
+    </script> inside a script element. HTML entity encoding does NOT cover a
+    JavaScript string, an unquoted attribute, or a URL attribute whose scheme
+    the attacker chooses (javascript:). A value coerced to a number (int(...),
+    float(...), an int or float URL converter), compared against a complete
+    allowlist or enum, or checked by an anchored pattern (re.fullmatch) that
+    admits no markup metacharacter is covered as well. These do not establish
+    coverage: str.replace or re.sub removing selected tags or characters, a
+    blocklist, a length check, strip or case folding, an encoder on a sibling
+    branch, or a function whose body is not in evidence (do not infer its
+    behaviour from its name; request it). Template auto-escaping is HTML entity
+    escaping applied to {{ ... }} output of a context variable. Flask enables
+    it for templates rendered by render_template whose name ends in .html,
+    .htm, .xml or .xhtml and for render_template_string; a jinja2.Environment
+    or jinja2.Template built directly has it off unless autoescape=True or
+    select_autoescape(...) is passed in visible code; Django templates have it
+    on unless the engine OPTIONS or a Context sets autoescape to False. Even
+    when on, it does not apply to a value marked |safe, inside
+    {% autoescape false %} / {% autoescape off %}, wrapped in Markup or
+    mark_safe, or interpolated into the template SOURCE instead of passed as a
+    context variable, and it does not match an unquoted-attribute, script or
+    URL context. Auto-escaping therefore establishes coverage only when the
+    cited code shows all of: the render call with the value passed as a context
+    variable, the fact that turns escaping on for this template, and the
+    template text placing the variable in HTML text or a quoted attribute with
+    none of the bypasses above. If the template file or the engine
+    configuration is not in evidence, leave encoding_coverage UNRESOLVED; the
+    absence of a visible |safe is not evidence. BYPASS_PATH_FOUND requires a
+    WITNESSED path: the construction from the source to the markup write is in
+    evidence and, on that path, the value enters its context with no covering
+    transformation or with one that does not match the context. Direct
+    interpolation into the returned markup with the whole path visible is such
+    a witness. If the value passes through a function, filter or template whose
+    body is not in evidence, leave encoding_coverage UNRESOLVED.
+    ALL_REACHING_PATHS only when every reaching path is covered by a
+    transformation visible in the cited code. Framework or configuration
+    behaviour is not evidence here: a statement that the framework, middleware
+    or a security header escapes this output does not establish
+    ALL_REACHING_PATHS.

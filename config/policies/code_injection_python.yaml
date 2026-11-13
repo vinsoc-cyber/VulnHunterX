@@ -1,0 +1,213 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# Code-injection (CWE-94 / CWE-95) family policy — Python.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-94/95 is about attacker data becoming PROGRAM TEXT that an interpreter
+# evaluates: Python source given to eval/exec, an expression string, or the
+# SOURCE of a template. Two DISTINCT facts decide it and must not be collapsed:
+# interpreter_channel (does the value become part of the evaluated text on some
+# reaching path, or is it on every path only DATA — a template context value, a
+# namespace entry, the input of a literal-only parser) and
+# neutralization_coverage (for a value that does enter the evaluated text, is it
+# constrained on every reaching path to a finite allowlist / exact match).
+#
+# Restricted evaluators are NOT treated as coverage. A jinja2
+# SandboxedEnvironment narrows what an attacker-chosen template can do, but it
+# still evaluates attacker-chosen text and has a history of escapes; emptying
+# __builtins__ in the eval globals is not a restriction at all. A real sandbox
+# proves neither the witnessed-bypass state nor the all-paths-allowlisted state,
+# so it stays Needs More Data rather than being confirmed or dismissed.
+#
+# Scope: eval / exec / compile and their wrappers, expression strings
+# (pandas.eval, DataFrame.query) and server-side template injection through the
+# template SOURCE. OS command execution (subprocess, os.system), unsafe
+# deserialization and import-by-name reflection (CWE-470) are other classes and
+# are not decided here.
+#
+# Selectors: rule aliases ONLY — deliberately no CWE selector, because there is
+# no negative selector and both CWEs are also carried by rules this table cannot
+# decide honestly:
+#   - CWE-94: py/unsafe-string-formatting (CWE-94 + CWE-134) is a str.format
+#     format-string rule, not an evaluator.
+#   - CWE-95: logging listen-eval (a socket listener, no value flows into the
+#     flagged call) and dangerous-annotations-usage (an assignment whose
+#     evaluation happens elsewhere) would resolve to Needs More Data at best.
+# Those stay on the legacy route. The globs cover both Semgrep id forms
+# (config.opengrep-rules.<dirs>.<id> and <dirs>.<file>.<id>). py/template-
+# injection (CWE-74), the custom template-injection rule (CWE-917/1336) and the
+# two Flask render_template_string rules (CWE-96) are included by alias because
+# their sink — a template SOURCE — is exactly this table's sink.
+
+family: code_injection_python
+version: "1"
+
+selectors:
+  languages: [python]
+  rule_aliases:
+    - py/code-injection
+    - py/use-of-input
+    - py/template-injection
+    - "*python.aws-lambda.security.tainted-code-exec*"
+    - "*python.django.security.injection.code.user-eval*"
+    - "*python.django.security.injection.code.user-exec*"
+    - "*python.flask.security.injection*.eval-injection"
+    - "*python.flask.security.injection*.exec-injection"
+    - "*python.lang.security.audit.eval-detected*"
+    - "*python.lang.security.audit.exec-detected*"
+    - "*python.lang.security.*dangerous-interactive-code-run*"
+    - "*python.lang.security.*dangerous-subinterpreters-run-string*"
+    - "*python.lang.security.*dangerous-testcapi-run-in-subinterp*"
+    - "*python.flask.security.audit.render-template-string*"
+    - "*python.flask.security.dangerous-template-string*"
+    - "*vulnhunterx.python.template-injection"
+
+fact_slots:
+  sink_binding: [QUALIFYING_CODE_EVALUATION_SINK, NOT_CODE_EVALUATION_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  interpreter_channel: [CODE_TEXT_PATH_FOUND, DATA_ONLY_ALL_PATHS]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - interpreter_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_CODE_EVALUATION_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    interpreter_channel: CODE_TEXT_PATH_FOUND
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_CODE_EVALUATION_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - interpreter_channel: DATA_ONLY_ALL_PATHS
+    # Coverage dismisses only a PROVEN code-text path. When the channel is
+    # unresolved there is nothing established to neutralize, so a coverage claim
+    # must not dismiss vacuously — the finding stays Needs More Data.
+    - interpreter_channel: CODE_TEXT_PATH_FOUND
+      neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a
+# concrete unsafe code-text path proves the positive case, otherwise stay Needs
+# More Data. DATA_ONLY_ALL_PATHS / ALL_REACHING_PATHS use LOCAL_OR_EXHAUSTIVE,
+# NOT EXHAUSTIVE_ENCODER: a context value and a finite allowlist are not
+# encoders, and both are proven by locally visible code.
+admissibility:
+  sink_binding:
+    QUALIFYING_CODE_EVALUATION_SINK: LOCAL_POSITIVE
+    NOT_CODE_EVALUATION_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  interpreter_channel:
+    CODE_TEXT_PATH_FOUND: CONCRETE_PATH
+    DATA_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - >-
+    sink_binding: QUALIFYING_CODE_EVALUATION_SINK when the flagged call hands text
+    to an interpreter that evaluates it as a program, an expression or a template
+    source: the builtins eval and exec; compile whose code object is then
+    executed; code.InteractiveInterpreter / InteractiveConsole runsource, runcode
+    and push; a sub-interpreter run_string; pandas.eval, DataFrame.eval and
+    DataFrame.query given an expression string; a template engine given the
+    template SOURCE (jinja2.Template(source), Environment.from_string(source),
+    flask.render_template_string(source), mako.template.Template(text)). The
+    Python 2 builtin input() evaluates what it reads; in Python 3 it returns a
+    string, so it qualifies only when the evidence shows Python 2 code.
+    NOT_CODE_EVALUATION_SINK when the flagged call evaluates no program text: a
+    pure string operation, re.compile, json.loads, int() / float(), Python 3
+    input(), flask.render_template given a fixed template name, or an unrelated
+    method that merely shares a name (a database cursor's execute, a model
+    object's eval() mode switch). A call that launches an OS command (subprocess,
+    os.system), deserializes an object, or imports a module by a controlled name
+    (__import__, importlib.import_module select an existing module; they do not
+    evaluate attacker text) is a different sink class: it establishes neither
+    value here, so leave sink_binding unresolved.
+  - >-
+    attacker_control: PROVEN when a value from outside the trust boundary reaches
+    the evaluated text; the scanner data-flow SOURCE (flask.request args / form /
+    values / json / data / headers / cookies, Django request.GET / POST / body /
+    META, a FastAPI or Starlette request parameter, an AWS Lambda event, a message
+    or file received from a client) establishes this. REFUTED when the slice
+    shows the evaluated text is a literal, or is assembled only from literals and
+    values the deployment operator supplies. A value read from a database, a
+    configuration file, an environment variable or sys.argv does not establish
+    either value unless the evidence shows who sets it.
+  - >-
+    flow_to_sink: REACHES when the controlled value reaches the evaluating call on
+    some path. NO_PATH_COMPLETE only with complete evidence that no path carries
+    it there, for example the name is unconditionally rebound to a literal before
+    the call. Not seeing the path in the slice is not complete evidence.
+  - >-
+    interpreter_channel: for the flagged call, enumerate EVERY attacker-controlled
+    value and how it is passed. CODE_TEXT_PATH_FOUND when, on some reaching path,
+    a value becomes part of the text the interpreter parses: it is the argument of
+    eval / exec / compile, it is concatenated, %-formatted, str.format-ted or
+    f-string-interpolated into that argument, or it is (part of) the template
+    source given to Template(...) / from_string(...) / render_template_string(...).
+    render_template_string("Hello " + name) is a code-text path;
+    render_template_string("Hello {{ name }}", name=name) is not. This holds even
+    when another value on the same call is passed safely. DATA_ONLY_ALL_PATHS only
+    when, on EVERY reaching path, the evaluated text is fixed and each attacker
+    value is supplied as data: a keyword or context argument to render / a
+    fixed-name render_template / a fixed-source render_template_string, a value
+    stored in the globals or locals mapping of an eval whose expression is a
+    literal, or the input of a literal-only parser (ast.literal_eval accepts
+    Python literals and containers of literals and executes nothing; json.loads).
+    A context value is data only while the fixed template or expression does not
+    evaluate it again; if it is passed on to eval, from_string or a second render
+    as source, that is a code-text path.
+  - >-
+    neutralization_coverage: applies to a value that enters the evaluated text.
+    BYPASS_PATH_FOUND requires a WITNESSED reaching path on which the attacker
+    chooses Python, expression or template syntax with no effective restriction:
+    no check at all between the source and the evaluating call in the visible
+    code; eval(x, {"__builtins__": {}}) or any other emptied / filtered globals
+    (object introspection from a literal recovers the builtins); a blocklist of
+    names or characters such as import, os, __ or parentheses; a length limit;
+    HTML or quote escaping. ALL_REACHING_PATHS only when every reaching path
+    restricts the value to a finite set before it is evaluated: an exact-match
+    membership test against a fixed collection of permitted expressions or
+    identifiers, a lookup that maps the input to a fixed callable or operator
+    instead of evaluating it, or a full-string pattern (re.fullmatch, or re.match
+    anchored at both ends) that admits only a numeric literal or a fixed
+    alphanumeric identifier class in a position where such a token cannot change
+    the program. A check on a sibling branch does not cover the flagged branch.
+    A restricted evaluator establishes NEITHER value on its own:
+    jinja2.sandbox.SandboxedEnvironment / ImmutableSandboxedEnvironment block
+    access to unsafe attributes but still evaluate attacker-chosen template text
+    over whatever the context exposes, and escapes have been found repeatedly;
+    Django's template language cannot call arbitrary Python but still evaluates
+    attacker-chosen lookups on the context; an AST walk that is not shown to
+    reject every node type outside a fixed set. When only such a restriction
+    separates the value from the interpreter, or the restriction is defined in
+    code or settings the evidence does not show, leave neutralization_coverage
+    unresolved.
