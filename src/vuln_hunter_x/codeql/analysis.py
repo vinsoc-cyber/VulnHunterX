@@ -38,7 +38,9 @@ class CodeQLAnalyzer:
 
     @classmethod
     def suite_for_language(
-        cls, lang: str, suite_suffix: str = "security-extended",
+        cls,
+        lang: str,
+        suite_suffix: str = "security-extended",
     ) -> str:
         """Build a full CodeQL suite reference for *lang* with *suite_suffix*.
 

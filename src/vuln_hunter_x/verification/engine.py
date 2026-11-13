@@ -36,8 +36,22 @@ _SINK_CALL_RE = re.compile(r"([A-Za-z_$][\w$]*)\s*(?:<[^<>()]*>)?\s*\(")
 # don't consume prefetch slots. Names absent from functions.csv resolve to a
 # harmless "not found" anyway, so this list stays minimal.
 _SINK_CALL_SKIP = frozenset(
-    {"if", "for", "while", "switch", "catch", "return", "typeof", "await",
-     "new", "function", "throw", "yield", "else", "do"}
+    {
+        "if",
+        "for",
+        "while",
+        "switch",
+        "catch",
+        "return",
+        "typeof",
+        "await",
+        "new",
+        "function",
+        "throw",
+        "yield",
+        "else",
+        "do",
+    }
 )
 
 # Pattern markers indicating purely pattern-language reasoning that lacks
@@ -59,33 +73,41 @@ _GENERIC_PATTERN_MARKERS = (
 # C-side findings don't share this pattern; gating the new
 # second-opinion arm by language keeps the diversevul/CWE-264 results
 # stable. See benchmarks/results/20260519_020920.
-_FRAMEWORK_LANGS: frozenset[str] = frozenset({
-    "python", "javascript", "java", "php", "go",
-})
+_FRAMEWORK_LANGS: frozenset[str] = frozenset(
+    {
+        "python",
+        "javascript",
+        "java",
+        "php",
+        "go",
+    }
+)
 
 # Taint-tracking CWEs that need a forced flow-trace pass on framework
 # languages. The 2026-05-19 owasp-python benchmark documented a 38pp
 # accuracy gap between 1-iter and 2-iter verdicts on this class.
-_TAINT_CWES: frozenset[str] = frozenset({
-    "CWE-22",   # Path traversal
-    "CWE-77",   # Command injection (generic)
-    "CWE-78",   # OS command injection
-    "CWE-79",   # XSS
-    "CWE-80",   # Basic XSS
-    "CWE-87",   # Alternate XSS syntax
-    "CWE-89",   # SQL injection
-    "CWE-90",   # LDAP injection
-    "CWE-94",   # Code injection
-    "CWE-95",   # Eval injection
-    "CWE-113",  # Header injection
-    "CWE-134",  # Uncontrolled format string
-    "CWE-502",  # Deserialisation of untrusted data
-    "CWE-611",  # XXE
-    "CWE-643",  # XPath injection
-    "CWE-917",  # SSTI
-    "CWE-918",  # SSRF
-    "CWE-1333", # ReDoS
-})
+_TAINT_CWES: frozenset[str] = frozenset(
+    {
+        "CWE-22",  # Path traversal
+        "CWE-77",  # Command injection (generic)
+        "CWE-78",  # OS command injection
+        "CWE-79",  # XSS
+        "CWE-80",  # Basic XSS
+        "CWE-87",  # Alternate XSS syntax
+        "CWE-89",  # SQL injection
+        "CWE-90",  # LDAP injection
+        "CWE-94",  # Code injection
+        "CWE-95",  # Eval injection
+        "CWE-113",  # Header injection
+        "CWE-134",  # Uncontrolled format string
+        "CWE-502",  # Deserialisation of untrusted data
+        "CWE-611",  # XXE
+        "CWE-643",  # XPath injection
+        "CWE-917",  # SSTI
+        "CWE-918",  # SSRF
+        "CWE-1333",  # ReDoS
+    }
+)
 
 # C/C++ correctness / type-hygiene CWEs whose CodeQL rules fire on a code
 # PATTERN (a narrow-typed arithmetic op later widened) rather than a proven,
@@ -96,13 +118,15 @@ _TAINT_CWES: frozenset[str] = frozenset({
 # (see LLMClient._TP_CHALLENGE_PROMPT) re-examines reachability. This is the
 # TP-side mirror of the FP-side arms A/B and is gated to C/C++ so framework
 # taint verdicts (arm_c) are untouched.
-_CPP_PATTERN_CLASS_CWES: frozenset[str] = frozenset({
-    "CWE-190",  # Integer overflow / wraparound
-    "CWE-191",  # Integer underflow
-    "CWE-192",  # Integer coercion error
-    "CWE-197",  # Numeric truncation error
-    "CWE-681",  # Incorrect conversion between numeric types
-})
+_CPP_PATTERN_CLASS_CWES: frozenset[str] = frozenset(
+    {
+        "CWE-190",  # Integer overflow / wraparound
+        "CWE-191",  # Integer underflow
+        "CWE-192",  # Integer coercion error
+        "CWE-197",  # Numeric truncation error
+        "CWE-681",  # Incorrect conversion between numeric types
+    }
+)
 
 
 def _is_high_severity(finding: Finding | None) -> bool:
@@ -277,16 +301,41 @@ def _downgrade_local_prototype_pollution(verdict: Verdict) -> Verdict:
 # themselves) crosses no privilege boundary, so path-injection there is not
 # CWE-22. These markers detect a command-line source in the verdict's data flow.
 _CLI_PATH_SOURCE_MARKERS = (
-    "argv", "command-line", "command line", "commandline", "main(",
-    "cli argument", "command-line argument", "command line argument",
+    "argv",
+    "command-line",
+    "command line",
+    "commandline",
+    "main(",
+    "cli argument",
+    "command-line argument",
+    "command line argument",
 )
 # Presence of any of these means a real trust/privilege boundary may exist, so
 # we must NOT auto-downgrade — leave the model's verdict alone.
 _TRUST_BOUNDARY_MARKERS = (
-    "setuid", "setgid", "suid", "server", "daemon", "service", "request",
-    "upload", "socket", "network", "http", "rpc", "ipc", "sandbox", "chroot",
-    "jail", "privile", "untrusted file content", "file contents", "web ",
-    "remote", "cgi", "fastcgi",
+    "setuid",
+    "setgid",
+    "suid",
+    "server",
+    "daemon",
+    "service",
+    "request",
+    "upload",
+    "socket",
+    "network",
+    "http",
+    "rpc",
+    "ipc",
+    "sandbox",
+    "chroot",
+    "jail",
+    "privile",
+    "untrusted file content",
+    "file contents",
+    "web ",
+    "remote",
+    "cgi",
+    "fastcgi",
 )
 
 
@@ -388,9 +437,7 @@ def _downgrade_test_only_reachability(verdict, finding, provider, analysis_line)
         return verdict
     if not all(conv.is_test_file(c.source_ref.file) for c in callers.callers):
         return verdict
-    scan = provider.scan_non_test_name_occurrences(
-        finding.repo_name, sym.symbol, finding.lang
-    )
+    scan = provider.scan_non_test_name_occurrences(finding.repo_name, sym.symbol, finding.lang)
     if scan.status is not EvidenceStatus.NOT_FOUND_COMPLETE:
         return verdict
     verdict.verdict = "Needs More Data"
@@ -490,10 +537,20 @@ _NONPROD_STEM_RE = re.compile(
 # the anchored stem rule would otherwise miss (e.g. libjpeg-turbo's
 # ``tjunittest.c``/``tjbench.c`` and bundled ``src/spng/zlib/``).
 _NONPROD_FILENAMES = ("tjunittest", "tjbench", "tjdecomp", "tjcomp")
-_VENDORED_SEGMENTS = frozenset({
-    "zlib", "spng", "vendor", "vendored", "third_party", "thirdparty",
-    "external", "extern", "deps", "3rdparty",
-})
+_VENDORED_SEGMENTS = frozenset(
+    {
+        "zlib",
+        "spng",
+        "vendor",
+        "vendored",
+        "third_party",
+        "thirdparty",
+        "external",
+        "extern",
+        "deps",
+        "3rdparty",
+    }
+)
 
 
 def _is_nonproduction_path(file_path: str) -> bool:
@@ -601,12 +658,8 @@ _COHERENCE_GATE = "coherence_gate"
 # envelope shape observed in the field — a verdict label contradicting the
 # reasoning's own spelled-out conclusion ("... so this specific finding is a
 # false positive" emitted under verdict=True Positive, #162/#122).
-_ASSERTS_FP_RE = re.compile(
-    r"\b(?:is|remains|therefore)\s+a\s+false\s+positive\b", re.IGNORECASE
-)
-_NEGATED_FP_RE = re.compile(
-    r"\b(?:not|isn't|isn)\W{0,3}a?\s*false\s+positive\b", re.IGNORECASE
-)
+_ASSERTS_FP_RE = re.compile(r"\b(?:is|remains|therefore)\s+a\s+false\s+positive\b", re.IGNORECASE)
+_NEGATED_FP_RE = re.compile(r"\b(?:not|isn't|isn)\W{0,3}a?\s*false\s+positive\b", re.IGNORECASE)
 _ASSERTS_TP_RE = re.compile(
     r"\b(?:is|remains|therefore)\s+a\s+(?:true\s+positive|real\s+(?:vulnerability|bug|issue))\b",
     re.IGNORECASE,
@@ -682,10 +735,7 @@ def _is_dev_mock_entrypoint_path(file_path: str) -> bool:
     if not parts:
         return False
     segments = parts[:-1] + [parts[-1].rsplit(".", 1)[0]]
-    return any(
-        _DEV_MOCK_PREFIX_RE.search(seg) or _DEV_MOCK_WORD_RE.search(seg)
-        for seg in segments
-    )
+    return any(_DEV_MOCK_PREFIX_RE.search(seg) or _DEV_MOCK_WORD_RE.search(seg) for seg in segments)
 
 
 def _downgrade_dev_mock_entrypoint(verdict, finding):
@@ -721,13 +771,35 @@ def _downgrade_dev_mock_entrypoint(verdict, finding):
 # scanner already resolved. Matched case-insensitively against the SOURCE step's
 # message (e.g. "req.body", "**argv").
 _REMOTE_SOURCE_MARKERS = (
-    "req.", "request.", "$_get", "$_post", "$_request", "$_cookie", "$_server",
-    "getparameter", "flask.request", "request.form", "request.args", "request.json",
-    "httpservletrequest", "ctx.request", "event.body", "url.searchparams",
+    "req.",
+    "request.",
+    "$_get",
+    "$_post",
+    "$_request",
+    "$_cookie",
+    "$_server",
+    "getparameter",
+    "flask.request",
+    "request.form",
+    "request.args",
+    "request.json",
+    "httpservletrequest",
+    "ctx.request",
+    "event.body",
+    "url.searchparams",
 )
 _OPERATOR_SOURCE_MARKERS = (
-    "argv", "process.argv", "sys.argv", "getenv", "environ", "$_env",
-    "stdin", "scanf", "std::cin", "command line", "command-line",
+    "argv",
+    "process.argv",
+    "sys.argv",
+    "getenv",
+    "environ",
+    "$_env",
+    "stdin",
+    "scanf",
+    "std::cin",
+    "command line",
+    "command-line",
 )
 # Vulnerability classes whose harm REQUIRES crossing an external trust/privilege
 # boundary — path traversal, SSRF, injection, redirects, access control. For these,
@@ -736,10 +808,27 @@ _OPERATOR_SOURCE_MARKERS = (
 # argv/stdin is a valid exploit vector and the bug is real regardless of provenance
 # (A/B 1.0.0@11e2a2f regressed 10 such findings when the operator note fired blindly).
 _TRUST_BOUNDARY_RULE_MARKERS = (
-    "injection", "traversal", "path-injection", "ssrf", "request-forgery",
-    "open-redirect", "redirect", "xss", "cross-site", "csrf", "access-control",
-    "authoriz", "authentic", "deserial", "xxe", "ssti", "zip-slip", "cors",
-    "sql", "ldap", "xpath",
+    "injection",
+    "traversal",
+    "path-injection",
+    "ssrf",
+    "request-forgery",
+    "open-redirect",
+    "redirect",
+    "xss",
+    "cross-site",
+    "csrf",
+    "access-control",
+    "authoriz",
+    "authentic",
+    "deserial",
+    "xxe",
+    "ssti",
+    "zip-slip",
+    "cors",
+    "sql",
+    "ldap",
+    "xpath",
 )
 
 
@@ -1029,7 +1118,10 @@ class VerificationEngine:
                 logger.info(
                     "Excluded %d/%d findings under test paths from %s "
                     "(exclude_test_paths=True); %d remain for verification.",
-                    dropped, before, Path(sarif_path).name, len(findings),
+                    dropped,
+                    before,
+                    Path(sarif_path).name,
+                    len(findings),
                 )
         return self.verify_findings(findings, limit, category_filter=category_filter)
 
@@ -1098,8 +1190,7 @@ class VerificationEngine:
             if self._profile_manager:
                 target_cwes = self._profile_manager.get_cwes_for_categories(category_filter)
                 findings = [
-                    f for f in findings
-                    if not f.cwe_ids or target_cwes.intersection(f.cwe_ids)
+                    f for f in findings if not f.cwe_ids or target_cwes.intersection(f.cwe_ids)
                 ]
             else:
                 # Never silently ignore a requested filter — that previously let
@@ -1136,14 +1227,10 @@ class VerificationEngine:
                 rep_verdicts.append(self._verify_one_with_callbacks(i, n_cases, finding))
         else:
             rep_by_pos: dict[int, Verdict] = {}
-            pool = ThreadPoolExecutor(
-                max_workers=self._jobs, thread_name_prefix="vhx-verify"
-            )
+            pool = ThreadPoolExecutor(max_workers=self._jobs, thread_name_prefix="vhx-verify")
             try:
                 futures = {
-                    pool.submit(
-                        self._verify_one_with_callbacks, pos + 1, n_cases, finding
-                    ): pos
+                    pool.submit(self._verify_one_with_callbacks, pos + 1, n_cases, finding): pos
                     for pos, finding in enumerate(reps)
                 }
                 try:
@@ -1185,19 +1272,25 @@ class VerificationEngine:
         if not self._policy_registry.families:
             return False
         try:
-            if self._policy_registry.resolve_family(
-                cwe_ids=finding.cwe_ids or [],
-                rule_id=finding.rule_id,
-                lang=finding.lang,
-            ) is not None:
+            if (
+                self._policy_registry.resolve_family(
+                    cwe_ids=finding.cwe_ids or [],
+                    rule_id=finding.rule_id,
+                    lang=finding.lang,
+                )
+                is not None
+            ):
                 return True
             # A handoff candidate is also policy-managed: keep it one-to-one so
             # case identity never merges it (P3b cross-rule equivalence stays shut).
-            return self._policy_registry.resolve_handoff(
-                cwe_ids=finding.cwe_ids or [],
-                rule_id=finding.rule_id,
-                lang=finding.lang,
-            ) is not None
+            return (
+                self._policy_registry.resolve_handoff(
+                    cwe_ids=finding.cwe_ids or [],
+                    rule_id=finding.rule_id,
+                    lang=finding.lang,
+                )
+                is not None
+            )
         except PolicyOverlapError:
             return True
 
@@ -1212,9 +1305,7 @@ class VerificationEngine:
                 keys.append(None)
                 continue
             anchor = self._resolve_finding_anchor(finding)
-            keys.append(
-                case_key(finding, anchor, norm_path=_repo_relative_path(finding.file))
-            )
+            keys.append(case_key(finding, anchor, norm_path=_repo_relative_path(finding.file)))
         return build_cases(keys)
 
     def _project_cases(
@@ -1238,9 +1329,7 @@ class VerificationEngine:
                     by_obs[obs_idx] = replace(rep_v, finding=findings[obs_idx])
         return [by_obs[i] for i in range(len(findings))]
 
-    def _verify_one_with_callbacks(
-        self, i: int, total: int, finding: Finding
-    ) -> Verdict:
+    def _verify_one_with_callbacks(self, i: int, total: int, finding: Finding) -> Verdict:
         """Run one finding's verification with progress callbacks under a lock.
 
         The callback lock ensures CLI progress prints from concurrent workers
@@ -1283,9 +1372,7 @@ class VerificationEngine:
             return
 
         # Parallel: yield verdicts in finish order (not input order).
-        pool = ThreadPoolExecutor(
-            max_workers=self._jobs, thread_name_prefix="vhx-verify"
-        )
+        pool = ThreadPoolExecutor(max_workers=self._jobs, thread_name_prefix="vhx-verify")
         try:
             futures = [
                 pool.submit(self._verify_one_with_callbacks, i, total, finding)
@@ -1322,9 +1409,7 @@ class VerificationEngine:
             return self._verify_policy_finding(finding, base_policy)
         return self._verify_legacy_finding(finding)
 
-    def _verify_with_handoff(
-        self, finding: Finding, base_policy, handoff_policy
-    ) -> Verdict:
+    def _verify_with_handoff(self, finding: Finding, base_policy, handoff_policy) -> Verdict:
         """Non-destructive cross-family combiner. A handoff may SCHEDULE a policy
         but can never by itself dismiss the finding. A handoff True Positive
         short-circuits (the base route is not consulted, so the legacy prose path
@@ -1345,9 +1430,7 @@ class VerificationEngine:
             return attempt.verdict
         return base
 
-    def _attempt_policy(
-        self, finding: Finding, policy, *, handoff: bool
-    ) -> PolicyAttempt:
+    def _attempt_policy(self, finding: Finding, policy, *, handoff: bool) -> PolicyAttempt:
         """Run one family's evidence closure and classify the outcome. The
         applicability gate (from the resolved facts) takes precedence: a
         not-applicable family contributes no verdict, never a False Positive."""
@@ -1391,15 +1474,11 @@ class VerificationEngine:
         # Only read source when the scanner gave a construct to confirm; snippet-
         # less findings take the unchanged legacy path (no IO, verdict-neutral).
         file_text = (
-            self._read_finding_source(finding)
-            if (finding.sink_snippet or "").strip()
-            else None
+            self._read_finding_source(finding) if (finding.sink_snippet or "").strip() else None
         )
         return resolve_anchor(finding, file_text)
 
-    def _structural_gate_verdict(
-        self, finding: Finding, anchor: AnchorResolution
-    ) -> Verdict:
+    def _structural_gate_verdict(self, finding: Finding, anchor: AnchorResolution) -> Verdict:
         """Honest Needs-More-Data when the reported construct cannot be uniquely
         placed in the source. Never a dismissal — reasoning over a misaligned
         slice is the #118 failure. Bypasses the model entirely."""
@@ -1454,13 +1533,9 @@ class VerificationEngine:
         # multi-turn loop still has *something* to serve. Returning empty
         # was the documented cause of the 2026-05-15 benchmark's 73% TP-loss
         # — the LLM defaulted to FP rather than asking for context.
-        effective_provider: ContextProvider | SnippetContextProvider | None = (
-            self.context_provider
-        )
+        effective_provider: ContextProvider | SnippetContextProvider | None = self.context_provider
         if isinstance(self.context_provider, ContextProvider) and not (
-            self.context_provider.has_context_for_repo(
-                finding.repo_name, finding.lang
-            )
+            self.context_provider.has_context_for_repo(finding.repo_name, finding.lang)
         ):
             effective_provider = SnippetContextProvider(
                 snippet=context_result.code,
@@ -1502,10 +1577,7 @@ class VerificationEngine:
             # type of the source variable (e.g. `dto: CreateRescueDto`), whose
             # decorated fields reveal which keys are even allowed. Resolve the
             # type name from the function signature and prefetch its class def.
-            if any(
-                c.lower().strip() == "source_type"
-                for c in questions.additional_context
-            ):
+            if any(c.lower().strip() == "source_type" for c in questions.additional_context):
                 for type_name in self._extract_source_types(finding, context_result):
                     req = f"struct:{type_name}"
                     if req not in prefetch_requests:
@@ -1574,9 +1646,7 @@ class VerificationEngine:
         # app.py). Flag it so the model weights reachability rather than
         # confirming a dead-code pattern as a live bug.
         try:
-            unwired = commented_out_symbol(
-                finding.file, context_result.function_name, finding.lang
-            )
+            unwired = commented_out_symbol(finding.file, context_result.function_name, finding.lang)
         except Exception:
             unwired = False
         if unwired:
@@ -1768,7 +1838,9 @@ class VerificationEngine:
         do not drive the assessment."""
         if questions is None:
             questions = self.questions_loader.get_questions(
-                finding.rule_id, cwe_ids=finding.cwe_ids, lang=finding.lang,
+                finding.rule_id,
+                cwe_ids=finding.cwe_ids,
+                lang=finding.lang,
             )
         # Confirm the reported sink anchor against real source before analysis:
         # the policy path must inherit P3a's structural safety (#118). A construct
@@ -1778,11 +1850,12 @@ class VerificationEngine:
         if anchor.resolution in STRUCTURAL_NMD_RESOLUTIONS:
             return self._structural_gate_verdict(finding, anchor)
         context_result = self.context_extractor.get_context(
-            finding.file, anchor.analysis_line, finding.lang, repo_name=finding.repo_name,
+            finding.file,
+            anchor.analysis_line,
+            finding.lang,
+            repo_name=finding.repo_name,
         )
-        effective_provider: ContextProvider | SnippetContextProvider | None = (
-            self.context_provider
-        )
+        effective_provider: ContextProvider | SnippetContextProvider | None = self.context_provider
         if isinstance(self.context_provider, ContextProvider) and not (
             self.context_provider.has_context_for_repo(finding.repo_name, finding.lang)
         ):
@@ -1793,13 +1866,15 @@ class VerificationEngine:
 
         sc_samples = getattr(self.config.verification, "self_consistency_samples", 1) or 1
         if sc_samples > 1:
-            voting_temp = getattr(
-                self.config.verification, "self_consistency_temperature", 0.7
-            )
+            voting_temp = getattr(self.config.verification, "self_consistency_temperature", 0.7)
             samples = [
                 self._run_policy_sample(
-                    finding, policy, questions, context_result,
-                    effective_provider, voting_temp,
+                    finding,
+                    policy,
+                    questions,
+                    context_result,
+                    effective_provider,
+                    voting_temp,
                 )
                 for _ in range(sc_samples)
             ]
@@ -1956,9 +2031,27 @@ class VerificationEngine:
     # user-defined DTOs worth fetching a class definition for.
     _SOURCE_TYPE_SKIP = frozenset(
         {
-            "string", "number", "boolean", "any", "object", "void", "unknown",
-            "never", "null", "undefined", "Array", "Promise", "Date", "Object",
-            "Record", "Map", "Set", "Buffer", "Request", "Response", "Express",
+            "string",
+            "number",
+            "boolean",
+            "any",
+            "object",
+            "void",
+            "unknown",
+            "never",
+            "null",
+            "undefined",
+            "Array",
+            "Promise",
+            "Date",
+            "Object",
+            "Record",
+            "Map",
+            "Set",
+            "Buffer",
+            "Request",
+            "Response",
+            "Express",
         }
     )
     _PARAM_TYPE_RE_TMPL = r"\b{var}\s*:\s*([A-Za-z_$][\w$]*)"

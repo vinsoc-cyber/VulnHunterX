@@ -54,11 +54,7 @@ class Assessment:
 
     def resolved_facts(self) -> dict[str, str]:
         """slot -> value for every claim that is not ``UNRESOLVED``."""
-        return {
-            slot: c.value
-            for slot, c in self.fact_claims.items()
-            if c.value != UNRESOLVED
-        }
+        return {slot: c.value for slot, c in self.fact_claims.items() if c.value != UNRESOLVED}
 
 
 class SchemaError(ValueError):

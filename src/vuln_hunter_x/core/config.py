@@ -210,12 +210,8 @@ class Config:
             max_iterations=data.get("max_iterations", DEFAULT_MAX_ITERATIONS),
             force_decision=data.get("force_decision", True),
             self_consistency_samples=int(data.get("self_consistency_samples", 1)),
-            self_consistency_temperature=float(
-                data.get("self_consistency_temperature", 0.7)
-            ),
-            self_consistency_tie_break=str(
-                data.get("self_consistency_tie_break", "fp")
-            ),
+            self_consistency_temperature=float(data.get("self_consistency_temperature", 0.7)),
+            self_consistency_tie_break=str(data.get("self_consistency_tie_break", "fp")),
             jobs=int(data.get("jobs", 4)),
         )
 

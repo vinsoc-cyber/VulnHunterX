@@ -44,9 +44,7 @@ from vuln_hunter_x.context.evidence import (
 from vuln_hunter_x.verification.policy.ledger import EvidenceEntry, EvidenceOrigin
 from vuln_hunter_x.verification.policy.models import FamilyPolicy
 
-_FRAMEWORK_KINDS = frozenset(
-    {EvidenceKind.FRAMEWORK_SANITIZERS, EvidenceKind.FRAMEWORK_GUARDS}
-)
+_FRAMEWORK_KINDS = frozenset({EvidenceKind.FRAMEWORK_SANITIZERS, EvidenceKind.FRAMEWORK_GUARDS})
 _REPO_SCOPES = frozenset(
     {EvidenceScope.FILE, EvidenceScope.REPOSITORY_SOURCE, EvidenceScope.REPOSITORY_INDEX}
 )
@@ -166,9 +164,7 @@ def is_profile_satisfiable(profile: str) -> bool:
 
 # The profiles a policy may declare: satisfiable by real evidence, and not dormant.
 SELECTABLE_PROFILES = frozenset(
-    name
-    for name in _PROFILES
-    if name not in DORMANT_PROFILES and is_profile_satisfiable(name)
+    name for name in _PROFILES if name not in DORMANT_PROFILES and is_profile_satisfiable(name)
 )
 
 

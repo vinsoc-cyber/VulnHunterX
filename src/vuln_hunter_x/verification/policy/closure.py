@@ -102,9 +102,7 @@ class PolicyClosureController:
         """Fact-slot assessment instructions appended to the first user turn."""
         return render_assessment_prompt(self._policy, self._ledger)
 
-    def evaluate(
-        self, parsed: Mapping[str, object], raw_response: str = "", iteration: int = 1
-    ):
+    def evaluate(self, parsed: Mapping[str, object], raw_response: str = "", iteration: int = 1):
         try:
             assessment = parse_assessment(parsed, self._policy, self._ledger)
         except SchemaError as exc:

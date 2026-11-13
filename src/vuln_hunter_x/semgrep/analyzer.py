@@ -171,7 +171,9 @@ class SemgrepAnalyzer:
                     msg += " [WARNING: 0 results with rules loaded]"
                 return True, sarif_path, msg
             error_msg = result.stderr or result.stdout or "Unknown error"
-            logger.error("%s failed (rc=%s): %s", self.TOOL_LABEL, result.returncode, error_msg[:500])
+            logger.error(
+                "%s failed (rc=%s): %s", self.TOOL_LABEL, result.returncode, error_msg[:500]
+            )
             self._log(f"  Error: {error_msg[:500]}")
             return False, None, error_msg
         except subprocess.TimeoutExpired:

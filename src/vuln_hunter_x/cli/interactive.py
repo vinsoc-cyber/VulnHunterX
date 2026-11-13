@@ -37,7 +37,11 @@ _TOOL_DEFS = [
     ("codeql", "codeql", lambda a: a["codeql"]),
     ("semgrep", "semgrep", lambda a: a["semgrep"]),
     ("opengrep", "opengrep", lambda a: a["opengrep"]),
-    ("all", "all (codeql + semgrep + opengrep)", lambda a: a["codeql"] or a["semgrep"] or a["opengrep"]),
+    (
+        "all",
+        "all (codeql + semgrep + opengrep)",
+        lambda a: a["codeql"] or a["semgrep"] or a["opengrep"],
+    ),
 ]
 
 
@@ -121,9 +125,7 @@ def _provider_live_check(provider: str, model: str | None) -> tuple[bool, str]:
         return envmod.check_anthropic(model=model or None)
     if provider == "ollama":
         eff_model = (
-            model
-            or os.environ.get("LLM_MODEL")
-            or envmod.load_config_for_check().get("model")
+            model or os.environ.get("LLM_MODEL") or envmod.load_config_for_check().get("model")
         )
         return envmod.check_ollama(model=eff_model)
     if provider == "deepseek":
@@ -181,9 +183,7 @@ def _select_language(scan: argparse.Namespace) -> None:
         has_files = any(next(scan.local_path.rglob(f"*{e}"), None) is not None for e in exts)
         if has_files:
             return
-        print(
-            f"  Warning: no {scan.lang} files ({', '.join(exts)}) found under {scan.local_path}."
-        )
+        print(f"  Warning: no {scan.lang} files ({', '.join(exts)}) found under {scan.local_path}.")
         if _prompt("  Choose a different language? (y/n)", "n").lower() not in ("y", "yes"):
             return
 

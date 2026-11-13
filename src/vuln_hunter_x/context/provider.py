@@ -56,6 +56,7 @@ def _safe_repo_rel(path: str) -> str | None:
         parts.append(seg)
     return "/".join(parts) if parts else None
 
+
 # Directories never worth walking when grepping a repo for framework config —
 # pruned in os.walk so a node_modules tree doesn't dominate the scan.
 _SKIP_DIRS = frozenset(
@@ -316,14 +317,9 @@ class ContextProvider:
         ``request_key`` equals ``raw_request`` for an unqualified request, so
         two target-qualified requests sharing a ``raw_request`` do not collide.
         """
-        return {
-            req.request_key: self._dispatch_resolve(req, repo_name, lang)
-            for req in requests
-        }
+        return {req.request_key: self._dispatch_resolve(req, repo_name, lang) for req in requests}
 
-    def _dispatch_resolve(
-        self, req: EvidenceRequest, repo_name: str, lang: str
-    ) -> EvidenceResult:
+    def _dispatch_resolve(self, req: EvidenceRequest, repo_name: str, lang: str) -> EvidenceResult:
         kind = req.kind
         if kind is EvidenceKind.CALLER:
             return self._resolve_caller(req, repo_name, lang)
@@ -402,11 +398,7 @@ class ContextProvider:
         present-but-missing lookup is INCOMPLETE_INDEX, never NOT_FOUND_COMPLETE.
         """
         if cap.artifact_state is ArtifactState.MISSING:
-            return (
-                EvidenceStatus.INCOMPLETE_INDEX
-                if cap.supported
-                else EvidenceStatus.UNSUPPORTED
-            )
+            return EvidenceStatus.INCOMPLETE_INDEX if cap.supported else EvidenceStatus.UNSUPPORTED
         if cap.artifact_state is ArtifactState.INVALID:
             return EvidenceStatus.INCOMPLETE_INDEX
         return (
@@ -527,7 +519,9 @@ class ContextProvider:
         try:
             canonical = abs_file.resolve().relative_to(root.resolve()).as_posix()
         except (OSError, ValueError):
-            return SymbolResolution(EvidenceStatus.INCOMPLETE_INDEX, detail="uncanonicalizable path")
+            return SymbolResolution(
+                EvidenceStatus.INCOMPLETE_INDEX, detail="uncanonicalizable path"
+            )
         rows = self._load_csv(repo_name, lang, "functions")
         best: tuple[int, dict] | None = None
         for r in rows:
@@ -541,7 +535,9 @@ class ContextProvider:
             if start <= line <= end and (best is None or end - start < best[0]):
                 best = (end - start, r)
         if best is None:
-            return SymbolResolution(EvidenceStatus.INCOMPLETE_INDEX, detail="no containing function")
+            return SymbolResolution(
+                EvidenceStatus.INCOMPLETE_INDEX, detail="no containing function"
+            )
         name = (best[1].get("name") or "").strip()
         if not name:
             return SymbolResolution(EvidenceStatus.INCOMPLETE_INDEX, detail="unnamed function")
@@ -603,10 +599,15 @@ class ContextProvider:
                     SourceRef(repo_name, lang, rel, start, end),
                 )
             )
-        callers.sort(key=lambda c: (c.source_ref.file, c.source_ref.start, c.source_ref.end, c.name))
+        callers.sort(
+            key=lambda c: (c.source_ref.file, c.source_ref.start, c.source_ref.end, c.name)
+        )
         if not callers:
             return RecordedCallersResult(
-                EvidenceStatus.INCOMPLETE_INDEX, target, (), enumerated_all_rows=True,
+                EvidenceStatus.INCOMPLETE_INDEX,
+                target,
+                (),
+                enumerated_all_rows=True,
                 detail="no recorded callers",
             )
         return RecordedCallersResult(
@@ -665,7 +666,9 @@ class ContextProvider:
         """
         sr = target.source_ref
         if sr is None:
-            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="no symbol ref")
+            return ReferenceScanResult(
+                EvidenceStatus.INCOMPLETE_INDEX, target, detail="no symbol ref"
+            )
         conv = scan_convention_for(lang or sr.lang)
         if conv is None:
             return ReferenceScanResult(
@@ -673,11 +676,15 @@ class ContextProvider:
             )
         root = resolve_repo_root(self.repos_dir, sr.lang, repo_name)
         if root is None:
-            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="no repo root")
+            return ReferenceScanResult(
+                EvidenceStatus.INCOMPLETE_INDEX, target, detail="no repo root"
+            )
         try:
             resolved_root = root.resolve()
         except OSError:
-            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="unresolvable root")
+            return ReferenceScanResult(
+                EvidenceStatus.INCOMPLETE_INDEX, target, detail="unresolvable root"
+            )
         decl_pos = self._locate_decl_token(resolved_root, sr.file, target.name, sr.start, conv)
         if decl_pos is None:
             return ReferenceScanResult(
@@ -702,9 +709,13 @@ class ContextProvider:
                             continue
                         matches.append(SourceRef(repo_name, sr.lang, rel, i, i))
         except (OSError, ValueError):
-            return ReferenceScanResult(EvidenceStatus.INCOMPLETE_INDEX, target, detail="scan read error")
+            return ReferenceScanResult(
+                EvidenceStatus.INCOMPLETE_INDEX, target, detail="scan read error"
+            )
         if matches:
-            return ReferenceScanResult(EvidenceStatus.FOUND, target, tuple(matches), scan_complete=True)
+            return ReferenceScanResult(
+                EvidenceStatus.FOUND, target, tuple(matches), scan_complete=True
+            )
         return ReferenceScanResult(
             EvidenceStatus.NOT_FOUND_COMPLETE, target, (), scan_complete=True
         )
@@ -802,9 +813,7 @@ class ContextProvider:
         if (lang or "").lower() in ("javascript", "typescript"):
             bindings = self.scan_js_route_bindings(repo_name, lang, callee_name)
             if bindings:
-                shown = "\n".join(
-                    f"//   {ref.file}:{ref.start}: {text}" for ref, text in bindings
-                )
+                shown = "\n".join(f"//   {ref.file}:{ref.start}: {text}" for ref, text in bindings)
                 content = (
                     f"// Route bindings found for: {callee_name} — the function is "
                     "mounted as an HTTP route handler. Requests to the route(s) "
@@ -897,9 +906,7 @@ class ContextProvider:
 
         if not parts:
             content = f"[Function metadata present for {func_name} but body could not be read.]"
-            return EvidenceResult(
-                req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.FILE
-            )
+            return EvidenceResult(req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.FILE)
         truncated = len(matches) > max_matches
         if truncated:
             parts.append(
@@ -1059,12 +1066,8 @@ class ContextProvider:
             f"Try typedef:{struct_name} to resolve the underlying type.]"
         )
         if saw_name:
-            return EvidenceResult(
-                req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.FILE
-            )
-        cap = inspect_capability(
-            self._context_dir(lang, repo_name), lang, EvidenceKind.STRUCT
-        )
+            return EvidenceResult(req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.FILE)
+        cap = inspect_capability(self._context_dir(lang, repo_name), lang, EvidenceKind.STRUCT)
         return EvidenceResult(
             req, self._absence_status(cap), content, EvidenceScope.REPOSITORY_INDEX
         )
@@ -1117,9 +1120,7 @@ class ContextProvider:
             )
 
         content = f"[Global variable not found: {var_name}]"
-        cap = inspect_capability(
-            self._context_dir(lang, repo_name), lang, EvidenceKind.GLOBAL
-        )
+        cap = inspect_capability(self._context_dir(lang, repo_name), lang, EvidenceKind.GLOBAL)
         return EvidenceResult(
             req, self._absence_status(cap), content, EvidenceScope.REPOSITORY_INDEX
         )
@@ -1162,9 +1163,7 @@ class ContextProvider:
             )
 
         content = f"[Macro not found: {macro_name}]"
-        cap = inspect_capability(
-            self._context_dir(lang, repo_name), lang, EvidenceKind.MACRO
-        )
+        cap = inspect_capability(self._context_dir(lang, repo_name), lang, EvidenceKind.MACRO)
         return EvidenceResult(
             req, self._absence_status(cap), content, EvidenceScope.REPOSITORY_INDEX
         )
@@ -1204,9 +1203,7 @@ class ContextProvider:
             return EvidenceResult(
                 req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.REPOSITORY_INDEX
             )
-        content = f"// Functions called by {func_name}:\n" + "\n".join(
-            f"  - {c}" for c in callees
-        )
+        content = f"// Functions called by {func_name}:\n" + "\n".join(f"  - {c}" for c in callees)
         return EvidenceResult(
             req,
             EvidenceStatus.FOUND,
@@ -1331,9 +1328,7 @@ class ContextProvider:
             )
 
         content = f"[Typedef not found: {type_name}]"
-        cap = inspect_capability(
-            self._context_dir(lang, repo_name), lang, EvidenceKind.TYPEDEF
-        )
+        cap = inspect_capability(self._context_dir(lang, repo_name), lang, EvidenceKind.TYPEDEF)
         return EvidenceResult(
             req, self._absence_status(cap), content, EvidenceScope.REPOSITORY_INDEX
         )
@@ -1362,9 +1357,7 @@ class ContextProvider:
         matches = [r for r in rows if r.get("name") == enum_name]
         if not matches:
             content = f"[Enum not found: {enum_name}]"
-            cap = inspect_capability(
-                self._context_dir(lang, repo_name), lang, EvidenceKind.ENUM
-            )
+            cap = inspect_capability(self._context_dir(lang, repo_name), lang, EvidenceKind.ENUM)
             return EvidenceResult(
                 req, self._absence_status(cap), content, EvidenceScope.REPOSITORY_INDEX
             )
@@ -1536,9 +1529,7 @@ class ContextProvider:
                 provenance=tuple(provs),
             )
         content = f"[Destructor metadata present for {type_name} but bodies could not be read.]"
-        return EvidenceResult(
-            req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.FILE
-        )
+        return EvidenceResult(req, EvidenceStatus.INCOMPLETE_INDEX, content, EvidenceScope.FILE)
 
     def _get_destructor_context(
         self,

@@ -45,6 +45,7 @@ def _normalize_cwe(tag: str) -> str | None:
     match = _CWE_TAG_RE.search(tag or "")
     return f"CWE-{int(match.group(1))}" if match else None
 
+
 # Code-quality / maintainability rules that the CodeQL security suites pull in
 # but which are NOT vulnerabilities. Verifying them as "findings" is pure noise
 # (on dealer-portal-api: js/unused-local-variable = 63 findings / 0 True

@@ -11,12 +11,28 @@ from pathlib import Path
 # Query files by language
 QUERIES_BY_LANG: dict[str, list[str]] = {
     "c": [
-        "functions", "callers", "structs", "globals", "macros", "typedefs", "enums",
-        "free_sites", "destructors", "field_writes",
+        "functions",
+        "callers",
+        "structs",
+        "globals",
+        "macros",
+        "typedefs",
+        "enums",
+        "free_sites",
+        "destructors",
+        "field_writes",
     ],
     "cpp": [
-        "functions", "callers", "structs", "globals", "macros", "typedefs", "enums",
-        "free_sites", "destructors", "field_writes",
+        "functions",
+        "callers",
+        "structs",
+        "globals",
+        "macros",
+        "typedefs",
+        "enums",
+        "free_sites",
+        "destructors",
+        "field_writes",
     ],
     "python": ["functions", "callers", "classes"],
     "javascript": ["functions", "callers", "classes"],
@@ -49,7 +65,8 @@ def _clean_codeql_stderr(stderr: str, max_len: int = 400) -> str:
     if not stderr:
         return ""
     lines = [
-        ln for ln in stderr.splitlines()
+        ln
+        for ln in stderr.splitlines()
         if "is the home directory" not in ln
         and "performance issues" not in ln
         and "Consider moving to a new location" not in ln

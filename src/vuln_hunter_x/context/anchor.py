@@ -77,7 +77,9 @@ def resolve_anchor(finding: Finding, file_text: str | None) -> AnchorResolution:
     hits = [i + 1 for i in range(len(lines)) if _matches(i)]
     if len(hits) == 1:
         return AnchorResolution(
-            reported, hits[0], REANCHORED_UNIQUE,
+            reported,
+            hits[0],
+            REANCHORED_UNIQUE,
             detail=(
                 f"scanner reported line {reported}, but the flagged construct "
                 f"resolves uniquely to line {hits[0]}"
@@ -85,10 +87,14 @@ def resolve_anchor(finding: Finding, file_text: str | None) -> AnchorResolution:
         )
     if not hits:
         return AnchorResolution(
-            reported, reported, ABSENT,
+            reported,
+            reported,
+            ABSENT,
             detail=f"flagged construct not found in {finding.file}",
         )
     return AnchorResolution(
-        reported, reported, AMBIGUOUS,
+        reported,
+        reported,
+        AMBIGUOUS,
         detail=f"flagged construct matches {len(hits)} lines in {finding.file}",
     )

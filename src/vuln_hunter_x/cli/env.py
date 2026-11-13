@@ -144,7 +144,10 @@ def check_treesitter() -> tuple[bool, str]:
 
     if missing:
         pkg_names = " ".join(pkg_for_lang.get(lang, f"tree-sitter-{lang}") for lang in missing)
-        return False, f"Missing language bindings ({', '.join(missing)}); run: pip install {pkg_names}"
+        return (
+            False,
+            f"Missing language bindings ({', '.join(missing)}); run: pip install {pkg_names}",
+        )
 
     return True, (
         f"tree-sitter {version} with all language bindings "

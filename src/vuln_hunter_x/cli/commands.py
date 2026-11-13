@@ -74,9 +74,7 @@ def _wire_local_path(repos_dir: Path, lang: str, name: str, local_path: Path) ->
     return None
 
 
-def _find_db_name_by_source_root(
-    local_path: Path, lang: str, output_dir: Path
-) -> str | None:
+def _find_db_name_by_source_root(local_path: Path, lang: str, output_dir: Path) -> str | None:
     """Look up an existing CodeQL DB whose source-root matches ``local_path``.
 
     Scans ``output/<lang>/*/database/codeql-database.yml`` for a
@@ -425,7 +423,11 @@ def _run_codeql_analyze(
                 if src_dir.is_dir() and any(src_dir.glob("*.ql")):
                     extra_suites.append(str(custom_suite))
         ok, result_path, msg = analyzer.run_analysis(
-            db_path, lang, name, suite=effective_suite, extra_suites=extra_suites,
+            db_path,
+            lang,
+            name,
+            suite=effective_suite,
+            extra_suites=extra_suites,
         )
         if verbose and lines:
             msg = "\n".join(lines) + "\n" + msg
@@ -470,7 +472,11 @@ def _run_codeql_analyze(
 
 
 def _expand_per_repo_configs(
-    args: argparse.Namespace, configs: list[str], lang: str, *, engine: str = "semgrep",
+    args: argparse.Namespace,
+    configs: list[str],
+    lang: str,
+    *,
+    engine: str = "semgrep",
 ) -> list[str]:
     """Resolve final Semgrep/OpenGrep configs for one repo at one language.
 
@@ -562,9 +568,7 @@ def _run_semgrep_analyze(
             repo_list = [(lang, name) for lang, name in repo_list if lang == args.lang]
         if args.repo:
             repo_list = [
-                (lang, name)
-                for lang, name in repo_list
-                if name.lower() == args.repo.lower()
+                (lang, name) for lang, name in repo_list if name.lower() == args.repo.lower()
             ]
 
     if not repo_list:
@@ -686,9 +690,7 @@ def _run_opengrep_analyze(
             repo_list = [(lang, name) for lang, name in repo_list if lang == args.lang]
         if args.repo:
             repo_list = [
-                (lang, name)
-                for lang, name in repo_list
-                if name.lower() == args.repo.lower()
+                (lang, name) for lang, name in repo_list if name.lower() == args.repo.lower()
             ]
 
     if not repo_list:
@@ -826,9 +828,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             resolved = _find_db_name_by_source_root(local_path, args.lang, output_dir)
             name = resolved or local_path.name
             if resolved and resolved != local_path.name:
-                print(
-                    f"  Using existing database '{resolved}' for local path {local_path}"
-                )
+                print(f"  Using existing database '{resolved}' for local path {local_path}")
         lang = args.lang
         # Ensure repo dir exists for Semgrep/OpenGrep (symlink if needed)
         wire_error = _wire_local_path(repos_dir, lang, name, local_path)
@@ -1331,9 +1331,7 @@ def cmd_report(args: argparse.Namespace) -> int:
                 # Pick the one with the newest file
                 results_dir = max(
                     candidates,
-                    key=lambda d: max(
-                        (f.stat().st_mtime for f in d.glob("*.json")), default=0
-                    ),
+                    key=lambda d: max((f.stat().st_mtime for f in d.glob("*.json")), default=0),
                 )
 
     if not results_dir or not results_dir.is_dir():
@@ -1462,7 +1460,11 @@ def cmd_scan(args: argparse.Namespace) -> int:
     if direct_mode and not lang:
         print("Error: --lang is required with --url or --local-path", file=sys.stderr)
         return 1
-    name = getattr(args, "name", None) or _derive_repo_name(url, local_path) or getattr(args, "repo", None)
+    name = (
+        getattr(args, "name", None)
+        or _derive_repo_name(url, local_path)
+        or getattr(args, "repo", None)
+    )
     if direct_mode and not name:
         print("Error: could not derive a repository name; pass --name", file=sys.stderr)
         return 1
