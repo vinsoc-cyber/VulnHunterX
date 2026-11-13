@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# Relational SQL-injection (CWE-89) family policy — C#.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# The DECISION TABLE (fact_slots, decisive_slots, entailment, admissibility) is
+# identical to the PHP reference family config/policies/sql_injection.yaml and
+# must stay so (tests/test_policy_family_parity.py). Only the selectors and the
+# assessment guidance are C#-specific.
+#
+# Decisive facts. Two DISTINCT defensive facts decide CWE-89 and must not be
+# collapsed: query_channel (does an attacker value enter the SQL grammar as
+# query TEXT, or only as BOUND DATA on every reaching path) and
+# neutralization_coverage (for a value still interpolated into SQL text, is an
+# effective guard for its EXACT grammar position present on every reaching
+# path). A True Positive needs a qualifying sink, proven attacker control, a
+# reaching flow, a witnessed SQL-text path AND a witnessed uncovered path;
+# "no sanitizer visible" in a partial slice resolves nothing.
+#
+# Scope: relational SQL (and SQL-like ORM query languages) only. NoSQL /
+# document-store query injection (CWE-943) is a different sink with a different
+# neutralization and is intentionally NOT selected here.
+#
+# Selectors: CWE-89. In the rule inventory the C# CWE-89 rules are
+# cs/sql-injection, the vendored csharp-sqli rule (both id forms) and the custom
+# vulnhunterx.csharp.ef-raw-sql; none carries a CWE owned by another family, so
+# the CWE selector is collision-free. No C# NoSQL rule is tagged CWE-89.
+
+family: sql_injection_csharp
+version: "1"
+
+selectors:
+  languages: [csharp]
+  cwes: ["CWE-89"]
+
+fact_slots:
+  sink_binding: [QUALIFYING_RELATIONAL_SQL_SINK, NOT_RELATIONAL_SQL_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  query_channel: [SQL_TEXT_PATH_FOUND, BOUND_DATA_ONLY_ALL_PATHS]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - query_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_RELATIONAL_SQL_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    query_channel: SQL_TEXT_PATH_FOUND
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_RELATIONAL_SQL_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - query_channel: BOUND_DATA_ONLY_ALL_PATHS
+    - neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a concrete
+# unsafe SQL-text path proves the positive case, otherwise stay Needs-More-Data.
+# ALL_REACHING_PATHS / BOUND_DATA_ONLY_ALL_PATHS use LOCAL_OR_EXHAUSTIVE, NOT
+# EXHAUSTIVE_ENCODER: parameter binding is not encoding, and a prepared statement
+# or an integer cast is proven by locally visible code.
+admissibility:
+  sink_binding:
+    QUALIFYING_RELATIONAL_SQL_SINK: LOCAL_POSITIVE
+    NOT_RELATIONAL_SQL_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  query_channel:
+    SQL_TEXT_PATH_FOUND: CONCRETE_PATH
+    BOUND_DATA_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_RELATIONAL_SQL_SINK when the flagged call builds or executes a relational query: an ADO.NET command (SqlCommand, OleDbCommand, OdbcCommand, MySqlCommand, NpgsqlCommand, SqliteCommand, any DbCommand) through its constructor string or CommandText and ExecuteReader / ExecuteNonQuery / ExecuteScalar, a SqlDataAdapter select command, Dapper Query* / Execute* / QueryMultiple, EF Core FromSqlRaw / ExecuteSqlRaw / SqlQueryRaw / FromSql / ExecuteSql, or Entity Framework 6 Database.SqlQuery / ExecuteSqlCommand. NOT_RELATIONAL_SQL_SINK when the flagged expression is not a relational query execution: a document-store or key-value query (a MongoDB filter, Cosmos DB, Redis), a string that is only logged or returned, or a string operation whose result never reaches a query API."
+  - "attacker_control: PROVEN when the local slice or the scanner data-flow SOURCE shows an externally supplied value reaching the statement (ASP.NET Core Request.Query / Form / Headers / Cookies / RouteValues, a model-bound controller action parameter including [FromQuery] / [FromRoute] / [FromForm] / [FromBody] / [FromHeader], ASP.NET Request.QueryString / Form / Params, a WebForms control Text value). REFUTED when the local slice shows every value placed in the query is a literal, a const, or operator-only input such as application configuration. A pattern-only rule match with no data-flow, or a method parameter whose callers are not in evidence, establishes neither value: leave the slot UNRESOLVED and request the callers."
+  - "flow_to_sink: REACHES when the controlled value reaches the executed statement on some path (shown by the local slice or the scanner data-flow). NO_PATH_COMPLETE only when the local slice shows that on EVERY path the value is replaced before the sink (an unconditional reassignment to a constant, a branch whose condition is a compile-time constant, a container read with a key other than the one that stores the controlled value), or with complete evidence that no path reaches it. A path that is merely not shown does not establish NO_PATH_COMPLETE; leave the slot UNRESOLVED and request the missing caller or callee."
+  - "query_channel: for the flagged statement, enumerate EVERY attacker-controlled value that takes part in building it. SQL_TEXT_PATH_FOUND when at least one such value becomes part of the query text on some reaching path: + concatenation, an interpolated string converted to string, string.Format, string.Concat or StringBuilder.Append producing a CommandText, a Dapper SQL argument, or the string given to EF Core FromSqlRaw / ExecuteSqlRaw / SqlQueryRaw or Entity Framework 6 Database.SqlQuery / ExecuteSqlCommand. A command that adds parameters for some values and concatenates another is still SQL text for that other value. An interpolated string stored in a string or var variable is already formatted text when it is later passed on. BOUND_DATA_ONLY_ALL_PATHS only when, on EVERY reaching path, the query string is fixed and every attacker value is supplied separately: @name placeholders with Parameters.Add / AddWithValue or a DbParameter, Dapper @name placeholders with an anonymous-object or DynamicParameters argument, EF Core FromSqlInterpolated / ExecuteSqlInterpolated and (EF Core 7 and later) FromSql / ExecuteSql / Database.SqlQuery given the interpolated string literal directly so each hole becomes a DbParameter, FromSqlRaw / ExecuteSqlRaw / Entity Framework 6 SqlQuery with {0} placeholders or DbParameter objects and the values passed as separate arguments, or a LINQ query. The EF Core 2.x FromSql and ExecuteSqlCommand had both a string and a FormattableString overload, so there the static type of the argument decides; when the EF version or the argument type is not in evidence, leave the slot UNRESOLVED."
+  - "neutralization_coverage: for each attacker value that enters the SQL text, identify its exact grammar position (quoted string literal, unquoted numeric literal, identifier, keyword / ORDER BY direction, or raw fragment) and the value's possible output after its LAST transformation on that path. A defense covers a path only when every possible output stays data-only IN THAT EXACT POSITION: string escaping or quote doubling covers only a quoted-literal position and never a numeric, identifier, keyword or raw-fragment position; integer parsing or coercion (or a complete numeric allowlist) covers a numeric position; a dynamic identifier, an ORDER BY direction or a raw fragment needs a finite allowlist of permitted outputs. In C#, int.Parse / long.Parse / Convert.ToInt32, or int.TryParse with its result checked (the parsed number, not the original string, being what is interpolated), a value whose static type is numeric, or a Guid from Guid.Parse yields output that is data-only in a numeric or quoted position; Replace of a single quote by two covers a quoted-literal position only, and only on a DBMS that does not also treat backslash as an escape character; SqlCommandBuilder.QuoteIdentifier covers an identifier position; a Regex covers a position only when it is anchored at both ends and its character class excludes every character with meaning in that position; membership in a fixed collection of permitted names is a finite allowlist. ADO.NET has no escaping function for values, so name the exact transformation. A defense on a sibling branch does not cover the flagged branch, and a check whose result is ignored covers nothing. ALL_REACHING_PATHS only when every interpolated attacker value is covered on every reaching path. BYPASS_PATH_FOUND when the evidence shows a concrete path on which one interpolated attacker value has no defense that covers its position. When the value passes through a helper whose body is not in evidence, request it and leave the slot UNRESOLVED; an unseen helper establishes neither value."

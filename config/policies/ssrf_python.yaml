@@ -1,0 +1,239 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# Server-side request forgery (CWE-918) family policy — Python.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-918 is about attacker data choosing WHERE the server sends a request. Two
+# DISTINCT facts decide it and must not be collapsed:
+#
+#   destination_control      what the attacker value could select if no check
+#                            existed: the scheme, host, port or whole URL of the
+#                            request, or — on every reaching path — only a
+#                            component of a request whose origin is fixed.
+#   destination_restriction  for a value that can select the destination, whether
+#                            the destination that is actually requested is held to
+#                            a fixed allowlist on every reaching path.
+#
+# destination_restriction dismisses only together with a PROVEN host/scheme
+# channel (the same scoping command_injection uses for its coverage fact), so a
+# restriction claim can never dismiss a finding whose channel is unknown.
+#
+# Partial SSRF (the attacker controls only part of the URL). This is not an
+# automatic dismissal. PATH_OR_QUERY_ONLY_ALL_PATHS needs, on every reaching
+# path, (a) a fixed origin, (b) no way for the value to reach the authority, and
+# (c) for a value placed in the PATH, a constraint that stops it re-targeting the
+# request to another endpoint of that fixed host with dot-segments or separators.
+# A raw, unconstrained path segment on a fixed host is neither value: it is not
+# host control, and it is not confined either (the server still sends a request
+# of the attacker's choosing to that host, with the server's credentials and
+# network position). It stays unresolved -> Needs More Data. This table has no
+# positive state for that case; it is a known limit, not a dismissal.
+#
+# Out of scope, by design: redirects sent to the BROWSER (CWE-601, the
+# open_redirect family); XML external entities (CWE-611); whether an egress
+# proxy, network policy or service mesh blocks the request — deployment facts the
+# code slice cannot show and that are never counted as a restriction here.
+#
+# Selectors. CWE-918, gated to Python. The inventory shows every Python rule
+# tagged CWE-918 carries no other CWE: CodeQL py/full-ssrf and py/partial-ssrf,
+# the Django ssrf-injection-requests / ssrf-injection-urllib rules, the Flask
+# ssrf-requests rule, and the Django and Flask tainted-url-host rules, each in
+# its vendored and registry id forms. No rule alias is needed and no other family
+# selects CWE-918. py/partial-ssrf is the partial case described above. The Flask
+# ssrf-requests rule fires when a route variable appears in ANY argument of a
+# requests call, including params= / data= / json=; destination_control decides
+# those. The tainted-url-host rules flag the URL string construction, not the
+# request call; sink_binding decides whether that string is requested.
+
+family: ssrf_python
+version: "1"
+
+selectors:
+  languages: [python]
+  cwes: ["CWE-918"]
+
+fact_slots:
+  sink_binding: [QUALIFYING_OUTBOUND_REQUEST_SINK, NOT_OUTBOUND_REQUEST_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  destination_control: [HOST_OR_SCHEME_CONTROL_PATH_FOUND, PATH_OR_QUERY_ONLY_ALL_PATHS]
+  destination_restriction: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - destination_control
+  - destination_restriction
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_OUTBOUND_REQUEST_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    destination_control: HOST_OR_SCHEME_CONTROL_PATH_FOUND
+    destination_restriction: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_OUTBOUND_REQUEST_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - destination_control: PATH_OR_QUERY_ONLY_ALL_PATHS
+    # A restriction dismisses only a PROVEN host/scheme channel. With the channel
+    # unresolved there is nothing established to restrict, so the claim must not
+    # dismiss on its own — the finding stays Needs More Data.
+    - destination_control: HOST_OR_SCHEME_CONTROL_PATH_FOUND
+      destination_restriction: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. The two "path found" values need
+# a witnessed path (CONCRETE_PATH). The two "all paths" values use
+# LOCAL_OR_EXHAUSTIVE, not EXHAUSTIVE_ENCODER: a fixed-origin URL construction or
+# a parsed-host allowlist is ordinary code that is visible in the local slice,
+# not an encoder; when it lives in a helper, the retrieval must be exhaustive.
+admissibility:
+  sink_binding:
+    QUALIFYING_OUTBOUND_REQUEST_SINK: LOCAL_POSITIVE
+    NOT_OUTBOUND_REQUEST_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  destination_control:
+    HOST_OR_SCHEME_CONTROL_PATH_FOUND: CONCRETE_PATH
+    PATH_OR_QUERY_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  destination_restriction:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - >-
+    sink_binding: QUALIFYING_OUTBOUND_REQUEST_SINK when the flagged expression is,
+    or is the URL / host argument of, a call that makes the server open a network
+    connection: requests.get / post / put / patch / delete / head / options /
+    request and the same methods on a requests.Session, urllib.request.urlopen /
+    urlretrieve / Request(...) passed to urlopen or to an opener's open(),
+    urllib3 PoolManager.request / urlopen, http.client.HTTPConnection /
+    HTTPSConnection (the host argument), httpx.get / post / request / stream and
+    the same methods on httpx.Client / AsyncClient, aiohttp ClientSession.get /
+    post / request / ws_connect, pycurl with the URL option, or
+    socket.create_connection / socket.connect. When the flagged line only builds a
+    URL string or a request object, it qualifies when the cited code shows that
+    same value being passed to one of these calls. NOT_OUTBOUND_REQUEST_SINK when
+    the cited code shows the flagged value is never used to make a server-side
+    request: a URL that is only parsed, compared, encoded, logged, stored or
+    rendered into a page; a redirect sent to the browser (flask.redirect, Django
+    redirect / HttpResponseRedirect, a Location header), which the client follows,
+    not the server; or a user-defined function that merely shares a name the rule
+    matched (a local module named requests, a method named get on an unrelated
+    object). If the code that would perform the request is outside the evidence, do
+    not assert either value.
+  - >-
+    attacker_control: PROVEN when a value an external client supplies becomes part
+    of the request destination — the scanner data-flow SOURCE establishes this
+    (Flask request.args / form / values / json / get_json() / data / headers /
+    cookies / files and view arguments bound from the route; Django request.GET /
+    POST / body / headers / META / COOKIES / FILES and view keyword arguments from
+    the URL pattern; FastAPI / Starlette path, query, header, cookie and body
+    parameters). REFUTED when the cited code shows every part of the destination is
+    a constant or server-side configuration (a module constant, a settings value,
+    os.environ) with no request-derived part, or is operator-only input (sys.argv,
+    input() in a command-line tool). A parameter of a function that is not itself a
+    request handler establishes neither value: its callers decide, so request them.
+    A value read from a database or a file is PROVEN only when the evidence shows a
+    client can write it.
+  - >-
+    flow_to_sink: REACHES when the controlled value reaches the request call on
+    some path, including through an f-string, % or .format, concatenation,
+    urljoin, a Request object or a helper function shown in the evidence.
+    NO_PATH_COMPLETE only with complete evidence that no path carries the value to
+    the request — for example the variable is unconditionally rebound to a constant
+    before the call on every path. A rebinding on one branch does not establish it.
+  - >-
+    destination_control: decide what the attacker value could select in the request
+    destination IF NO CHECK EXISTED (checks belong to destination_restriction).
+    First write out how the URL is built on each reaching path.
+    HOST_OR_SCHEME_CONTROL_PATH_FOUND when on some reaching path the value supplies
+    the scheme, the host, the port or the whole URL: the value is the entire URL
+    argument or its beginning (requests.get(value), urlopen(value)); it is placed in
+    the authority (f"http://{value}/x", "https://%s/api" % value, the host argument
+    of http.client.HTTPConnection); it follows a fixed prefix that does not end the
+    authority ("https://example.com" + value, where ".evil.test", "@evil.test" or
+    ":8080" changes the host or port — a prefix ends the authority only when it
+    already contains the "/" that follows the host); or it is joined to a fixed
+    base by an API that lets an absolute or scheme-relative reference replace the
+    base (urllib.parse.urljoin(BASE, value) — "http://evil.test/" and
+    "//evil.test/" both replace the authority; an absolute URL given to an httpx
+    client created with base_url is likewise used as given).
+    PATH_OR_QUERY_ONLY_ALL_PATHS only when, on EVERY reaching path, all three hold:
+    (1) scheme, host and port are fixed literals or server configuration; (2) the
+    value is added after the "/" that ends the authority, or as a query parameter,
+    fragment, header or body — by plain concatenation or formatting after that "/",
+    or through params= / data= / json= / headers= — not by one of the joining APIs
+    above; (3) if the value is placed in the PATH, the cited code constrains it so
+    it cannot re-target the request to a different endpoint of that host: int(...)
+    or uuid.UUID(...) conversion, a fixed allowlist or enum, or a strict fully
+    anchored pattern that admits no "/", no "\" and no "." or ".." segment
+    (urllib.parse.quote(value, safe="") confines the value to one segment but still
+    lets it be exactly ".."; quote with its default safe="/" does not confine it at
+    all; a value placed only in the query, fragment, header or body needs no such
+    constraint). A raw, unconstrained path segment on a fixed host is NEITHER
+    value: leave destination_control UNRESOLVED and say so. Also leave it
+    UNRESOLVED when the base URL comes from an attribute, a parameter or a
+    configuration object whose origin the evidence does not show.
+  - >-
+    destination_restriction: applies to a value that can select the destination.
+    Identify every check between the source and the request call, what exactly it
+    inspects (the raw string, or a parsed component), and whether its result is
+    enforced on the path to the call. ALL_REACHING_PATHS only when on EVERY
+    reaching path the destination that is requested is held to a fixed set: the
+    host obtained by PARSING the URL (urllib.parse.urlsplit / urlparse .hostname,
+    or the whole .netloc) is compared by exact equality or membership against fixed
+    trusted hosts (constants or server-side settings), or the whole URL is
+    selected from a fixed dict / enum by key;
+    the check's failure branch does not reach the call; and the request cannot be
+    sent to a host other than the one that was checked (see the parser note below).
+    BYPASS_PATH_FOUND requires a WITNESSED path, shown in the cited code, on which a
+    host-selecting value reaches the call past no effective restriction: either the
+    complete construction from the source to the request call is in evidence and
+    applies no check of the destination, or the check that is present is one a
+    concrete input passes while naming another host. Checks that do NOT restrict
+    the destination: in / startswith / endswith / re.search or an unanchored
+    re.match on the raw URL string ("https://example.com" as a prefix without a
+    trailing "/" passes "https://example.com.evil.test/" and
+    "https://example.com@evil.test/"; "example.com" in url passes
+    "http://evil.test/?example.com"); a parsed-host .endswith("example.com")
+    without a leading dot passes "evilexample.com"; a scheme-only check; a check on
+    a different variable from the one requested; a check on a sibling branch; a
+    check whose result is ignored or only logged. Cases to leave UNRESOLVED instead
+    of asserting either value: a denylist of internal names or address ranges
+    (localhost, 127.0.0.0/8, 10.0.0.0/8, 169.254.169.254, ipaddress .is_private) —
+    it restricts nothing unless the code resolves the host, checks every resolved
+    address, connects to that checked address and does not follow unchecked
+    redirects, and alternate IP notations, IPv6 forms and DNS answers that change
+    between the check and the connection are otherwise open; a check of only the
+    first URL when it is not an exact allowlist of trusted hosts and the client
+    follows redirects (requests, urllib.request.urlopen, urllib3 and aiohttp follow
+    them by default; httpx does not unless follow_redirects is set); parser note —
+    a host validated with urllib.parse and then requested from the raw string by a
+    client with its own URL parser, when "\", control characters or whitespace are
+    not rejected (urllib.parse keeps a backslash inside the netloc, while urllib3,
+    which requests uses, ends the authority at a backslash, so the two can disagree
+    on the host of "http://a.test\@b.test/"); a validator, wrapper client, session
+    subclass or transport adapter whose body is not in evidence (request it); and
+    any claim that rests only on a partial slice showing no check. An egress proxy,
+    firewall or network policy is not evidence for this slot.

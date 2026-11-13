@@ -29,8 +29,12 @@ selectors:
 handoff_from:
   languages: [php]
   rule_aliases:
+    # Each rule in both id forms: the semgrep.dev registry form and the form the
+    # vendored OpenGrep tree emits (config.opengrep-rules.<dirs>.<id>).
     - php.lang.security.injection.tainted-filename.tainted-filename
     - php.lang.security.eval-use.eval-use
+    - config.opengrep-rules.php.lang.security.injection.tainted-filename
+    - config.opengrep-rules.php.lang.security.eval-use
 
 applicability:
   slot: sink_binding

@@ -1,0 +1,165 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# LDAP-injection (CWE-90) family policy — Python.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-90 is about attacker data changing the STRUCTURE of an LDAP search filter
+# or distinguished name. Two DISTINCT defensive facts decide it and must not be
+# collapsed: filter_channel (does the value become part of the filter or DN
+# TEXT, or is it on every reaching path handed to an API that encodes it —
+# ldap.filter.filter_format with a fixed template) and neutralization_coverage
+# (for a value that does enter the text, is escaping appropriate to ITS POSITION
+# applied on every reaching path). Filter escaping (RFC 4515) and DN escaping
+# (RFC 4514) protect different grammars; one does not cover the other, so "an
+# escape is present" is not sufficient.
+#
+# Scope: LDAP search filters and distinguished names sent through python-ldap or
+# ldap3.
+#
+# Selectors: CWE-90 is clean in Python — its only rules are py/ldap-injection
+# and the custom vulnhunterx.python.ldap-injection, both tagged CWE-90 alone and
+# both real filter/DN sinks. The aliases repeat those ids so a finding that
+# arrives without a CWE tag is still selected.
+
+family: ldap_injection_python
+version: "1"
+
+selectors:
+  languages: [python]
+  cwes: ["CWE-90"]
+  rule_aliases:
+    - py/ldap-injection
+    - "*vulnhunterx.python.ldap-injection"
+
+fact_slots:
+  sink_binding: [QUALIFYING_LDAP_QUERY_SINK, NOT_LDAP_QUERY_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  filter_channel: [FILTER_OR_DN_TEXT_PATH_FOUND, BOUND_DATA_ONLY_ALL_PATHS]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - filter_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_LDAP_QUERY_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    filter_channel: FILTER_OR_DN_TEXT_PATH_FOUND
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_LDAP_QUERY_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - filter_channel: BOUND_DATA_ONLY_ALL_PATHS
+    # Coverage dismisses only a PROVEN filter/DN text path. When the channel is
+    # unresolved there is nothing established to neutralize, so a coverage claim
+    # must not dismiss vacuously — the finding stays Needs More Data.
+    - filter_channel: FILTER_OR_DN_TEXT_PATH_FOUND
+      neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a
+# concrete unsafe filter/DN text path proves the positive case, otherwise stay
+# Needs More Data. BOUND_DATA_ONLY_ALL_PATHS / ALL_REACHING_PATHS use
+# LOCAL_OR_EXHAUSTIVE: a filter_format call or an escape call applied where the
+# filter is built is proven by locally visible code; a helper that lives off the
+# slice counts only when retrieved exhaustively.
+admissibility:
+  sink_binding:
+    QUALIFYING_LDAP_QUERY_SINK: LOCAL_POSITIVE
+    NOT_LDAP_QUERY_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  filter_channel:
+    FILTER_OR_DN_TEXT_PATH_FOUND: CONCRETE_PATH
+    BOUND_DATA_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - >-
+    sink_binding: QUALIFYING_LDAP_QUERY_SINK when the flagged call sends a search
+    filter or a distinguished name to a directory: python-ldap LDAPObject search,
+    search_s, search_st, search_ext and search_ext_s (base, scope, filterstr),
+    and the DN-taking operations simple_bind_s / bind_s, add_s, modify_s,
+    delete_s, rename_s and compare_s; ldap3 Connection.search(search_base,
+    search_filter, ...), Connection(user=dn) / rebind, add, modify, delete and
+    modify_dn. NOT_LDAP_QUERY_SINK when the flagged call carries neither a filter
+    nor a DN built for a directory operation: a pure string operation, logging, a
+    regular-expression search, or a search method of an unrelated object.
+  - >-
+    attacker_control: PROVEN when a value from outside the trust boundary reaches
+    the filter or DN; the scanner data-flow SOURCE (flask.request args / form /
+    values / json / headers / cookies, Django request.GET / POST / body, a FastAPI
+    or Starlette request parameter, a login form field) establishes this. REFUTED
+    when the slice shows the filter and the DN are literals or are assembled only
+    from literals and values the deployment operator supplies. A value read from
+    a database, a configuration file or an environment variable does not
+    establish either value unless the evidence shows who sets it.
+  - >-
+    flow_to_sink: REACHES when the controlled value reaches the directory call on
+    some path. NO_PATH_COMPLETE only with complete evidence that no path carries
+    it there. Not seeing the path in the slice is not complete evidence.
+  - >-
+    filter_channel: for the flagged call, enumerate EVERY attacker-controlled
+    value and whether it lands in the FILTER or in a DN (the search base / entry
+    name / bind name). FILTER_OR_DN_TEXT_PATH_FOUND when, on some reaching path,
+    a value is concatenated, %-formatted, str.format-ted or f-string-interpolated
+    into the filter string or the DN string. ldap3 has no placeholder mechanism
+    for filters, so a value that appears in an ldap3 search_filter or search_base
+    is always on a text path, and whether it was escaped is a
+    neutralization_coverage question. BOUND_DATA_ONLY_ALL_PATHS only when, on
+    EVERY reaching path, the filter template and the DN are fixed and each
+    attacker value is passed through an API that encodes it:
+    ldap.filter.filter_format(template, [values]) with a literal template, which
+    applies escape_filter_chars to every argument before substitution. A template
+    that is itself built from input, or a value concatenated into the base
+    argument of the same call, is a text path. An ordinary % or str.format with
+    no escaping is not an encoding API.
+  - >-
+    neutralization_coverage: applies to a value that enters the filter or DN text.
+    For each such value identify its position and what was applied to it last. A
+    filter VALUE position needs RFC 4515 escaping of backslash, '*', '(', ')' and
+    NUL: ldap.filter.escape_filter_chars (python-ldap),
+    ldap3.utils.conv.escape_filter_chars (ldap3). A DN VALUE position needs RFC
+    4514 escaping of ',', '+', '"', backslash, '<', '>', ';', NUL, a leading '#'
+    or space and a trailing space: ldap.dn.escape_dn_chars (python-ldap),
+    ldap3.utils.dn.escape_rdn (ldap3). One does not cover the other position.
+    Neither covers an attacker-chosen attribute NAME, operator or whole filter
+    fragment, which needs a finite allowlist. A full-string allowlist
+    (re.fullmatch, or re.match anchored at both ends; str.isalnum) that admits
+    only characters with no meaning in either grammar covers a value position of
+    either kind; re.match without an end anchor, or re.search, does not. A check
+    on a sibling branch does not cover the flagged branch. BYPASS_PATH_FOUND
+    requires a WITNESSED reaching path on which a value enters the text with no
+    escaping appropriate to its position: none applied in the visible code, the
+    wrong kind for the position, a hand-written replace that misses one of the
+    listed characters, or escaping meant for another grammar (HTML escaping of
+    '<', '>', '&' and quotes leaves the filter and DN metacharacters intact). ALL_REACHING_PATHS only when every
+    reaching path applies position-appropriate escaping or such an allowlist to
+    every attacker value. If the escaping is done by a project helper whose body
+    is not in evidence, leave neutralization_coverage unresolved.

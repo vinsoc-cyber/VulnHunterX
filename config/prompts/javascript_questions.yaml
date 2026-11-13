@@ -26,7 +26,7 @@ js/sql-injection:
   short_description: "User input concatenated into SQL query"
   questions:
     - "Where does the INPUT originate — req.query, req.body, req.params, or another user-controlled source?"
-    - "Is the query built with STRING CONCATENATION or template literals (vulnerable), or are PARAMETERIZED queries used with ? or $1 placeholders (safe)?"
+    - "Is the query text built with STRING CONCATENATION or template literals, or is every user value passed as a PARAMETER for a ? or $1 placeholder? Quote the lines."
     - "If using Sequelize, is sequelize.query() called with raw SQL and user input, or with model methods (.findAll(), .findOne()) using where-clause objects?"
     - "If using Knex.js, is knex.raw() used with user input instead of the query builder API (.where(), .select())?"
     - "If using TypeORM, is getRepository().query() or createQueryBuilder().where() used with string interpolation instead of parameterized :param bindings?"
@@ -92,8 +92,8 @@ js/command-injection:
   questions:
     - "Where does the INPUT originate - request, file, environment?"
     - "Is child_process.exec() used (shell=true, vulnerable)?"
-    - "Or is spawn/execFile used with shell:false (safer)?"
-    - "Is the input passed as a SINGLE string (vulnerable) or argument ARRAY (safer)?"
+    - "Or is spawn/execFile used, and is the `shell` option set? Quote the call."
+    - "Is the input part of a SINGLE command string or one element of an argument ARRAY, and which position does it occupy (program, option, operand)?"
     - "Are SHELL METACHARACTERS escaped or rejected?"
     - "Could an attacker inject ; | & $ ` to execute additional commands?"
   context_hint: "Trace from input source to child_process call."

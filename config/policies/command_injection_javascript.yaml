@@ -1,0 +1,152 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# OS command-injection (CWE-78 / CWE-77) family policy — JavaScript / TypeScript (Node.js).
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# The decision table is shared by every command_injection_<lang> family. It is
+# the PHP table (config/policies/command_injection.yaml) with ONE deliberate
+# change: command_channel has a second positive value.
+#
+#   SHELL_COMMAND_TEXT_PATH_FOUND   the attacker value becomes text that a
+#                                   command interpreter (sh, bash, cmd.exe,
+#                                   PowerShell) parses.
+#   EXECUTABLE_CONTROL_PATH_FOUND   no interpreter parses the value, but it sits
+#                                   in the PROGRAM position: it decides which
+#                                   executable is launched.
+#
+# PHP's exec family always goes through a shell, so one positive state was
+# enough there. In Node.js only child_process.exec /
+# execSync (and any call given the `shell` option) run a shell; execFile and spawn
+# launch the program directly with an argument array. Attacker control of the
+# program in such a launch needs its own positive state.
+#
+# neutralization_coverage is judged for the channel that was found, and has an
+# exact meaning for each:
+#   shell text        BYPASS = a witnessed command-control sequence survives;
+#                     ALL_REACHING_PATHS = every path constrains every attacker
+#                     value against shell control AND program-level meaning.
+#   program position  BYPASS = a witnessed path on which the value is not
+#                     restricted to a fixed set of programs;
+#                     ALL_REACHING_PATHS = every path admits it only by exact
+#                     membership in a fixed set, and the other attacker values
+#                     are bounded data operands.
+# Coverage dismisses only together with a PROVEN positive channel. With
+# command_channel unresolved it dismisses nothing, so "there is no shell,
+# therefore everything is neutralized" can never produce a False Positive.
+#
+# Kept limit: pure argument injection (CWE-88) — the attacker controls only an
+# option or argument of a fixed program and no shell is involved — proves
+# neither positive channel nor the strong fixed-executable/data-operand state.
+# command_channel stays unresolved and the finding ends as Needs More Data,
+# exactly as in the PHP family.
+#
+# production_scope is recorded but NOT decisive.
+#
+# Selection is by rule alias, deliberately WITHOUT a CWE selector. CodeQL tags
+# js/prototype-pollution, js/prototype-polluting-assignment and
+# js/prototype-pollution-utility with CWE-78 (next to 79, 94, 400, 471, 915). They
+# are not process launches; a CWE-78 selector would claim them and this table
+# would dismiss them through sink_binding without assessing the pollution, and it
+# would collide with any JavaScript family selecting CWE-79 or CWE-94.
+# Left on the legacy route on purpose: js/second-order-command-line-injection and
+# the spawn-git-clone rule. Both report attacker-controlled options or URLs given
+# to a fixed git/hg program (argument injection), which this table defers, so
+# routing them here could only turn their findings into Needs More Data.
+# Each Semgrep glob covers the vendored OpenGrep id and the registry id.
+
+family: command_injection_javascript
+version: "1"
+
+selectors:
+  languages: [javascript]
+  rule_aliases:
+    - js/command-line-injection
+    - js/indirect-command-line-injection
+    - js/shell-command-constructed-from-input
+    - js/shell-command-injection-from-environment
+    - js/unnecessary-use-of-cat
+    - js/command-injection
+    - "*javascript.lang.security.detect-child-process*"
+    - "*javascript.aws-lambda.security.detect-child-process*"
+    - "*javascript.lang.security.audit.dangerous-spawn-shell*"
+    - "*javascript.lang.security.audit.spawn-shell-true*"
+    - "*javascript.shelljs.security.shelljs-exec-injection*"
+    - "*javascript.deno.security.audit.deno-dangerous-run*"
+
+fact_slots:
+  sink_binding: [QUALIFYING_OS_COMMAND_SINK, NOT_OS_COMMAND_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  command_channel:
+    - SHELL_COMMAND_TEXT_PATH_FOUND
+    - EXECUTABLE_CONTROL_PATH_FOUND
+    - FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - command_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_OS_COMMAND_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    # A list means "any of": either positive channel, plus a witnessed bypass.
+    command_channel: [SHELL_COMMAND_TEXT_PATH_FOUND, EXECUTABLE_CONTROL_PATH_FOUND]
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_OS_COMMAND_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - command_channel: FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS
+    # Coverage dismisses only a PROVEN positive channel. With command_channel
+    # unresolved (argument injection) it must not dismiss vacuously.
+    - command_channel: [SHELL_COMMAND_TEXT_PATH_FOUND, EXECUTABLE_CONTROL_PATH_FOUND]
+      neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py. A positive channel and a bypass are proven by a
+# concrete witnessed path. The two all-path states use LOCAL_OR_EXHAUSTIVE, not
+# EXHAUSTIVE_ENCODER: a fixed executable with bounded operands, an executable
+# allowlist, or a complete neutralizer is proven by locally visible code.
+admissibility:
+  sink_binding:
+    QUALIFYING_OS_COMMAND_SINK: LOCAL_POSITIVE
+    NOT_OS_COMMAND_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  command_channel:
+    SHELL_COMMAND_TEXT_PATH_FOUND: CONCRETE_PATH
+    EXECUTABLE_CONTROL_PATH_FOUND: CONCRETE_PATH
+    FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_OS_COMMAND_SINK when the flagged call starts an operating-system process: child_process exec / execSync / execFile / execFileSync / spawn / spawnSync (also when imported under another name or wrapped with util.promisify), shelljs exec, execa, cross-spawn, or Deno.run({cmd: [...]}). NOT_OS_COMMAND_SINK when the local slice shows the call is not a process launch: RegExp.prototype.exec (/re/.exec(s)), a database or query-builder exec() (for example a Mongoose Query.exec), eval / new Function (JavaScript code, not an OS command), or a user-defined function that merely shares a name. When the flagged call is a wrapper or helper whose body is not in evidence, neither value is established: request the body and leave sink_binding UNRESOLVED if it cannot be retrieved."
+  - "attacker_control: PROVEN when a value supplied from outside the application reaches the program, the argument array or the command string. The scanner data-flow SOURCE establishes this (Express / Koa / Fastify req.query, req.params, req.body, req.headers, req.cookies, req.url, a WebSocket or message payload, an AWS Lambda event; for a library function, a parameter of an exported function; for the rules whose declared source is the command line or the environment, process.argv / process.env), and so does the same origin shown in the local slice. decodeURIComponent, String(), template literals and concatenation do not remove external control. A parameter of a function that is not exported and whose callers are not in evidence is not an established source. Judge the value that actually reaches the launch after its last assignment: an external value that is overwritten by a constant, or that only selects between constants, does not reach it. REFUTED when the local slice shows that the program and every part of the command or argument vector are constants, or are derived only from constants. A value whose origin lies in code not in evidence (a field, a getter, a parameter with no visible caller) establishes neither value: request the origin and leave attacker_control UNRESOLVED if it cannot be retrieved."
+  - "flow_to_sink: REACHES when the controlled value reaches the launched command (the program, the argument vector or the command string) on some path shown by the scanner data flow or the local slice; NO_PATH_COMPLETE only with complete evidence that no path carries it there. A path that passes through code not in evidence establishes neither value."
+  - "command_channel: determine how the attacker value is handed to the process launch. child_process.exec(command) and execSync(command) always run the string through a shell ('/bin/sh -c' on POSIX, the ComSpec interpreter cmd.exe on Windows), and so does shelljs exec. execFile / execFileSync(file, args) and spawn / spawnSync(command, args) run NO shell by default: the first parameter is the program and each array element is exactly one argument. When their options contain shell: true or shell: '<path>', the command and the args are joined with spaces, unescaped, and parsed by that shell, so both are shell text. An explicit interpreter launch is shell text as well: spawn('sh' | 'bash', ['-c', S]) with the value inside S, or spawn('cmd', ['/c', ...]). Deno.run({cmd: [...]}) is an argument-vector launch whose element 0 is the program. SHELL_COMMAND_TEXT_PATH_FOUND when, on some reaching path, the attacker value becomes part of a string one of the shell forms above parses (template literal, concatenation, util.format, Array.join). EXECUTABLE_CONTROL_PATH_FOUND when no shell parses the value but, on some reaching path, it is in the program position: the first parameter of execFile / execFileSync / spawn / spawnSync without the shell option, or element 0 of a Deno.run cmd array. An attacker value in a later array element of a fixed program establishes neither positive value. An options object that is built elsewhere or spread from a variable not in evidence leaves the presence of a shell unknown. When both a shell-text path and a program-position path exist, report SHELL_COMMAND_TEXT_PATH_FOUND. FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS only when, on EVERY reaching path, all of these hold: no command interpreter parses the value; the program is a fixed literal, or is picked by the code from a fixed set of literals so that the attacker value is never itself used as the program; and each attacker value is a bounded DATA operand that cannot be parsed as an option, flag, subcommand, executable or interpreter input — a strict local allowlist, an enum or a numeric conversion establishes this, and 'the value is a separate argument element' does NOT. If the attacker value can only add or alter options or arguments of a fixed program and no shell is involved (argument injection, CWE-88), or the launched program's argument semantics are unknown, no value of this slot is established: leave command_channel UNRESOLVED."
+  - "neutralization_coverage: judged for the channel that was found, over every path on which the attacker value reaches the launch. (a) Shell-text path: identify the position of each attacker value in the command text and its possible content after the last transformation. BYPASS_PATH_FOUND requires a WITNESSED command-control sequence on a reaching path — a separator followed by attacker command text (';', '&', '&&', '||', a newline), a command substitution ('$(...)', backticks), a pipe to an attacker command, or a redirection — that no effective neutralizer removes. This includes a reaching path with no neutralizer at all, and a blacklist or replace that misses any control character the interpreter honours. ALL_REACHING_PATHS only when every reaching path constrains every attacker value against BOTH shell control AND program-level meaning, so that each is a bounded data operand that cannot act as an option, flag, subcommand, executable or interpreter input. (b) Program-position path: BYPASS_PATH_FOUND requires a witnessed reaching path on which the value used as the program is not restricted to a fixed set of programs — there is no comparison against a fixed set, or the check still lets a different program be named (a blacklist, a suffix, extension or prefix test, a directory prefix without canonicalisation). ALL_REACHING_PATHS only when every reaching path admits the value only by exact membership in a fixed set of literals (equality, a set or map lookup, an enum, a switch) AND every other attacker value in the same launch is a bounded data operand. The absence of a shell is NOT coverage, and shell quoting is NOT coverage for a program-position value. In both cases a defense on a sibling branch does not cover the flagged branch, and a validator, helper or wrapper whose body is not in evidence establishes neither value: request it and leave neutralization_coverage UNRESOLVED if it cannot be retrieved. JavaScript specifics: Node.js has no built-in shell-quoting function; a third-party quoting package or a hand-written escape counts only when its body is in evidence and covers every control character of the interpreter in use. String.prototype.replace with a string pattern, or a regular expression without the g flag, replaces only the FIRST occurrence. A RegExp test bounds the value only when it is anchored at both ends (/^[A-Za-z0-9.]+$/ without the m flag); an unanchored test or String.prototype.includes / startsWith does not. Number(x) / parseInt(x, 10) with the resulting number used (and NaN rejected), or membership in a constant array / Set / object map bound the value. A TypeScript type annotation does not validate anything at run time."

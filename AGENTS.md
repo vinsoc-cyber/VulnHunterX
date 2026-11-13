@@ -4,7 +4,7 @@ These instructions apply to Codex, Claude, and other coding agents working in th
 
 ## Required reading
 
-Read [README.md](README.md), [CONTRIBUTING.md](CONTRIBUTING.md), [security rules](docs/SECURITY_RULES.md), and [code standards](docs/CODE_STANDARDS.md). Read the relevant implementation and tests before editing. Use [Git workflow](docs/GIT_WORKFLOW.md) for branch and review conventions.
+Read [README.md](README.md), [CONTRIBUTING.md](CONTRIBUTING.md), [security rules](docs/SECURITY_RULES.md), and [code standards](docs/CODE_STANDARDS.md). Read the relevant implementation and tests before editing. Read [family policy authoring](docs/POLICY_AUTHORING.md) before adding or changing a file in `config/policies/`. Use [Git workflow](docs/GIT_WORKFLOW.md) for branch and review conventions.
 
 The supported pipeline has four stages: `prepare → analyze → verify → report`. Keep agent guidance and documentation aligned with these commands.
 

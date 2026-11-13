@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+#
+# XML external entity (CWE-611) family policy — Python.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-611 is about attacker-supplied XML being parsed by a parser that resolves
+# external entities or external DTDs. ONE class-specific fact decides it:
+# entity_resolution — does the PARSER INSTANCE that parses the attacker input
+# resolve them on some reaching path, or are they disabled on every path. No
+# separate "neutralization" slot exists because there is nothing to neutralize
+# in the document: the defense is entirely the parser's configuration.
+#
+# The hard part is defaults, and in Python they point the other way from Java:
+# the expat-based standard-library parsers (xml.etree.ElementTree,
+# xml.dom.minidom) do not fetch external entities, xml.sax stopped doing so in
+# CPython 3.7.1, and lxml changed its resolve_entities default from True to
+# 'internal' in lxml 5.0. A value that rests on a version-dependent default is
+# asserted only when the option is written explicitly or the version is in
+# evidence; otherwise the fact stays unresolved (Needs More Data). A parser
+# object created outside the cited code (a module-level parser, one installed
+# with lxml.etree.set_default_parser) is an unknown instance unless retrieved
+# evidence shows it.
+#
+# Scope: external entity / external DTD resolution only. Internal entity
+# expansion (CWE-776, "XML bomb") is a different fact — the standard-library
+# parsers that never fetch external entities still expand internal ones — and
+# is not decided here.
+#
+# Selection: CWE-611 is clean for Python in the rule inventory. py/xxe also
+# carries CWE-827, which no family selects. The entity-expansion rules
+# (py/xml-bomb: CWE-400/776; use-defused-xmlrpc: CWE-776) do NOT carry CWE-611
+# and stay on the legacy route. The CWE selector also claims the audit rules
+# use-defused-xml (fires on `import xml`) and use-defused-xml-parse (fires on
+# xml.etree.ElementTree.parse with a non-literal argument); the guidance
+# classifies them through sink_binding and entity_resolution.
+
+family: xxe_python
+version: "1"
+
+selectors:
+  languages: [python]
+  cwes: ["CWE-611"]
+
+fact_slots:
+  sink_binding: [QUALIFYING_XML_PARSE_SINK, NOT_XML_PARSE_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  entity_resolution: [EXTERNAL_ENTITY_RESOLVING_PATH_FOUND, EXTERNAL_ENTITIES_DISABLED_ALL_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - entity_resolution
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_XML_PARSE_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    entity_resolution: EXTERNAL_ENTITY_RESOLVING_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_XML_PARSE_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - entity_resolution: EXTERNAL_ENTITIES_DISABLED_ALL_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a visible
+# parser instance that resolves external entities proves the positive case,
+# otherwise stay Needs More Data. EXTERNAL_ENTITIES_DISABLED_ALL_PATHS uses
+# LOCAL_OR_EXHAUSTIVE, NOT EXHAUSTIVE_ENCODER: parser hardening is configuration
+# of the instance, proven by locally visible code, and is not encoder coverage.
+admissibility:
+  sink_binding:
+    QUALIFYING_XML_PARSE_SINK: LOCAL_POSITIVE
+    NOT_XML_PARSE_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  entity_resolution:
+    EXTERNAL_ENTITY_RESOLVING_PATH_FOUND: CONCRETE_PATH
+    EXTERNAL_ENTITIES_DISABLED_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_XML_PARSE_SINK when the flagged code parses an XML document, or constructs the parser object that does: lxml.etree parse / fromstring / XML / iterparse / XMLParser(...) / XMLPullParser, lxml.objectify parse / fromstring; xml.etree.ElementTree parse / fromstring / XML / iterparse / XMLParser; xml.dom.minidom parse / parseString; xml.dom.pulldom parse / parseString; xml.sax parse / parseString / make_parser(); xml.parsers.expat ParserCreate().Parse / ParseFile; xmltodict.parse; the defusedxml equivalents. NOT_XML_PARSE_SINK when the flagged code parses no XML: it serializes (tostring, ElementTree.write), parses HTML with lxml.html or an HTMLParser, handles another format, or calls a user-defined function that merely shares a name the rule matched. When the flagged statement is only an `import xml...` line, assess the parse calls made through that import if the cited code contains any; if the cited code contains no parse call, the flagged statement itself is NOT_XML_PARSE_SINK."
+  - "attacker_control: PROVEN when the XML document being parsed comes from outside the trust boundary — the scanner data-flow SOURCE establishes this (Flask request.data / get_data() / form / files, Django request.body / POST / FILES, a FastAPI or aiohttp request body, an uploaded file, a SOAP or webhook payload, a response fetched from a URL the client chose). REFUTED when the parsed document is a fixed constant or a resource shipped with the application (a string literal, a packaged data file) with no externally supplied part. A file path, database column or configuration directory is not a trust boundary by itself; if who can write it is not in evidence, leave attacker_control unresolved."
+  - "flow_to_sink: REACHES when the controlled document reaches a parse call of the flagged parser on some path (as bytes, str, a file object or a path the request wrote); NO_PATH_COMPLETE only with complete evidence that no path carries it there."
+  - "entity_resolution: first identify the exact PARSER that parses the attacker document — the module function called and the parser object passed to it (the `parser=` argument), if any; only options on THAT parser count. EXTERNAL_ENTITY_RESOLVING_PATH_FOUND requires a WITNESSED reaching path on which the parser is visible in evidence and resolves external entities: an lxml XMLParser constructed with resolve_entities=True written explicitly and used for this parse (local file:// entities resolve even though no_network=True is the default; no_network=False additionally allows http/ftp fetches); an lxml XMLParser with load_dtd=True or dtd_validation=True together with no_network=False (an external DTD is fetched); an xml.sax parser on which setFeature(xml.sax.handler.feature_external_ges, True) or feature_external_pes True is called before parsing (xml.dom.pulldom, and xml.dom.minidom when given that parser, inherit it); a pyexpat parser whose ExternalEntityRefHandler opens the referenced system id. EXTERNAL_ENTITIES_DISABLED_ALL_PATHS only when, on EVERY reaching path, the parser is one of: a defusedxml parse function (defusedxml.ElementTree, defusedxml.minidom, defusedxml.sax, defusedxml.lxml); an lxml XMLParser constructed with resolve_entities=False (and not no_network=False with load_dtd / dtd_validation) and passed to this parse call; xml.etree.ElementTree parse / fromstring / XML / iterparse with no parser argument or with a plain xml.etree.ElementTree.XMLParser() (expat does not fetch external entities; a reference to one raises ParseError); xml.dom.minidom parse / parseString with no parser argument; xmltodict.parse with its default options; an xml.sax parser on which setFeature(xml.sax.handler.feature_external_ges, False) is called explicitly. Version-dependent defaults must be found in evidence, not assumed: lxml parse / fromstring with NO parser argument, or an XMLParser() built without a resolve_entities argument, resolves external entities before lxml 5.0 and only internal ones ('internal') from lxml 5.0; xml.sax and xml.dom.pulldom with no setFeature call process external general entities before CPython 3.7.1 and not from 3.7.1. For these, assert a value only when the deciding version is in evidence (a retrieved requirements / lock / setup file, or syntax in the cited code that needs a later interpreter); otherwise leave entity_resolution unresolved. Also leave it unresolved when the parser object is created outside the cited code (a module-level or injected parser, a custom XMLParser subclass or resolver, a parser installed with lxml.etree.set_default_parser) and its construction cannot be retrieved. The following do NOT establish EXTERNAL_ENTITIES_DISABLED_ALL_PATHS: huge_tree=False, recover=False, remove_blank_text or other unrelated lxml options; no_network=True alone (local files still resolve when entities are resolved); a hardened parser that is constructed but not passed to the flagged parse call; a try/except around the parse; validation of the tree after parsing. Internal entity expansion (a document that only defines and expands its own entities) is not this fact."

@@ -26,7 +26,7 @@ java/sql-injection:
   short_description: "User input concatenated into SQL query in Java"
   questions:
     - "Where does the INPUT originate — HttpServletRequest.getParameter(), @RequestParam, @PathVariable, or another user-controlled source?"
-    - "Is the query built with string concatenation or String.format() (vulnerable), or is a PreparedStatement with ? placeholders used (safe)?"
+    - "Is the SQL text built with string concatenation or String.format(), or is every user value bound through ? or named placeholders (PreparedStatement.setX, setParameter)? Quote the lines."
     - "If using JPA/Hibernate, is the input passed via createQuery() with string concatenation, or via setParameter() with named/positional params?"
     - "Trace the INPUT — is it passed through any validation, escaping, or allowlist before reaching the query?"
     - "Could SQL metacharacters (quotes, semicolons, UNION, comments) in the input alter the query structure?"
@@ -51,7 +51,7 @@ java/command-injection: &java_command_injection
   questions:
     - "Where does the INPUT originate — HTTP request, file upload, database, or config?"
     - "Is Runtime.getRuntime().exec(), ProcessBuilder, or Process used with user input?"
-    - "Is the command constructed as a single string (vulnerable to shell injection) or as a String[] array with separate arguments?"
+    - "Is the command passed as a single string (Runtime.exec tokenises it on whitespace and runs no shell) or as a String[] / List with separate arguments, and is the launched program a shell (sh, bash, cmd.exe) given -c or /c?"
     - "Is an allowlist used to validate the command or arguments against known-safe values?"
     - "If using ProcessBuilder, is the command passed as a list of separate tokens rather than a single shell string?"
     - "Could an attacker inject shell metacharacters (;|&$`) or additional arguments to alter execution?"
@@ -276,7 +276,7 @@ java/xpath-injection:
   questions:
     - "Where does the INPUT originate — request parameter, header, or other user-controlled source?"
     - "Is the input concatenated into an XPath string (e.g., '//user[name=\"' + name + '\"]')?"
-    - "Is XPath.compile() with XPathVariableResolver used for parameterization (safe)?"
+    - "Is the user value referenced as an XPath variable resolved through an XPathVariableResolver, or concatenated into the expression text? Quote the lines."
     - "Could an attacker inject ' or '1'='1 to bypass authentication or extract document data?"
     - "What XPath API is used — javax.xml.xpath.XPath, JDOM, DOM4J?"
     - "Would using XPathVariableResolver or rejecting XPath special characters prevent this?"

@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# OS command-injection (CWE-78 / CWE-77) family policy — Go.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# The decision table is shared by every command_injection_<lang> family. It is
+# the PHP table (config/policies/command_injection.yaml) with ONE deliberate
+# change: command_channel has a second positive value.
+#
+#   SHELL_COMMAND_TEXT_PATH_FOUND   the attacker value becomes text that a
+#                                   command interpreter (sh, bash, cmd.exe,
+#                                   PowerShell) parses.
+#   EXECUTABLE_CONTROL_PATH_FOUND   no interpreter parses the value, but it sits
+#                                   in the PROGRAM position: it decides which
+#                                   executable is launched.
+#
+# PHP's exec family always goes through a shell, so one positive state was
+# enough there. Go's os/exec never runs a shell:
+# exec.Command(name, args...) launches `name` directly and passes each argument as
+# one argv element, with no tokenising, globbing or expansion. A shell exists only
+# when the code launches one itself (exec.Command("sh", "-c", s)). With the PHP
+# table most Go findings could never be confirmed.
+#
+# neutralization_coverage is judged for the channel that was found, and has an
+# exact meaning for each:
+#   shell text        BYPASS = a witnessed command-control sequence survives;
+#                     ALL_REACHING_PATHS = every path constrains every attacker
+#                     value against shell control AND program-level meaning.
+#   program position  BYPASS = a witnessed path on which the value is not
+#                     restricted to a fixed set of programs;
+#                     ALL_REACHING_PATHS = every path admits it only by exact
+#                     membership in a fixed set, and the other attacker values
+#                     are bounded data operands.
+# Coverage dismisses only together with a PROVEN positive channel. With
+# command_channel unresolved it dismisses nothing, so "there is no shell,
+# therefore everything is neutralized" can never produce a False Positive.
+#
+# Kept limit: pure argument injection (CWE-88) — the attacker controls only an
+# option or argument of a fixed program and no shell is involved — proves
+# neither positive channel nor the strong fixed-executable/data-operand state.
+# command_channel stays unresolved and the finding ends as Needs More Data,
+# exactly as in the PHP family.
+#
+# production_scope is recorded but NOT decisive.
+#
+# Selection is by rule alias, deliberately WITHOUT a CWE selector. CodeQL's
+# go/unsafe-quoting carries CWE-78 together with CWE-89 and CWE-94, so a CWE-78
+# selector would collide with the Go SQL-injection and code-injection families on
+# that rule (two matching families fail closed to Needs More Data). It is left to
+# those selectors. The Semgrep glob covers the vendored OpenGrep id and the
+# registry id of dangerous-command-write, which flags a non-constant Write to a
+# child process's stdin pipe (see sink_binding).
+
+family: command_injection_go
+version: "1"
+
+selectors:
+  languages: [go]
+  rule_aliases:
+    - go/command-injection
+    - "*go.lang.security.audit.dangerous-command-write*"
+
+fact_slots:
+  sink_binding: [QUALIFYING_OS_COMMAND_SINK, NOT_OS_COMMAND_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  command_channel:
+    - SHELL_COMMAND_TEXT_PATH_FOUND
+    - EXECUTABLE_CONTROL_PATH_FOUND
+    - FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - command_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_OS_COMMAND_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    # A list means "any of": either positive channel, plus a witnessed bypass.
+    command_channel: [SHELL_COMMAND_TEXT_PATH_FOUND, EXECUTABLE_CONTROL_PATH_FOUND]
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_OS_COMMAND_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - command_channel: FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS
+    # Coverage dismisses only a PROVEN positive channel. With command_channel
+    # unresolved (argument injection) it must not dismiss vacuously.
+    - command_channel: [SHELL_COMMAND_TEXT_PATH_FOUND, EXECUTABLE_CONTROL_PATH_FOUND]
+      neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py. A positive channel and a bypass are proven by a
+# concrete witnessed path. The two all-path states use LOCAL_OR_EXHAUSTIVE, not
+# EXHAUSTIVE_ENCODER: a fixed executable with bounded operands, an executable
+# allowlist, or a complete neutralizer is proven by locally visible code.
+admissibility:
+  sink_binding:
+    QUALIFYING_OS_COMMAND_SINK: LOCAL_POSITIVE
+    NOT_OS_COMMAND_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  command_channel:
+    SHELL_COMMAND_TEXT_PATH_FOUND: CONCRETE_PATH
+    EXECUTABLE_CONTROL_PATH_FOUND: CONCRETE_PATH
+    FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_OS_COMMAND_SINK when the flagged call starts an operating-system process: os/exec exec.Command(name, arg...) or exec.CommandContext(ctx, name, arg...) (run through Run, Start, Output or CombinedOutput), a literal exec.Cmd{Path: ..., Args: ...}, os.StartProcess(name, argv, attr), or syscall.Exec / syscall.ForkExec. A Write to the pipe returned by cmd.StdinPipe() (or data supplied through cmd.Stdin) qualifies only when the evidence shows that the child process is a shell reading its commands from standard input (sh, bash, cmd.exe); the bytes written are then shell command text. NOT_OS_COMMAND_SINK when the local slice shows the call is not a process launch (database/sql DB.Exec / Tx.Exec, template Execute, a user-defined method that merely shares a name), or shows a stdin Write to a child that only reads it as data. When the child reading standard input is another interpreter (python, perl, a database client) or cannot be identified, neither value is established: leave sink_binding UNRESOLVED. When the flagged call is a wrapper or helper whose body is not in evidence, neither value is established: request the body and leave sink_binding UNRESOLVED if it cannot be retrieved."
+  - "attacker_control: PROVEN when a value supplied from outside the application reaches the program, the arguments or the command string. The scanner data-flow SOURCE establishes this (net/http r.URL.Query(), r.FormValue, r.PostFormValue, r.Form, r.Header, r.Cookie, r.Body, r.URL.Path, router path parameters such as mux.Vars or gin c.Param / c.Query / c.PostForm, a gRPC or message payload, a socket read), and so does the same origin shown in the local slice. url.QueryUnescape, string conversion, fmt.Sprintf and concatenation do not remove external control. Judge the value that actually reaches the launch after its last assignment: an external value that is overwritten by a constant, or that only selects between constants, does not reach it. REFUTED when the local slice shows that the program and every part of the command or argument vector are constants, or are derived only from constants. A value whose origin lies in code not in evidence (a field, a getter, a parameter with no visible caller) establishes neither value: request the origin and leave attacker_control UNRESOLVED if it cannot be retrieved."
+  - "flow_to_sink: REACHES when the controlled value reaches the launched command (the program, the argument vector or the command string) on some path shown by the scanner data flow or the local slice; NO_PATH_COMPLETE only with complete evidence that no path carries it there. A path that passes through code not in evidence establishes neither value."
+  - "command_channel: determine how the attacker value is handed to the process launch. exec.Command(name, arg...) and exec.CommandContext never invoke a shell and do not tokenise, glob or expand anything: name is the program (looked up on PATH when it contains no path separator) and each arg is exactly one argument. os.StartProcess and syscall.Exec take the program path and an argument vector in the same way. SHELL_COMMAND_TEXT_PATH_FOUND when, on some reaching path, the launched program is a command interpreter and the attacker value is part of the text it parses: exec.Command(\"sh\" | \"bash\" | \"/bin/sh\", \"-c\", S) with the value inside S (fmt.Sprintf, concatenation, strings.Join), exec.Command(\"cmd\", \"/C\", ...) with the value in an argument after /C, or bytes written to the standard input of a shell. Arguments placed after S in an 'sh -c S a b' call are positional parameters, not shell text. EXECUTABLE_CONTROL_PATH_FOUND when no interpreter parses the value but, on some reaching path, it is in the program position: the name parameter of exec.Command / CommandContext, the Path field of an exec.Cmd, the name parameter of os.StartProcess, argv0 of syscall.Exec, or the first element of a slice produced by strings.Fields / strings.Split of an attacker string and then used as the name. An attacker value passed only as a later argument of a fixed program establishes neither positive value. When both a shell-text path and a program-position path exist, report SHELL_COMMAND_TEXT_PATH_FOUND. FIXED_EXEC_DATA_OPERANDS_ONLY_ALL_PATHS only when, on EVERY reaching path, all of these hold: no command interpreter parses the value; the program is a fixed literal, or is picked by the code from a fixed set of literals so that the attacker value is never itself used as the program; and each attacker value is a bounded DATA operand that cannot be parsed as an option, flag, subcommand, executable or interpreter input — a strict local allowlist, an enum or a numeric conversion establishes this, and 'the value is a separate argument element' does NOT. If the attacker value can only add or alter options or arguments of a fixed program and no shell is involved (argument injection, CWE-88), or the launched program's argument semantics are unknown, no value of this slot is established: leave command_channel UNRESOLVED."
+  - "neutralization_coverage: judged for the channel that was found, over every path on which the attacker value reaches the launch. (a) Shell-text path: identify the position of each attacker value in the command text and its possible content after the last transformation. BYPASS_PATH_FOUND requires a WITNESSED command-control sequence on a reaching path — a separator followed by attacker command text (';', '&', '&&', '||', a newline), a command substitution ('$(...)', backticks), a pipe to an attacker command, or a redirection — that no effective neutralizer removes. This includes a reaching path with no neutralizer at all, and a blacklist or replace that misses any control character the interpreter honours. ALL_REACHING_PATHS only when every reaching path constrains every attacker value against BOTH shell control AND program-level meaning, so that each is a bounded data operand that cannot act as an option, flag, subcommand, executable or interpreter input. (b) Program-position path: BYPASS_PATH_FOUND requires a witnessed reaching path on which the value used as the program is not restricted to a fixed set of programs — there is no comparison against a fixed set, or the check still lets a different program be named (a blacklist, a suffix, extension or prefix test, a directory prefix without canonicalisation). ALL_REACHING_PATHS only when every reaching path admits the value only by exact membership in a fixed set of literals (equality, a set or map lookup, an enum, a switch) AND every other attacker value in the same launch is a bounded data operand. The absence of a shell is NOT coverage, and shell quoting is NOT coverage for a program-position value. In both cases a defense on a sibling branch does not cover the flagged branch, and a validator, helper or wrapper whose body is not in evidence establishes neither value: request it and leave neutralization_coverage UNRESOLVED if it cannot be retrieved. Go specifics: the standard library has no shell-quoting function (strconv.Quote produces Go string syntax, not shell quoting), so a hand-written escape must be read in full. regexp.MatchString and Regexp.MatchString report whether the string CONTAINS a match; they bound the value only when the pattern is anchored with ^ and $ (without the (?m) flag). strings.Contains / HasPrefix / HasSuffix checks and strings.ReplaceAll of some characters are blacklists or partial tests. strconv.Atoi / ParseInt / ParseUint with the parsed number used, or a lookup in a constant map / switch over constants bound the value. An error returned by a validation call bounds the value only when the error path stops before the launch."

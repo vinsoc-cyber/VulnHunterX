@@ -1,0 +1,227 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# Open redirect (CWE-601, URL redirection to an untrusted site) family policy —
+# Python.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-601 is about attacker data choosing the site a BROWSER is redirected to.
+# Two DISTINCT facts decide it and must not be collapsed:
+#
+#   target_control      what the attacker value could select if no check existed:
+#                       an off-site target (an absolute URL, or a scheme-relative
+#                       or backslash form a browser treats as one), or — on every
+#                       reaching path — only a location on the application's own
+#                       origin.
+#   target_restriction  for a value that can select an off-site target, whether
+#                       the target that is actually sent is held to trusted hosts
+#                       or to a local path on every reaching path.
+#
+# target_restriction dismisses only together with a PROVEN external-target
+# channel (the same scoping command_injection uses for its coverage fact), so a
+# restriction claim can never dismiss a finding whose channel is unknown.
+#
+# The table shape is the same as the ssrf class (control, then restriction), but
+# the facts differ: here the URL is parsed by the victim's browser, so the forms
+# that matter are the ones browsers accept ("//host", "/\host", "\\host",
+# "///host"), not the ones a server-side HTTP client accepts.
+#
+# Out of scope, by design: requests the SERVER makes (CWE-918, the ssrf family);
+# header splitting through CR/LF in the Location value (CWE-113); redirect
+# validation done by middleware or framework configuration that the code slice
+# cannot show — never counted as a restriction here.
+#
+# Selectors. CWE-601, gated to Python. The inventory shows every Python rule
+# tagged CWE-601 carries no other CWE: CodeQL py/url-redirection and the Django
+# and Flask open-redirect rules in their vendored and registry id forms. No rule
+# alias is needed and no other family selects CWE-601.
+
+family: open_redirect_python
+version: "1"
+
+selectors:
+  languages: [python]
+  cwes: ["CWE-601"]
+
+fact_slots:
+  sink_binding: [QUALIFYING_REDIRECT_SINK, NOT_REDIRECT_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  target_control: [EXTERNAL_TARGET_PATH_FOUND, LOCAL_TARGET_ONLY_ALL_PATHS]
+  target_restriction: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - target_control
+  - target_restriction
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_REDIRECT_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    target_control: EXTERNAL_TARGET_PATH_FOUND
+    target_restriction: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_REDIRECT_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - target_control: LOCAL_TARGET_ONLY_ALL_PATHS
+    # A restriction dismisses only a PROVEN external-target channel. With the
+    # channel unresolved there is nothing established to restrict, so the claim
+    # must not dismiss on its own — the finding stays Needs More Data.
+    - target_control: EXTERNAL_TARGET_PATH_FOUND
+      target_restriction: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. The two "path found" values need
+# a witnessed path (CONCRETE_PATH). The two "all paths" values use
+# LOCAL_OR_EXHAUSTIVE, not EXHAUSTIVE_ENCODER: a fixed local prefix, a lookup in a
+# fixed map, or a host allowlist is ordinary code that is visible in the local
+# slice, not an encoder; when it lives in a helper, the retrieval must be
+# exhaustive.
+admissibility:
+  sink_binding:
+    QUALIFYING_REDIRECT_SINK: LOCAL_POSITIVE
+    NOT_REDIRECT_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  target_control:
+    EXTERNAL_TARGET_PATH_FOUND: CONCRETE_PATH
+    LOCAL_TARGET_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  target_restriction:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - >-
+    sink_binding: QUALIFYING_REDIRECT_SINK when the flagged expression is, or is
+    the target of, a response that tells the browser to navigate elsewhere:
+    flask.redirect / werkzeug.utils.redirect; django.shortcuts.redirect,
+    HttpResponseRedirect, HttpResponsePermanentRedirect; Starlette / FastAPI
+    RedirectResponse; aiohttp.web.HTTPFound / HTTPSeeOther / HTTPMovedPermanently
+    and the other 3xx exceptions; Tornado RequestHandler.redirect; Pyramid
+    HTTPFound; or any response given a Location header and a 3xx status. When the
+    flagged line only builds the target string, it qualifies when the cited code
+    shows that same value being sent by one of these. NOT_REDIRECT_SINK when the
+    cited code shows no client redirect is produced from the flagged value: a URL
+    that is only rendered into a template as a link, logged or stored; a request
+    the server itself makes (requests, urllib, httpx); or a user-defined function
+    that merely shares the name redirect. If the code that would send the response
+    is outside the evidence, do not assert either value.
+  - >-
+    attacker_control: PROVEN when a value that another party can place in a
+    victim's request becomes part of the redirect target — the scanner data-flow
+    SOURCE establishes this (Flask request.args / form / values / json / headers
+    such as Referer / request.referrer, and view arguments bound from the route;
+    Django request.GET / POST / body / META / headers and view keyword arguments
+    from the URL pattern; FastAPI / Starlette path, query and body parameters).
+    REFUTED when the cited code shows the target is a constant, or is built only
+    from constants, settings values and route reversal with constant arguments
+    (url_for("index"), reverse("home"), redirect("view-name")), with no
+    request-derived part. A parameter of a function that is NOT a request handler
+    establishes neither value: its callers decide, so request them. A target built
+    only from the current request's own host or URL (request.host_url, request.url,
+    request.build_absolute_uri() with no argument) establishes neither value by
+    itself. A value read from a database or the session is PROVEN only when the
+    evidence shows a client can write it.
+  - >-
+    flow_to_sink: REACHES when the controlled value reaches the redirect call on
+    some path, including through an f-string, % or .format, concatenation, urljoin
+    or a helper function shown in the evidence. NO_PATH_COMPLETE only with complete
+    evidence that no path carries the value to the redirect — for example the
+    variable is unconditionally rebound to a constant before the call on every
+    path. A rebinding on one branch, or an "or" default that applies only when the
+    value is empty (request.args.get("next") or "/"), does not establish it.
+  - >-
+    target_control: decide what the attacker value could select as the redirect
+    target IF NO CHECK EXISTED (checks belong to target_restriction). First write
+    out how the target string is built on each reaching path. A browser leaves the
+    application's origin for an absolute URL ("https://evil.test/"), a
+    scheme-relative reference ("//evil.test"), and the variants it normalises to
+    one: backslashes in place of slashes ("/\evil.test", "\\evil.test",
+    "https:\\evil.test") and extra leading slashes ("///evil.test").
+    EXTERNAL_TARGET_PATH_FOUND when on some reaching path the value can produce
+    such a target: the value is the whole target or its beginning (redirect(value),
+    HttpResponseRedirect(value), f"{value}/done" — django.shortcuts.redirect treats
+    a string argument containing "/" or "." as a URL when it is not a reversible
+    view name); it directly follows a lone "/" ("/" + value becomes "//evil.test");
+    it is placed in the authority (f"https://{value}/"); it follows a fixed
+    absolute prefix that does not end the authority ("https://example.com" + value,
+    where ".evil.test" or "@evil.test" changes the host); or it is joined to a base
+    with urllib.parse.urljoin, where an absolute or "//host" value replaces the
+    base. LOCAL_TARGET_ONLY_ALL_PATHS only when, on EVERY reaching path, the value
+    cannot reach the start or the authority of the target: it is appended after a
+    fixed prefix that begins with a single "/" followed by at least one further
+    character that is not "/" or "\" (f"/account/{value}"), or after a fixed
+    absolute origin that already ends its authority with "/"
+    ("https://example.com/app/" + value); it is placed only in the query string or
+    fragment of a fixed target; it is passed as a route argument or query value to
+    a URL builder that generates the path from the application's own routes (Flask
+    url_for(endpoint, ...), Django reverse(...) or redirect("view-name", ...)),
+    including when the value only chooses the endpoint or view name; or it is used
+    only as a key that selects one of a fixed set of constant targets (a dict of
+    constants, an enum, a match / if chain). Leave target_control UNRESOLVED when
+    the prefix comes from an attribute, a parameter or a settings value whose
+    content the evidence does not show.
+  - >-
+    target_restriction: applies to a value that can select an off-site target.
+    Identify every check between the source and the redirect, what exactly it
+    inspects (the raw string, or a parsed component), and whether its result is
+    enforced on the path to the redirect. ALL_REACHING_PATHS only when on EVERY
+    reaching path one of these holds, its failure branch does not reach the
+    redirect, and the string that was checked is the string that is sent: (a)
+    django.utils.http.url_has_allowed_host_and_scheme(value, allowed_hosts=...)
+    (named is_safe_url in older Django releases) is called with allowed_hosts that
+    is None, a fixed set, a settings value or request.get_host(), and its result
+    gates the redirect; (b) the target is parsed with urllib.parse.urlsplit /
+    urlparse and its whole netloc is compared by exact equality or membership
+    against fixed trusted hosts (constants or server-side settings), an empty
+    netloc not being accepted; (c) a local-path test on the raw string requires a
+    leading "/" and rejects a second character of "/" or "\" (for example
+    value.startswith("/") and not value.startswith(("//", "/\\"))); (d) the whole
+    target is compared for equality or membership against a fixed list of complete
+    URLs. BYPASS_PATH_FOUND requires a WITNESSED path, shown in the cited code, on
+    which an off-site-capable value reaches the redirect past no effective
+    restriction: either the complete construction from the source to the redirect
+    is in evidence and applies no check of the target, or the check that is present
+    is one a concrete input passes while naming another site. Checks that do NOT
+    restrict the target: startswith("/") alone (passes "//evil.test"); rejecting
+    only "http://" / "https://" prefixes or only "://" (passes "//evil.test");
+    accepting a target because urlparse(value).netloc is empty, with or without an
+    empty-scheme test (urlparse reports an empty netloc for "///evil.test" and
+    "/\evil.test", and the werkzeug.urls.url_parse form of the same test behaves
+    alike); in / startswith / endswith / re.search or an unanchored re.match on
+    the raw string ("https://example.com" as a prefix without a trailing "/" passes
+    "https://example.com.evil.test/" and "https://example.com@evil.test/"); a
+    parsed-host .endswith("example.com") without a leading dot (passes
+    "evilexample.com"); a check computed on a different string from the one sent,
+    such as testing urljoin(request.host_url, value) and then redirecting to the
+    raw value; a check on a sibling branch; a check whose result is ignored or only
+    logged. HttpResponseRedirect itself rejects only schemes other than http, https
+    and ftp; it does not restrict the host. Cases to leave UNRESOLVED instead of
+    asserting either value: a comparison of urlsplit(value).hostname (not the whole
+    netloc) when "\" is not rejected (urllib.parse keeps a backslash inside the
+    netloc, so "https://evil.test\@example.com" reports hostname "example.com",
+    while browsers end the authority at the backslash); a validator or helper whose
+    body is not in evidence (request it); and any claim that rests only on a
+    partial slice showing no check. Middleware or framework configuration that is
+    not in the cited code is not evidence for this slot.

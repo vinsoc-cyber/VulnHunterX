@@ -1,0 +1,178 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# LDAP-injection (CWE-90) family policy — Java.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# CWE-90 is about attacker data changing the STRUCTURE of an LDAP search filter
+# or distinguished name. Two DISTINCT defensive facts decide it and must not be
+# collapsed: filter_channel (does the value become part of the filter or DN
+# TEXT, or is it on every reaching path handed to an API that encodes it — the
+# filterArgs array of DirContext.search, a Spring LdapQueryBuilder condition, a
+# Filter object) and neutralization_coverage (for a value that does enter the
+# text, is escaping appropriate to ITS POSITION applied on every reaching path).
+# Filter escaping (RFC 4515) and DN escaping (RFC 4514) protect different
+# grammars; one does not cover the other, so "an escape is present" is not
+# sufficient.
+#
+# Scope: LDAP search filters and distinguished names. A JNDI lookup of a
+# controlled name (remote object loading) is a different sink and is not this
+# family's.
+#
+# Selectors: rule aliases ONLY — deliberately no CWE selector. There is no
+# negative selector, and CWE-90 is also carried by the Semgrep
+# ldap-entry-poisoning rule, which flags SearchControls with the
+# returning-object flag set (object deserialization from directory entries): it
+# has no filter and no DN, so a CWE-90 selector would claim it and sink_binding
+# would dismiss a real finding of another kind. It stays on the legacy route.
+# The globs cover both Semgrep id forms (config.opengrep-rules.<dirs>.<id> and
+# <dirs>.<file>.<id>); ".ldap-injection*" does not match "ldap-entry-poisoning".
+
+family: ldap_injection_java
+version: "1"
+
+selectors:
+  languages: [java]
+  rule_aliases:
+    - java/ldap-injection
+    - "*java.lang.security.audit.ldap-injection*"
+    - "*java.lang.security.audit.tainted-ldapi-from-http-request*"
+
+fact_slots:
+  sink_binding: [QUALIFYING_LDAP_QUERY_SINK, NOT_LDAP_QUERY_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  filter_channel: [FILTER_OR_DN_TEXT_PATH_FOUND, BOUND_DATA_ONLY_ALL_PATHS]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - filter_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_LDAP_QUERY_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    filter_channel: FILTER_OR_DN_TEXT_PATH_FOUND
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_LDAP_QUERY_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - filter_channel: BOUND_DATA_ONLY_ALL_PATHS
+    # Coverage dismisses only a PROVEN filter/DN text path. When the channel is
+    # unresolved there is nothing established to neutralize, so a coverage claim
+    # must not dismiss vacuously — the finding stays Needs More Data.
+    - filter_channel: FILTER_OR_DN_TEXT_PATH_FOUND
+      neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a
+# concrete unsafe filter/DN text path proves the positive case, otherwise stay
+# Needs More Data. BOUND_DATA_ONLY_ALL_PATHS / ALL_REACHING_PATHS use
+# LOCAL_OR_EXHAUSTIVE: an argument array or an escape call applied where the
+# filter is built is proven by locally visible code; a helper that lives off the
+# slice counts only when retrieved exhaustively.
+admissibility:
+  sink_binding:
+    QUALIFYING_LDAP_QUERY_SINK: LOCAL_POSITIVE
+    NOT_LDAP_QUERY_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  filter_channel:
+    FILTER_OR_DN_TEXT_PATH_FOUND: CONCRETE_PATH
+    BOUND_DATA_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - >-
+    sink_binding: QUALIFYING_LDAP_QUERY_SINK when the flagged call sends a search
+    filter or a distinguished name to a directory: javax.naming.directory
+    DirContext / InitialDirContext / LdapContext search(name, filter, ...), and
+    the DN-taking operations bind, rebind, createSubcontext, destroySubcontext,
+    getAttributes, modifyAttributes and rename; Spring LdapTemplate search /
+    searchForObject / authenticate / lookup; UnboundID LDAPConnection search /
+    bind / modify; Apache Directory LdapConnection search. NOT_LDAP_QUERY_SINK
+    when the flagged call carries neither a filter nor a DN built for a directory
+    operation: a pure string operation, logging, or a javax.naming Context /
+    InitialContext lookup whose argument is a JNDI name or URL (remote object
+    lookup is a different sink, and is not an LDAP query unless the flagged call
+    is a search or bind with a filter or DN).
+  - >-
+    attacker_control: PROVEN when a value from outside the trust boundary reaches
+    the filter or DN; the scanner data-flow SOURCE (HttpServletRequest
+    getParameter / getHeader / getCookies, a Spring @RequestParam / @PathVariable
+    / @RequestBody / @RequestHeader argument, a login form field) establishes
+    this. REFUTED when the slice shows the filter and the DN are compile-time
+    constants or are assembled only from constants and values the deployment
+    operator supplies. A value read from a database or configuration store does
+    not establish either value unless the evidence shows who writes it.
+  - >-
+    flow_to_sink: REACHES when the controlled value reaches the directory call on
+    some path. NO_PATH_COMPLETE only with complete evidence that no path carries
+    it there. Not seeing the path in the slice is not complete evidence.
+  - >-
+    filter_channel: for the flagged call, enumerate EVERY attacker-controlled
+    value and whether it lands in the FILTER or in a DN (the search base / entry
+    name). FILTER_OR_DN_TEXT_PATH_FOUND when, on some reaching path, a value is
+    concatenated, String.format-ted or StringBuilder-appended into the filter
+    string or the DN string, including into the filterExpr of the filterArgs
+    overload, into the string given to LdapQueryBuilder.filter(String) or
+    HardcodedFilter, or into the string parsed by UnboundID Filter.create(String).
+    BOUND_DATA_ONLY_ALL_PATHS only when, on EVERY reaching path, the filter text
+    and the DN text are fixed and each attacker value is passed through an API
+    that encodes it: the filterArgs array of search(name, filterExpr, filterArgs,
+    cons) referenced as {0}, {1}; Spring LdapQueryBuilder.query().where(attr).is(
+    value) and the other condition methods, LdapQueryBuilder.filter(format,
+    params...), EqualsFilter / AndFilter / OrFilter and the other Filter classes;
+    UnboundID Filter.createEqualityFilter and the other Filter.create*Filter(attr,
+    value) factories; a DN assembled with LdapNameBuilder.add(attr, value) or
+    javax.naming.ldap.LdapName / Rdn(type, value). The filterArgs array encodes
+    filter values only: a value concatenated into the name argument of the same
+    call is still a DN text path. Spring LikeFilter and
+    WhitespaceWildcardsFilter keep '*' as a wildcard by design.
+  - >-
+    neutralization_coverage: applies to a value that enters the filter or DN text.
+    For each such value identify its position and what was applied to it last. A
+    filter VALUE position needs RFC 4515 escaping of backslash, '*', '(', ')' and
+    NUL: Spring LdapEncoder.filterEncode, ESAPI encodeForLDAP, UnboundID
+    Filter.encodeValue, Apache Directory FilterEncoder.encodeFilterValue. A DN
+    VALUE position needs RFC 4514 escaping of ',', '+', '"', backslash, '<',
+    '>', ';', NUL, a leading '#' or space and a trailing space: Spring
+    LdapEncoder.nameEncode, ESAPI encodeForDN, javax.naming.ldap.Rdn.escapeValue.
+    One does not cover the other position. Neither covers an attacker-chosen
+    attribute NAME, operator or whole filter fragment, which needs a finite
+    allowlist. A full-string allowlist that admits only characters with no
+    meaning in either grammar (for example letters, digits, '.', '_' and '-' with
+    no leading or trailing space) covers a value position of either kind. A check
+    on a sibling branch does not cover the flagged branch. BYPASS_PATH_FOUND
+    requires a WITNESSED reaching path on which a value enters the text with no
+    escaping appropriate to its position: none applied in the visible code, the
+    wrong kind for the position, a hand-written replace that misses one of the
+    listed characters, or escaping meant for another grammar (HTML escaping of
+    '<', '>', '&' and quotes leaves the filter and DN metacharacters intact). ALL_REACHING_PATHS only when every
+    reaching path applies position-appropriate escaping or such an allowlist to
+    every attacker value. If the escaping is done by a project helper whose body
+    is not in evidence, leave neutralization_coverage unresolved.

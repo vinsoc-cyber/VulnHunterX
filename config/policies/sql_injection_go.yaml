@@ -1,0 +1,122 @@
+# SPDX-License-Identifier: LGPL-2.1-only
+# Copyright (c) 2026 VinSOC Cyber
+
+# Relational SQL-injection (CWE-89) family policy — Go.
+#
+# A finding is verified through evidence closure: the model supplies each fact
+# value with cited evidence, decisive facts must be resolved by admissible
+# evidence, and this table — not the model's own verdict string — entails
+# TP/FP/NMD.
+#
+# The DECISION TABLE (fact_slots, decisive_slots, entailment, admissibility) is
+# identical to the PHP reference family config/policies/sql_injection.yaml and
+# must stay so (tests/test_policy_family_parity.py). Only the selectors and the
+# assessment guidance are Go-specific.
+#
+# Decisive facts. Two DISTINCT defensive facts decide CWE-89 and must not be
+# collapsed: query_channel (does an attacker value enter the SQL grammar as
+# query TEXT, or only as BOUND DATA on every reaching path) and
+# neutralization_coverage (for a value still interpolated into SQL text, is an
+# effective guard for its EXACT grammar position present on every reaching
+# path). A True Positive needs a qualifying sink, proven attacker control, a
+# reaching flow, a witnessed SQL-text path AND a witnessed uncovered path;
+# "no sanitizer visible" in a partial slice resolves nothing.
+#
+# Scope: relational SQL (and SQL-like ORM query languages) only. NoSQL /
+# document-store query injection (CWE-943) is a different sink with a different
+# neutralization and is intentionally NOT selected here.
+#
+# Selectors: rule aliases only, NO CWE selector. CodeQL's go/unsafe-quoting is
+# tagged CWE-78, CWE-89 and CWE-94: it reports a string embedded between quotes
+# without escaping, whatever interpreter later reads it. A CWE-89 selector would
+# claim it, and this relational table would dismiss a shell or code quoting
+# defect through sink_binding. It therefore stays on the legacy route. The
+# aliases below cover every other Go rule tagged CWE-89: CodeQL
+# go/sql-injection and the custom go/sql-injection-ext, and the Semgrep /
+# OpenGrep rules in both id forms (vendored `config.opengrep-rules.go.<dirs>.<id>`
+# and registry `go.<dirs>.<file>.<id>`). vulnhunterx.go.nosql-injection
+# (CWE-943) is not matched.
+
+family: sql_injection_go
+version: "1"
+
+selectors:
+  languages: [go]
+  rule_aliases:
+    - "go/sql-injection"
+    - "go/sql-injection-ext"
+    - "*go.aws-lambda.security.database-sqli*"
+    - "*go.aws-lambda.security.tainted-sql-string*"
+    - "*go.gorm.security.audit.*gorm-dangerous-method-usage"
+    - "*go.lang.security.audit.database.*string-formatted-query"
+    - "*go.lang.security.audit.sqli.gosql-sqli*"
+    - "*go.lang.security.audit.sqli.pg-orm-sqli*"
+    - "*go.lang.security.audit.sqli.pg-sqli*"
+    - "*go.lang.security.audit.sqli.pgx-sqli*"
+    - "*go.lang.security.injection.tainted-sql-string*"
+
+fact_slots:
+  sink_binding: [QUALIFYING_RELATIONAL_SQL_SINK, NOT_RELATIONAL_SQL_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  query_channel: [SQL_TEXT_PATH_FOUND, BOUND_DATA_ONLY_ALL_PATHS]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - query_channel
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_RELATIONAL_SQL_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    query_channel: SQL_TEXT_PATH_FOUND
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_RELATIONAL_SQL_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - query_channel: BOUND_DATA_ONLY_ALL_PATHS
+    - neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. No NONE_FOUND_COMPLETE: a concrete
+# unsafe SQL-text path proves the positive case, otherwise stay Needs-More-Data.
+# ALL_REACHING_PATHS / BOUND_DATA_ONLY_ALL_PATHS use LOCAL_OR_EXHAUSTIVE, NOT
+# EXHAUSTIVE_ENCODER: parameter binding is not encoding, and a prepared statement
+# or an integer cast is proven by locally visible code.
+admissibility:
+  sink_binding:
+    QUALIFYING_RELATIONAL_SQL_SINK: LOCAL_POSITIVE
+    NOT_RELATIONAL_SQL_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  query_channel:
+    SQL_TEXT_PATH_FOUND: CONCRETE_PATH
+    BOUND_DATA_ONLY_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance (no verdict commands, no benchmark names).
+assessment_guidance:
+  - "sink_binding: QUALIFYING_RELATIONAL_SQL_SINK when the flagged call builds or executes a relational query: database/sql Query / QueryContext / QueryRow / QueryRowContext / Exec / ExecContext / Prepare / PrepareContext on a DB, Tx, Conn or Stmt, the sqlx equivalents (Get, Select, Queryx, NamedQuery, NamedExec, MustExec), pgx Query / QueryRow / Exec, go-pg Query / Exec / Where, or GORM Raw / Exec / Where / Order / Select / Group / Having / Joins / Table. NOT_RELATIONAL_SQL_SINK when the flagged expression is not a relational query execution: a document-store or key-value query (a MongoDB bson filter, DynamoDB, Redis), a string that is only logged or written to a response, or a string operation whose result never reaches a query API."
+  - "attacker_control: PROVEN when the local slice or the scanner data-flow SOURCE shows an externally supplied value reaching the statement (net/http r.URL.Query().Get, r.FormValue, r.PostFormValue, r.Header.Get, r.Cookie, the request body; gorilla mux.Vars; gin c.Query / c.Param / c.PostForm / a bound request struct; echo c.QueryParam / c.Param / c.FormValue; an AWS Lambda event field). REFUTED when the local slice shows every value placed in the query is a literal, a constant, or operator-only input such as flags or deployment configuration. A pattern-only rule match with no data-flow, or a function parameter whose callers are not in evidence, establishes neither value: leave the slot UNRESOLVED and request the callers."
+  - "flow_to_sink: REACHES when the controlled value reaches the executed statement on some path (shown by the local slice or the scanner data-flow). NO_PATH_COMPLETE only when the local slice shows that on EVERY path the value is replaced before the sink (an unconditional reassignment to a constant, a branch whose condition is a compile-time constant, a container read with a key other than the one that stores the controlled value), or with complete evidence that no path reaches it. A path that is merely not shown does not establish NO_PATH_COMPLETE; leave the slot UNRESOLVED and request the missing caller or callee."
+  - "query_channel: for the flagged statement, enumerate EVERY attacker-controlled value that takes part in building it. SQL_TEXT_PATH_FOUND when at least one such value becomes part of the query text on some reaching path: fmt.Sprintf, + concatenation, strings.Join, strings.Builder or bytes.Buffer writes producing the query string given to Query / Exec / Prepare / Raw / Where. Preparing a formatted string does not bind the values already formatted into it. In GORM, a string given to Order, Select, Group, Having, Joins or Table is a raw fragment, and a string passed as the inline condition of First / Find / Take / Delete (db.First(&u, value)) is read as SQL text. BOUND_DATA_ONLY_ALL_PATHS only when, on EVERY reaching path, the query string is fixed and every attacker value is supplied separately: placeholder arguments after the query string (the placeholder syntax depends on the driver: ?, $1, @p1 or :name), sqlx named queries bound from a struct or map and sqlx.In, GORM Raw / Exec / Where with ? and separate arguments, GORM struct or map conditions, or go-pg ? placeholders with separate arguments."
+  - "neutralization_coverage: for each attacker value that enters the SQL text, identify its exact grammar position (quoted string literal, unquoted numeric literal, identifier, keyword / ORDER BY direction, or raw fragment) and the value's possible output after its LAST transformation on that path. A defense covers a path only when every possible output stays data-only IN THAT EXACT POSITION: string escaping or quote doubling covers only a quoted-literal position and never a numeric, identifier, keyword or raw-fragment position; integer parsing or coercion (or a complete numeric allowlist) covers a numeric position; a dynamic identifier, an ORDER BY direction or a raw fragment needs a finite allowlist of permitted outputs. In Go, strconv.Atoi / ParseInt / ParseUint / ParseFloat with the error checked (the parsed number, not the original string, being what is formatted), or a value whose static type is an integer, covers a numeric position; the verb matters only through the operand type — %d with an integer operand is numeric, while %s and %v with a string operand copy it unchanged, and %q applies Go string-literal quoting, which is not SQL quoting and covers no SQL position; uuid.Parse output is data-only in a quoted position; pgx Identifier.Sanitize and pq.QuoteIdentifier cover an identifier position; a regexp covers a position only when it is anchored at both ends and its character class excludes every character with meaning in that position; a switch or map lookup over fixed names is a finite allowlist. database/sql has no escaping function, so name the exact transformation. A defense on a sibling branch does not cover the flagged branch, and a check whose result is ignored covers nothing. ALL_REACHING_PATHS only when every interpolated attacker value is covered on every reaching path. BYPASS_PATH_FOUND when the evidence shows a concrete path on which one interpolated attacker value has no defense that covers its position. When the value passes through a helper whose body is not in evidence, request it and leave the slot UNRESOLVED; an unseen helper establishes neither value."
