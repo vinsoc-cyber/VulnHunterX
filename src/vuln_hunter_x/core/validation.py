@@ -19,7 +19,7 @@ def validate_repo_name(name: str) -> str:
     Raises ValueError if the name contains path traversal characters or
     other unsafe patterns.
     """
-    if not name or not _REPO_NAME_RE.match(name):
+    if not isinstance(name, str) or not _REPO_NAME_RE.fullmatch(name):
         raise ValueError(
             f"Invalid repository name: {name!r}. "
             "Only alphanumeric characters, hyphens, underscores, and dots are allowed."
@@ -28,6 +28,19 @@ def validate_repo_name(name: str) -> str:
     if name in (".", "..") or name.startswith("."):
         raise ValueError(f"Repository name must not start with a dot: {name!r}")
     return name
+
+
+def repo_artifact_path(output: Path, lang: str, repo: str, *parts: str) -> Path:
+    """Build an artifact path without following links into another scan or checkout.
+
+    The output root is operator-selected. Callers supply fixed artifact names or
+    sanitized filenames below the validated repository components.
+    """
+    path = output.resolve() / validate_repo_name(lang) / validate_repo_name(repo)
+    path = path.joinpath(*parts)
+    if path.resolve() != path:
+        raise ValueError(f"Repository artifact path contains a symlink: {path}")
+    return path
 
 
 def validate_file_path(path: Path, base: Path) -> Path:

@@ -29,10 +29,10 @@ from vuln_hunter_x.context.anchor import (
 from vuln_hunter_x.context.evidence import EvidenceStatus, SourceRef
 from vuln_hunter_x.context.extractor import ContextExtractor
 from vuln_hunter_x.context.provider import ContextProvider, scan_convention_for
+from vuln_hunter_x.context.repo_paths import resolve_repo_root
 from vuln_hunter_x.context.repo_signals import (
     commented_out_symbol,
-    detect_frameworks_for,
-    find_repo_root,
+    detect_frameworks,
 )
 from vuln_hunter_x.context.snippet_provider import SnippetContextProvider
 from vuln_hunter_x.core.config import Config, load_config
@@ -44,6 +44,7 @@ from vuln_hunter_x.core.types import (
     VerificationResult,
     is_real_symbol,
 )
+from vuln_hunter_x.core.validation import repo_artifact_path
 from vuln_hunter_x.llm.client import LLMClient
 from vuln_hunter_x.questions.loader import QuestionsLoader
 from vuln_hunter_x.sarif.parser import discover_sarif_files, parse_sarif_file
@@ -191,7 +192,7 @@ def _norm_path(path: str) -> str:
     return (path or "").replace("\\", "/").strip("/")
 
 
-def _repo_relative_path(path: str) -> str:
+def _repo_relative_path(path: str, root: Path | None) -> str:
     """Return *path* relative to its repository root, for cross-tool equality.
 
     CodeQL emits repo-relative paths (``sqli/dao/student.py``); Semgrep/OpenGrep
@@ -206,14 +207,11 @@ def _repo_relative_path(path: str) -> str:
     if not norm:
         return ""
     p = Path(path)
-    if p.is_absolute():
-        root = find_repo_root(path)
-        if root is not None:
-            try:
-                return _norm_path(str(p.resolve().relative_to(root)))
-            except (ValueError, OSError):
-                pass
-        return norm
+    if p.is_absolute() and root is not None:
+        try:
+            return _norm_path(str(p.resolve().relative_to(root.resolve())))
+        except (ValueError, OSError, RuntimeError):
+            pass
     return norm
 
 
@@ -908,7 +906,9 @@ def _verdict_filename(finding: Finding) -> str:
     file. The previous scheme keyed only on rule_id + start_line, which caused
     same-rule/same-line findings in different files to overwrite each other.
     """
-    safe_rule = finding.rule_id.replace("/", "_") or "unknown-rule"
+    safe_rule = re.sub(r"[^a-zA-Z0-9._-]", "_", finding.rule_id).lstrip(".") or "unknown-rule"
+    if re.match(r"(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])\.", safe_rule):
+        safe_rule = "_" + safe_rule
     safe_file = re.sub(r"[^A-Za-z0-9]+", "-", finding.file or "unknown").strip("-")
     identity = "|".join(
         [
@@ -920,8 +920,10 @@ def _verdict_filename(finding: Finding) -> str:
             "\n".join(finding.dataflow_path),
         ]
     )
-    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:10]
+    digest = hashlib.sha256(identity.encode("utf-8", errors="surrogatepass")).hexdigest()[:10]
     readable = f"{safe_rule}_{safe_file}_{finding.start_line}"
+    if readable.startswith("summary_"):
+        readable = "_" + readable
     # Bound the readable part well under the 255-char filename limit; the digest is
     # appended after truncation so it is never cut and uniqueness is preserved.
     return f"{readable[:150]}_{digest}.json"
@@ -1305,7 +1307,14 @@ class VerificationEngine:
                 keys.append(None)
                 continue
             anchor = self._resolve_finding_anchor(finding)
-            keys.append(case_key(finding, anchor, norm_path=_repo_relative_path(finding.file)))
+            root = None
+            if Path(finding.file).is_absolute():
+                root = resolve_repo_root(
+                    self.config.paths.repos_dir, finding.lang, finding.repo_name
+                )
+            keys.append(
+                case_key(finding, anchor, norm_path=_repo_relative_path(finding.file, root))
+            )
         return build_cases(keys)
 
     def _project_cases(
@@ -1635,8 +1644,9 @@ class VerificationEngine:
         # framework so it reasons about THIS one instead of guessing (the dvpwa
         # run argued about "FastAPI/Django" for an aiohttp app). Best-effort and
         # cached per repo root.
+        root = resolve_repo_root(self.config.paths.repos_dir, finding.lang, finding.repo_name)
         try:
-            frameworks = detect_frameworks_for(finding.file, finding.lang)
+            frameworks = detect_frameworks(str(root.resolve()), finding.lang) if root else ()
         except Exception:  # never let a context signal break verification
             frameworks = ()
         if frameworks:
@@ -1652,7 +1662,9 @@ class VerificationEngine:
         # app.py). Flag it so the model weights reachability rather than
         # confirming a dead-code pattern as a live bug.
         try:
-            unwired = commented_out_symbol(finding.file, context_result.function_name, finding.lang)
+            unwired = root is not None and commented_out_symbol(
+                finding.file, context_result.function_name, finding.lang, repo_root=root.resolve()
+            )
         except Exception:
             unwired = False
         if unwired:
@@ -2172,11 +2184,14 @@ class VerificationEngine:
         # Save per-repo under output/<lang>/<repo_name>/verification_results/
         for verdict in result.verdicts:
             finding = verdict.finding
-            repo_results_dir = (
-                output_dir / finding.lang / finding.repo_name / "verification_results"
+            result_file = repo_artifact_path(
+                output_dir,
+                finding.lang,
+                finding.repo_name,
+                "verification_results",
+                _verdict_filename(finding),
             )
-            repo_results_dir.mkdir(parents=True, exist_ok=True)
-            result_file = repo_results_dir / _verdict_filename(finding)
+            result_file.parent.mkdir(parents=True, exist_ok=True)
             result_file.write_text(
                 json.dumps(verdict.to_dict(include_raw_response=include_raw), indent=2)
             )
@@ -2190,9 +2205,15 @@ class VerificationEngine:
 
         first_lang = result.verdicts[0].finding.lang if result.verdicts else "unknown"
         first_repo = result.verdicts[0].finding.repo_name if result.verdicts else "unknown"
-        results_dir = output_dir / first_lang / first_repo / "verification_results"
+        summary_file = repo_artifact_path(
+            output_dir,
+            first_lang,
+            first_repo,
+            "verification_results",
+            f"summary_{repo_part}_{timestamp}.json",
+        )
+        results_dir = summary_file.parent
         results_dir.mkdir(parents=True, exist_ok=True)
-        summary_file = results_dir / f"summary_{repo_part}_{timestamp}.json"
         summary_file.write_text(
             json.dumps(result.to_dict(include_raw_response=include_raw), indent=2)
         )

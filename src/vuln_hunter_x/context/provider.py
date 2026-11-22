@@ -31,7 +31,12 @@ from vuln_hunter_x.context.evidence import (
     inspect_capability,
     struct_csv_name,
 )
-from vuln_hunter_x.context.repo_paths import resolve_repo_file, resolve_repo_root
+from vuln_hunter_x.context.repo_paths import (
+    resolve_repo_file,
+    resolve_repo_root,
+    resolve_source_file,
+)
+from vuln_hunter_x.core.validation import repo_artifact_path
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +163,7 @@ class _GrepBounds:
     """Whether a repo grep stopped early. A bound-out search is incomplete and
     must not read as 'marker absent' (P2a)."""
 
+    unreadable: bool = False
     hit_max_files: bool = False
     hit_max_hits: bool = False
 
@@ -211,9 +217,12 @@ class ContextProvider:
         self._lines_cache: OrderedDict[Path, list[str]] = OrderedDict()
         self._lines_cache_lock = threading.Lock()
 
-    def _context_dir(self, lang: str, repo_name: str) -> Path:
+    def _context_dir(self, lang: str, repo_name: str) -> Path | None:
         """Return context directory for a repo: output/<lang>/<repo_name>/context."""
-        return self.output_dir / lang / repo_name / "context"
+        try:
+            return repo_artifact_path(self.output_dir, lang, repo_name, "context")
+        except (OSError, RuntimeError, ValueError):
+            return None
 
     _LINES_CACHE_MAX = 128
 
@@ -365,7 +374,7 @@ class ContextProvider:
     def has_context_for_repo(self, repo_name: str, lang: str) -> bool:
         """Check if context CSV files exist for a repository."""
         repo_context_dir = self._context_dir(lang, repo_name)
-        return repo_context_dir.is_dir()
+        return repo_context_dir is not None and repo_context_dir.is_dir()
 
     def _load_csv(self, repo_name: str, lang: str, csv_name: str) -> list[dict]:
         """Load a CSV file from the context directory."""
@@ -375,8 +384,11 @@ class ContextProvider:
             if cached is not None:
                 return cached
 
-            csv_path = self._context_dir(lang, repo_name) / f"{csv_name}.csv"
-            if not csv_path.is_file():
+            directory = self._context_dir(lang, repo_name)
+            if directory is None:
+                return []
+            csv_path = directory / f"{csv_name}.csv"
+            if csv_path.is_symlink() or not csv_path.is_file():
                 return []
 
             try:
@@ -629,9 +641,9 @@ class ContextProvider:
         Uniqueness is required across the union of the language's declaration
         patterns: two distinct columns (or none) mean the token is ambiguous.
         """
-        decl_path = resolved_root / decl_file_rel
+        decl_path = resolve_source_file(resolved_root, decl_file_rel)
         try:
-            if not decl_path.is_file():
+            if decl_path is None:
                 return None
             lines = decl_path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
@@ -760,8 +772,11 @@ class ContextProvider:
                 if any(p in _SKIP_DIRS for p in rel_parts[:-1]):
                     continue
                 rel = path.relative_to(resolved_root).as_posix()
+                source = resolve_source_file(resolved_root, rel)
+                if source is None:
+                    continue
                 for i, line in enumerate(
-                    path.read_text(encoding="utf-8", errors="replace").splitlines(),
+                    source.read_text(encoding="utf-8", errors="replace").splitlines(),
                     start=1,
                 ):
                     if name_pat.search(line) and _JS_ROUTE_REGISTRATION_RE.search(line):
@@ -1645,8 +1660,14 @@ class ContextProvider:
         results: list[str] = []
         scanned = 0
         bounds = _GrepBounds()
-        for dirpath, dirnames, filenames in os.walk(root):
+
+        def on_walk_error(_error: OSError) -> None:
+            bounds.unreadable = True
+
+        for dirpath, dirnames, filenames in os.walk(root, onerror=on_walk_error):
             dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+            if any((Path(dirpath) / name).is_symlink() for name in dirnames):
+                bounds.unreadable = True
             for fname in filenames:
                 if len(results) >= max_hits:
                     bounds.hit_max_hits = True
@@ -1659,8 +1680,13 @@ class ContextProvider:
                 fpath = Path(dirpath) / fname
                 scanned += 1
                 try:
-                    text = fpath.read_text(errors="replace")
+                    source = resolve_source_file(root, fpath.absolute())
+                    if source is None:
+                        bounds.unreadable = True
+                        continue
+                    text = source.read_text(errors="replace")
                 except OSError:
+                    bounds.unreadable = True
                     continue
                 if not any(m in text for m in markers):
                     continue
@@ -1710,7 +1736,7 @@ class ContextProvider:
             # bound-out search proves nothing.
             status = (
                 EvidenceStatus.INCOMPLETE_INDEX
-                if bounds.hit_max_files
+                if bounds.hit_max_files or bounds.unreadable
                 else EvidenceStatus.NOT_FOUND_COMPLETE
             )
             return EvidenceResult(req, status, content, EvidenceScope.REPOSITORY_SOURCE)
@@ -1725,7 +1751,7 @@ class ContextProvider:
             EvidenceStatus.FOUND,
             content,
             EvidenceScope.REPOSITORY_SOURCE,
-            exhaustive=not bounds.hit_max_hits,
+            exhaustive=not (bounds.hit_max_hits or bounds.hit_max_files or bounds.unreadable),
         )
 
     def _get_framework_sanitizers(self, repo_name: str, lang: str) -> str:
@@ -1762,7 +1788,7 @@ class ContextProvider:
             )
             status = (
                 EvidenceStatus.INCOMPLETE_INDEX
-                if bounds.hit_max_files
+                if bounds.hit_max_files or bounds.unreadable
                 else EvidenceStatus.NOT_FOUND_COMPLETE
             )
             return EvidenceResult(req, status, content, EvidenceScope.REPOSITORY_SOURCE)
@@ -1776,7 +1802,7 @@ class ContextProvider:
             EvidenceStatus.FOUND,
             content,
             EvidenceScope.REPOSITORY_SOURCE,
-            exhaustive=not bounds.hit_max_hits,
+            exhaustive=not (bounds.hit_max_hits or bounds.hit_max_files or bounds.unreadable),
         )
 
     def _get_framework_guards(self, repo_name: str, lang: str) -> str:

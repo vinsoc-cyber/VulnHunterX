@@ -12,6 +12,9 @@ from pathlib import Path
 
 import tree_sitter
 
+from vuln_hunter_x.context.repo_paths import resolve_repo_root, resolve_source_file
+from vuln_hunter_x.core.validation import repo_artifact_path
+
 # Query types by language (mirrors codeql/context_extractor.py QUERIES_BY_LANG)
 QUERIES_BY_LANG: dict[str, list[str]] = {
     "c": ["functions", "callers", "structs", "globals", "macros"],
@@ -596,7 +599,9 @@ class TreeSitterContextExtractor:
             dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
             for fname in filenames:
                 if fname.endswith(extensions):
-                    files.append(Path(dirpath) / fname)
+                    path = Path(dirpath) / fname
+                    if resolve_source_file(repo_path, path.absolute()) is not None:
+                        files.append(path)
         return sorted(files)
 
     @staticmethod
@@ -847,11 +852,12 @@ class TreeSitterContextExtractor:
         Returns:
             Dict mapping query name to (success, message).
         """
-        repo_path = self.repos_dir / lang / repo_name
-        context_dir = self.output_dir / lang / repo_name / "context"
+        repo_path = resolve_repo_root(self.repos_dir, lang, repo_name)
         query_types = QUERIES_BY_LANG.get(lang, [])
         results: dict[str, tuple[bool, str]] = {}
 
+        if repo_path is None:
+            return {qt: (False, "Repository unavailable") for qt in query_types}
         source_files = self._collect_source_files(lang, repo_path)
 
         if not source_files:
@@ -876,7 +882,10 @@ class TreeSitterContextExtractor:
         rows_by_query: dict[str, list[dict]] = {qt: [] for qt in active}
 
         for fpath in source_files:
-            tree = self._parse_file(self._parser_for(lang, fpath), fpath)
+            source = resolve_source_file(repo_path, fpath.absolute())
+            if source is None:
+                continue
+            tree = self._parse_file(self._parser_for(lang, fpath), source)
             if tree is None:
                 continue
             rel = fpath.relative_to(repo_path).as_posix()
@@ -888,7 +897,8 @@ class TreeSitterContextExtractor:
 
         for qt in active:
             rows = rows_by_query[qt]
-            self._write_csv(context_dir / f"{qt}.csv", rows, CSV_FIELDS[qt])
+            dest = repo_artifact_path(self.output_dir, lang, repo_name, "context", f"{qt}.csv")
+            self._write_csv(dest, rows, CSV_FIELDS[qt])
             results[qt] = (True, f"{len(rows)} {qt}")
 
         return results

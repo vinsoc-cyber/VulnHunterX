@@ -113,3 +113,21 @@ def test_no_verdicts_generates_no_reports(tmp_path: Path):
     assert reports == []
     assert not (tmp_path / "report.md").exists()
     assert not (tmp_path / "report_vi.md").exists()
+
+
+def test_verify_report_reads_only_wired_checkout(tmp_path):
+    repo = tmp_path / "repos" / "c" / "demo"
+    repo.mkdir(parents=True)
+    result = _make_result_with_one_verdict()
+    finding = result.verdicts[0].finding
+    finding.start_line = finding.end_line = 1
+    (repo / "a.c").write_text("int local_source_marker;")
+    outside = tmp_path / "private.c"
+    outside.write_text("int outside_source_marker;")
+    (repo / "alias.c").symlink_to(outside)
+    for file, expect_snippet in [("a.c", True), ("alias.c", False), (str(outside), False)]:
+        finding.file = file
+        reports = commands._generate_verify_reports(result, tmp_path, False, tmp_path / "repos")
+        report = reports[0][1].read_text()
+        assert ("int local_source_marker;" in report) == expect_snippet
+        assert "int outside_source_marker;" not in report

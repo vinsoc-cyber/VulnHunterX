@@ -56,7 +56,7 @@ from vuln_hunter_x.llm.decision_strategy import (
     Retrieve,
 )
 from vuln_hunter_x.llm.key_pool import KeyPool, extract_retry_after
-from vuln_hunter_x.llm.prompts import PromptBuilder
+from vuln_hunter_x.llm.prompts import PromptBuilder, format_context_block
 
 logger = logging.getLogger(__name__)
 
@@ -531,7 +531,7 @@ class LLMClient:
             prefetch_parts = []
             for req, code in prefetched_context.items():
                 if "[No " not in code and "[Unknown" not in code:
-                    prefetch_parts.append(f"### {req}\n```\n{code}\n```")
+                    prefetch_parts.append(format_context_block(req, code))
             if prefetch_parts:
                 user_prompt += "\n\n## Pre-fetched Additional Context\n\n" + "\n\n".join(
                     prefetch_parts
@@ -1250,7 +1250,7 @@ class LLMClient:
         )
         if prefetched_context:
             prefetch_parts = [
-                f"### {req}\n```\n{code}\n```"
+                format_context_block(req, code)
                 for req, code in prefetched_context.items()
                 if "[No " not in code and "[Unknown" not in code
             ]

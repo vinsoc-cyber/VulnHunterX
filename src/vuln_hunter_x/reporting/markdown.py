@@ -12,6 +12,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from vuln_hunter_x.context.repo_paths import resolve_source_file
 from vuln_hunter_x.core.types import (
     Verdict,
     VerdictType,
@@ -93,6 +94,7 @@ def _extract_code_snippet(
     file_path: str,
     start_line: int,
     end_line: int,
+    repo_root: Path | None,
     context: int = 5,
 ) -> tuple[str, str] | None:
     """Extract a code snippet from source file with line numbers.
@@ -101,9 +103,8 @@ def _extract_code_snippet(
     The vulnerable line range is marked with '►' prefix.
     Context lines above/below are included for readability.
     """
-    # Handle absolute paths directly
-    path = Path(file_path)
-    if not path.is_file():
+    path = resolve_source_file(repo_root, file_path) if repo_root is not None else None
+    if path is None:
         return None
 
     try:
@@ -331,6 +332,9 @@ def _translate_dynamic_text(texts: list[str], lang: str) -> list[str]:
 
 class MarkdownReportGenerator:
     """Generates enriched markdown reports from verification results."""
+
+    def __init__(self, source_roots: dict[tuple[str, str], Path] | None = None):
+        self.source_roots = source_roots or {}
 
     def generate(
         self,
@@ -803,7 +807,9 @@ class MarkdownReportGenerator:
                 lines.append("")
 
                 # Code snippet
-                snippet = _extract_code_snippet(f.file, f.start_line, f.end_line)
+                snippet = _extract_code_snippet(
+                    f.file, f.start_line, f.end_line, self.source_roots.get((f.lang, f.repo_name))
+                )
                 if snippet:
                     lang_hint, snippet_text = snippet
                     lines.append(f"**{_t('Vulnerable Code', rl)}** (`{Path(f.file).name}`):\n")

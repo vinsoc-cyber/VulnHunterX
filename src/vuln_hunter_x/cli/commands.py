@@ -11,8 +11,10 @@ import sys
 from pathlib import Path
 
 from vuln_hunter_x import __version__
+from vuln_hunter_x.context.repo_paths import resolve_repo_root
 from vuln_hunter_x.core.config import Config, load_config
 from vuln_hunter_x.core.types import Finding, Verdict, VerificationResult
+from vuln_hunter_x.core.validation import validate_repo_name
 
 _SUPPORTED_LANGS = {"c", "cpp", "python", "javascript", "php", "java", "go", "csharp"}
 
@@ -46,6 +48,12 @@ def _wire_local_path(repos_dir: Path, lang: str, name: str, local_path: Path) ->
     Returns an error message on a mismatch, or ``None`` when the path is
     wired (created or validated).
     """
+    try:
+        validate_repo_name(name)
+    except ValueError as exc:
+        return str(exc)
+    if lang not in _SUPPORTED_LANGS or (repos_dir / lang).is_symlink():
+        return f"Invalid repository language directory: {lang!r}"
     target_repo_dir = repos_dir / lang / name
     if target_repo_dir.is_symlink():
         current = Path(os.path.realpath(target_repo_dir))
@@ -1111,6 +1119,7 @@ def _generate_verify_reports(
     result: VerificationResult,
     results_dir: Path,
     translate_report: bool,
+    repos_dir: Path | None = None,
 ) -> list[tuple[str, Path]]:
     """Generate verify reports: English always; Vietnamese only when opted in.
 
@@ -1125,7 +1134,13 @@ def _generate_verify_reports(
 
     from vuln_hunter_x.reporting.markdown import MarkdownReportGenerator
 
-    generator = MarkdownReportGenerator()
+    roots = {}
+    if repos_dir is not None:
+        for lang, name in {(v.finding.lang, v.finding.repo_name) for v in result.verdicts}:
+            root = resolve_repo_root(repos_dir, lang, name)
+            if root is not None:
+                roots[lang, name] = root
+    generator = MarkdownReportGenerator(roots)
     reports = [("EN", generator.generate(result, results_dir / "report.md", report_lang="en"))]
     if translate_report:
         reports.append(
@@ -1297,7 +1312,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
     # Generate reports: English always; Vietnamese only with --translate-report
     for label, report_path in _generate_verify_reports(
-        result, results_dir, getattr(args, "translate_report", False)
+        result, results_dir, getattr(args, "translate_report", False), config.paths.repos_dir
     ):
         print(f"Report ({label}): {report_path}")
 
@@ -1348,7 +1363,18 @@ def cmd_report(args: argparse.Namespace) -> int:
         print(f"No JSON verdict files in {results_dir}", file=sys.stderr)
         return 1
 
-    generator = MarkdownReportGenerator()
+    # Only a workspace results directory or explicit selectors identify a source checkout.
+    roots = {}
+    selected_lang, selected_name = args.lang, args.repo
+    directory = results_dir.resolve()
+    if directory.parent.parent.parent == output_dir and directory.name == "verification_results":
+        selected_lang = selected_lang or directory.parent.parent.name
+        selected_name = selected_name or directory.parent.name
+    if selected_lang and selected_name:
+        root = resolve_repo_root(base_path / "repos", selected_lang, selected_name)
+        if root is not None:
+            roots[selected_lang, selected_name] = root
+    generator = MarkdownReportGenerator(roots)
     result = generator.from_verdict_files(results_dir)
 
     if not result.verdicts:

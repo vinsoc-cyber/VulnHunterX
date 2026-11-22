@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from vuln_hunter_x.core.validation import validate_repo_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,10 +26,15 @@ def resolve_repo_root(repos_root: Path, lang: str, repo_name: str) -> Path | Non
     Empty ``repo_name`` or a missing root -> ``None``. Symlinked roots
     (``repos/<lang>/<repo>`` -> a checkout) are accepted via ``exists()``.
     """
-    if not repo_name:
+    try:
+        validate_repo_name(repo_name)
+        validate_repo_name(lang)
+        if (repos_root / lang).is_symlink():
+            return None
+    except ValueError:
         return None
     root = repos_root / lang / repo_name
-    return root if root.exists() else None
+    return root if root.is_dir() else None
 
 
 def resolve_repo_file(repos_root: Path, lang: str, repo_name: str, file_path: str) -> Path | None:
@@ -40,13 +47,18 @@ def resolve_repo_file(repos_root: Path, lang: str, repo_name: str, file_path: st
     root = resolve_repo_root(repos_root, lang, repo_name)
     if root is None:
         return None
+    return resolve_source_file(root, file_path)
+
+
+def resolve_source_file(root: Path, file_path: str | Path) -> Path | None:
+    """Return a regular file inside the selected checkout, including internal links."""
     candidate = root / file_path
     try:
         resolved_root = root.resolve()
         resolved = candidate.resolve()
-    except OSError:
+    except (OSError, RuntimeError, ValueError):
         return None
     if not resolved.is_relative_to(resolved_root):
-        logger.warning("Path traversal blocked: %r escapes %s/%s", file_path, lang, repo_name)
+        logger.warning("Path traversal blocked: %r escapes %s", file_path, root)
         return None
-    return candidate if candidate.is_file() else None
+    return resolved if resolved.is_file() else None

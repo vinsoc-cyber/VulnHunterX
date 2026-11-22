@@ -25,6 +25,8 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from vuln_hunter_x.context.repo_paths import resolve_source_file
+
 # Files that mark a repository root, in priority order.
 _ROOT_MARKERS = (
     "requirements.txt",
@@ -82,10 +84,15 @@ _MAX_FILES_SCANNED = 4000
 
 
 def find_repo_root(file_path: str | Path) -> Path | None:
-    """Walk up from *file_path* to the nearest directory holding a root marker."""
+    """Discover a root for a caller-selected file without following file links.
+
+    Verification uses its configured checkout directly for untrusted finding paths.
+    """
     try:
-        p = Path(file_path).resolve()
-    except (OSError, RuntimeError):
+        p = Path(file_path).absolute()
+        if p.is_symlink() or ".." in p.parts:
+            return None
+    except (OSError, RuntimeError, ValueError):
         return None
     start = p.parent if p.is_file() or p.suffix else p
     for d in [start, *start.parents]:
@@ -117,8 +124,8 @@ def detect_frameworks(repo_root: str, lang: str) -> tuple[str, ...]:
 
     # 1. Dependency manifests (authoritative, cheap).
     for name in ("requirements.txt", "pyproject.toml", "Pipfile", "setup.py", "setup.cfg"):
-        f = root / name
-        if not f.is_file():
+        f = resolve_source_file(root, name)
+        if f is None:
             continue
         try:
             text = f.read_text(encoding="utf-8", errors="ignore")
@@ -132,7 +139,10 @@ def detect_frameworks(repo_root: str, lang: str) -> tuple[str, ...]:
     # 2. Fallback: scan import statements in the source tree.
     if not found:
         scanned = 0
-        for py in root.rglob("*.py"):
+        for candidate in root.rglob("*.py"):
+            py = resolve_source_file(root, candidate.absolute())
+            if py is None:
+                continue
             if any(part in _SKIP_DIRS for part in py.parts):
                 continue
             scanned += 1
@@ -198,7 +208,10 @@ def _commented_identifier_index(repo_root: str, lang: str) -> frozenset[str]:
     )
     idents: set[str] = set()
     scanned = 0
-    for src in root.rglob(glob):
+    for candidate in root.rglob(glob):
+        src = resolve_source_file(root, candidate.absolute())
+        if src is None:
+            continue
         if any(part in _SKIP_DIRS for part in src.parts):
             continue
         scanned += 1
@@ -245,7 +258,10 @@ def _live_called_index(repo_root: str, lang: str) -> frozenset[str]:
     call_re = re.compile(r"(?:\.|\b)([A-Za-z_]\w{2,})\s*\(")
     called: set[str] = set()
     scanned = 0
-    for src in root.rglob(glob):
+    for candidate in root.rglob(glob):
+        src = resolve_source_file(root, candidate.absolute())
+        if src is None:
+            continue
         if any(part in _SKIP_DIRS for part in src.parts):
             continue
         scanned += 1
@@ -262,7 +278,9 @@ def _live_called_index(repo_root: str, lang: str) -> frozenset[str]:
     return frozenset(called)
 
 
-def commented_out_symbol(file_path: str | Path, symbol: str, lang: str) -> bool:
+def commented_out_symbol(
+    file_path: str | Path, symbol: str, lang: str, *, repo_root: Path | None = None
+) -> bool:
     """True if *symbol* looks defined-but-unwired (disabled) in the repo.
 
     Fires only when *symbol* appears in COMMENTED-OUT CODE somewhere **and** is
@@ -273,7 +291,7 @@ def commented_out_symbol(file_path: str | Path, symbol: str, lang: str) -> bool:
     """
     if not symbol or symbol.startswith("<"):
         return False
-    root = find_repo_root(file_path)
+    root = repo_root if repo_root is not None else find_repo_root(file_path)
     if root is None:
         return False
     root_s = str(root)

@@ -62,5 +62,5 @@ def test_repo_relative_path_equality_matches_abs_and_rel(tmp_path) -> None:
     sub.mkdir(parents=True)
     (sub / "student.py").write_text("x = 1\n")
     abs_path = str(sub / "student.py")
-    assert _repo_relative_path(abs_path) == "sqli/dao/student.py"
-    assert _repo_relative_path(abs_path) != _repo_relative_path("svc2/dao/student.py")
+    assert _repo_relative_path(abs_path, tmp_path) == "sqli/dao/student.py"
+    assert _repo_relative_path(abs_path, tmp_path) != _repo_relative_path("svc2/dao/student.py", tmp_path)

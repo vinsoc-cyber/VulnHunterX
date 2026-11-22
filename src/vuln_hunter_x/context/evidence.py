@@ -305,8 +305,12 @@ def _supported(kind: EvidenceKind, lang: str) -> bool:
     return True  # FUNCTION, STRUCT, and the call-graph kinds are universal
 
 
-def _artifact_state(context_dir: Path, csv_name: str) -> ArtifactState:
+def _artifact_state(context_dir: Path | None, csv_name: str) -> ArtifactState:
+    if context_dir is None:
+        return ArtifactState.INVALID
     path = context_dir / f"{csv_name}.csv"
+    if path.is_symlink():
+        return ArtifactState.INVALID
     if not path.is_file():
         return ArtifactState.MISSING
     try:
@@ -317,7 +321,7 @@ def _artifact_state(context_dir: Path, csv_name: str) -> ArtifactState:
         return ArtifactState.INVALID
 
 
-def inspect_capability(context_dir: Path, lang: str, kind: EvidenceKind) -> Capability:
+def inspect_capability(context_dir: Path | None, lang: str, kind: EvidenceKind) -> Capability:
     """Describe what the toolchain can answer for (kind, lang) at this repo.
 
     Pure over ``context_dir`` (the repo's ``output/<lang>/<repo>/context`` dir).

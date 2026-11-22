@@ -13,6 +13,7 @@ from pathlib import Path
 
 from vuln_hunter_x.context.repo_paths import resolve_repo_file
 from vuln_hunter_x.core.types import CodeContext, Finding
+from vuln_hunter_x.core.validation import repo_artifact_path
 
 
 class ContextExtractor:
@@ -88,7 +89,12 @@ class ContextExtractor:
         with self._func_index_lock:
             if key in self._func_index:
                 return self._func_index[key]
-            csv_path = self.output_dir / lang / repo_name / "context" / "functions.csv"
+            try:
+                csv_path = repo_artifact_path(
+                    self.output_dir, lang, repo_name, "context", "functions.csv"
+                )
+            except (ValueError, RuntimeError, OSError):
+                return None
             index: dict[str, list[tuple[int, int, str]]] | None = None
             if csv_path.is_file():
                 try:

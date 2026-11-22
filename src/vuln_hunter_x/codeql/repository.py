@@ -10,6 +10,8 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
+from contextlib import ExitStack
 from pathlib import Path
 
 import yaml
@@ -17,16 +19,14 @@ import yaml
 from vuln_hunter_x.core.constants import TIMEOUT_CODEQL_DB_CREATE, TIMEOUT_LLM_REQUEST
 from vuln_hunter_x.core.validation import (
     normalize_ollama_model,
+    repo_artifact_path,
     validate_repo_name,
 )
 
 logger = logging.getLogger(__name__)
 
-# Pattern for validating git URLs (https, git, ssh protocols or local paths)
-_GIT_URL_RE = re.compile(
-    r"^(https?://|git://|ssh://|git@)[\w\.\-/~:@]+$"
-    r"|^/[\w\.\-/]+$"  # absolute local path
-)
+# URL transports accepted by preparation, including Git's scp-like SSH syntax.
+_GIT_URL_RE = re.compile(r"(?:https?|git|ssh)://[^\s]+|(?:[\w.-]+@)?[\w.-]+:(?!:|//)[^\s]+")
 
 
 def load_repos_config(config_path: Path) -> list[dict]:
@@ -70,6 +70,13 @@ def clone_repo(
     Returns:
         Tuple of (success, message)
     """
+    if not url or url.startswith("-") or any(ord(c) < 32 for c in url):
+        return False, "Invalid Git URL or local repository path"
+    if not _GIT_URL_RE.fullmatch(url):
+        local = Path(url)
+        if not local.is_absolute() and not local.is_dir():
+            return False, "Invalid Git URL or local repository path"
+        url = str(local.absolute())
     if dest.exists() and (dest / ".git").exists():
         return True, "Already cloned"
 
@@ -81,7 +88,7 @@ def clone_repo(
     cmd = ["git", "clone"]
     if depth > 0:
         cmd.extend(["--depth", str(depth)])
-    cmd.extend([url, str(dest)])
+    cmd.extend(["--", url, str(dest)])
 
     try:
         result = subprocess.run(
@@ -127,18 +134,18 @@ def detect_build_command(repo_root: Path, language: str) -> str | None:
     return None
 
 
-def write_build_script(repo_root: Path, build_command: str) -> Path:
+def write_build_script(script_dir: Path, build_command: str) -> Path:
     """
     Write build command to a shell script for CodeQL.
 
     Args:
-        repo_root: Repository root directory
+        script_dir: Private temporary directory
         build_command: Build command string
 
     Returns:
         Path to the build script
     """
-    script = repo_root / ".codeql_build.sh"
+    script = script_dir / ".codeql_build.sh"
     lines = ["#!/bin/sh", "set -e", ""]
 
     for part in build_command.strip().split("\n"):
@@ -146,8 +153,9 @@ def write_build_script(repo_root: Path, build_command: str) -> Path:
         if part:
             lines.append(part)
 
-    script.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    script.chmod(0o755)
+    with script.open("x", encoding="utf-8") as stream:
+        stream.write("\n".join(lines) + "\n")
+        os.fchmod(stream.fileno(), 0o700)
     return script
 
 
@@ -317,12 +325,18 @@ class RepositoryManager:
         except ValueError as e:
             return False, str(e)
 
+        language = language.lower()
+        if language not in self.CODEQL_LANG_MAP:
+            return False, f"Unsupported language: {language!r}"
         repo_dir = (
             Path(local_path).resolve()
             if local_path
             else (self.repos_dir / language / name).resolve()
         )
-        db_dir = (self.output_dir / language / name / "database").resolve()
+        try:
+            db_dir = repo_artifact_path(self.output_dir, language, name, "database")
+        except (ValueError, OSError, RuntimeError) as exc:
+            return False, str(exc)
 
         # Clone
         if not skip_clone:
@@ -409,22 +423,21 @@ class RepositoryManager:
             f"--source-root={repo_dir}",
         ]
 
-        if build_command:
-            script_path = write_build_script(repo_dir, build_command)
-            cmd.append(f"--command={script_path.resolve()}")
-        elif ql_lang == "csharp":
+        if not build_command and ql_lang == "csharp":
             # C# is compiled; without an explicit build command, use CodeQL's
             # buildless extractor so users don't need a working `dotnet build`.
             cmd.append("--build-mode=none")
 
         try:
-            result = subprocess.run(
-                cmd,
-                cwd=str(repo_dir),
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
+            with ExitStack() as stack:
+                if build_command:
+                    tmp = stack.enter_context(tempfile.TemporaryDirectory())
+                    script = write_build_script(Path(tmp), build_command)
+                    # CodeQL splits this option using double-quoted argument syntax.
+                    cmd.append(f"--command={subprocess.list2cmdline([str(script)])}")
+                result = subprocess.run(
+                    cmd, cwd=str(repo_dir), capture_output=True, text=True, timeout=timeout
+                )
 
             if result.returncode == 0:
                 return True, "Database created"
