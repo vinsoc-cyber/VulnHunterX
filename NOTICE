@@ -1,0 +1,8 @@
+Required Notice: VulnHunterX by VinSOC
+
+The first-party VulnHunterX release is licensed under PolyForm Noncommercial
+License 1.0.0. See LICENSE for the terms.
+
+The vendored OpenGrep rules retain their separate upstream license and notices.
+See config/opengrep-rules/LICENSE and config/opengrep-rules/NOTICE.md in the
+source distribution, or vuln_hunter_x/resources/opengrep-rules in the wheel.

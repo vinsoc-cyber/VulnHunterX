@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+# Permissive-CORS (CWE-942 / CWE-346) family policy.
+#
+# `Access-Control-Allow-Origin: *` is a LOCATOR, not a vulnerability: CORS only
+# protects cross-origin READS, so a permissive origin matters exactly when it
+# exposes a read that the same-origin policy otherwise protects — credentialed
+# content honoured cross-origin, or non-public data gated by session/network
+# position. A wildcard on a public body (an OpenAPI document, a public API
+# index) carries no consequence and must dismiss, which is precisely the
+# over-confirmation this family retires (dvwa gen_openapi.php:6,
+# api/public/index.php:11).
+#
+# production_scope is recorded but NOT decisive (scope gating lives in the
+# engine's reachability gates).
+
+family: permissive_cors
+version: "1"
+
+selectors:
+  cwes: ["CWE-942", "CWE-346"]
+  rule_aliases: ["*permissive-cors*", "*cors-misconfiguration*", "*insecure-cors*"]
+
+fact_slots:
+  sink_binding: [PERMISSIVE_ORIGIN, NOT_PERMISSIVE]
+  protected_read_exposed: [EXPOSED, NOT_EXPOSED]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - protected_read_exposed
+
+entailment:
+  true_positive:
+    sink_binding: PERMISSIVE_ORIGIN
+    protected_read_exposed: EXPOSED
+  false_positive_if_any:
+    - sink_binding: NOT_PERMISSIVE
+    - protected_read_exposed: NOT_EXPOSED
+
+admissibility:
+  sink_binding:
+    PERMISSIVE_ORIGIN: LOCAL_POSITIVE
+    NOT_PERMISSIVE: LOCAL_POSITIVE
+  protected_read_exposed:
+    EXPOSED: LOCAL_OR_FOUND
+    NOT_EXPOSED: LOCAL_OR_FOUND
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance.
+assessment_guidance:
+  - "sink_binding: PERMISSIVE_ORIGIN when the flagged line actually emits a permissive cross-origin policy on an executable response path — `Access-Control-Allow-Origin: *`, or the request Origin reflected without validation; NOT_PERMISSIVE when the flagged line does not emit such a header (or the header is constrained to an allowlist)."
+  - "protected_read_exposed: EXPOSED when a cross-origin reader would gain access to data the same-origin policy otherwise protects — the response carries session-authenticated or otherwise non-public content, or `Access-Control-Allow-Credentials: true` is honoured together with a reflected/permissive origin; NOT_EXPOSED when the response body is public (the same bytes are available to any direct, un-credentialed request) and no credentialed read is enabled. Quote the header lines and what the response body contains."
+  - "Note the browser rule: a literal `*` origin is never honoured with credentials — credentialed exposure requires a reflected or specific origin plus Allow-Credentials. A wildcard alone can still be EXPOSED when the body itself is non-public (e.g. gated by network position)."

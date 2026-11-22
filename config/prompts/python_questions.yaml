@@ -1,0 +1,897 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+# Guided Questions Templates for CodeQL/Semgrep Rules (LLM verification style)
+#
+# Questions MUST force the LLM to trace:
+#   1. WHERE variables are declared
+#   2. What their exact SIZES/VALUES are
+#   3. Whether sizes/values CHANGE through assignment or reallocation
+#   4. What CHECKS or CONSTRAINTS exist
+#   5. What OTHER variables feed into the target variables
+#
+# The LLM must answer ALL questions BEFORE giving a verdict.
+# This forces step-by-step reasoning instead of pattern matching.
+#
+# Language: Python
+#
+# Format:
+#   rule_id:
+#     short_description: Brief description of the vulnerability
+#     questions: List of questions to answer BEFORE verdict
+#     context_hint: What additional context helps (caller, struct, etc.)
+#     additional_context: List of context types that may be needed
+
+py/sql-injection:
+  short_description: "User input concatenated into SQL query"
+  questions:
+    - "Quote the EXACT sink statement (cursor.execute / session.execute / connection.execute, line N) and name the variable passed to it. Do not paraphrase."
+    - "List EVERY assignment to that variable on each path that reaches the sink, with line numbers. Identify the LAST assignment that executes on each path."
+    - "For each LAST assignment, determine whether the value derives from user input (request.args/form/json/cookies/headers/env) or from a constant/safe source. Cite the data-flow chain step by step."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers, and verify the overriding right-hand side is itself constant/safe on that path — a container lookup with a constant key still carries taint when the stored VALUE derives from user input."
+    - "What specific defense, if any, sanitises the value before the sink? Name it concretely — e.g. parameterised `cursor.execute(sql, params)`, Django ORM `.filter(**kwargs)`, SQLAlchemy `text(sql).bindparams(...)`. Vague 'sanitisation' is not acceptable."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
+  context_hint: "Trace from request input through all transformations to query execution."
+  additional_context: ["caller", "callees"]
+  min_iterations: 2
+
+py/command-injection: &py_command_injection
+  short_description: "User input passed to shell command execution"
+  questions:
+    - "Quote the EXACT sink (subprocess.run/Popen/call, os.system, os.popen, line N) and name the value passed as the command argument."
+    - "List EVERY assignment to that value on each path that reaches the sink, with line numbers. Identify the LAST assignment that executes on each path."
+    - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
+    - "What specific defense, if any, sanitises the value? Name it concretely — e.g. `shlex.quote()` with `shell=True`, `subprocess.run([...], shell=False)` argv list, allow-list of binary names. Vague 'escaping' is not acceptable."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
+  context_hint: "Trace from input source to subprocess/os.system call, including intermediate transformations."
+  additional_context: ["caller", "class", "callees"]
+  min_iterations: 2
+
+# Alias: some tools emit `py/command-line-injection` for CWE-78. Same rule.
+py/command-line-injection: *py_command_injection
+
+py/xss:
+  short_description: "User input rendered in HTML response without escaping"
+  questions:
+    - "Quote the EXACT sink (template render, Response/HttpResponse with html, jsonify-with-mimetype-html, Markup(...), line N) and name the value being rendered."
+    - "List EVERY assignment to that value on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
+    - "What specific defense, if any, escapes the value at the sink? Name it concretely — e.g. Jinja2 auto-escape enabled, Django template auto-escape, explicit `html.escape()` / `markupsafe.escape()` / `bleach.clean(...)` call, framework `safe`-equivalent helper. Vague 'escaping' is not acceptable."
+    - "Is `|safe` / `{% autoescape false %}` / `Markup(...)` / `mark_safe(...)` used to DISABLE escaping on the user-tainted path? Quote the disabler with line number."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
+  context_hint: "Trace from input source through template/response construction."
+  additional_context: ["caller"]
+  min_iterations: 2
+
+py/unsafe-deserialization:
+  short_description: "Deserializing untrusted data with pickle or yaml.load"
+  questions:
+    - "Quote the EXACT deserialization sink (pickle.loads/load, yaml.load, marshal.loads, shelve.open, dill.loads, jsonpickle.decode, line N) and name the bytes/text value passed to it."
+    - "List EVERY assignment to that value on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input (request body / upload / network / cookie) or from a constant/internal source. Cite the data-flow chain."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
+    - "What specific defense, if any, prevents code execution? Name it concretely — e.g. `yaml.safe_load()` (not `yaml.load()`), `json.loads()` instead of `pickle.loads()`, `restrictedpickle` allow-list, HMAC signature verified BEFORE deserialisation, schema validation pre-parse. Vague 'validation' is not acceptable."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
+  context_hint: "Trace from data source to deserialization call."
+  additional_context: ["caller", "callees"]
+  min_iterations: 2
+
+py/path-injection:
+  short_description: "User input used in file path allowing directory traversal"
+  questions:
+    - "Quote the EXACT file-operation sink (open / Path(...).read_text / shutil.copy / send_file / send_from_directory, line N) and name the path value passed to it."
+    - "List EVERY assignment to that path value on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input (request.args / form / json / path-parameter / upload filename) or from a constant/safe source. Cite the data-flow chain step by step."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers, and verify the overriding right-hand side is itself constant/safe on that path — a container lookup with a constant key still carries taint when the stored VALUE derives from user input, and a substring blocklist (e.g. rejecting `../`) is NOT a complete defense."
+    - "What specific defense, if any, contains the path? Name it concretely — e.g. `werkzeug.utils.secure_filename`, `Path(base).resolve() / user_input` then `.is_relative_to(base)`, `os.path.commonpath([base, full]) == base`, `Path.relative_to` raising on escape, allow-list of filenames. Vague 'sanitisation' is not acceptable."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
+  context_hint: "Trace from input through path construction to file operation."
+  additional_context: ["caller", "callees"]
+  min_iterations: 2
+
+py/code-injection:
+  short_description: "User input passed to eval/exec/compile"
+  questions:
+    - "Quote the EXACT sink (eval / exec / compile / `__import__`, line N) and name the value passed to it."
+    - "List EVERY assignment to that value on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
+    - "What specific defense, if any, prevents arbitrary code? Name it concretely — e.g. `ast.literal_eval()` (data literals only), strict allow-list (e.g. `if expr in {'+', '-', '*'}: …`), restricted globals dict that excludes `__builtins__`. Vague 'validation' is not acceptable."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
+  context_hint: "Trace from input source to eval/exec call."
+  additional_context: ["caller", "callees"]
+  min_iterations: 2
+
+py/ssrf:
+  short_description: "Server-side request forgery via user-controlled URL"
+  questions:
+    - "Quote the EXACT HTTP/network sink (requests.get/post/Session.request, urllib.request.urlopen, httpx.get, aiohttp.ClientSession.get, urllib3.PoolManager.request, line N) and name the URL value passed to it."
+    - "List EVERY assignment to that URL value on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
+    - "What specific defense, if any, restricts the URL? Name it concretely — e.g. `urlparse(url).netloc in ALLOWED_HOSTS`, scheme allow-list (`urlparse(url).scheme in {'http','https'}`), `ipaddress.ip_address(socket.gethostbyname(host)).is_private` rejection, `allow_redirects=False` + post-redirect re-validation, DNS-rebinding defense. Vague 'allowlist' is not acceptable."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
+  context_hint: "Trace from URL input through request construction."
+  additional_context: ["caller"]
+  min_iterations: 2
+
+# ==============================================================================
+# Python - Authentication & Session Security
+# ==============================================================================
+
+py/broken-authentication:
+  short_description: "Insecure session token generation or missing session expiry"
+  questions:
+    - "Quote the EXACT authentication / session statement the rule flagged (token generation, login, password check) with line number."
+    - "What SPECIFIC mechanism would satisfy the rule? Name it concretely — e.g. 'secrets.token_urlsafe(32) for token generation', 'hmac.compare_digest for password compare', 'session cookie with httponly=True + secure=True + samesite=\"Strict\"'. 'Proper auth' is not acceptable."
+    - "Enumerate EVERY authentication path (login form, API token, refresh, password reset, SSO). For each, cite which SPECIFIC mechanism is enforced with file:line."
+    - "Could an attacker bypass any path via weak randomness, missing expiry, session-fixation (no rotate on login), default secret, or skipping verification?"
+    - "Are session tokens INVALIDATED server-side after logout/timeout? Quote the invalidation."
+    - "If the specific required mechanism is not present on every path, the rule is likely correct."
+  context_hint: "Include token generation, session creation, and session validation logic."
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
+
+py/hardcoded-credentials:
+  short_description: "Hardcoded password, API key, or secret in source code"
+  questions:
+    - "Is this string a real credential used in production, or a placeholder/example/test value?"
+    - "Is this value committed to version control where it could be exposed to others?"
+    - "Could this credential be rotated if compromised, or is it baked into the application?"
+    - "Is there an environment variable or secrets manager (Vault, AWS Secrets Manager) already in use that should be used instead?"
+    - "What system or service does this credential grant access to, and what is the blast radius if leaked?"
+    - "Is this code path reachable from production, or is it only used in tests/development?"
+  context_hint: "Include the credential usage and any configuration loading."
+  additional_context: []
+
+py/insecure-randomness:
+  short_description: "Using random module instead of secrets for security-sensitive values"
+  questions:
+    - "What is this random value used for - token, session ID, OTP, CSRF value, salt?"
+    - "Is random.random(), random.randint(), or random.choice() used (not cryptographically secure)?"
+    - "Could an attacker predict the output by observing previous values (Mersenne Twister is predictable)?"
+    - "Should secrets.token_hex(), secrets.token_urlsafe(), or os.urandom() be used instead?"
+    - "What is the security impact if the random value is predictable?"
+    - "Is this in a test or simulation context where cryptographic strength is not needed?"
+  context_hint: "Include random generation and how the value is used."
+  additional_context: ["caller"]
+
+py/ecb-encryption:
+  short_description: "Using ECB cipher mode which reveals plaintext patterns"
+  questions:
+    - "What cipher mode is being used - is it explicitly ECB or is it the default (often ECB)?"
+    - "What type of data is being encrypted (structured data, images, text blocks)?"
+    - "Would ECB mode reveal patterns in the ciphertext (identical plaintext blocks produce identical ciphertext)?"
+    - "Is the plaintext structured or repetitive such that identical blocks would produce identical ciphertext, revealing patterns?"
+    - "Is the encryption for confidentiality, integrity, or both?"
+    - "Is there an IV/nonce being used - ECB mode does not use an IV which is a strong signal of weakness?"
+  context_hint: "Include cipher initialization and mode selection."
+  additional_context: []
+
+py/race-condition:
+  short_description: "TOCTOU race on filesystem or shared state without proper locking"
+  questions:
+    - "Is os.path.exists() or os.access() checked before opening/using a file (TOCTOU gap)?"
+    - "Could an attacker replace the file with a symlink between the check and the open?"
+    - "Is threading.Lock() or a file lock (fcntl.flock) used to protect shared state?"
+    - "Can the operation be made atomic - e.g., open with 'x' mode (exclusive creation) instead of checking?"
+    - "In a multi-threaded or multi-process context, is the shared variable protected?"
+    - "What is the security impact if the race is won by an attacker (arbitrary file write, privilege escalation)?"
+  context_hint: "Include the check and use operations and any locking."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - XML Security
+# ==============================================================================
+
+py/xxe:
+  short_description: "XML parser configured to allow external entity resolution"
+  questions:
+    - "Quote the EXACT XML-parse sink (lxml.etree.parse/fromstring, xml.etree.ElementTree.parse, xml.dom.minidom.parseString, xmltodict.parse, line N) and name the parser/XMLParser object plus the input bytes/text passed to it."
+    - "List EVERY assignment to the XML input on each path that reaches the parse call, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input (request body / upload / external API) or from a constant/internal source. Cite the data-flow chain."
+    - "Quote the parser configuration: which options are set (or relied on as defaults)? lxml `XMLParser(resolve_entities=False, no_network=True, load_dtd=False)`; `xml.sax` / `xml.dom.pulldom` `feature_external_ges`; `defusedxml` parsers. State the parser library and, where the behaviour depends on its version, whether the version is visible."
+    - "Is the parser one of the safe-by-default constructions above, or is it a configuration that ENABLES external entities / DTD loading / network? Cite the line."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
+  context_hint: "Include XML parser initialization and all parsing options."
+  additional_context: ["caller"]
+  min_iterations: 2
+
+py/information-exposure:
+  short_description: "Stack trace, exception detail, or internal path returned to user"
+  questions:
+    - "What sensitive information could be exposed - stack trace, file paths, database schema, internal variable values?"
+    - "Is this returned in an HTTP response, rendered in a template, or logged to an accessible location?"
+    - "In production, is DEBUG mode disabled and generic error pages served instead of tracebacks?"
+    - "Could an attacker trigger this deliberately to learn about the application internals?"
+    - "Is the exception handler catching too broadly and re-exposing the original exception message?"
+    - "Who can observe this output — external users via HTTP response, internal admins, or only server-side logs?"
+  context_hint: "Include the exception handler and where the error detail is sent."
+  additional_context: ["caller"]
+
+py/deprecated-api:
+  short_description: "Deprecated or removed Python API used with security implications"
+  questions:
+    - "What deprecated API is used — which module, function, or class, and in which Python version was it deprecated?"
+    - "Is the deprecated API related to security (ssl.PROTOCOL_TLSv1, cgi module, formatter, telnetlib, etc.)?"
+    - "Does the deprecated API have known security weaknesses that the replacement addresses?"
+    - "Is the code running on a Python version where this API has been REMOVED (not just deprecated)?"
+    - "What is the security impact if the deprecated behavior differs from the replacement — weaker defaults, missing validation?"
+    - "Is this code path reachable in production, or only used in tests/development?"
+  context_hint: "Include the deprecated API call and how its result is used."
+  additional_context: []
+
+# ==============================================================================
+# Python - Injection (LDAP, XPath, Log, HTML, Template, Header)
+# ==============================================================================
+
+py/ldap-injection:
+  short_description: "LDAP query or filter built from untrusted user input"
+  questions:
+    - "Quote the EXACT sink (ldap3.Connection.search, ldap.search, ldap.search_s/search_ext_s, line N) and name the filter string passed to it."
+    - "List EVERY assignment to that filter string on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
+    - "What specific defense, if any, escapes the value? Name it concretely — e.g. `ldap3.utils.conv.escape_filter_chars(user)`, `ldap.filter.escape_filter_chars(user)`, strict alphanumeric allow-list. Vague 'escaping' is not acceptable."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
+  context_hint: "Trace from request input through LDAP filter construction to search call."
+  additional_context: ["caller"]
+  min_iterations: 2
+
+py/xpath-injection:
+  short_description: "XPath expression built from untrusted user input"
+  # Covered by the CWE-643 evidence-closure policy: this rule gathers facts, it
+  # does not command a verdict (the policy entails TP/FP/NMD from the cited
+  # evidence). Keep it locators/fact-gathering only.
+  questions:
+    - "Quote the EXACT XPath sink (`Element.xpath(...)` / `XPath(...)(node)` / `etree.XPath(...)` / `findall(...)` / `find(...)`, line N) and name the XPath-string value passed to it."
+    - "List EVERY assignment to that XPath value on each path that reaches the sink, with line numbers. Identify the LAST assignment that executes on each path and cite the data-flow chain back to a user-input source or a constant/safe source."
+    - "Does the user-controlled value become part of the XPath EXPRESSION text (built by string concatenation or an f-string/format into the query), or is it passed only as a BOUND DATA value (a parameterised variable) on every reaching path? Quote the construction with line numbers."
+    - "What specific defense, if any, neutralises the value before the sink? Name it concretely — e.g. lxml variable binding `node.xpath('//user[name=$n]', n=user)`, or an enforced full-string allow-list. An apostrophe-only or prefix-only filter is not complete (other XPath metacharacters bypass)."
+    - "Is the XPath result used in a security-relevant way (authorisation decision, data selection, value returned to the caller), or is it discarded / non-security-relevant?"
+  context_hint: "Trace from input through XPath string construction to the evaluate call."
+  additional_context: ["caller"]
+  min_iterations: 2
+
+py/log-injection:
+  short_description: "Unsanitized user input written to logs enabling log forging"
+  questions:
+    - "Where does the LOG DATA originate — request parameters, user-supplied strings, external API responses?"
+    - "Is the data written to a log via logging.info/warning/error without sanitization?"
+    - "Could an attacker embed newline characters (\\n, \\r) to inject fake log entries?"
+    - "Could injected entries mask real security events or mislead incident responders?"
+    - "Is the log consumed by a log aggregation system (ELK, Splunk) that could be confused by crafted entries?"
+    - "Would stripping or encoding newlines and control characters from user data before logging prevent this?"
+  context_hint: "Include the log call and the source of the logged data."
+  additional_context: ["caller"]
+
+py/html-injection:
+  short_description: "Untrusted HTML fragment inserted into response without sanitization"
+  questions:
+    - "Where does the HTML fragment originate — request parameter, database, or CMS field?"
+    - "Is the fragment inserted into a response that is rendered as text/html?"
+    - "Is the content SANITIZED with a library like bleach/nh3 to an allowlist of safe tags?"
+    - "If sanitized, is the allowlist strict (no script, no event handlers, no javascript: URLs)?"
+    - "Is this distinct from XSS — is the intent to allow some HTML but restrict dangerous tags?"
+    - "Would using a strict Content Security Policy (CSP) limit the damage if sanitization is incomplete?"
+  context_hint: "Include the HTML source, sanitization step, and how the result is rendered."
+  additional_context: ["caller"]
+
+py/template-injection:
+  short_description: "User input embedded in a Jinja2/Mako/Chameleon template string"
+  questions:
+    - "Quote the EXACT template-render sink (`jinja2.Template(...)(...)`, `Environment.from_string(...).render(...)`, `mako.template.Template(...).render(...)`, `chameleon.PageTemplate(...)`, line N) and name the template-source string passed to it."
+    - "List EVERY assignment to that template-source string on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path. CRITICAL: distinguish the template SOURCE from template VARIABLES passed via `render(**ctx)`, and say which of the two the user-tainted value reaches."
+    - "For each LAST assignment to the template SOURCE, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them."
+    - "What specific defense, if any, prevents SSTI? Name it concretely — e.g. user input passed only as `render(ctx, name=user)` template variable (not template source), `jinja2.sandbox.SandboxedEnvironment`, allow-listed template file paths. Vague 'sandboxing' is not acceptable."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
+  context_hint: "Include template engine initialization and where user input enters the template."
+  additional_context: ["caller"]
+  min_iterations: 2
+
+py/header-injection:
+  short_description: "HTTP response header value built from user-controlled input"
+  questions:
+    - "Quote the EXACT header-setting sink (`response.headers[...] = ...`, `set_cookie(...)`, `redirect(url)`, `make_response(...)` with header arg, line N) and name the value assigned."
+    - "List EVERY assignment to that value on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them."
+    - "What specific defense, if any, neutralises CRLF / header-split? Name it concretely — e.g. modern frameworks (Flask/Django) strip `\\r\\n` automatically in `response.headers.__setitem__`, explicit `value.replace('\\r','').replace('\\n','')`, redirect URL validated against `urlparse(url).netloc in ALLOWED_HOSTS`. Vague 'sanitisation' is not acceptable."
+    - "If you cannot point to user-controlled data reaching the sink with concrete line numbers AND identify the absence of every defense above (including framework-level CRLF stripping), verdict False Positive."
+  context_hint: "Include the header assignment and source of the header value."
+  additional_context: ["caller"]
+  min_iterations: 2
+
+py/tainted-format-string:
+  short_description: "User input used as a format-string template (CWE-134)"
+  questions:
+    - "Quote the EXACT format-string sink (`format()` / `.format()` / `%` operator on str / `f-string` / `printf`-style logging via `logging.warning('%s', ...)`-style call with tainted format arg, line N) and name the format-string value."
+    - "List EVERY assignment to the format-string value on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input or from a constant/safe source. Cite the data-flow chain."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them."
+    - "Critical distinction: is user input the FORMAT STRING (vulnerable — `'{}'.format(args)` where `'{}'` is user-controlled) or an ARGUMENT to a constant format string (safe — `'%s' % user`)? The latter is not a CWE-134 even if user input is involved."
+    - "If you cannot demonstrate that user-controlled data IS the format string itself with concrete line numbers, verdict False Positive."
+  context_hint: "Include the format-string assignment and how it is consumed."
+  additional_context: ["caller"]
+  min_iterations: 2
+
+# ==============================================================================
+# Python - Web Security (CSRF, Open Redirect, Cookie, ReDoS)
+# ==============================================================================
+
+py/csrf:
+  short_description: "State-changing endpoint missing CSRF token validation"
+  questions:
+    - "Does this endpoint perform a state-changing operation (write, update, delete, transfer)?"
+    - "Is a CSRF token required in the request and validated server-side (not just checked for presence)?"
+    - "Is the framework's CSRF protection enabled globally (e.g., Flask-WTF, Django CsrfMiddleware)?"
+    - "Is this endpoint exempt from CSRF protection — if so, is it truly safe (idempotent, read-only)?"
+    - "Could the SameSite=Strict cookie attribute or a custom request header (X-Requested-With) mitigate this?"
+    - "Could an attacker craft a cross-origin form or fetch request to trigger this action on behalf of a victim?"
+  context_hint: "Include the route handler and any middleware or decorator for CSRF."
+  additional_context: ["caller"]
+
+py/open-redirect: &py_open_redirect
+  short_description: "Redirect to a user-controlled URL without domain validation"
+  questions:
+    - "Quote the EXACT redirect sink (`flask.redirect(...)`, `werkzeug.utils.redirect(...)`, `django.shortcuts.redirect(...)`, `django.http.HttpResponseRedirect(...)`, `fastapi.responses.RedirectResponse(...)`, `starlette.responses.RedirectResponse(...)`, a `Response(..., status=30x)` with `Location` header, or framework `redirect_to_login(...)`, line N) and name the URL/target value passed to it."
+    - "List EVERY assignment to that URL value on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input (request.args/form/json/values/cookies/headers, query parameter, path parameter, referer) or from a constant/internal source (route name reverse-lookup, hardcoded URL, session value populated server-side). Cite the data-flow chain."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers, and verify the overriding right-hand side is itself constant/safe on that path — a lookup `MAP[user_key]` is safe only if EVERY value in MAP is a safe URL (quote the map contents), and a substring blocklist is NOT a complete defense."
+    - "What specific defense, if any, contains the redirect? Name it concretely — e.g. `django.utils.http.url_has_allowed_host_and_scheme(url, ALLOWED)` (Django's `is_safe_url`), `urllib.parse.urlparse(url).netloc in ALLOWED_HOSTS`, redirect target restricted to relative paths via `url.startswith('/') and not url.startswith('//')`, allow-list lookup `ALLOWED_REDIRECTS[key]`, `werkzeug.urls.url_parse(url).host` check. Vague 'validation' / 'sanitisation' is NOT acceptable. Note: a blocklist of `http://` / `https://` is bypassable via `//evil.com` (protocol-relative) and is NOT a complete defense."
+    - "State explicitly which of these facts the code shown does NOT establish (the source, the path to the sink, or a defense), and cite line numbers for each fact it does establish."
+  context_hint: "Trace from request input through any allow-list check to the redirect call."
+  additional_context: ["caller"]
+  min_iterations: 2
+
+# Alias: some tools emit `py/url-redirection` for CWE-601. Same rule as py/open-redirect.
+py/url-redirection: *py_open_redirect
+
+py/insecure-cookie:
+  short_description: "Session or security cookie missing Secure, HttpOnly, or SameSite attribute"
+  questions:
+    - "Which cookie is being set — session ID, CSRF token, auth token?"
+    - "Is the Secure flag set (prevents transmission over HTTP, required for sensitive cookies)?"
+    - "Is the HttpOnly flag set (prevents JavaScript access, mitigates XSS-based theft)?"
+    - "Is the SameSite attribute set to Strict or Lax (mitigates CSRF)?"
+    - "Is the cookie domain scoped as narrowly as possible (not .example.com when app.example.com suffices)?"
+    - "Is the cookie lifetime appropriate — session cookies (no max_age) vs persistent tokens?"
+  context_hint: "Include the cookie-setting call and all attributes passed."
+  additional_context: []
+
+py/weak-cryptographic-algorithm: &py_weak_cryptographic_algorithm
+  short_description: "Weak or broken cryptographic algorithm (MD5, SHA1, DES, RC4) used for security"
+  questions:
+    - "Quote the EXACT crypto call (`hashlib.md5(...)` / `.sha1(...)` / `.new('md5', ...)`, `Crypto.Hash.MD5.new(...)`, `cryptography.hazmat.primitives.hashes.MD5()` / `.SHA1()`, `Crypto.Cipher.DES.new(...)` / `.ARC4.new(...)` / `.Blowfish.new(...)`, `cryptography.hazmat.primitives.ciphers.algorithms.TripleDES(...)` / `.ARC4(...)`, line N) and name the algorithm passed."
+    - "WHERE is the algorithm name specified — a hardcoded literal (`'md5'`), an enum/constant import (`hashlib.md5`), loaded from settings/config, or driven by input? Quote the line. If config-driven: is that source attacker-controlled (user-writable file, env var set by HTTP) or trusted (bundled module / immutable settings)?"
+    - "Trace the OUTPUT of the call to its consumer. Classify the use-case (a) SECURITY — TP: password storage / authentication token / session ID / signing key / MAC / integrity check on UNTRUSTED data / certificate fingerprint used for trust decisions / digital signature; (b) NON-SECURITY — FP: cache key, dedup hash, content-addressed store (e.g. `objects/<md5>` for build artifacts), ETag, idempotency key, change-detection fingerprint over TRUSTED inputs, deterministic random seed, log correlation ID. Quote the consumer with file:line."
+    - "Is collision resistance required for the consumer identified above? MD5 and SHA1 are broken for collision resistance (Shattered 2017 for SHA1; MD5 since 2004). Preimage resistance is separate — MD5 is weakened; SHA1 remains preimage-resistant for non-adversarial checksums."
+    - "What specific defense / safe alternative is present or required? Name it concretely. Password hashing must use `bcrypt`, `argon2-cffi` (`argon2.PasswordHasher`), `hashlib.scrypt`, or `hashlib.pbkdf2_hmac('sha256', ..., iterations >= 600_000)` (OWASP 2026). Symmetric encryption must use AEAD: `cryptography.hazmat.primitives.ciphers.aead.{AESGCM,ChaCha20Poly1305}`. HMAC keys may use `hashlib.sha256` / `blake2b` BUT not for password storage. For HMAC over untrusted data, use `hmac.compare_digest` for verification. Vague 'use a stronger algorithm' is NOT acceptable."
+    - "Is this for backward-compatibility with an external system (legacy protocol, third-party API contract)? Quote the contract / settings source. A documented legacy contract is a mitigating factor but does NOT flip the verdict to FP on its own — the security use-case classification above is dispositive."
+    - "If you cannot demonstrate (a) a SECURITY consumer of the digest/cipher AND (b) the absence of every defense above, verdict False Positive. If the consumer is clearly NON-SECURITY per question 3, verdict False Positive even when the algorithm is MD5/SHA1/DES/RC4."
+  context_hint: "Include the crypto call site, any config/settings lookup that supplies the algorithm name, and the function that consumes the output."
+  additional_context: ["caller", "global"]
+  min_iterations: 2
+
+# Alias: some tools emit `py/weak-sensitive-data-hashing` for CWE-328. Same rule.
+py/weak-sensitive-data-hashing: *py_weak_cryptographic_algorithm
+
+py/trust-boundary-violation:
+  short_description: "Untrusted data written into a trust-elevated container (session, cookie, header) without validation"
+  questions:
+    - "Quote the EXACT trust-boundary write sink (`flask.session[...] = X` / `flask.session.update(...)`, `django.contrib.sessions ... request.session[...] = X`, `response.set_cookie(name, X)` / `response.set_signed_cookie(name, X)`, `response.headers[h] = X`, `werkzeug.Response.set_cookie(...)`, `starlette.responses.Response(headers={...})`, line N) and name the value being written."
+    - "List EVERY assignment to that written value on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input (request.args/form/json/values, request.headers, request.cookies, path parameter, websocket frame) or from a constant/server-derived source (authenticated user ID looked up via `User.objects.get(...)`, server clock, `secrets.token_*`, hardcoded literal). Cite the data-flow chain."
+    - "Is the data validated, type-narrowed, or coerced to a known-safe type between source and sink? Quote concrete defenses with line numbers — `int(value)`, `uuid.UUID(value)`, `re.fullmatch(r'^[A-Za-z0-9]+$', value)`, pydantic / marshmallow schema parse, allow-list `if value in ALLOWED: …`. Type coercion alone is sufficient ONLY when the downstream consumer relies on that type — e.g. `int(user_id)` makes the session value safe for SQL/lookup but not for HTML rendering."
+    - "IDENTIFY THE DOWNSTREAM CONSUMER. Find the function(s) that READ this session/cookie/header value back, and quote each consumer with file:line. Classify each consumer: (a) SECURITY-SENSITIVE — TP if write is tainted: subsequent auth/authz check, command construction, redirect target (CWE-601 chain), SQL/XPath/template render, file path, deserialization, `eval` / `exec`; (b) BENIGN — FP regardless of taint: pure display text, opaque request-correlation ID, audit-log payload, A/B-test bucket, UI preference. If you cannot locate any reader OR every reader is benign, verdict False Positive."
+    - "Is the data stored verbatim as a string/bytes, or coerced to a type that constrains its later use (`int`, `bool`, `uuid.UUID`)? A `bool`-coerced cookie cannot inject into SQL; a string cookie consumed by `redirect()` can."
+    - "If you cannot demonstrate (a) user-tainted data reaching a trust-elevated write AND (b) at least one security-sensitive downstream consumer AND (c) the absence of every defense above, verdict False Positive."
+  context_hint: "Trace from request input → optional validation → session/cookie/header write → ALL later reads of the same key. Cite all three points with line numbers."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+py/regex-dos:
+  short_description: "Regular expression with catastrophic backtracking matched against user input"
+  questions:
+    - "What is the REGEX pattern — does it contain nested quantifiers like (a+)+, (a|a)*, or similar?"
+    - "Is the pattern matched against USER-CONTROLLED input without length limits?"
+    - "What is the WORST-CASE backtracking behavior — exponential, polynomial, or linear?"
+    - "Is there a timeout (re.timeout, signal.alarm, or similar) on the regex operation?"
+    - "Could an attacker craft an input like 'aaaaaaaaa...!' to trigger exponential backtracking and hang the server?"
+    - "Would rewriting the pattern (possessive quantifiers, atomic groups) or using the 'regex' library with timeout fix this?"
+  context_hint: "Include the regex pattern and where user input enters the match operation."
+  additional_context: []
+
+py/insecure-temporary-file:
+  short_description: "Predictable temporary file path or insecure mktemp() usage"
+  questions:
+    - "Is tempfile.mktemp() used (returns a name without creating the file — TOCTOU race) instead of mkstemp()?"
+    - "Is the temp file created in /tmp with a predictable name (e.g., based on PID or timestamp)?"
+    - "Could an attacker pre-create a symlink at that path to redirect writes to a sensitive file?"
+    - "Is tempfile.mkstemp() or tempfile.NamedTemporaryFile(delete=False) used for atomic creation?"
+    - "Are the file permissions set to 0600 (owner-only) before any sensitive data is written?"
+    - "Is the temp file securely deleted (shutil.rmtree or tempfile.TemporaryDirectory context manager) after use?"
+  context_hint: "Include temp file creation and how the path is derived."
+  additional_context: []
+
+py/xml-bomb:
+  short_description: "XML parser vulnerable to billion-laughs or quadratic entity expansion DoS"
+  questions:
+    - "Quote the EXACT XML-parse sink (`lxml.etree.parse(...)` / `lxml.etree.fromstring(...)` / `lxml.etree.XMLParser(...)`, `xml.etree.ElementTree.parse(...)` / `.fromstring(...)` / `XMLParser(...)`, `xml.dom.minidom.parse(...)` / `.parseString(...)`, `xml.sax.parse(...)` / `make_parser()`, `xml.dom.pulldom.parseString(...)`, line N) and name the XML-source value passed to it."
+    - "List EVERY assignment to that XML-source value on each path that reaches the sink, with line numbers. Identify the LAST assignment on each path."
+    - "For each LAST assignment, determine whether the value derives from user input (request.data/body, uploaded file via `request.files[...]`, external HTTP fetch, queue message, websocket frame) or from a constant/internal source (bundled fixture, file on local disk loaded at startup). Cite the data-flow chain."
+    - "Are there constant-time conditions or reassignments that override the user-tainted value on the reaching path? Quote them with line numbers."
+    - "What specific defense, if any, neutralises billion-laughs / quadratic-blowup / external entity expansion? Name it concretely — e.g. `defusedxml.lxml` / `defusedxml.ElementTree` / `defusedxml.minidom` / `defusedxml.sax` import REPLACES the unsafe parser; `lxml.etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False)`; explicit `forbid_dtd=True` / `forbid_entities=True`. Note: `xml.etree` from Python ≥ 3.7.1 caps entity expansion but is still vulnerable to billion-laughs without `defusedxml`. A maximum body size limit upstream of the parser is also acceptable mitigation if quoted. Vague 'parser configured safely' is NOT acceptable."
+    - "If you cannot point to user-controlled XML data reaching an unsafe parser with concrete line numbers AND identify the absence of every defense above, verdict False Positive."
+  context_hint: "Trace XML data source → parser construction → parse call. Quote both the import line and the parser-construction kwargs."
+  additional_context: ["caller"]
+  min_iterations: 2
+
+# ==============================================================================
+# Python - Cleartext Data Handling
+# ==============================================================================
+
+py/cleartext-storage:
+  short_description: "Sensitive data stored in cleartext without encryption"
+  questions:
+    - "What sensitive data is being stored — password, token, API key, PII, credit card?"
+    - "Where is the data stored — database, file, pickle, shelve, Redis, SQLite, config?"
+    - "Is the data ENCRYPTED or HASHED before storage (e.g., cryptography.fernet, bcrypt for passwords)?"
+    - "Could an attacker with access to the storage medium (database dump, backup, file) read the sensitive data?"
+    - "Is this storage reachable in production, or is it only used in tests/development?"
+    - "What is the blast radius if this data is exposed — account compromise, credential reuse, regulatory violation?"
+  context_hint: "Include the data source, storage call, and any encryption step."
+  additional_context: ["caller"]
+
+py/cleartext-transmission:
+  short_description: "Sensitive data transmitted over unencrypted channel (HTTP, plain TCP)"
+  questions:
+    - "What sensitive data is being sent — credentials, tokens, session IDs, PII?"
+    - "Is the URL scheme http:// where https:// should be used?"
+    - "Is the connection using TLS (ssl.wrap_socket, requests with verify=True) or plain sockets?"
+    - "Could an attacker on the network path (MITM) intercept and read this data?"
+    - "Is smtplib or ftplib used without STARTTLS for transmitting credentials?"
+    - "Is this an internal-only connection with compensating network-level encryption (VPN, service mesh)?"
+  context_hint: "Include the data being sent and the network/HTTP call."
+  additional_context: ["caller"]
+
+py/certificate-validation-disabled:
+  short_description: "TLS certificate verification disabled (verify=False, CERT_NONE)"
+  questions:
+    - "Is requests.get/post called with verify=False, disabling certificate validation?"
+    - "Is ssl.SSLContext created with check_hostname=False or CERT_NONE?"
+    - "Is urllib3 configured with cert_reqs='CERT_NONE' or InsecureRequestWarning suppressed?"
+    - "Could an attacker with a self-signed certificate perform a man-in-the-middle attack?"
+    - "Is this a development/test configuration that should NOT be used in production?"
+    - "What remote server is being connected to — is it an internal service with a custom CA, or an external API?"
+  context_hint: "Include the HTTP/TLS client setup and verify parameter."
+  additional_context: ["caller"]
+
+py/insecure-tls-version:
+  short_description: "Deprecated TLS/SSL protocol version (SSLv3, TLS 1.0, TLS 1.1) used"
+  questions:
+    - "Is ssl.PROTOCOL_TLSv1, PROTOCOL_TLSv1_1, or PROTOCOL_SSLv23 used without disabling old protocols?"
+    - "Is SSLContext.minimum_version set to TLSVersion.TLSv1_2 or higher?"
+    - "Are deprecated protocols disabled via SSLContext.options (OP_NO_SSLv3, OP_NO_TLSv1, OP_NO_TLSv1_1)?"
+    - "Could an attacker force a protocol downgrade to exploit BEAST, POODLE, or similar vulnerabilities?"
+    - "Is this connecting to a legacy server that cannot support TLS 1.2+?"
+    - "What cipher suites are enabled — do they include weak ciphers (RC4, DES, export-grade)?"
+  context_hint: "Include ssl.SSLContext creation and all protocol configuration."
+  additional_context: []
+
+# ==============================================================================
+# Python - NoSQL / Data Access
+# ==============================================================================
+
+py/nosql-injection:
+  short_description: "NoSQL (MongoDB) query built from unsanitized user input"
+  questions:
+    - "Where does the INPUT originate — request.args, request.form, request.json, or other user-controlled source?"
+    - "Is user input used directly as a MongoDB query object (e.g., collection.find(request.json))?"
+    - "Could an attacker supply JSON operators like {'$gt': ''} or {'$where': 'sleep(1000)'} to alter query semantics?"
+    - "Is the input VALIDATED to ensure it is a scalar value (string, number) rather than a dict or list?"
+    - "Is pymongo or motor used, and is there any input sanitization middleware?"
+    - "What is the impact — authentication bypass, data exfiltration, or DoS via $where expressions?"
+  context_hint: "Trace from request input through query object construction to database call."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Archive Extraction
+# ==============================================================================
+
+py/zip-slip:
+  short_description: "Archive extraction without validating file paths allows directory traversal"
+  questions:
+    - "Is tarfile.extractall(), zipfile.extractall(), or shutil.unpack_archive() used on untrusted archives?"
+    - "Are individual member paths CHECKED to ensure they do not contain '../' or absolute paths?"
+    - "Could an attacker craft an archive with entries like '../../etc/cron.d/malicious' to write outside the target directory?"
+    - "Is tarfile used with a data_filter or filter parameter (Python 3.12+) to restrict extraction?"
+    - "Is os.path.realpath() applied to each extracted path and compared to the intended base directory?"
+    - "What is the impact — arbitrary file write, code execution via overwriting scripts or configs?"
+  context_hint: "Include the archive extraction call and the source of the archive."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Session Security
+# ==============================================================================
+
+py/session-fixation:
+  short_description: "Session ID not regenerated after successful login"
+  questions:
+    - "After successful authentication, is the session ID regenerated (e.g., Flask session.regenerate(), Django cycle_key())?"
+    - "Could an attacker set a known session ID (via URL or cookie) and wait for the victim to authenticate?"
+    - "Does the framework handle session regeneration automatically, or must it be done explicitly?"
+    - "Is this a login endpoint or another privilege escalation point (2FA completion, role change)?"
+    - "Is the old session data properly migrated to the new session after regeneration?"
+    - "Are session IDs generated with sufficient entropy (secrets module, framework default) to resist guessing?"
+  context_hint: "Include the login handler and session management logic."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - File Upload
+# ==============================================================================
+
+py/file-upload:
+  short_description: "Uploaded file processed without type, extension, or content validation"
+  questions:
+    - "Is the uploaded file saved to disk without validating its extension, MIME type, or content?"
+    - "Is the file stored in a web-accessible directory where it could be executed (e.g., as a Python/PHP script)?"
+    - "Is the file extension checked against an ALLOWLIST (not a blocklist) of safe extensions?"
+    - "Is the filename sanitized (werkzeug.utils.secure_filename or equivalent) to prevent path traversal?"
+    - "Is the Content-Type header trusted (client-controlled) or is the actual content inspected (e.g., python-magic)?"
+    - "What is the impact — arbitrary file write, code execution, or storage of malicious content?"
+  context_hint: "Include the upload handling code, destination path, and validation logic."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Clickjacking
+# ==============================================================================
+
+py/clickjacking:
+  short_description: "Missing X-Frame-Options or CSP frame-ancestors header in Python web framework"
+  questions:
+    - "Is the X-Frame-Options header (DENY or SAMEORIGIN) set in responses, or is frame-ancestors in CSP?"
+    - "Could an attacker embed this page in an iframe on their site to trick users into clicking sensitive UI?"
+    - "What sensitive actions could be triggered — button clicks, form submissions, permission grants?"
+    - "Is Flask-Talisman, Django SecurityMiddleware, or equivalent middleware configured for this app?"
+    - "Does the application intentionally allow framing for specific pages (widgets, embeds)?"
+    - "Are there any pages with state-changing actions that are NOT protected by frame-busting headers?"
+  context_hint: "Include the response header configuration and which routes serve sensitive UI."
+  additional_context: []
+
+# ==============================================================================
+# Python - Debug / Configuration
+# ==============================================================================
+
+py/flask-debug:
+  short_description: "Flask debug mode enabled in production allowing code execution"
+  questions:
+    - "Is app.run(debug=True) or FLASK_DEBUG=1 set in code that runs in production?"
+    - "Does debug mode expose the Werkzeug interactive debugger, which allows arbitrary Python execution?"
+    - "Is the debugger PIN protection sufficient — can an attacker derive the PIN from /proc filesystem info?"
+    - "Is this guarded by an environment check (e.g., only enabled when ENV=development)?"
+    - "Is this in the main entry point (if __name__ == '__main__') that is NOT used in production (gunicorn/uwsgi)?"
+    - "What is the impact — full remote code execution if the debugger is reachable from the network?"
+  context_hint: "Include the app.run() call and any environment-based guards."
+  additional_context: []
+
+# ==============================================================================
+# Python - File Permissions
+# ==============================================================================
+
+py/overly-permissive-file:
+  short_description: "File created with world-readable or world-writable permissions"
+  questions:
+    - "What permissions are set — is os.chmod() called with 0o777, 0o666, or similar world-accessible mode?"
+    - "Is open() called without restricting permissions via os.umask() or the opener parameter?"
+    - "What data is written to this file — credentials, tokens, config, sensitive logs?"
+    - "Could another user or process on the same system read or modify this file?"
+    - "Is tempfile.mkstemp() or NamedTemporaryFile() used, which create files with 0o600 by default?"
+    - "Is this on a shared system (multi-user server, container with shared volumes) where other users exist?"
+  context_hint: "Include the file creation call and the mode/permissions."
+  additional_context: []
+
+# ==============================================================================
+# Python - Regex Injection
+# ==============================================================================
+
+py/regex-injection:
+  short_description: "User input used as a regular expression pattern without escaping"
+  questions:
+    - "Is user-controlled input passed directly as the PATTERN argument to re.compile(), re.search(), re.match()?"
+    - "Is re.escape() applied to the user input before using it in a regex?"
+    - "Could an attacker craft a malicious regex pattern to cause catastrophic backtracking (ReDoS)?"
+    - "Could an attacker use regex features (backreferences, lookbehinds) to extract data or cause unexpected matches?"
+    - "Is there a timeout configured on the regex operation to limit execution time?"
+    - "Is the intent to search for a literal string — if so, should str.find() or str.contains() be used instead?"
+  context_hint: "Include the regex call and where the pattern comes from."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Additional Security Rules
+# ==============================================================================
+
+py/unsafe-yaml:
+  short_description: "yaml.load() used without SafeLoader, allowing arbitrary code execution (CWE-502)"
+  questions:
+    - "Is yaml.load() called WITHOUT specifying Loader=yaml.SafeLoader or Loader=yaml.CSafeLoader?"
+    - "Where does the YAML INPUT come from — user upload, network, file, config?"
+    - "Could an attacker supply a YAML payload with !!python/object to execute arbitrary code?"
+    - "Is yaml.safe_load() or yaml.load(data, Loader=SafeLoader) used instead?"
+    - "Which Loader is passed to `yaml.load` (PyYAML 6.0+ requires an explicit Loader argument), and is the PyYAML version visible?"
+    - "Is there any input validation or schema check BEFORE parsing the YAML?"
+  context_hint: "Include the yaml.load() call and where the input data originates."
+  additional_context: ["caller"]
+
+py/django-raw-sql:
+  short_description: "Django ORM raw SQL method with user-controlled input"
+  questions:
+    - "Is .raw(), .extra(), cursor.execute(), or RawSQL() used with string concatenation or %-formatting?"
+    - "Where does the user input come from — request.GET, request.POST, URL parameter?"
+    - "Are PARAMETERIZED queries used (params=[...]) instead of string interpolation?"
+    - "Could the ORM query builder (.filter(), .exclude(), .annotate()) achieve the same result safely?"
+    - "Is there any INPUT VALIDATION or ESCAPING before the value enters the SQL string?"
+    - "Could an attacker inject SQL to read, modify, or delete data beyond their authorization?"
+  context_hint: "Include the ORM/SQL call, input source, and any parameterization."
+  additional_context: ["caller"]
+
+py/missing-access-control:
+  short_description: "Endpoint or function performs privileged action without authorization check (CWE-862)"
+  questions:
+    - "What PRIVILEGED OPERATION does this view/function perform — data modification, admin action, user management?"
+    - "Is there a DECORATOR or MIDDLEWARE enforcing authentication (@login_required, @permission_required, IsAuthenticated)?"
+    - "Is there an AUTHORIZATION CHECK verifying the user has permission for THIS specific resource/action?"
+    - "Could an unauthenticated or low-privilege user reach this code path via the URL routing?"
+    - "Does the framework provide DEFAULT PROTECTION (e.g., Django LOGIN_URL, DRF default permission classes)?"
+    - "What is the IMPACT if an unauthorized user triggers this action?"
+  context_hint: "Include the view function, URL routing, and any authentication decorators or middleware."
+  additional_context: ["caller"]
+
+py/input-validation:
+  short_description: "User input used without validation at system boundary (CWE-20)"
+  questions:
+    - "Where does the INPUT originate — request.GET, request.POST, request.FILES, sys.argv, env var?"
+    - "What TYPE and FORMAT is expected — integer, email, UUID, bounded string?"
+    - "Is the input VALIDATED using a form, serializer, schema library (Pydantic, marshmallow, WTForms)?"
+    - "Could malformed input cause an exception, logic error, or security bypass?"
+    - "Is the input used in a SECURITY-SENSITIVE context (database query, file path, shell command, template)?"
+    - "Is the validation at the BOUNDARY (view/endpoint) or scattered across multiple layers?"
+  context_hint: "Include the input source, any validation, and the first security-sensitive use."
+  additional_context: ["caller"]
+
+py/async-race-condition:
+  short_description: "Shared mutable state accessed from async coroutines without synchronization"
+  questions:
+    - "What SHARED STATE is accessed — module-level variable, class attribute, global dict/list?"
+    - "Is the state READ and WRITTEN from multiple coroutines or tasks?"
+    - "Is an asyncio.Lock, asyncio.Semaphore, or other synchronization primitive used?"
+    - "Could a context switch (await) between read and write cause a TOCTOU or inconsistent state?"
+    - "Is the operation ATOMIC (single dict assignment) or COMPOUND (read-modify-write)?"
+    - "What is the impact — data corruption, authentication bypass, financial inconsistency?"
+  context_hint: "Include the shared state declaration, all async functions accessing it, and any locks."
+  additional_context: ["caller", "global"]
+
+py/unsafe-string-formatting:
+  short_description: "User input in %-format or .format() string used in security-sensitive context"
+  questions:
+    - "Is user input used in a %-format string (% operator) or .format() call?"
+    - "Could an attacker use format specifiers to READ object attributes (e.g., {0.__class__.__init__.__globals__})?"
+    - "Is the formatted string used in a SECURITY-SENSITIVE context (logging, SQL, HTML, shell command)?"
+    - "Would f-strings or parameterized APIs be safer alternatives?"
+    - "Is the format string itself HARDCODED, or is the format string template also user-controlled?"
+    - "Are there any restrictions on what objects/attributes the format placeholders can access?"
+  context_hint: "Include the format call, user input source, and where the result is used."
+  additional_context: ["caller"]
+
+py/insecure-tls-context:
+  short_description: "SSLContext created without enforcing minimum TLS version or hostname checking"
+  questions:
+    - "Is ssl.SSLContext() created without setting minimum_version to TLSVersion.TLSv1_2 or higher?"
+    - "Is check_hostname set to True and verify_mode set to CERT_REQUIRED?"
+    - "Is ssl.create_default_context() used (which has secure defaults) or a manual SSLContext?"
+    - "Could this context be used for connections carrying sensitive data (passwords, tokens, PII)?"
+    - "Are deprecated protocols (SSLv3, TLS 1.0, TLS 1.1) explicitly disabled via context.options?"
+    - "Is this context used only for INTERNAL services with self-signed certs, or for public-facing connections?"
+  context_hint: "Include the SSLContext creation, option settings, and where it is used for connections."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Python - Resource Exhaustion, Authentication, Privilege, Authorization
+# ==============================================================================
+
+py/resource-exhaustion:
+  short_description: "Unbounded resource allocation from user-controlled input enabling DoS (CWE-770)"
+  questions:
+    - "Is a LIST, DICT, or BUFFER sized by user input without an upper bound (e.g., [None] * int(request.args['size']))?"
+    - "Could an attacker send an extremely large value to exhaust server memory or cause MemoryError?"
+    - "Is there a MAXIMUM enforced — validator, min/max clamp, or framework-level limit (e.g., DATA_UPLOAD_MAX_MEMORY_SIZE)?"
+    - "Is file content read entirely into memory (file.read()) without a size limit for user-uploaded files?"
+    - "Could recursive or deeply nested input (JSON, XML, pickle) cause stack overflow or exponential processing?"
+    - "Is pagination enforced on database queries — could a user request limit=999999 to dump the entire table?"
+  context_hint: "Include the allocation site, user input source, and any size validation."
+  additional_context: ["caller"]
+
+py/missing-authentication:
+  short_description: "View or endpoint accessible without authentication performing privileged actions (CWE-306)"
+  questions:
+    - "Quote the EXACT view function/class and the privileged action it performs, with line numbers."
+    - "What SPECIFIC authentication mechanism would satisfy the rule? Name it concretely — e.g. '@login_required (Django)', 'permission_classes = [IsAuthenticated] (DRF)', '@jwt_required() (Flask-JWT-Extended)'. 'Some auth decorator' is not acceptable."
+    - "Enumerate EVERY URL pattern that resolves to this view (urls.py, router registration, blueprint, view set actions). For each, cite which SPECIFIC mechanism is enforced with file:line."
+    - "Is this endpoint EXPLICITLY public (login, password reset, public API)? Quote the justification."
+    - "Is there a global middleware/AUTHENTICATION_BACKENDS / DEFAULT_PERMISSION_CLASSES that should cover this view? Quote it or mark 'Not visible'."
+    - "If the specific required mechanism is not present on every reachable path, the rule is likely correct."
+  context_hint: "Include the view function/class, URL configuration, and any authentication decorators."
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
+
+py/improper-privilege-management:
+  short_description: "Privilege escalation via role manipulation or missing privilege boundary (CWE-269)"
+  questions:
+    - "Quote the EXACT statement the rule flagged (role mutation, is_staff/is_superuser assignment, serializer fields including role) with line number."
+    - "What SPECIFIC guard would satisfy the rule? Name it concretely — e.g. 'IsAdminUser permission class before the mutation', 'role excluded from ModelSerializer.Meta.fields / included in read_only_fields', 'explicit User.objects.update(name=..., email=...) excluding role'. 'A privilege check' is not acceptable."
+    - "Enumerate EVERY path that can mutate the role/privilege field: registration, profile update, admin endpoint, management command. For each, cite the SPECIFIC guard with file:line."
+    - "Can a low-privileged user influence the role field via JSON body, multipart form, or query? Quote the data flow."
+    - "Are Django @permission_required / DRF permission_classes used? Quote them or mark 'Not visible'."
+    - "If the specific required guard is not present on every reachable path, the rule is likely correct."
+  context_hint: "Include the user update view, serializer fields, and permission checks."
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
+
+py/incorrect-authorization:
+  short_description: "Authorization check on wrong object or with incorrect logic (CWE-863)"
+  questions:
+    - "Quote the EXACT authorization check the code performs AND the EXACT resource access it gates, both with line numbers."
+    - "What SPECIFIC check would satisfy the rule for this resource? (e.g. 'resource.owner == request.user', 'has_object_permission(request, view, obj) implementing ownership'.) 'A permission check' is not acceptable."
+    - "Compare the check performed to the check required: same request.user, same resource? Cite line numbers."
+    - "Could an attacker change the resource ID (IDOR) to access another user's data? Show whether get_object_or_404 filters by request.user or fetches any object by pk."
+    - "For DRF: is has_object_permission implemented, or only has_permission (view-level only)? Quote it."
+    - "If the check performed differs from the check required on any reachable path, the rule is likely correct."
+  context_hint: "Include the view, object lookup, permission class, and queryset filtering."
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
+
+py/resource-leak:
+  short_description: "Opened resource (file, connection, socket) not properly closed in Python"
+  questions:
+    - "Which resource is opened — open(), socket.socket(), sqlite3.connect(), psycopg2.connect(), requests.Session()?"
+    - "Is a context manager (with statement) used to ensure the resource is closed on all code paths?"
+    - "If not using 'with', is .close() called in a finally block to handle exceptions?"
+    - "Could the leak accumulate over time — is this in a loop, web handler (called per-request), or long-running process?"
+    - "For database connections, is a connection pool (SQLAlchemy pool, psycopg2 pool) used instead of opening individual connections?"
+    - "Could the resource leak lead to 'Too many open files' errors or database connection exhaustion?"
+  context_hint: "Trace from resource open to close() and check all code paths including exceptions."
+  additional_context: ["caller"]
+
+py/mass-assignment:
+  short_description: "HTTP request body directly assigned to model fields allowing privilege escalation"
+  questions:
+    - "Is request.data, request.POST, or request.json directly passed to Model.objects.create() or model_instance.__dict__.update()?"
+    - "Does the model contain fields that should not be user-settable (is_admin, role, balance, is_staff)?"
+    - "Is a Django ModelForm with explicit fields= or exclude= used, or DRF Serializer with fields restriction?"
+    - "Could an attacker add extra fields (e.g., 'is_admin': true) to the request body to escalate privileges?"
+    - "Is **kwargs from request data unpacked directly into ORM create/update calls?"
+    - "Are only explicitly allowlisted fields extracted from the request before saving?"
+  context_hint: "Check the request data flow to model creation/update and whether fields are restricted."
+  additional_context: ["caller", "class"]
+
+py/cors-misconfiguration:
+  short_description: "CORS headers set to overly permissive values in Python web application"
+  questions:
+    - "Is CORS_ALLOW_ALL_ORIGINS (Django) or origins='*' (Flask-CORS) set, allowing any origin?"
+    - "Is CORS_ALLOW_CREDENTIALS set to True along with a wildcard origin (insecure combination)?"
+    - "Does the CORS configuration use CORS_ALLOWED_ORIGINS (Django) or specific origins (Flask-CORS) with an allowlist?"
+    - "Is the Origin header reflected back without validation?"
+    - "Could an attacker's website make authenticated cross-origin requests and read the response?"
+    - "Is CORS configured globally or per-view — are sensitive endpoints properly restricted?"
+  context_hint: "Check CORS middleware configuration (django-cors-headers settings or Flask-CORS init)."
+  additional_context: []
+
+py/thread-leak:
+  short_description: "Thread or executor started without proper shutdown or join"
+  questions:
+    - "Is threading.Thread() started without .join() or daemon=True, potentially leaking on exception?"
+    - "Is concurrent.futures.ThreadPoolExecutor or ProcessPoolExecutor used without a 'with' statement or .shutdown()?"
+    - "Could threads accumulate if the function is called repeatedly (per-request in a web handler)?"
+    - "Is asyncio.create_task() used without awaiting the result or storing a reference (fire-and-forget)?"
+    - "Could leaked threads hold resources (database connections, file handles, locks) indefinitely?"
+    - "Is atexit or signal handling used to ensure clean shutdown of background threads?"
+  context_hint: "Trace thread/executor lifecycle from creation to join/shutdown."
+  additional_context: ["caller"]
+
+py/sensitive-data-exposure:
+  short_description: "Sensitive data exposed through logs, error pages, or API responses in Python"
+  questions:
+    - "What sensitive data is exposed — passwords, API keys, tokens, PII, database credentials, stack traces?"
+    - "Is DEBUG=True in Django settings, exposing detailed error pages with local variables to users?"
+    - "Is traceback.format_exc() or exception details included in HTTP responses to clients?"
+    - "Are sensitive fields serialized in API responses without redaction (DRF serializer missing exclude)?"
+    - "Is logging configured to avoid recording sensitive data (passwords, tokens) in log files?"
+    - "Could the exposure violate GDPR, HIPAA, or PCI-DSS compliance requirements?"
+  context_hint: "Trace sensitive data flow to all output channels (HTTP response, logs, error handlers)."
+  additional_context: ["caller", "class"]
+
+py/timing-unsafe-comparison:
+  short_description: "Secret/HMAC/token compared with == instead of hmac.compare_digest"
+  questions:
+    - "What value is being compared at the flagged line — password digest, HMAC, signature, session token, API key?"
+    - "Which comparison operator is used — ==, !=, operator.eq, or hmac.compare_digest / secrets.compare_digest?"
+    - "Is the user-supplied operand from request.headers / request.GET / request.POST / request.body / cookies?"
+    - "CPython's str/bytes == short-circuits on first differing byte — could a remote attacker exploit timing to recover the secret?"
+    - "Is hmac.compare_digest or secrets.compare_digest available and used?"
+    - "Could the comparison's response-time variance be measured against a Flask/Django/FastAPI endpoint?"
+  context_hint: "Identify comparison + attacker-controlled operand."
+  additional_context: ["caller"]
+
+py/csv-formula-injection:
+  short_description: "User-controlled value written to CSV/XLSX cell without leading-character escaping"
+  questions:
+    - "Which writer is used — csv.writer, pandas.to_csv, openpyxl, xlsxwriter, or manual file write?"
+    - "Where does the cell value originate — request body, file upload, DB row populated from user input?"
+    - "Does the writer escape leading '=', '+', '-', '@', tab, or carriage-return characters?"
+    - "Will the output file be opened in Excel / LibreOffice / Google Sheets that interpret leading '=' as a formula?"
+    - "Could an attacker inject =HYPERLINK / DDE / =cmd payloads to phish or run commands on a victim?"
+    - "Is the OWASP recommendation (prefix with `'` or write as text) applied?"
+  context_hint: "Locate writer + tainted source."
+  additional_context: ["caller"]
+
+py/insecure-cookie:
+  short_description: "Cookie set without HttpOnly or SameSite attribute"
+  questions:
+    - "Where is the cookie set — response.set_cookie (Django/Flask), starlette.Response, FastAPI Response.set_cookie?"
+    - "Is httponly=True passed to set_cookie / SESSION_COOKIE_HTTPONLY = True configured? (CWE-1004)"
+    - "Is samesite='Lax' or 'Strict' set explicitly? (CWE-1275) — Django default is 'Lax' but older versions or custom code may omit it."
+    - "Is secure=True set when the site is HTTPS-only? (CWE-614)"
+    - "Does the cookie hold session id, auth token, or other sensitive data?"
+    - "Could an XSS payload exfiltrate the cookie via document.cookie?"
+  context_hint: "Locate cookie set + options."
+  additional_context: ["caller"]
+
+py/unsafe-reflection:
+  short_description: "importlib.import_module / __import__ / getattr with attacker-controlled name"
+  questions:
+    - "Which reflection API is called — importlib.import_module, __import__, getattr, eval, exec, or pkgutil.get_loader?"
+    - "Where does the module/attribute name originate? Trace back to the request or external file."
+    - "Is the name validated against an allowlist of permitted modules/attributes?"
+    - "Could an attacker import a module with side effects in module-level code (e.g. os, subprocess, ctypes)?"
+    - "Is the resolved object subsequently called or used in a way that turns module loading into RCE?"
+    - "Is the reflection used as a 'plugin dispatcher' that could be safely replaced with a static dict lookup?"
+  context_hint: "Trace input to the reflective call."
+  additional_context: ["caller"]
+
+py/overflow-destination:
+  short_description: "bytearray/bytes slice assignment or struct.pack_into length derived from source"
+  questions:
+    - "What is the DESTINATION bytearray/memoryview/buffer size at the flagged line?"
+    - "What LENGTH or end-index is used in the slice assignment / struct.pack_into / ctypes.memmove?"
+    - "Could the length exceed the destination's capacity?"
+    - "Is the length derived from a tainted protocol field?"
+    - "Is there an explicit bounds check before the write?"
+    - "Could the write extend the bytearray unexpectedly (slice-assignment auto-resizes) and break invariants?"
+  context_hint: "Examine destination, length, and source together."
+  additional_context: ["caller"]
+
+# ── Configuration-weakness XSS: template autoescaping disabled ──────────────
+# These findings flag a CONFIGURATION flag (autoescape=False), not a taint
+# flow. The generic py/xss question set demands a source→sink trace the model
+# cannot complete because the {{ }} sink lives in separate template files that
+# are out of scope — which made the verifier wrongly mark a real misconfig as
+# a False Positive. This set frames it correctly: the disable itself is the
+# weakness whenever the engine renders any dynamic data. Two keys (CodeQL exact
+# id + Semgrep exact id) so both detectors route here instead of py/xss.
+py/jinja-autoescape-disabled: &py_autoescape_disabled
+  short_description: "Template engine autoescaping disabled — XSS exposure (configuration weakness)"
+  questions:
+    - "Quote the flagged line and confirm it disables autoescaping (e.g. autoescape=False on a Jinja2 Environment / aiohttp_jinja2.setup / setup_jinja). Is this GLOBAL (engine/app-wide) or scoped to one template/block?"
+    - "IMPORTANT: this is a CONFIGURATION weakness, not a taint finding. The vulnerability is that escaping is OFF for templates this engine renders. You do NOT need to see a concrete `{{ var }}` sink in this file — template files are normally separate and out of scope, so their absence here is NOT evidence of safety."
+    - "Does the application render ANY template through this engine with non-constant data (e.g. aiohttp_jinja2 @template handlers, render_template/render_string, returning a context dict)? Cite a render site if visible. If the engine is provably never used to render dynamic data anywhere, that would make it a false positive."
+    - "Is autoescaping re-enabled elsewhere, or is every dynamic value explicitly escaped at render time (|e / markupsafe.escape / bleach.clean)? Only a complete, consistent escaping discipline makes a global disable safe."
+    - "Verdict: with autoescaping globally disabled AND the engine used to render any dynamic/user-influenced data, this is a True Positive for XSS exposure (CWE-79). Do NOT return False Positive merely because no source→sink path is visible in the provided snippet — the sink is in template files outside this context."
+  context_hint: "Treat as a configuration weakness; do NOT require a visible {{ }} sink. Confirm the engine renders dynamic data somewhere (check handlers/routes via caller context)."
+  additional_context: ["caller"]
+  min_iterations: 1
+
+# Semgrep custom rule (exact id) → same config-weakness questions.
+config.semgrep-custom.vulnhunterx.python.template-autoescape-disabled: *py_autoescape_disabled

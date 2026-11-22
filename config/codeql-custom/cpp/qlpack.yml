@@ -1,0 +1,5 @@
+name: vulnhunterx/cpp-security-custom
+version: 0.0.1
+dependencies:
+  codeql/cpp-all: "*"
+suites: suite.qls

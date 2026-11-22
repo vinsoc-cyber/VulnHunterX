@@ -1,0 +1,409 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+#
+# Custom Semgrep rules for PHP-specific vulnerabilities not covered by
+# registry packs (p/php, p/security-audit, p/owasp-top-ten, etc.).
+#
+# Each rule carries metadata.cwe so the verification engine routes the
+# finding to the language-specific guided question via cwe_question_map
+# in config/rule_categories.yaml.
+#
+# Validate with: opengrep --validate --config config/semgrep-custom/php.yaml
+# Test with:     pytest tests/test_custom_semgrep_rules.py -v
+
+rules:
+
+  # ── CWE-1025: Type juggling via loose comparison in security contexts ──
+  - id: vulnhunterx.php.type-juggling
+    languages: [php]
+    severity: WARNING
+    message: |
+      Loose comparison (== / !=) on a value derived from user input can be
+      bypassed via PHP type juggling — e.g. "0e1" == "0e2" evaluates to true
+      because both are coerced to floats. Use strict comparison (=== / !==)
+      in authentication, authorization, and token-check paths (CWE-1025).
+    metadata:
+      cwe: ["CWE-1025"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1025.html
+        - https://www.php.net/manual/en/language.operators.comparison.php
+    patterns:
+      - pattern-either:
+          # password/hash/token compared loosely
+          - pattern: $X == $_GET[...]
+          - pattern: $X == $_POST[...]
+          - pattern: $X == $_REQUEST[...]
+          - pattern: $_GET[...] == $X
+          - pattern: $_POST[...] == $X
+          - pattern: $_REQUEST[...] == $X
+      - pattern-not: $X === $_GET[...]
+      - pattern-not: $X === $_POST[...]
+      - pattern-not: $X === $_REQUEST[...]
+
+  # ── CWE-1062: extract() on user-controlled array overwrites variables ──
+  - id: vulnhunterx.php.extract-injection
+    languages: [php]
+    severity: ERROR
+    message: |
+      extract() called on a user-controlled array allows an attacker to
+      overwrite arbitrary local variables (including authorisation flags).
+      Use EXTR_SKIP / EXTR_PREFIX_ALL at minimum, or refactor to explicit
+      assignments (CWE-1062).
+    metadata:
+      cwe: ["CWE-1062"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1062.html
+        - https://www.php.net/manual/en/function.extract.php
+    patterns:
+      - pattern-either:
+          - pattern: extract($_GET)
+          - pattern: extract($_POST)
+          - pattern: extract($_REQUEST)
+          - pattern: extract($_COOKIE)
+          - pattern: extract($_GET, ...)
+          - pattern: extract($_POST, ...)
+          - pattern: extract($_REQUEST, ...)
+      - pattern-not: extract(..., EXTR_SKIP)
+      - pattern-not: extract(..., EXTR_PREFIX_ALL, ...)
+      - pattern-not: extract(..., EXTR_PREFIX_INVALID, ...)
+
+  # ── CWE-621: Variable variables ($$var) allow attacker variable creation ──
+  # Semgrep's PHP frontend cannot parse `$$var` natively because `$X` is a
+  # metavariable. Use regex matching against the raw source instead.
+  - id: vulnhunterx.php.variable-variables
+    languages: [php]
+    severity: WARNING
+    message: |
+      Variable-variable assignment ($$name = ...) near user-input access can
+      allow an attacker to overwrite arbitrary variables in the current scope,
+      including security-critical state (CWE-621).
+    metadata:
+      cwe: ["CWE-621"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/621.html
+        - https://www.php.net/manual/en/language.variables.variable.php
+    pattern-regex: '\$\$[a-zA-Z_][a-zA-Z0-9_]*\s*=.*\$_(GET|POST|REQUEST)'
+
+  # ── CWE-98: PHP file inclusion of attacker-controlled file path ──
+  - id: vulnhunterx.php.file-inclusion
+    languages: [php]
+    severity: ERROR
+    message: |
+      include / require with a user-controlled path enables Local or Remote
+      File Inclusion (LFI/RFI). Validate against a fixed allowlist or use
+      a switch/case to dispatch to known-safe filenames (CWE-98).
+    metadata:
+      cwe: ["CWE-98"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/98.html
+    patterns:
+      - pattern-either:
+          - pattern: include($_GET[...]);
+          - pattern: include_once($_GET[...]);
+          - pattern: require($_GET[...]);
+          - pattern: require_once($_GET[...]);
+          - pattern: include($_POST[...]);
+          - pattern: include_once($_POST[...]);
+          - pattern: require($_POST[...]);
+          - pattern: require_once($_POST[...]);
+          - pattern: include($_REQUEST[...]);
+          - pattern: include_once($_REQUEST[...]);
+          - pattern: require($_REQUEST[...]);
+          - pattern: require_once($_REQUEST[...]);
+          - pattern: |
+              $X = $_GET[...];
+              ...
+              include($X);
+          - pattern: |
+              $X = $_GET[...];
+              ...
+              require($X);
+
+  # ── CWE-327/328: PHP weak hash functions ──
+  - id: vulnhunterx.php.weak-hash
+    languages: [php]
+    severity: WARNING
+    message: |
+      MD5 / SHA-1 are collision-vulnerable. Use hash("sha256", ...) or
+      stronger for password hashing (prefer password_hash with PASSWORD_DEFAULT),
+      HMAC, signatures, and integrity checks (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+        - https://www.php.net/manual/en/function.password-hash.php
+    patterns:
+      - pattern-either:
+          - pattern: md5($X)
+          - pattern: md5($X, ...)
+          - pattern: sha1($X)
+          - pattern: sha1($X, ...)
+          - pattern: hash("md5", ...)
+          - pattern: hash("sha1", ...)
+          - pattern: hash('md5', ...)
+          - pattern: hash('sha1', ...)
+
+  # ── CWE-330/338: rand() / mt_rand() used for security tokens ──
+  - id: vulnhunterx.php.insecure-rand
+    languages: [php]
+    severity: WARNING
+    message: |
+      rand() / mt_rand() are not cryptographically secure — the seed
+      and state can be recovered from a small amount of output. Use
+      random_bytes() / random_int() for tokens, secrets, passwords,
+      keys, nonces, CSRF, OTP (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+        - https://www.php.net/manual/en/function.random-bytes.php
+    patterns:
+      - pattern-either:
+          - pattern: |
+              function $F(...) {
+                ...
+                rand(...);
+                ...
+              }
+          - pattern: |
+              function $F(...) {
+                ...
+                mt_rand(...);
+                ...
+              }
+      - metavariable-regex:
+          metavariable: $F
+          regex: '(?i).*(token|secret|password|passwd|pwd|key|nonce|csrf|otp|generate).*'
+
+  # ── CWE-377: predictable temp file via tempnam / tmpfile ──
+  - id: vulnhunterx.php.predictable-tempnam
+    languages: [php]
+    severity: WARNING
+    message: |
+      tempnam() in /tmp returns a predictable filename that an attacker
+      with local access can pre-create or rebind. Use tempnam() with a
+      private prefix outside /tmp, or open the file with O_EXCL semantics
+      via fopen(..., 'x') (CWE-377).
+    metadata:
+      cwe: ["CWE-377"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/377.html
+        - https://www.php.net/manual/en/function.tempnam.php
+    patterns:
+      - pattern-either:
+          - pattern: tempnam(sys_get_temp_dir(), $X)
+          - pattern: tempnam("/tmp", $X)
+          - pattern: tempnam('/tmp', $X)
+          - pattern: tmpfile()
+
+  # ── CWE-434: Unrestricted file upload — destination from $_FILES name ──
+  - id: vulnhunterx.php.file-upload
+    languages: [php]
+    severity: ERROR
+    message: |
+      move_uploaded_file() writes the upload to a destination built from the
+      attacker-controlled original filename ($_FILES[..]['name']) with no
+      extension / MIME allowlist. An attacker can upload a .php / .phtml file
+      into a web-served directory and gain remote code execution (CWE-434).
+      Validate the extension against an allowlist and store under a generated
+      name (e.g. bin2hex(random_bytes(16)) . '.' . $ext).
+    metadata:
+      cwe: ["CWE-434"]
+      category: security
+      owasp: "A04:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/434.html
+        - https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload
+    patterns:
+      - pattern-either:
+          - pattern: move_uploaded_file($TMP, $_FILES[...]['name'])
+          - pattern: move_uploaded_file($TMP, $X . $_FILES[...]['name'])
+          - pattern: move_uploaded_file($TMP, $X . $_FILES[...][...])
+          - pattern: |
+              $DST = $X . $_FILES[...]['name'];
+              ...
+              move_uploaded_file($TMP, $DST);
+          - pattern: |
+              $NAME = $_FILES[...]['name'];
+              ...
+              move_uploaded_file($TMP, $Y . $NAME);
+
+  # ── CWE-90: LDAP injection — request data flows into a search filter ──
+  - id: vulnhunterx.php.ldap-injection
+    languages: [php]
+    severity: ERROR
+    mode: taint
+    message: |
+      Request data ($_GET/$_POST/$_REQUEST) flows unescaped into an LDAP
+      search filter. An attacker can inject filter metacharacters (*, ()&|)
+      to bypass authentication or enumerate the directory (CWE-90). Escape
+      with ldap_escape($v, "", LDAP_ESCAPE_FILTER) before building the filter.
+    metadata:
+      cwe: ["CWE-90"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/90.html
+        - https://www.php.net/manual/en/function.ldap-escape.php
+    pattern-sources:
+      - pattern: $_GET
+      - pattern: $_POST
+      - pattern: $_REQUEST
+      - pattern: $_COOKIE
+    pattern-sanitizers:
+      - pattern: ldap_escape(...)
+    pattern-sinks:
+      - patterns:
+          - pattern: ldap_search($CONN, $BASE, $F)
+          - focus-metavariable: $F
+      - patterns:
+          - pattern: ldap_list($CONN, $BASE, $F)
+          - focus-metavariable: $F
+      - patterns:
+          - pattern: ldap_read($CONN, $BASE, $F)
+          - focus-metavariable: $F
+
+  # ── CWE-643: XPath injection — request data flows into an XPath expression ──
+  - id: vulnhunterx.php.xpath-injection
+    languages: [php]
+    severity: ERROR
+    mode: taint
+    message: |
+      Request data ($_GET/$_POST/$_REQUEST) flows into a DOMXPath
+      query/evaluate expression. An attacker can inject XPath metacharacters
+      to read arbitrary nodes or bypass auth predicates (CWE-643). Validate
+      against an allowlist or bind values rather than concatenating them.
+    metadata:
+      cwe: ["CWE-643"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/643.html
+    pattern-sources:
+      - pattern: $_GET
+      - pattern: $_POST
+      - pattern: $_REQUEST
+      - pattern: $_COOKIE
+    pattern-sinks:
+      - patterns:
+          - pattern: $XP->query($Q)
+          - focus-metavariable: $Q
+      - patterns:
+          - pattern: $XP->evaluate($Q)
+          - focus-metavariable: $Q
+
+  # ── CWE-611: XXE — libxml entity substitution enabled (LIBXML_NOENT) ──
+  - id: vulnhunterx.php.xxe
+    languages: [php]
+    severity: ERROR
+    message: |
+      XML is parsed with the LIBXML_NOENT flag, which substitutes external
+      entities — enabling XXE file disclosure and SSRF on untrusted XML
+      (CWE-611). Drop LIBXML_NOENT; modern libxml2 disables external entity
+      loading by default, so parse without the flag.
+    metadata:
+      cwe: ["CWE-611"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/611.html
+        - https://www.php.net/manual/en/libxml.constants.php
+    patterns:
+      - pattern-either:
+          - pattern: $DOC->loadXML($X, LIBXML_NOENT)
+          - pattern: $DOC->load($X, LIBXML_NOENT)
+          - pattern: simplexml_load_string($X, $C, LIBXML_NOENT)
+          - pattern: simplexml_load_file($X, $C, LIBXML_NOENT)
+
+  # ── CWE-601: Open redirect — superglobal as the Location header value ──
+  - id: vulnhunterx.php.open-redirect
+    languages: [php]
+    severity: WARNING
+    message: |
+      A Location redirect header is built from $_GET/$_POST/$_REQUEST with no
+      allowlist check. An attacker can redirect victims to an external
+      phishing/credential-theft site (CWE-601). Validate the target against a
+      fixed list of permitted destinations or force a relative path.
+    metadata:
+      cwe: ["CWE-601"]
+      category: security
+      owasp: "A01:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/601.html
+    patterns:
+      - pattern-either:
+          - pattern: 'header("Location: " . $X)'
+          - pattern: "header('Location: ' . $X)"
+      - metavariable-pattern:
+          metavariable: $X
+          patterns:
+            - pattern-either:
+                - pattern: $_GET[...]
+                - pattern: $_POST[...]
+                - pattern: $_REQUEST[...]
+
+  # ── CWE-915: Mass assignment — Eloquent model from full request input ──
+  - id: vulnhunterx.php.mass-assignment
+    languages: [php]
+    severity: ERROR
+    message: |
+      A Laravel Eloquent model is created/filled/updated from the entire
+      request input ($request->all()). An attacker can set fields never meant
+      to be client-writable (is_admin, role) — privilege escalation via mass
+      assignment (CWE-915). Use $request->only([...]) / $request->validated(),
+      and set $fillable or $guarded on the model.
+    metadata:
+      cwe: ["CWE-915"]
+      category: security
+      owasp: "A08:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/915.html
+        - https://laravel.com/docs/eloquent#mass-assignment
+    patterns:
+      - pattern-either:
+          - pattern: $M::create($REQ->all())
+          - pattern: $M->fill($REQ->all())
+          - pattern: $M->update($REQ->all())
+          - pattern: $M::create(request()->all())
+          - pattern: $M->fill(request()->all())
+          - pattern: $M->update(request()->all())
+
+  # ── CWE-918: SSRF — request data flows into an outbound fetch ──
+  - id: vulnhunterx.php.ssrf
+    languages: [php]
+    severity: ERROR
+    mode: taint
+    message: |
+      Request data ($_GET/$_POST/$_REQUEST) flows into an outbound fetch URL
+      (file_get_contents / fopen / curl) with no host/scheme allowlist. The
+      attacker can pivot to internal services (169.254.169.254 metadata,
+      127.0.0.1, internal VPC ranges) — SSRF (CWE-918). Validate the host
+      against an allowlist and block private/link-local ranges.
+    metadata:
+      cwe: ["CWE-918"]
+      category: security
+      owasp: "A10:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/918.html
+    pattern-sources:
+      - pattern: $_GET
+      - pattern: $_POST
+      - pattern: $_REQUEST
+    pattern-sinks:
+      - pattern: file_get_contents(...)
+      - pattern: fopen(...)
+      - pattern: file(...)
+      - patterns:
+          - pattern: curl_setopt($CH, CURLOPT_URL, $U)
+          - focus-metavariable: $U

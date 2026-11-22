@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+# Guided Questions Templates for CodeQL/Semgrep Rules (LLM verification style)
+#
+# Questions MUST force the LLM to trace:
+#   1. WHERE variables are declared
+#   2. What their exact SIZES/VALUES are
+#   3. Whether sizes/values CHANGE through assignment or reallocation
+#   4. What CHECKS or CONSTRAINTS exist
+#   5. What OTHER variables feed into the target variables
+#
+# The LLM must answer ALL questions BEFORE giving a verdict.
+# This forces step-by-step reasoning instead of pattern matching.
+#
+# Language: Generic Fallback
+#
+# Format:
+#   rule_id:
+#     short_description: Brief description of the vulnerability
+#     questions: List of questions to answer BEFORE verdict
+#     context_hint: What additional context helps (caller, struct, etc.)
+#     additional_context: List of context types that may be needed
+
+default:
+  short_description: "Generic static analysis security finding"
+  questions:
+    - "Step 1: Where does the potentially DANGEROUS data originate — what is the ultimate SOURCE (user input, file, network, database, environment variable)?"
+    - "Step 2: Trace the data through ALL assignments — list each variable it flows through WITH LINE NUMBERS."
+    - "Step 3: At each step, is there any VALIDATION, SANITIZATION, or ENCODING applied? For each check found, state whether it is SUFFICIENT for this specific vulnerability type."
+    - "Step 4: What is the SINK — where does the data end up being used unsafely? What specific operation makes it dangerous?"
+    - "Step 5: Are there intermediate TRANSFORMATIONS (encoding, decoding, type conversion, serialization) between source and sink that could bypass or circumvent sanitization?"
+    - "Step 6: Does the FRAMEWORK or LIBRARY provide automatic protections at this point (e.g., ORM parameterization, auto-escaping template engine, framework CSRF token)? If so, is it correctly configured and not bypassed?"
+    - "Step 7: What PRIVILEGE LEVEL or AUTHENTICATION STATE does an attacker need to trigger this code path — unauthenticated, authenticated user, or admin only?"
+    - "Step 8: Is this code in a TEST FILE, debug path, dead code, or internal-only path that would never execute in production with untrusted input?"
+    - "Step 9: What is the concrete SECURITY IMPACT if an attacker controls this data — RCE, data theft, privilege escalation, denial of service, information disclosure?"
+    - "Step 10: Considering your answers above, identify the single WEAKEST LINK in the defense chain. If no weak link exists, explain what makes the defense complete."
+  context_hint: "Must trace the complete data flow from source to sink."
+  additional_context: ["caller", "struct", "global"]

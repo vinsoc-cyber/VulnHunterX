@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+# =============================================================================
+# CodeQL + LLM Verification Configuration
+# =============================================================================
+#
+# This file contains APPLICATION SETTINGS for LLM verification.
+# Secrets and environment-specific settings go in .env file.
+#
+# Configuration Priority (highest to lowest):
+#   1. Command-line arguments (--provider, --model, etc.)
+#   2. Environment variables (LLM_PROVIDER, LLM_MODEL, OLLAMA_API_BASE, CODEQL_PATH)
+#   3. This config file
+#   4. Built-in defaults
+#
+# =============================================================================
+
+# =============================================================================
+# LLM Provider / Model
+# =============================================================================
+# Provider and model are set via .env (LLM_PROVIDER, LLM_MODEL). Env overrides
+# this file. See env.example for examples.
+
+# =============================================================================
+# Analysis Mode Settings
+# =============================================================================
+# Verification: LLM only (multi-turn with context expansion).
+
+# Maximum LLM conversation rounds for context expansion
+# Set to 1 to disable multi-turn
+max_iterations: 10
+
+# LLM temperature (0.0 = deterministic, 1.0 = creative). Single-pass
+# verification runs greedy + seeded so identical input reproduces identical
+# verdicts; the self-consistency voting path sets its own temperature.
+temperature: 0.0
+
+# Fixed sampling seed for run-to-run reproducibility. Set to null to
+# disable seeding and restore provider entropy.
+seed: 42
+
+# Maximum tokens in LLM response
+max_tokens: 5000
+
+# Concurrent findings to verify in parallel (ThreadPoolExecutor workers).
+# 1 disables parallelism (sequential path). Higher values speed up runs that
+# call many LLM round-trips, but may hit provider RPM/TPM limits on low tiers.
+# Override on the CLI with `verify -j N`.
+jobs: 4
+
+# =============================================================================
+# Output Settings
+# =============================================================================
+
+# Verbosity level:
+# - quiet: Minimal output (only verdicts and summary)
+# - normal: Standard output (progress and results)
+# - verbose: Full output (includes LLM prompts/responses)
+verbosity: normal
+
+# Save full LLM conversations to a log file (set to null to disable)
+# Use markdown format (.md) for best readability
+log_file: null
+
+# =============================================================================
+# Processing Limits
+# =============================================================================
+
+# Maximum number of findings to process (0 = unlimited)
+limit: 0
+
+# Only process findings from specific languages (empty = all)
+# Options: c, cpp, python, javascript, php, java
+languages: []
+
+# Only process findings from specific repositories (empty = all)
+repositories: []
+
+# =============================================================================
+# Paths (relative to repo root)
+# =============================================================================
+
+# Repositories directory (cloned source repos)
+repos_dir: repos
+
+# Output directory: all stage outputs live under output/<lang>/<repo_name>/
+# (database, SARIF, context, verification_results)
+output_dir: output
+
+# Guided questions prompts:
+# Per-language files (cpp_questions.yaml, python_questions.yaml, etc.) are
+# auto-discovered from the prompts directory configured in paths.prompts_dir.
+
+# =============================================================================
+# Optional: Analyze defaults (CLI overrides)
+# =============================================================================
+# codeql_suite: "path/to/custom.qls"   # CodeQL query suite (built-in ref or .qls path)
+# semgrep_configs: ["auto", "p/security-audit"]  # Semgrep configs (registry or paths)
+# semgrep_config: "auto"   # Alternative: single Semgrep config
+# opengrep_configs: ["auto"]  # OpenGrep configs (same format as semgrep_configs)
+# opengrep_config: "auto"   # Alternative: single OpenGrep config
+#
+# Rule profiles & categories (see config/rule_categories.yaml):
+# profile: "extended"   # standard | extended | maximum
+# categories:           # Filter to specific security domains at verify time
+#   - "injection"
+#   - "xss"
+#   - "auth"

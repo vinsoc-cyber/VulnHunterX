@@ -1,0 +1,5 @@
+name: vulnhunterx/go-security-custom
+version: 0.0.1
+dependencies:
+  codeql/go-all: "*"
+suites: suite.qls

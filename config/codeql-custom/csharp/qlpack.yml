@@ -1,0 +1,5 @@
+name: vulnhunterx/csharp-security-custom
+version: 0.0.1
+dependencies:
+  codeql/csharp-all: "*"
+suites: suite.qls

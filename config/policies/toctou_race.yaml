@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+# Time-of-check / time-of-use filesystem race (CWE-367) family policy.
+#
+# A check-then-use pair on the same pathname is a LOCATOR, not a vulnerability.
+# Winning a TOCTOU race requires a party who can swap the named object BETWEEN
+# the check and the use, and who gains by doing so — that is, a privilege or
+# trust boundary the race crosses. A standalone tool operating on a path its own
+# invoker supplied has no such boundary: whoever could win the race already owns
+# both the path and the process, so replacing the file grants nothing they could
+# not do directly. The construct is real; the consequence is not.
+#
+# The corresponding guard is not a sanitizer but a BINDING: resolving the object
+# once and operating on that handle (open + fstat/fchmod/fdopen, openat with a
+# directory fd, O_NOFOLLOW, an advisory lock held across both operations) leaves
+# no window, so a rebind by pathname is what makes the window exist.
+#
+# production_scope is recorded but NOT decisive (scope gating lives in the
+# engine's reachability gates).
+
+family: toctou_race
+version: "1"
+
+selectors:
+  cwes: ["CWE-367"]
+  rule_aliases:
+    - "*toctou*"
+    - "*toc-tou*"
+    - "*time-of-check*"
+    - "*time-of-use*"
+    - "*check-time-use-time*"
+
+fact_slots:
+  sink_binding: [CHECK_THEN_USE_PRESENT, NOT_PRESENT]
+  binding_coverage: [PATHNAME_REBOUND, HANDLE_BOUND_ALL_PATHS]
+  privilege_boundary: [BOUNDARY_CROSSED, NO_BOUNDARY]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - binding_coverage
+  - privilege_boundary
+
+entailment:
+  true_positive:
+    sink_binding: CHECK_THEN_USE_PRESENT
+    binding_coverage: PATHNAME_REBOUND
+    privilege_boundary: BOUNDARY_CROSSED
+  false_positive_if_any:
+    - sink_binding: NOT_PRESENT
+    - binding_coverage: HANDLE_BOUND_ALL_PATHS
+    - privilege_boundary: NO_BOUNDARY
+
+admissibility:
+  sink_binding:
+    CHECK_THEN_USE_PRESENT: LOCAL_POSITIVE
+    NOT_PRESENT: LOCAL_POSITIVE
+  binding_coverage:
+    PATHNAME_REBOUND: LOCAL_POSITIVE
+    HANDLE_BOUND_ALL_PATHS: LOCAL_OR_EXHAUSTIVE
+  privilege_boundary:
+    BOUNDARY_CROSSED: LOCAL_OR_FOUND
+    NO_BOUNDARY: LOCAL_OR_FOUND
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance.
+assessment_guidance:
+  - "sink_binding: CHECK_THEN_USE_PRESENT when the flagged code inspects a filesystem object (an existence/metadata/permission/ownership query such as stat/lstat/access/os.path.exists/os.Stat/File.exists) and then acts on the SAME name in a later, separate operation (open/fopen/unlink/rename/chmod/exec); NOT_PRESENT when the flagged line holds no such pair — the check and the operation address different objects, or only one of the two is present. Quote both call sites with line numbers."
+  - "binding_coverage: PATHNAME_REBOUND when the later operation re-resolves the pathname, so the name may denote a different object than the one checked. HANDLE_BOUND_ALL_PATHS only when, on EVERY reaching path, the object is resolved once and both operations act on that same handle or a race-free equivalent — open followed by fstat/fchmod/fdopen on the descriptor, an *at() call anchored to a directory descriptor, O_NOFOLLOW / O_EXCL|O_CREAT establishing the object atomically, or a lock held across both. Cite the call that establishes the binding."
+  - "privilege_boundary: BOUNDARY_CROSSED when a party who can substitute the named object between the two operations is LESS privileged than the process performing them, so winning the race gains access that party does not already hold — a setuid/setgid or otherwise elevated process, a service or daemon acting on a path derived from a request, or any path under a directory writable by other users (a world-writable temp directory, an upload area). NO_BOUNDARY when the same party controls both sides: the path is supplied by whoever invokes the program and the process runs with exactly that invoker's privileges, so the object was already theirs to write. State the process's privilege level and who can write the containing directory, with citations."

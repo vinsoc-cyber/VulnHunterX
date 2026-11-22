@@ -1,0 +1,83 @@
+# Log-injection (CWE-117) family policy.
+#
+# Decisive facts and their TP/FP entailment for log-forging findings. A finding
+# whose CWE is CWE-117 (or whose rule id matches */log-injection) is verified
+# through the evidence-closure path: the model supplies each fact value with
+# cited evidence, decisive facts must be resolved by admissible evidence, and
+# this table — not the model's own verdict string — entails TP/FP/NMD.
+#
+# production_scope is recorded but NOT decisive here (scope becomes decisive in
+# a later phase); it is intentionally absent from decisive_slots.
+
+family: log_injection
+version: "2"
+
+selectors:
+  cwes: ["CWE-117"]
+  rule_aliases: ["*/log-injection"]
+
+fact_slots:
+  sink_binding: [QUALIFYING_LOG_SINK, NOT_LOG_SINK]
+  attacker_control: [PROVEN, REFUTED]
+  flow_to_sink: [REACHES, NO_PATH_COMPLETE]
+  record_boundary: [BREAKABLE, PRESERVED]
+  neutralization_coverage: [BYPASS_PATH_FOUND, ALL_REACHING_PATHS]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - attacker_control
+  - flow_to_sink
+  - record_boundary
+  - neutralization_coverage
+
+entailment:
+  true_positive:
+    sink_binding: QUALIFYING_LOG_SINK
+    attacker_control: PROVEN
+    flow_to_sink: REACHES
+    record_boundary: BREAKABLE
+    neutralization_coverage: BYPASS_PATH_FOUND
+  false_positive_if_any:
+    - sink_binding: NOT_LOG_SINK
+    - attacker_control: REFUTED
+    - flow_to_sink: NO_PATH_COMPLETE
+    - record_boundary: PRESERVED
+    - neutralization_coverage: ALL_REACHING_PATHS
+
+# Evidence-shape profile required to admit each (slot, value) — see
+# verification/policy/support.py PROFILE_NAMES. A claimed value is only accepted
+# when the cited ledger evidence satisfies its profile. Note there is no
+# NONE_FOUND_COMPLETE value: no evidence kind can exhaustively establish "no log
+# neutralizer anywhere in the repository", so a witnessed unencoded reaching path
+# is required for TP, otherwise the finding stays Needs-More-Data.
+admissibility:
+  sink_binding:
+    QUALIFYING_LOG_SINK: LOCAL_POSITIVE
+    NOT_LOG_SINK: LOCAL_POSITIVE
+  attacker_control:
+    PROVEN: LOCAL_OR_DATAFLOW
+    REFUTED: LOCAL_POSITIVE
+  flow_to_sink:
+    REACHES: LOCAL_OR_DATAFLOW
+    NO_PATH_COMPLETE: LOCAL_OR_COMPLETE_ABSENCE
+  record_boundary:
+    BREAKABLE: LOCAL_OR_FOUND
+    PRESERVED: LOCAL_OR_FOUND
+  neutralization_coverage:
+    BYPASS_PATH_FOUND: CONCRETE_PATH
+    ALL_REACHING_PATHS: EXHAUSTIVE_ENCODER
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance.
+assessment_guidance:
+  - "sink_binding: QUALIFYING_LOG_SINK when the flagged call writes the value into a log record (a logger call, console output collected as logs, a syslog/journal write); NOT_LOG_SINK when it is not a logging operation."
+  - "attacker_control: PROVEN when external input reaches the logged value — the scanner data-flow SOURCE (a request body/query/header/cookie field) establishes this; REFUTED when the value is a fixed constant or operator-only input."
+  - "flow_to_sink: REACHES when the controlled value reaches the log call on some path; NO_PATH_COMPLETE only with complete evidence that no path reaches it."
+  - "record_boundary: BREAKABLE when the log record is delimited so that separators carried in the value can forge or split a record (newline-delimited plain-text lines are the common case; carriage returns and other control characters the collector honours count too); PRESERVED when the record cannot be broken — a structured/JSON encoder that escapes the value, or a framing that encodes separators."
+  - "neutralization_coverage: identify every transformation applied to the value between the source and the log call, and the value's possible output after the last one. BYPASS_PATH_FOUND when at least one reaching path arrives at the log call with no effective neutralizer for the separators the record honours — this INCLUDES the ordinary case where no neutralizer is applied anywhere on that path, and the case where one is applied but does not cover every separator (for example stripping newlines while leaving carriage returns). A defense on a sibling branch does not cover the flagged branch, and a comment describing an absent fix is not a defense. ALL_REACHING_PATHS only when every reaching path is covered by an effective neutralizer."

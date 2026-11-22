@@ -1,0 +1,467 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+# PYTHON_ARGCOMPLETE_OK
+"""Command-line interface for CodeQL + LLM verification."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+from vuln_hunter_x import __version__
+from vuln_hunter_x.cli.commands import (
+    cmd_analyze,
+    cmd_check_env,
+    cmd_info,
+    cmd_prepare,
+    cmd_report,
+    cmd_scan,
+    cmd_verify,
+)
+from vuln_hunter_x.cli.interactive import cmd_interactive
+from vuln_hunter_x.core.constants import SUPPORTED_PROVIDERS
+
+# Language choices shared across subcommand --lang flags, ordered for help text.
+_LANG_CHOICES = ["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"]
+
+
+def create_parser() -> argparse.ArgumentParser:
+    """Create the argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="vuln-hunter-x",
+        description="CodeQL + LLM Bug Verification Framework",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Check environment
+  vuln-hunter-x check-env
+
+  # Prepare repos and create databases
+  vuln-hunter-x prepare --lang c
+  vuln-hunter-x prepare --url https://github.com/org/repo.git --lang go
+
+  # Run analysis (CodeQL, Semgrep, or both)
+  vuln-hunter-x analyze --repo c-ares
+  vuln-hunter-x analyze --tool semgrep --local-path /path/to/project --lang python
+
+  # Verify findings with LLM
+  vuln-hunter-x verify --repo c-ares --lang c --report
+
+  # Generate report from existing results
+  vuln-hunter-x report --repo c-ares --lang c
+""",
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # Check-env command
+    subparsers.add_parser(
+        "check-env",
+        help=(
+            "Check tools (CodeQL, Semgrep, OpenGrep) and LLM providers "
+            "(OpenAI, Anthropic, Ollama, DeepSeek, Gemini)"
+        ),
+    )
+
+    # Prepare command (clone + create DB)
+    prepare_parser = subparsers.add_parser(
+        "prepare",
+        aliases=["clone"],
+        help="Clone repos / register local paths and create CodeQL databases",
+    )
+    _add_prepare_args(prepare_parser)
+
+    # Analyze command
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Run CodeQL analysis on databases",
+    )
+    _add_analyze_args(analyze_parser)
+
+    # Verify command
+    verify_parser = subparsers.add_parser(
+        "verify",
+        help="Verify CodeQL findings using LLM",
+    )
+    _add_verify_args(verify_parser)
+
+    # Info command
+    info_parser = subparsers.add_parser(
+        "info",
+        help="Show configuration and environment info",
+    )
+    info_parser.add_argument("--config", type=Path, help="Path to configuration file")
+
+    # Report command
+    report_parser = subparsers.add_parser(
+        "report",
+        help="Generate markdown report from verification results",
+    )
+    _add_report_args(report_parser)
+
+    # Scan command (one-shot: prepare → analyze → verify → report)
+    scan_parser = subparsers.add_parser(
+        "scan",
+        help="Run the full pipeline (prepare → analyze → verify → report) in one command",
+    )
+    _add_scan_args(scan_parser)
+
+    # Interactive command (guided wizard that dispatches a scan)
+    subparsers.add_parser(
+        "interactive",
+        aliases=["wizard"],
+        help="Interactive wizard: prompts for inputs, then runs a full scan",
+    )
+
+    return parser
+
+
+def _add_prepare_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for prepare (clone) command."""
+    parser.add_argument("--config", type=Path, help="Path to repos.yaml")
+    parser.add_argument("--url", help="Git repository URL (direct clone without repos.yaml)")
+    parser.add_argument(
+        "--local-path",
+        type=Path,
+        help="Path to existing local repository (skip clone, create DB only)",
+    )
+    parser.add_argument("--name", help="Repository name (auto-derived from URL/path if omitted)")
+    parser.add_argument("--build-command", help="Build command for compiled languages (C/C++/Go)")
+    parser.add_argument(
+        "--lang",
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"],
+        help="Only this language (required with --url or --local-path)",
+    )
+    parser.add_argument("--repo", help="Only this repository (config mode filter)")
+    parser.add_argument("--skip-clone", action="store_true", help="Skip git clone")
+    parser.add_argument("--skip-db", action="store_true", help="Skip database creation")
+    parser.add_argument("--ask-llm", action="store_true", help="Ask LLM on build failure")
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only")
+    parser.add_argument(
+        "--db-timeout",
+        type=int,
+        default=None,
+        help="CodeQL database creation timeout in seconds "
+        "(default 1800; also settable via CODEQL_DB_CREATE_TIMEOUT)",
+    )
+
+    # Context extraction options (runs automatically after DB creation)
+    parser.add_argument(
+        "--skip-context",
+        action="store_true",
+        help="Skip automatic context extraction after DB creation",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "codeql", "treesitter"],
+        default="auto",
+        help="Context extraction backend (default: auto-detect)",
+    )
+    parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Force re-extraction of context CSVs even if they exist",
+    )
+
+
+def _add_analyze_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for analyze command."""
+    parser.add_argument(
+        "--tool",
+        choices=["codeql", "semgrep", "opengrep", "both", "all"],
+        default="codeql",
+        help="Analyzer(s) to run: codeql, semgrep, opengrep, both (codeql+semgrep), all (default: codeql)",
+    )
+    parser.add_argument(
+        "--local-path",
+        type=Path,
+        help="Analyze a local directory directly (requires --lang; --name optional)",
+    )
+    parser.add_argument("--name", help="Repository name (auto-derived from path if omitted)")
+    parser.add_argument(
+        "--semgrep-config",
+        action="append",
+        dest="semgrep_configs",
+        help="Semgrep config, repeatable (default: auto)",
+    )
+    parser.add_argument(
+        "--opengrep-config",
+        action="append",
+        dest="opengrep_configs",
+        help="OpenGrep config, repeatable (default: auto)",
+    )
+    parser.add_argument(
+        "--codeql-suite",
+        help="CodeQL query suite (built-in ref or path to .qls)",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Path to repos.yaml (for Semgrep/OpenGrep repo list)",
+    )
+    parser.add_argument(
+        "--lang",
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"],
+        help="Only this language (required with --local-path)",
+    )
+    parser.add_argument("--repo", help="Only this repository")
+    parser.add_argument("--json", action="store_true", help="Also output findings JSON")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Verbose output with command details"
+    )
+    parser.add_argument(
+        "-f", "--force", action="store_true", help="Force re-analysis even if SARIF already exists"
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only")
+    parser.add_argument(
+        "--skip-context",
+        action="store_true",
+        help="Skip automatic context extraction after a source-only analysis",
+    )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Number of parallel CodeQL analyses (default: 2)",
+    )
+
+    # Rule profile & category
+    parser.add_argument(
+        "--profile",
+        choices=["standard", "extended", "maximum", "extended-registry", "full"],
+        default=None,
+        help=(
+            "Rule profile controlling breadth of analysis. "
+            "standard: security-extended + auto (default); "
+            "extended: + p/security-audit + p/secrets; "
+            "maximum: security-and-quality + p/owasp-top-ten; "
+            "extended-registry: 8 universal + per-language packs (no custom rules); "
+            "full: extended-registry + custom CodeQL & Semgrep rules"
+        ),
+    )
+    parser.add_argument(
+        "--category",
+        action="append",
+        dest="categories",
+        help=(
+            "Security category filter (repeatable). "
+            "Options: injection xss auth crypto secrets memory-safety "
+            "data-exposure deserialization xxe ssrf file-security dos"
+        ),
+    )
+
+
+def _add_verify_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for the verify command."""
+    # Config
+    parser.add_argument("--config", type=Path, help="Path to configuration file")
+
+    # Local path mode
+    parser.add_argument(
+        "--local-path",
+        type=Path,
+        help="Verify findings for a local directory (requires --lang; looks up SARIF in output)",
+    )
+    parser.add_argument("--name", help="Repository name (auto-derived from path if omitted)")
+
+    # LLM settings
+    llm_group = parser.add_argument_group("LLM Settings")
+    llm_group.add_argument(
+        "--provider",
+        choices=list(SUPPORTED_PROVIDERS),
+        help="LLM provider",
+    )
+    llm_group.add_argument("--model", help="LLM model name")
+    llm_group.add_argument("--temperature", type=float, help="LLM temperature (0.0-1.0)")
+    llm_group.add_argument("--max-tokens", type=int, help="Maximum tokens in response")
+
+    # Verification settings
+    verify_group = parser.add_argument_group("Verification Settings")
+    verify_group.add_argument("--max-iterations", type=int, help="Max LLM rounds")
+    verify_group.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=None,
+        help="Concurrent findings to verify (default: 4; set 1 to disable parallelism)",
+    )
+
+    # Filters
+    filter_group = parser.add_argument_group("Filters")
+    filter_group.add_argument("--sarif", type=Path, help="Specific SARIF file to process")
+    filter_group.add_argument("--repo", help="Only process this repository")
+    filter_group.add_argument(
+        "--lang",
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"],
+        help="Only this language",
+    )
+    filter_group.add_argument("--limit", type=int, help="Maximum findings to process")
+    filter_group.add_argument(
+        "--include-tests",
+        action="store_true",
+        help="Include findings under test/ or tests/ (default: exclude)",
+    )
+    filter_group.add_argument(
+        "--category",
+        action="append",
+        dest="categories",
+        help=(
+            "Only verify findings in these security categories (repeatable). "
+            "Options: injection xss auth crypto secrets memory-safety "
+            "data-exposure deserialization xxe ssrf file-security dos"
+        ),
+    )
+
+    # Output
+    output_group = parser.add_argument_group("Output")
+    output_group.add_argument("-q", "--quiet", action="store_true", help="Minimal output")
+    output_group.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    output_group.add_argument("--log-file", type=Path, help="Save LLM conversations to file")
+    output_group.add_argument(
+        "--translate-report",
+        action="store_true",
+        help="Also generate the translated (Vietnamese) report — off by default "
+        "(the English report is always written)",
+    )
+    output_group.add_argument("--dry-run", action="store_true", help="Show what would be processed")
+
+
+def _add_scan_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for the one-shot scan command.
+
+    Scan chains prepare → analyze → verify → report. It exposes the union of
+    the inputs those stages need; per-stage defaults are filled in by
+    ``cmd_scan`` from the individual stage parsers.
+    """
+    # Source selection (mirrors prepare)
+    parser.add_argument("--config", type=Path, help="Path to repos.yaml (config mode)")
+    parser.add_argument("--url", help="Git repository URL (direct clone)")
+    parser.add_argument("--local-path", type=Path, help="Path to an existing local repository")
+    parser.add_argument("--name", help="Repository name (auto-derived from URL/path if omitted)")
+    parser.add_argument("--repo", help="Only this repository (config mode filter)")
+    parser.add_argument(
+        "--build-command",
+        help="Build command for compiled languages (C/C++; C# uses buildless by default)",
+    )
+    parser.add_argument(
+        "--lang",
+        choices=_LANG_CHOICES,
+        help="Language (required with --url or --local-path)",
+    )
+
+    # Analysis settings (mirrors analyze)
+    parser.add_argument(
+        "--tool",
+        choices=["codeql", "semgrep", "opengrep", "both", "all"],
+        default="both",
+        help="Analyzer(s) to run (default: both = codeql+semgrep)",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=["standard", "extended", "maximum", "extended-registry", "full"],
+        default=None,
+        help="Rule profile controlling breadth of analysis (default: standard)",
+    )
+
+    # LLM / verify settings (mirrors verify)
+    llm_group = parser.add_argument_group("LLM Settings")
+    llm_group.add_argument("--provider", choices=list(SUPPORTED_PROVIDERS), help="LLM provider")
+    llm_group.add_argument("--model", help="LLM model name")
+    llm_group.add_argument("--limit", type=int, help="Maximum findings to verify")
+
+    # Pipeline control
+    parser.add_argument(
+        "--skip-verify",
+        action="store_true",
+        help="Stop after analyze (skip LLM verification and report)",
+    )
+    parser.add_argument(
+        "--skip-report", action="store_true", help="Skip report generation after verify"
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output across stages")
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only")
+
+
+def _add_report_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for the report command."""
+    parser.add_argument(
+        "--results-dir",
+        type=Path,
+        help="Path to verification_results directory",
+    )
+    parser.add_argument("--repo", help="Repository name (for auto-discovering results)")
+    parser.add_argument(
+        "--lang",
+        choices=["c", "cpp", "python", "javascript", "php", "java", "go", "csharp"],
+        help="Language (for auto-discovering results)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="Output path for the report (default: report.md in results dir)",
+    )
+    parser.add_argument(
+        "--lang-report",
+        choices=["en", "vi", "all"],
+        default="all",
+        help="Report language: en (English), vi (Vietnamese), all (both) — default: all",
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Main entry point."""
+    # Load .env file for environment variables (CODEQL_PATH, API keys, etc.)
+    load_dotenv()
+
+    parser = create_parser()
+
+    # Optional shell completion via argcomplete (no-op if not installed / not
+    # in a completion context). Install with: pip install "vuln-hunter-x[cli]"
+    # then run: activate-global-python-argcomplete  (or eval the per-command
+    # registration shown in the README).
+    try:
+        import argcomplete
+
+        argcomplete.autocomplete(parser)
+    except ImportError:
+        pass
+
+    args = parser.parse_args(argv)
+
+    if args.command == "check-env":
+        return cmd_check_env(args)
+    elif args.command in ("prepare", "clone"):
+        return cmd_prepare(args)
+    elif args.command == "analyze":
+        return cmd_analyze(args)
+    elif args.command == "verify":
+        return cmd_verify(args)
+    elif args.command == "info":
+        return cmd_info(args)
+    elif args.command == "report":
+        return cmd_report(args)
+    elif args.command == "scan":
+        return cmd_scan(args)
+    elif args.command in ("interactive", "wizard"):
+        return cmd_interactive(args)
+    else:
+        parser.print_help()
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

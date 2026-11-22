@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+# Loose-equality / type-juggling (CWE-697) family policy.
+#
+# A loose `==` over hash-shaped strings is a LOCATOR: PHP magic-hash juggling
+# is only a vulnerability when the comparison guards a security decision and
+# one operand is a secret the attacker must match (a stored credential hash, a
+# server-side token). When both operands derive from the same attacker-
+# controlled request — a password/confirmation self-compare — or the outcome
+# carries no security consequence, "bypassing" the comparison grants nothing,
+# which is precisely the over-confirmation this family retires (dvwa
+# captcha/impossible.php:46, javascript/index.php:43). A mislocated sink (the
+# flagged line is not a loose comparison at all, javascript/index.php:57)
+# resolves NOT_PRESENT and dismisses on sink_binding.
+#
+# production_scope is recorded but NOT decisive (scope gating lives in the
+# engine's reachability gates).
+
+family: loose_equality
+version: "1"
+
+selectors:
+  cwes: ["CWE-697"]
+  rule_aliases: ["*loose-equality*", "*loose-comparison*", "*type-juggling*"]
+
+fact_slots:
+  sink_binding: [LOOSE_COMPARE_PRESENT, NOT_PRESENT]
+  secret_operand: [SECRET_PRESENT, NO_SECRET]
+  bypass_consequence: [SECURITY_DECISION, NIL_IMPACT]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - secret_operand
+  - bypass_consequence
+
+entailment:
+  true_positive:
+    sink_binding: LOOSE_COMPARE_PRESENT
+    secret_operand: SECRET_PRESENT
+    bypass_consequence: SECURITY_DECISION
+  false_positive_if_any:
+    - sink_binding: NOT_PRESENT
+    - secret_operand: NO_SECRET
+    - bypass_consequence: NIL_IMPACT
+
+admissibility:
+  sink_binding:
+    LOOSE_COMPARE_PRESENT: LOCAL_POSITIVE
+    NOT_PRESENT: LOCAL_POSITIVE
+  secret_operand:
+    SECRET_PRESENT: LOCAL_OR_DATAFLOW
+    NO_SECRET: LOCAL_POSITIVE
+  bypass_consequence:
+    SECURITY_DECISION: LOCAL_OR_FOUND
+    NIL_IMPACT: LOCAL_POSITIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance.
+assessment_guidance:
+  - "sink_binding: LOOSE_COMPARE_PRESENT when the exact flagged line performs a loose equality (`==` / `!=`) whose operands are hash-shaped or secret-shaped strings subject to type coercion; NOT_PRESENT when the flagged line is not such a comparison (e.g. it is a hash COMPUTATION, a strict `===`, or the construct sits on a different line). Quote the flagged line verbatim."
+  - "secret_operand: SECRET_PRESENT when one side of the comparison derives from a value the attacker must match but does not control — a stored credential hash, a server-generated token or signature, configuration secret; NO_SECRET when every operand derives from the same request the attacker sends (e.g. a new-password/confirmation self-compare) or from public constants. Trace each operand to its source with line citations."
+  - "bypass_consequence: SECURITY_DECISION when the comparison outcome gates authentication, authorization, signature/OTP/captcha verification, or another security control; NIL_IMPACT when a forced-equal outcome changes nothing security-relevant (a cosmetic message, a self-consistency check whose both sides the attacker already supplies)."

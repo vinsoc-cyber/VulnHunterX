@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=77.0.3", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vulnhunterx"
+version = "1.0.2"
+description = "SAST (CodeQL, Semgrep, OpenGrep) + LLM vulnerability hunting and verification"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = "PolyForm-Noncommercial-1.0.0 AND LicenseRef-OpenGrep-Rules"
+license-files = ["LICENSE", "NOTICE", "config/opengrep-rules/LICENSE", "config/opengrep-rules/NOTICE.md"]
+authors = [
+    { name = "VinSOC Cyber" }
+]
+keywords = ["codeql", "llm", "security", "static-analysis", "vulnerability"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "litellm>=1.50.0,<2.0.0",
+    "tenacity>=8.0,<10.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+    "pyyaml>=6.0,<7.0.0",
+    "tree-sitter>=0.23,<1.0.0",
+    "tree-sitter-c>=0.23,<1.0.0",
+    "tree-sitter-cpp>=0.23,<1.0.0",
+    "tree-sitter-python>=0.23,<1.0.0",
+    "tree-sitter-javascript>=0.23,<1.0.0",
+    "tree-sitter-java>=0.23,<1.0.0",
+    "tree-sitter-php>=0.23,<1.0.0",
+    "tree-sitter-go>=0.23,<1.0.0",
+    "tree-sitter-c-sharp>=0.23,<1.0.0",
+    "tree-sitter-typescript>=0.23,<1.0.0",
+]
+
+[project.optional-dependencies]
+cli = [
+    "argcomplete>=3.0",  # optional shell tab-completion for vuln-hunter-x
+]
+
+[project.scripts]
+vuln-hunter-x = "vuln_hunter_x.cli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/vinsoc-cyber/VulnHunterX"
+Documentation = "https://github.com/vinsoc-cyber/VulnHunterX#readme"
+Repository = "https://github.com/vinsoc-cyber/VulnHunterX"
+
+[tool.setuptools]
+package-dir = {"" = "src", "vuln_hunter_x.resources" = "config"}
+include-package-data = false
+packages = [
+    "vuln_hunter_x",
+    "vuln_hunter_x.cli",
+    "vuln_hunter_x.codeql",
+    "vuln_hunter_x.context",
+    "vuln_hunter_x.core",
+    "vuln_hunter_x.llm",
+    "vuln_hunter_x.opengrep",
+    "vuln_hunter_x.questions",
+    "vuln_hunter_x.reporting",
+    "vuln_hunter_x.sarif",
+    "vuln_hunter_x.semgrep",
+    "vuln_hunter_x.verification",
+    "vuln_hunter_x.verification.policy",
+    "vuln_hunter_x.resources",
+]
+
+[tool.setuptools.package-data]
+"vuln_hunter_x.llm" = ["system_prompt.yaml"]
+"vuln_hunter_x.resources" = ["*.yaml", "**/*.yaml", "**/*.yml", "**/*.ql", "**/*.qls", "opengrep-rules/LICENSE", "opengrep-rules/NOTICE.md"]

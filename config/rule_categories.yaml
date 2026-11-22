@@ -1,0 +1,489 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+# =============================================================================
+# Rule Categories & Profiles
+# =============================================================================
+# This file defines:
+#   1. Rule profiles — control which suites/presets each SAST tool runs
+#   2. Security categories — group vulnerability types by CWE for filtering
+#   3. CWE-to-question mapping — match Semgrep rule IDs to guided questions
+#
+# Usage:
+#   vuln-hunter-x analyze --profile extended --tool all --repo my-app
+#   vuln-hunter-x verify --category injection --category xss
+# =============================================================================
+
+# ── Profiles ─────────────────────────────────────────────────────────────────
+# Control how many rules each tool runs.  "standard" matches current defaults.
+# CLI: --profile standard|extended|maximum
+#
+# CodeQL suite suffixes map to:
+#   security-extended     ~200 queries  (default)
+#   security-and-quality  ~400 queries  (includes code quality)
+#
+# Semgrep registry presets (semgrep_configs only — fetched from semgrep.dev):
+#   auto               Language-auto-detected rules
+#   p/security-audit   Comprehensive security audit rules
+#   p/secrets          Hardcoded secrets, API keys, tokens
+#   p/owasp-top-ten    OWASP Top 10 coverage
+#
+# OpenGrep is REGISTRY-FREE. `opengrep_configs` points only at the vendored,
+# offline rule tree config/opengrep-rules/${LANG} (+ the custom
+# config/semgrep-custom/${LANG}.yaml under the `full` profile). OpenGrep never
+# contacts semgrep.dev, so its coverage does NOT scale across the
+# standard→full tiers the way the Semgrep registry packs do — those tiers
+# only widen Semgrep and CodeQL. See config/opengrep-rules/NOTICE.md.
+# =============================================================================
+
+profiles:
+  standard:
+    description: "Default — CodeQL security-extended + Semgrep auto + per-language packs"
+    codeql_suite_suffix: "security-extended"
+    semgrep_configs:
+      - "auto"
+    # OpenGrep: registry-free, vendored offline rules only (see file header).
+    opengrep_configs:
+      - "config/opengrep-rules/${LANG}"
+    # Per-language packs ensure a bare `auto` does not silently skip a language
+    # (the root cause of the Go scan returning 0 Semgrep/OpenGrep results).
+    # These are registry packs and need semgrep.dev access; the analyzer now
+    # warns loudly when rules load but 0 results are produced. For local custom
+    # rules and custom CodeQL queries, use --profile full.
+    language_specific_configs:
+      python:
+        - "p/python"
+      javascript:
+        - "p/javascript"
+        - "p/nodejs"
+      typescript:
+        - "p/typescript"
+        - "p/nodejs"
+      java:
+        - "p/java"
+      php:
+        - "p/php"
+      go:
+        - "p/gosec"
+      csharp:
+        - "p/csharp"
+
+  extended:
+    description: "Broader — adds security-audit and secrets detection"
+    codeql_suite_suffix: "security-extended"
+    semgrep_configs:
+      - "auto"
+      - "p/security-audit"
+      - "p/secrets"
+    # OpenGrep: registry-free, vendored offline rules only (see file header).
+    opengrep_configs:
+      - "config/opengrep-rules/${LANG}"
+
+  maximum:
+    description: "Maximum — security-and-quality suite + all major presets"
+    codeql_suite_suffix: "security-and-quality"
+    semgrep_configs:
+      - "auto"
+      - "p/security-audit"
+      - "p/secrets"
+      - "p/owasp-top-ten"
+    # OpenGrep: registry-free, vendored offline rules only (see file header).
+    opengrep_configs:
+      - "config/opengrep-rules/${LANG}"
+
+  extended-registry:
+    description: "Verified public registry packs only — no custom rules, broadest CWE coverage from semgrep.dev"
+    codeql_suite_suffix: "security-and-quality"
+    # Registry pack contents and rule counts can change.
+    semgrep_configs:
+      - "auto"
+      - "p/security-audit"     # 225 rules — broad audit (alias of r2c-security-audit)
+      - "p/secrets"            # 51 rules  — hardcoded secrets, API keys
+      - "p/owasp-top-ten"      # 544 rules — OWASP 2021 coverage
+      - "p/cwe-top-25"         # 215 rules — Top-25 CWE coverage
+      - "p/gitleaks"           # 175 rules — secret detection (broader than p/secrets)
+      - "p/jwt"                # 16 rules  — CWE-347 signature checks
+      - "p/insecure-transport" # 53 rules  — CWE-319 cleartext-transmission
+    # OpenGrep: registry-free, vendored offline rules only (see file header).
+    opengrep_configs:
+      - "config/opengrep-rules/${LANG}"
+    language_specific_configs:
+      python:
+        - "p/python"           # 151 rules
+        - "p/django"           # 28 rules
+        - "p/flask"            # 18 rules
+      javascript:
+        - "p/javascript"       # 74 rules
+        - "p/nodejs"           # 36 rules
+        - "p/eslint-plugin-security"  # 6 rules
+      typescript:
+        - "p/typescript"       # 74 rules
+        - "p/nodejs"
+      java:
+        - "p/java"             # 60 rules
+      php:
+        - "p/php"              # 24 rules
+      go:
+        - "p/gosec"            # 23 rules — G-series gosec rules
+      csharp:
+        - "p/csharp"           # C# / .NET registry pack
+      # C and C++ use the universal registry packs.
+
+  full:
+    description: "Full coverage — extended-registry + custom CodeQL + custom Semgrep for every guided-question CWE"
+    codeql_suite_suffix: "security-and-quality"
+    include_custom_codeql: true
+    custom_semgrep_path: "config/semgrep-custom/${LANG}.yaml"
+    semgrep_configs:
+      - "auto"
+      - "p/security-audit"
+      - "p/secrets"
+      - "p/owasp-top-ten"
+      - "p/cwe-top-25"
+      - "p/gitleaks"
+      - "p/jwt"
+      - "p/insecure-transport"
+    # OpenGrep: registry-free, vendored offline rules + custom YAML (via
+    # custom_semgrep_path below). See file header.
+    opengrep_configs:
+      - "config/opengrep-rules/${LANG}"
+    language_specific_configs:
+      python:
+        - "p/python"
+        - "p/django"
+        - "p/flask"
+      javascript:
+        - "p/javascript"
+        - "p/nodejs"
+        - "p/eslint-plugin-security"
+      typescript:
+        - "p/typescript"
+        - "p/nodejs"
+      java:
+        - "p/java"
+      php:
+        - "p/php"
+      go:
+        - "p/gosec"
+      csharp:
+        - "p/csharp"
+
+# ── Security Categories ──────────────────────────────────────────────────────
+# Group vulnerability types by CWE ID for filtering at verify time.
+# CLI: --category injection --category xss  (repeatable)
+#
+# Findings are matched by CWE tags in SARIF metadata.
+# Findings without CWE tags are always included (conservative).
+# =============================================================================
+
+categories:
+  injection:
+    description: "SQL, command, code, LDAP, XPath, template, header injection"
+    cwes:
+      - "CWE-77"    # Command injection (generic)
+      - "CWE-78"    # OS command injection
+      - "CWE-89"    # SQL injection
+      - "CWE-90"    # LDAP injection
+      - "CWE-94"    # Code injection
+      - "CWE-95"    # Eval injection
+      - "CWE-113"   # HTTP header injection
+      - "CWE-134"   # Uncontrolled format string
+      - "CWE-643"   # XPath injection
+      - "CWE-917"   # Expression/template injection (SSTI)
+
+  xss:
+    description: "Cross-site scripting and HTML injection"
+    cwes:
+      - "CWE-79"    # Cross-site scripting (XSS)
+      - "CWE-80"    # Basic XSS
+      - "CWE-87"    # Alternate XSS syntax
+
+  auth:
+    description: "Authentication, authorization, session management, CSRF"
+    cwes:
+      - "CWE-287"   # Improper authentication
+      - "CWE-306"   # Missing authentication for critical function
+      - "CWE-352"   # Cross-site request forgery (CSRF)
+      - "CWE-384"   # Session fixation
+      - "CWE-862"   # Missing authorization
+      - "CWE-863"   # Incorrect authorization
+
+  crypto:
+    description: "Weak cryptography, insecure TLS, insufficient key size"
+    cwes:
+      - "CWE-295"   # Improper certificate validation
+      - "CWE-326"   # Inadequate encryption strength
+      - "CWE-327"   # Use of a broken or risky cryptographic algorithm
+      - "CWE-328"   # Use of weak hash
+
+  secrets:
+    description: "Hardcoded credentials, API keys, tokens"
+    cwes:
+      - "CWE-259"   # Hard-coded password
+      - "CWE-321"   # Hard-coded cryptographic key
+      - "CWE-798"   # Hard-coded credentials
+
+  memory-safety:
+    description: "Buffer overflow, use-after-free, null deref, memory leak (C/C++)"
+    cwes:
+      - "CWE-119"   # Buffer overflow (generic)
+      - "CWE-120"   # Buffer copy without size check
+      - "CWE-122"   # Heap-based buffer overflow
+      - "CWE-125"   # Out-of-bounds read
+      - "CWE-170"   # Improper null termination
+      - "CWE-190"   # Integer overflow
+      - "CWE-193"   # Off-by-one error
+      - "CWE-197"   # Numeric truncation error
+      - "CWE-401"   # Memory leak
+      - "CWE-415"   # Double free
+      - "CWE-416"   # Use after free
+      - "CWE-457"   # Use of uninitialized variable
+      - "CWE-476"   # NULL pointer dereference
+      - "CWE-787"   # Out-of-bounds write
+
+  data-exposure:
+    description: "Information disclosure, cleartext storage/transmission, log injection"
+    cwes:
+      - "CWE-117"   # Improper log output neutralization
+      - "CWE-200"   # Exposure of sensitive information
+      - "CWE-209"   # Error message information leak
+      - "CWE-312"   # Cleartext storage of sensitive information
+      - "CWE-319"   # Cleartext transmission of sensitive information
+      - "CWE-532"   # Information in log files
+
+  deserialization:
+    description: "Unsafe deserialization"
+    cwes:
+      - "CWE-502"   # Deserialization of untrusted data
+
+  xxe:
+    description: "XML external entity injection"
+    cwes:
+      - "CWE-611"   # Improper restriction of XML external entity reference
+
+  ssrf:
+    description: "Server-side request forgery"
+    cwes:
+      - "CWE-918"   # Server-side request forgery (SSRF)
+
+  file-security:
+    description: "Path traversal, file upload, zip slip"
+    cwes:
+      - "CWE-22"    # Path traversal
+      - "CWE-73"    # External control of file name or path
+      - "CWE-434"   # Unrestricted upload of file with dangerous type
+
+  dos:
+    description: "Resource exhaustion, regex DoS, algorithmic complexity"
+    cwes:
+      - "CWE-400"   # Uncontrolled resource consumption
+      - "CWE-770"   # Allocation of resources without limits
+      - "CWE-835"   # Infinite loop
+      - "CWE-1333"  # Inefficient regular expression complexity (ReDoS)
+
+# ── CWE → Guided Question Mapping ───────────────────────────────────────────
+# Maps CWE IDs to the vulnerability-type suffix used in guided question
+# rule IDs (e.g., CWE-89 → "sql-injection" → looks up "py/sql-injection").
+#
+# This enables Semgrep/OpenGrep findings (which have CWE tags but
+# non-matching rule IDs) to receive language-specific guided questions
+# instead of falling back to generic default questions.
+# =============================================================================
+
+cwe_question_map:
+  # ── Injection ──
+  CWE-77:  "command-injection"
+  CWE-78:  "command-injection"
+  CWE-88:  "command-injection"
+  CWE-89:  "sql-injection"
+  CWE-90:  "ldap-injection"
+  CWE-94:  "code-injection"
+  CWE-95:  "code-injection"
+  CWE-113: "header-injection"
+  CWE-134: "tainted-format-string"
+  CWE-643: "xpath-injection"
+  CWE-917: "template-injection"
+
+  # ── XSS ──
+  CWE-79:  "xss"
+  CWE-80:  "xss"
+  CWE-87:  "xss"
+
+  # ── Trust boundary ──
+  CWE-501: "trust-boundary-violation"
+
+  # ── Authentication & Authorization ──
+  CWE-287: "broken-authentication"
+  CWE-306: "missing-authentication"
+  CWE-352: "csrf"
+  CWE-384: "session-fixation"
+  CWE-862: "missing-authorization"
+  CWE-863: "incorrect-authorization"
+
+  # ── Cryptography ──
+  CWE-295: "certificate-validation-disabled"
+  CWE-326: "insecure-tls-version"
+  CWE-327: "weak-cryptographic-algorithm"
+  CWE-328: "weak-cryptographic-algorithm"
+  CWE-312: "cleartext-storage"
+  CWE-319: "cleartext-transmission"
+
+  # ── Secrets ──
+  CWE-259: "hardcoded-credentials"
+  CWE-321: "hardcoded-credentials"
+  CWE-798: "hardcoded-credentials"
+
+  # ── Memory Safety (C/C++) ──
+  CWE-119: "overflow-buffer"
+  CWE-120: "overflow-buffer"
+  CWE-122: "heap-buffer-overflow"
+  CWE-125: "out-of-bounds-read"
+  CWE-170: "overflow-buffer"
+  CWE-190: "integer-overflow"
+  CWE-193: "off-by-one"
+  CWE-197: "integer-truncation"
+  CWE-401: "memory-leak"
+  CWE-415: "double-free"
+  CWE-416: "use-after-free"
+  CWE-457: "use-of-uninitialized-variable"
+  CWE-476: "null-pointer-dereference"
+  CWE-787: "overflow-buffer"
+
+  # ── Data Exposure ──
+  CWE-117: "log-injection"
+  CWE-200: "information-exposure"
+  CWE-209: "information-exposure"
+  CWE-532: "information-exposure"
+
+  # ── Deserialization ──
+  CWE-502: "unsafe-deserialization"
+
+  # ── XXE ──
+  CWE-611: "xxe"
+
+  # ── SSRF ──
+  CWE-918: "ssrf"
+
+  # ── File Security ──
+  CWE-22:  "path-injection"
+  CWE-73:  "path-injection"
+  CWE-434: "file-upload"
+
+  # ── DoS / Resource Exhaustion ──
+  CWE-400: "resource-exhaustion"
+  CWE-770: "resource-exhaustion"
+  CWE-835: "resource-exhaustion"
+  CWE-1333: "regex-dos"
+
+  # ── Redirect ──
+  CWE-601: "open-redirect"
+
+  # ── Race Condition ──
+  CWE-362: "race-condition"
+
+  # ── Insecure Randomness ──
+  CWE-330: "insecure-randomness"
+  CWE-338: "insecure-randomness"
+
+  # ── Supply Chain ──
+  CWE-426: "untrusted-search-path"
+  CWE-829: "untrusted-search-path"
+
+  # ── Miscellaneous ──
+  CWE-252: "missing-return-value-check"
+  CWE-754: "input-validation"
+
+  # Memory safety / C++ extra
+  CWE-253:  "incorrect-return-value-check"
+  CWE-562:  "stack-address-escape"
+  CWE-571:  "comparison-always-true"
+  CWE-672:  "use-after-move"
+  CWE-674:  "alloca-in-loop"
+  CWE-676:  "unsafe-functions"
+  CWE-755:  "exception-unsafe"
+  CWE-789:  "uncontrolled-allocation-size"
+  CWE-822:  "invalid-pointer-deref"
+  CWE-825:  "dangling-pointer"
+  CWE-843:  "type-confusion"
+
+  # Concurrency / resources
+  CWE-366:  "thread-safety-violation"
+  CWE-402:  "thread-leak"
+  CWE-405:  "goroutine-leak"
+  CWE-775:  "resource-leak"
+  CWE-248:  "panic-in-handler"
+  CWE-704:  "unsafe-pointer"
+  CWE-242:  "cgo-vulnerability"
+
+  # File / system permissions
+  CWE-275:  "overly-permissive-file"
+  CWE-377:  "insecure-temporary-file"
+  CWE-269:  "improper-privilege-management"
+
+  # Authentication / authorization extras
+  CWE-250:  "spring-actuator-exposed"
+  CWE-347:  "missing-jwt-signature-check"
+
+  # Web / HTTP extras
+  CWE-614:  "insecure-cookie"
+  CWE-1021: "clickjacking"
+  CWE-942:  "cors-misconfiguration"
+  CWE-943:  "nosql-injection"
+
+  # PHP-specific
+  CWE-98:   "file-inclusion"
+  CWE-621:  "variable-variables"
+  CWE-1025: "type-juggling"
+  CWE-1062: "extract-injection"
+
+  # JavaScript / Electron / framework
+  CWE-470:  "untrusted-module-loading"
+  CWE-1188: "electron-node-integration"
+  CWE-1321: "prototype-pollution"
+
+  # Data binding / mass-assignment
+  CWE-915:  "mass-assignment"
+
+  # XML / DoS variants
+  CWE-776:  "xml-bomb"
+
+  # Obsolete / debug
+  CWE-477:  "deprecated-api"
+  CWE-489:  "flask-debug"
+
+  # ── Broader CWE coverage (Part B) ──
+  # Timing & integrity
+  CWE-208:  "timing-unsafe-comparison"     # NEW question key
+  CWE-345:  "input-validation"
+  CWE-924:  "input-validation"
+  CWE-494:  "trust-boundary-violation"
+
+  # Permissions (CWE-275 already maps to overly-permissive-file)
+  CWE-276:  "overly-permissive-file"
+  CWE-732:  "overly-permissive-file"
+
+  # Cookies (Secure flag handled by CWE-614)
+  CWE-1004: "insecure-cookie"
+  CWE-1275: "insecure-cookie"
+
+  # Authorization & authentication extras
+  CWE-285:  "missing-authorization"
+  CWE-307:  "broken-authentication"
+  CWE-639:  "incorrect-authorization"
+
+  # Web protocol
+  CWE-444:  "input-validation"
+  CWE-693:  "input-validation"
+  CWE-1236: "csv-formula-injection"        # NEW question key
+
+  # Memory / bounds
+  CWE-129:  "input-validation"
+  CWE-805:  "overflow-destination"
+  CWE-806:  "overflow-destination"
+  CWE-839:  "input-validation"
+
+  # Data exposure
+  CWE-922:  "sensitive-data-exposure"
+
+  # Server-Side Template Injection (precise CWE for SSTI; CWE-917 also maps here)
+  CWE-1336: "template-injection"

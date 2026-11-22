@@ -1,0 +1,614 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+"""Environment check command for CodeQL and LLM providers (OpenAI, Anthropic, Ollama, DeepSeek, Gemini)."""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import yaml
+
+from vuln_hunter_x.core.constants import TIMEOUT_LLM_HEALTH_CHECK
+from vuln_hunter_x.core.resources import BUNDLED_CONFIG
+from vuln_hunter_x.core.validation import is_ollama_cloud_endpoint, openai_compat_kwargs
+
+
+def load_config_for_check() -> dict:
+    """Load config from confirm_findings.yaml for environment checks."""
+    config_path = Path.cwd() / "config" / "confirm_findings.yaml"
+    if not config_path.is_file():
+        config_path = BUNDLED_CONFIG / "confirm_findings.yaml"
+    try:
+        with open(config_path) as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+
+def check_semgrep(semgrep_path: str = "semgrep") -> tuple[bool, str]:
+    """
+    Verify Semgrep CLI is available (for analyze --tool semgrep or both).
+
+    Args:
+        semgrep_path: Path to semgrep executable (from SEMGREP_PATH or default).
+
+    Returns:
+        Tuple of (success, message)
+    """
+    if semgrep_path != "semgrep":
+        if not os.path.isfile(semgrep_path) and not shutil.which(semgrep_path):
+            return False, f"SEMGREP_PATH set but not found: {semgrep_path}"
+    else:
+        if not shutil.which("semgrep"):
+            return False, "Semgrep not on PATH; set SEMGREP_PATH or install semgrep."
+    try:
+        out = subprocess.run(
+            [semgrep_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if out.returncode != 0:
+            return False, f"semgrep --version failed: {out.stderr or out.stdout}"
+        version = (out.stdout or out.stderr or "").strip().split("\n")[0] or "unknown"
+        return True, version
+    except subprocess.TimeoutExpired:
+        return False, "semgrep --version timed out"
+    except FileNotFoundError:
+        return False, f"Semgrep executable not found: {semgrep_path}"
+    except Exception as e:
+        return False, str(e)
+
+
+def check_opengrep(opengrep_path: str = "opengrep") -> tuple[bool, str]:
+    """
+    Verify OpenGrep CLI is available (for analyze --tool opengrep or all).
+
+    Args:
+        opengrep_path: Path to opengrep executable (from OPENGREP_PATH or default).
+
+    Returns:
+        Tuple of (success, message)
+    """
+    if opengrep_path != "opengrep":
+        if not os.path.isfile(opengrep_path) and not shutil.which(opengrep_path):
+            return False, f"OPENGREP_PATH set but not found: {opengrep_path}"
+    else:
+        if not shutil.which("opengrep"):
+            return False, "OpenGrep not on PATH; set OPENGREP_PATH or install opengrep."
+    try:
+        out = subprocess.run(
+            [opengrep_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if out.returncode != 0:
+            return False, f"opengrep --version failed: {out.stderr or out.stdout}"
+        version = (out.stdout or out.stderr or "").strip().split("\n")[0] or "unknown"
+        return True, version
+    except subprocess.TimeoutExpired:
+        return False, "opengrep --version timed out"
+    except FileNotFoundError:
+        return False, f"OpenGrep executable not found: {opengrep_path}"
+    except Exception as e:
+        return False, str(e)
+
+
+def check_treesitter() -> tuple[bool, str]:
+    """
+    Verify tree-sitter and all language bindings used by the treesitter backend.
+
+    Returns:
+        Tuple of (success, message)
+    """
+    try:
+        import importlib
+
+        import tree_sitter
+
+        version = getattr(tree_sitter, "__version__", "unknown")
+    except ImportError:
+        return False, (
+            "tree-sitter not installed; run: "
+            "pip install tree-sitter tree-sitter-c tree-sitter-cpp "
+            "tree-sitter-python tree-sitter-javascript "
+            "tree-sitter-typescript tree-sitter-java tree-sitter-php tree-sitter-go "
+            "tree-sitter-c-sharp"
+        )
+
+    lang_modules = {
+        "c": "tree_sitter_c",
+        "cpp": "tree_sitter_cpp",
+        "python": "tree_sitter_python",
+        "javascript": "tree_sitter_javascript",
+        "java": "tree_sitter_java",
+        "php": "tree_sitter_php",
+        "go": "tree_sitter_go",
+        "csharp": "tree_sitter_c_sharp",
+        # Parses .ts/.tsx inside the javascript index.
+        "typescript": "tree_sitter_typescript",
+    }
+    # PyPI package names differ from the language key only for C# (the wheel is
+    # published as ``tree-sitter-c-sharp``).
+    pkg_for_lang = {"csharp": "tree-sitter-c-sharp"}
+    missing: list[str] = []
+    for lang, module in lang_modules.items():
+        try:
+            importlib.import_module(module)
+        except ImportError:
+            missing.append(lang)
+
+    if missing:
+        pkg_names = " ".join(pkg_for_lang.get(lang, f"tree-sitter-{lang}") for lang in missing)
+        return (
+            False,
+            f"Missing language bindings ({', '.join(missing)}); run: pip install {pkg_names}",
+        )
+
+    return True, (
+        f"tree-sitter {version} with all language bindings "
+        "(c, cpp, python, javascript, typescript, java, php, go, csharp)"
+    )
+
+
+def check_codeql(codeql_path: str = "codeql") -> tuple[bool, str]:
+    """
+    Verify CodeQL CLI is available and report version.
+
+    Args:
+        codeql_path: Path to CodeQL executable
+
+    Returns:
+        Tuple of (success, message)
+    """
+    if codeql_path != "codeql":
+        if not os.path.isfile(codeql_path) and not shutil.which(codeql_path):
+            return False, f"CODEQL_PATH set but not found: {codeql_path}"
+    else:
+        if not shutil.which("codeql"):
+            return False, "CodeQL not on PATH; set CODEQL_PATH or install CodeQL CLI."
+
+    try:
+        out = subprocess.run(
+            [codeql_path, "version", "--quiet"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if out.returncode != 0:
+            return False, f"codeql version failed: {out.stderr or out.stdout}"
+        version = (out.stdout or "").strip() or "unknown"
+        return True, version
+    except subprocess.TimeoutExpired:
+        return False, "codeql version timed out"
+    except FileNotFoundError:
+        return False, f"CodeQL executable not found: {codeql_path}"
+    except Exception as e:
+        return False, str(e)
+
+
+def check_anthropic(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
+    """
+    Verify Anthropic API via LiteLLM.
+
+    Args:
+        api_key: Anthropic API key (defaults to env var ANTHROPIC_API_KEY)
+        model: Model name to test (defaults to claude-haiku-4-5-20251001)
+
+    Returns:
+        Tuple of (success, message)
+    """
+    api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return False, "ANTHROPIC_API_KEY not set"
+
+    try:
+        import litellm
+    except ImportError:
+        return False, "litellm not installed; run: pip install litellm"
+
+    # Use the smallest/fastest Claude model for the connectivity check
+    test_model = model or "anthropic/claude-haiku-4-5-20251001"
+    if not test_model.startswith("anthropic/"):
+        test_model = "anthropic/" + test_model
+
+    try:
+        resp = litellm.completion(
+            model=test_model,
+            messages=[{"role": "user", "content": "Reply with exactly: OK"}],
+            api_key=api_key,
+            max_tokens=10,
+            timeout=TIMEOUT_LLM_HEALTH_CHECK,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        return True, f"Anthropic ({test_model}): {text[:50]}"
+    except Exception as e:
+        return False, f"Anthropic error: {e}"
+
+
+def check_gemini(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
+    """
+    Verify Google Gemini (AI Studio) via LiteLLM.
+
+    With a key pool configured (comma-separated GEMINI_API_KEY(S)), each key
+    is probed individually so dead keys are visible before a long run.
+
+    Args:
+        api_key: Gemini API key (defaults to the GEMINI_API_KEYS /
+            GEMINI_API_KEY pool, then GOOGLE_API_KEY)
+        model: Model name to test (defaults to gemini-2.5-flash-lite)
+
+    Returns:
+        Tuple of (success, message)
+    """
+    if api_key:
+        keys = [api_key]
+    else:
+        from vuln_hunter_x.core.config import _load_gemini_api_keys
+
+        keys = _load_gemini_api_keys()
+    if not keys:
+        return False, "GEMINI_API_KEY (or GOOGLE_API_KEY) not set"
+
+    try:
+        import litellm
+    except ImportError:
+        return False, "litellm not installed; run: pip install litellm"
+
+    # Use the cheapest Gemini tier for the connectivity check
+    test_model = model or "gemini/gemini-2.5-flash-lite"
+    if not test_model.startswith("gemini/"):
+        test_model = "gemini/" + test_model
+
+    def _ping(key: str):
+        return litellm.completion(
+            model=test_model,
+            messages=[{"role": "user", "content": "Reply with exactly: OK"}],
+            api_key=key,
+            max_tokens=10,
+            timeout=TIMEOUT_LLM_HEALTH_CHECK,
+        )
+
+    if len(keys) == 1:
+        try:
+            resp = _ping(keys[0])
+            text = (resp.choices[0].message.content or "").strip()
+            return True, f"Gemini ({test_model}): {text[:50]}"
+        except Exception as e:
+            return False, f"Gemini error: {e}"
+
+    failures = 0
+    per_key: list[str] = []
+    for key in keys:
+        tail = key[-4:]
+        try:
+            _ping(key)
+            per_key.append(f"…{tail}=OK")
+        except Exception as e:
+            failures += 1
+            per_key.append(f"…{tail}=FAIL ({e})")
+    summary = f"Gemini ({test_model}): {len(keys)} key(s); " + "; ".join(per_key)
+    return failures == 0, summary
+
+
+def check_deepseek(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
+    """
+    Verify DeepSeek via LiteLLM's native deepseek/ route.
+
+    Args:
+        api_key: DeepSeek API key (defaults to DEEPSEEK_API_KEY, then
+            OPENAI_API_KEY — mirroring LLMClient's fallback so an existing
+            OpenAI-keyed DeepSeek .env keeps working)
+        model: Model name to test (defaults to deepseek-chat)
+
+    Returns:
+        Tuple of (success, message)
+    """
+    api_key = (
+        api_key
+        or os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        or os.environ.get("OPENAI_API_KEY", "").strip()
+    )
+    if not api_key:
+        return False, "DEEPSEEK_API_KEY (or OPENAI_API_KEY) not set"
+
+    try:
+        import litellm
+    except ImportError:
+        return False, "litellm not installed; run: pip install litellm"
+
+    test_model = model or "deepseek/deepseek-chat"
+    if not test_model.startswith("deepseek/"):
+        test_model = "deepseek/" + test_model
+
+    # Mirror LLMClient's base-URL fallback chain
+    raw_base = (
+        os.environ.get("DEEPSEEK_API_BASE")
+        or os.environ.get("OPENAI_BASE_URL")
+        or os.environ.get("OPENAI_API_BASE")
+        or ""
+    ).strip()
+    api_base = raw_base.rstrip("/") if raw_base else None
+
+    try:
+        kwargs = {
+            "model": test_model,
+            "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+            "api_key": api_key,
+            "max_tokens": 10,
+            "timeout": TIMEOUT_LLM_HEALTH_CHECK,
+        }
+        if api_base:
+            kwargs["api_base"] = api_base
+        resp = litellm.completion(**kwargs)
+        text = (resp.choices[0].message.content or "").strip()
+        return True, f"DeepSeek ({test_model}): {text[:50]}"
+    except Exception as e:
+        return False, f"DeepSeek error: {e}"
+
+
+def check_openai(api_key: str | None = None, model: str | None = None) -> tuple[bool, str]:
+    """
+    Verify OpenAI API via LiteLLM.
+
+    Args:
+        api_key: OpenAI API key (defaults to env var)
+        model: Model name to test (defaults to gpt-4o-mini)
+
+    Returns:
+        Tuple of (success, message)
+    """
+    api_key = api_key or os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return False, "OPENAI_API_KEY not set"
+
+    try:
+        import litellm
+    except ImportError:
+        return False, "litellm not installed; run: pip install litellm"
+
+    # Use provided model, or default to gpt-4o-mini for testing
+    model = model or "gpt-4o-mini"
+
+    # Custom base URL for OpenAI-compatible endpoints (e.g. Z.ai)
+    raw_api_base = (
+        os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
+    ).strip()
+    api_base = raw_api_base.rstrip("/") if raw_api_base else None
+    if api_base and not model.startswith("openai/"):
+        model = "openai/" + model
+
+    try:
+        kwargs = {
+            "model": model,
+            "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+            "api_key": api_key,
+            "max_tokens": 10,
+            "timeout": TIMEOUT_LLM_HEALTH_CHECK,
+        }
+        if api_base:
+            kwargs["api_base"] = api_base
+        kwargs.update(
+            openai_compat_kwargs(
+                provider="openai",
+                model=model,
+                api_base=api_base,
+                stream=False,
+            )
+        )
+        resp = litellm.completion(**kwargs)
+        text = (resp.choices[0].message.content or "").strip()
+        return True, f"OpenAI ({model}): {text[:50]}"
+    except Exception as e:
+        return False, f"OpenAI error: {e}"
+
+
+def check_ollama(
+    model: str | None = None,
+    api_base: str | None = None,
+) -> tuple[bool, str]:
+    """
+    Verify Ollama via LiteLLM.
+
+    Args:
+        model: Ollama model name (from config)
+        api_base: Ollama server URL (from env)
+
+    Returns:
+        Tuple of (success, message)
+    """
+    try:
+        import litellm
+    except ImportError:
+        return False, "litellm not installed; run: pip install litellm"
+
+    # Model comes from config, api_base from environment
+    if not model:
+        return False, "No Ollama model configured"
+
+    from vuln_hunter_x.core.validation import normalize_ollama_model as _norm_ollama
+
+    model = _norm_ollama(model)
+
+    api_base = (
+        api_base or os.environ.get("OLLAMA_API_BASE") or os.environ.get("OLLAMA_BASE_URL") or ""
+    )
+    api_base = api_base.strip() or None
+
+    # Ollama Cloud requires a bearer token and uses the chat-completions route.
+    # Detect cloud by endpoint OR model tag (:cloud / -cloud suffix).
+    bare_model = model.removeprefix("ollama_chat/").removeprefix("ollama/")
+    tag_is_cloud = bare_model.endswith(":cloud") or bare_model.endswith("-cloud")
+    is_cloud = is_ollama_cloud_endpoint(api_base) or tag_is_cloud
+    cloud_key = None
+    if is_cloud:
+        from vuln_hunter_x.core.config import _load_ollama_api_key
+
+        cloud_key = _load_ollama_api_key()
+        if not cloud_key:
+            return False, "Ollama Cloud detected but OLLAMA_CLOUD_API_KEY is not set"
+        model = "ollama_chat/" + bare_model
+        if not is_ollama_cloud_endpoint(api_base):
+            api_base = "https://ollama.com"
+
+    base_kwargs: dict = {
+        "model": model,
+        "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+        "max_tokens": 10,
+        "timeout": TIMEOUT_LLM_HEALTH_CHECK,
+    }
+    if api_base:
+        base_kwargs["api_base"] = api_base.rstrip("/")
+    base_info = f" @ {api_base}" if api_base else ""
+
+    if cloud_key:
+        base_kwargs["api_key"] = cloud_key
+    try:
+        resp = litellm.completion(**base_kwargs)
+        text = (resp.choices[0].message.content or "").strip()
+        return True, f"Ollama ({model}){base_info}: {text[:50]}"
+    except Exception as e:
+        return False, f"Ollama error: {e}"
+
+
+def run_env_check(quiet: bool = False) -> dict[str, tuple[bool, str]]:
+    """
+    Run all environment checks.
+
+    Loads model/provider from env (LLM_PROVIDER, LLM_MODEL) or config file.
+    Loads secrets (API keys, URLs) from environment variables.
+
+    Args:
+        quiet: Suppress output
+
+    Returns:
+        Dict mapping check name to (success, message)
+    """
+    codeql_path = os.environ.get("CODEQL_PATH", "codeql")
+
+    # Load config for model/provider (env overrides config file)
+    config = load_config_for_check()
+    provider = os.environ.get("LLM_PROVIDER") or config.get("provider", "openai")
+    model = os.environ.get("LLM_MODEL") or config.get("model", "gpt-4o")
+
+    results: dict[str, tuple[bool, str]] = {}
+
+    if not quiet:
+        print("Environment Check (CodeQL + LLM)\n")
+        print(f"  Provider/Model: {provider}, {model}\n")
+
+    # CodeQL
+    ok, msg = check_codeql(codeql_path)
+    results["codeql"] = (ok, msg)
+    if not quiet:
+        status = "OK" if ok else "FAIL"
+        print(f"  CodeQL: [{status}] {msg}")
+
+    # Semgrep (optional; used for analyze --tool semgrep or both)
+    semgrep_path = os.environ.get("SEMGREP_PATH", "semgrep")
+    ok, msg = check_semgrep(semgrep_path)
+    results["semgrep"] = (ok, msg)
+    if not quiet:
+        status = "OK" if ok else "SKIP/FAIL"
+        print(f"  Semgrep: [{status}] {msg}")
+
+    # OpenGrep (optional; used for analyze --tool opengrep or all)
+    opengrep_path = os.environ.get("OPENGREP_PATH", "opengrep")
+    ok, msg = check_opengrep(opengrep_path)
+    results["opengrep"] = (ok, msg)
+    if not quiet:
+        status = "OK" if ok else "SKIP/FAIL"
+        print(f"  OpenGrep: [{status}] {msg}")
+
+    # tree-sitter (optional; used for extract-context --backend treesitter or auto)
+    ok, msg = check_treesitter()
+    results["treesitter"] = (ok, msg)
+    if not quiet:
+        status = "OK" if ok else "SKIP/FAIL"
+        print(f"  tree-sitter: [{status}] {msg}")
+
+    # OpenAI - test if provider is openai or if we have an API key
+    if provider == "openai" or os.environ.get("OPENAI_API_KEY"):
+        openai_model = model if provider == "openai" and not model.startswith("ollama/") else None
+        ok, msg = check_openai(model=openai_model)
+        results["openai"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  OpenAI: [{status}] {msg}")
+    else:
+        results["openai"] = (False, "Not configured")
+        if not quiet:
+            print("  OpenAI: [SKIP] Not configured")
+
+    # Anthropic - test if provider is anthropic or if we have an API key
+    if provider == "anthropic" or os.environ.get("ANTHROPIC_API_KEY"):
+        anthropic_model = model if provider == "anthropic" else None
+        ok, msg = check_anthropic(model=anthropic_model)
+        results["anthropic"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  Anthropic: [{status}] {msg}")
+    else:
+        results["anthropic"] = (False, "Not configured")
+        if not quiet:
+            print("  Anthropic: [SKIP] Not configured")
+
+    # DeepSeek - test if provider is deepseek or a dedicated key is present.
+    # Deliberately does NOT trigger on OPENAI_API_KEY alone (the client-side
+    # fallback), which would double-probe every OpenAI setup.
+    if provider == "deepseek" or os.environ.get("DEEPSEEK_API_KEY"):
+        deepseek_model = model if provider == "deepseek" else None
+        ok, msg = check_deepseek(model=deepseek_model)
+        results["deepseek"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  DeepSeek: [{status}] {msg}")
+    else:
+        results["deepseek"] = (False, "Not configured")
+        if not quiet:
+            print("  DeepSeek: [SKIP] Not configured")
+
+    # Gemini - test if provider is gemini or a dedicated key is present.
+    # Deliberately does NOT trigger on GOOGLE_API_KEY alone: that variable is
+    # commonly set for unrelated Google tooling and the probe costs a request.
+    # (check_gemini itself still falls back to GOOGLE_API_KEY when it runs.)
+    if (
+        provider == "gemini"
+        or os.environ.get("GEMINI_API_KEYS")
+        or os.environ.get("GEMINI_API_KEY")
+    ):
+        gemini_model = model if provider == "gemini" else None
+        ok, msg = check_gemini(model=gemini_model)
+        results["gemini"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  Gemini: [{status}] {msg}")
+    else:
+        results["gemini"] = (False, "Not configured")
+        if not quiet:
+            print("  Gemini: [SKIP] Not configured")
+
+    # Ollama - test if provider is ollama or model starts with ollama/
+    if provider == "ollama" or model.startswith("ollama/"):
+        from vuln_hunter_x.core.validation import normalize_ollama_model
+
+        ollama_model = normalize_ollama_model(model)
+        ok, msg = check_ollama(model=ollama_model)
+        results["ollama"] = (ok, msg)
+        if not quiet:
+            status = "OK" if ok else "SKIP/FAIL"
+            print(f"  Ollama: [{status}] {msg}")
+    else:
+        results["ollama"] = (False, "Not configured")
+        if not quiet:
+            print("  Ollama: [SKIP] Not configured")
+
+    if not quiet:
+        print()
+
+    return results

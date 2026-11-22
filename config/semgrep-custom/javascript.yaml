@@ -1,0 +1,427 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+#
+# Custom Semgrep rules for JavaScript/TypeScript vulnerabilities not covered
+# by registry packs (p/javascript, p/typescript, p/nodejs).
+#
+# Validate: opengrep --validate --config config/semgrep-custom/javascript.yaml
+
+rules:
+
+  # ── CWE-1321: Prototype pollution via bracket-property write ──
+  - id: vulnhunterx.js.prototype-pollution
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      Writing a bracket-indexed property whose key comes from user input can
+      pollute Object.prototype (or any reachable prototype), influencing every
+      object in the runtime. Validate the key against an allowlist or use
+      Map / Object.create(null) (CWE-1321).
+    metadata:
+      cwe: ["CWE-1321"]
+      category: security
+      owasp: "A08:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1321.html
+        - https://github.com/HoLyVieR/prototype-pollution-nsec18
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $OBJ[$KEY] = $VAL;
+          - pattern: |
+              $OBJ[$KEY1][$KEY2] = $VAL;
+      - metavariable-pattern:
+          metavariable: $KEY
+          patterns:
+            - pattern-either:
+                - pattern: req.body.$X
+                - pattern: req.query.$X
+                - pattern: req.params.$X
+                - pattern: req.body[...]
+                - pattern: req.query[...]
+                - pattern: req.params[...]
+      - pattern-not: |
+          if (!Object.prototype.hasOwnProperty.call(...)) {
+              $OBJ[$KEY] = $VAL;
+          }
+      - pattern-not: |
+          if ($KEY === "__proto__" || $KEY === "constructor" || $KEY === "prototype") {
+              ...
+          }
+          $OBJ[$KEY] = $VAL;
+
+  # ── CWE-1188: Electron nodeIntegration enabled for untrusted content ──
+  - id: vulnhunterx.js.electron-node-integration
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      Electron BrowserWindow with `nodeIntegration: true` (or default value
+      pre-v5) exposes full Node.js APIs to renderer code. If the renderer
+      loads any untrusted content the renderer can fork the host shell, read
+      arbitrary files, etc. Set `nodeIntegration: false` and use a preload
+      script with contextBridge instead (CWE-1188).
+    metadata:
+      cwe: ["CWE-1188"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/1188.html
+        - https://www.electronjs.org/docs/latest/tutorial/security
+    patterns:
+      - pattern-either:
+          - pattern: |
+              new BrowserWindow({
+                ...,
+                webPreferences: { ..., nodeIntegration: true, ... },
+                ...
+              })
+          - pattern: |
+              new BrowserWindow({
+                ...,
+                webPreferences: { ..., contextIsolation: false, ... },
+                ...
+              })
+
+  # ── CWE-79: HTML injection variant via innerHTML on tainted source ──
+  # Distinct rule_id from generic XSS — guides on innerHTML-specific mitigation.
+  # We avoid metavariable-pattern (matches sub-expressions and would flag
+  # DOMPurify.sanitize(req.body.x)). Instead, enumerate exact taint shapes.
+  - id: vulnhunterx.js.html-injection
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: |
+      Tainted value assigned to innerHTML / outerHTML / insertAdjacentHTML
+      allows arbitrary HTML & script injection. Use textContent for text
+      or DOMPurify.sanitize() for HTML (CWE-79).
+    metadata:
+      cwe: ["CWE-79"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/79.html
+    pattern-either:
+      - pattern: $EL.innerHTML = req.body.$X
+      - pattern: $EL.innerHTML = req.query.$X
+      - pattern: $EL.innerHTML = req.params.$X
+      - pattern: $EL.innerHTML = location.hash
+      - pattern: $EL.innerHTML = location.search
+      - pattern: $EL.innerHTML = window.name
+      - pattern: $EL.outerHTML = req.body.$X
+      - pattern: $EL.outerHTML = req.query.$X
+      - pattern: $EL.outerHTML = location.hash
+      - pattern: $EL.insertAdjacentHTML($POS, req.body.$X)
+      - pattern: $EL.insertAdjacentHTML($POS, req.query.$X)
+      - pattern: $EL.insertAdjacentHTML($POS, location.hash)
+
+  # ── CWE-79: client-side DOM XSS sinks (any non-sanitized value) ──
+  # The html-injection rule above only fires when the source is a known
+  # server/request taint (req.*, location.*). On SPA/React codebases the
+  # tainted value is usually a local/Redux variable, so the innerHTML family of
+  # sinks was invisible (eoffice-superweb: innerHTML XSS missed entirely —
+  # false negatives). This broader rule surfaces the SINK regardless of source
+  # so the LLM verifier can adjudicate; it is therefore WARNING/lower-precision
+  # by design. dangerouslySetInnerHTML is intentionally NOT covered here — the
+  # react-dangerously-set-html rule below owns it. Sanitizer-wrapped values and
+  # trivial clears are excluded to cut obvious noise.
+  - id: vulnhunterx.js.dom-xss-sink
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: |
+      Value assigned to innerHTML / outerHTML / insertAdjacentHTML without
+      sanitization can lead to DOM XSS when the value carries attacker-
+      influenced data. Prefer textContent, or sanitize with DOMPurify.sanitize()
+      before assigning (CWE-79).
+    metadata:
+      cwe: ["CWE-79"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/79.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html
+    patterns:
+      - pattern-either:
+          - pattern: "$EL.innerHTML = $X"
+          - pattern: "$EL.outerHTML = $X"
+          - pattern: "$EL.insertAdjacentHTML($POS, $X)"
+      # Trivial clears / empty assignments are safe.
+      - pattern-not: '$EL.innerHTML = ""'
+      - pattern-not: "$EL.innerHTML = ''"
+      - pattern-not: '$EL.outerHTML = ""'
+      # Explicitly sanitized values are safe.
+      - pattern-not: "$EL.innerHTML = DOMPurify.sanitize(...)"
+      - pattern-not: "$EL.outerHTML = DOMPurify.sanitize(...)"
+      - pattern-not: "$EL.innerHTML = sanitize(...)"
+      - pattern-not: "$EL.innerHTML = sanitizeHtml(...)"
+      - pattern-not: "$EL.insertAdjacentHTML($POS, DOMPurify.sanitize(...))"
+      # Skip values whose name already implies sanitization/escaping.
+      - metavariable-regex:
+          metavariable: $X
+          regex: '^(?!.*(?i:saniti|purif|escape|cleanHtml|safeHtml)).*$'
+
+  # ── CWE-327/328: Node crypto with MD5 / SHA-1 ──
+  - id: vulnhunterx.js.weak-hash
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: |
+      crypto.createHash with 'md5' / 'sha1' produces collisions cheaply.
+      Use 'sha256', 'sha384', or 'sha512' for password hashing, HMAC,
+      signatures, and integrity checks (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createHash("md5")
+          - pattern: crypto.createHash("sha1")
+          - pattern: crypto.createHash("MD5")
+          - pattern: crypto.createHash("SHA1")
+          - pattern: crypto.createHash('md5')
+          - pattern: crypto.createHash('sha1')
+
+  # ── CWE-330/338: Math.random() inside security-named function ──
+  - id: vulnhunterx.js.math-random-secret
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: |
+      Math.random() is a pseudo-random generator seeded predictably — output
+      can be reversed from a few samples. Use crypto.randomBytes() or
+      crypto.randomUUID() for tokens, secrets, passwords, keys, nonces,
+      CSRF, OTP, session ids (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+    patterns:
+      - pattern: Math.random()
+      - pattern-either:
+          - pattern-inside: |
+              function $F(...) {
+                ...
+              }
+          - pattern-inside: |
+              const $F = (...) => {
+                ...
+              };
+          - pattern-inside: |
+              const $F = function(...) {
+                ...
+              };
+      - metavariable-regex:
+          metavariable: $F
+          regex: '(?i).*(token|secret|password|passwd|pwd|key|nonce|csrf|otp|session|generate).*'
+
+  # ── CWE-347: JWT verify with algorithm 'none' allowed ──
+  - id: vulnhunterx.js.jwt-none
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      JWT verification configured to accept algorithm 'none' — a forged
+      token with `{"alg":"none"}` will pass without a signature.
+      Set algorithms to an explicit allowlist (HS256, RS256, ES256, …)
+      and never include 'none' (CWE-347).
+    metadata:
+      cwe: ["CWE-347"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/347.html
+        - https://www.rfc-editor.org/rfc/rfc8725
+    patterns:
+      - pattern-either:
+          - pattern: 'jwt.verify($T, $K, { algorithms: ["none", ...] })'
+          - pattern: 'jwt.verify($T, $K, { algorithms: [..., "none", ...] })'
+          - pattern: 'jwt.verify($T, $K, { algorithms: ["none"] })'
+          - pattern: 'jwt.sign($P, $K, { algorithm: "none" })'
+          - pattern: "jwt.sign($P, $K, { algorithm: 'none' })"
+
+  # ── CWE-942: CORS with origin "*" and credentials ──
+  - id: vulnhunterx.js.cors-credentials-wildcard
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      CORS configured with origin "*" AND credentials: true. Browsers
+      refuse this combination, but the misconfiguration itself often
+      reveals broken intent — either the wildcard or the credentials
+      flag is wrong (CWE-942). For authenticated cross-origin requests,
+      use a strict allowlist.
+    metadata:
+      cwe: ["CWE-942"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/942.html
+        - https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS/Errors/CORSNotSupportingCredentials
+    patterns:
+      - pattern-either:
+          - pattern: 'cors({ origin: "*", credentials: true, ... })'
+          - pattern: 'cors({ credentials: true, origin: "*", ... })'
+          - pattern: 'cors({ origin: true, credentials: true, ... })'
+          - pattern: 'cors({ credentials: true, origin: true, ... })'
+
+  # ── CWE-79: React dangerouslySetInnerHTML with non-literal ──
+  - id: vulnhunterx.js.react-dangerously-set-html
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: |
+      dangerouslySetInnerHTML bypasses React's auto-escaping. When the
+      __html value is anything other than a hand-controlled string literal,
+      an XSS sink is exposed (CWE-79). Sanitise with DOMPurify or render
+      as text.
+    metadata:
+      cwe: ["CWE-79"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/79.html
+        - https://react.dev/reference/react-dom/components/common#dangerously-setting-the-inner-html
+    # Semgrep's JS grammar can't parse the JSX form
+    # `dangerouslySetInnerHTML={{__html: ...}}` directly. Match on the object
+    # expression instead — it's the unique payload shape React requires.
+    patterns:
+      - pattern-either:
+          - pattern: '{__html: $X}'
+      - pattern-not: '{__html: "..."}'
+      - pattern-not: "{__html: '...'}"
+      - pattern-not: '{__html: DOMPurify.sanitize(...)}'
+      - pattern-not: '{__html: DOMPurify.sanitize(..., ...)}'
+      - pattern-not: '{__html: sanitize(...)}'
+      - pattern-not: '{__html: sanitizeHtml(...)}'
+      # Skip values already sanitized upstream (name implies it), e.g.
+      # `dangerouslySetInnerHTML={{ __html: sanitizedHtmlBody }}`.
+      - metavariable-regex:
+          metavariable: $X
+          regex: '^(?!.*(?i:saniti|purif|escape|cleanHtml|safeHtml)).*$'
+
+  # ── CWE-943: Mongoose / Mongo $where with non-literal ──
+  - id: vulnhunterx.js.mongoose-where
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      MongoDB $where operator evaluates the value as JavaScript on the
+      server. Passing a user-controlled string enables NoSQL injection
+      with full JS expression power (CWE-943). Replace with native
+      query operators ($eq, $gt, $in …).
+    metadata:
+      cwe: ["CWE-943"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/943.html
+        - https://www.mongodb.com/docs/manual/reference/operator/query/where/
+    patterns:
+      - pattern-either:
+          - pattern: '$M.find({ $where: $X })'
+          - pattern: '$M.findOne({ $where: $X })'
+          - pattern: '$M.find({ ..., $where: $X, ... })'
+          - pattern: '$M.findOne({ ..., $where: $X, ... })'
+
+  # ── CWE-494: Remote script piped to a shell (curl | bash) ──
+  - id: vulnhunterx.js.download-without-integrity
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      A remote script is downloaded and piped to a shell (curl/wget ... | bash)
+      via child_process with no integrity check. A compromised or MITM'd
+      endpoint yields immediate code execution (CWE-494, OWASP 2025 A03
+      Software Supply Chain Failures). Pin and verify a checksum/signature
+      before executing.
+    metadata:
+      cwe: ["CWE-494"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/494.html
+    patterns:
+      - pattern-either:
+          - pattern: child_process.exec($CMD, ...)
+          - pattern: child_process.exec($CMD)
+          - pattern: child_process.execSync($CMD)
+          - pattern: child_process.execSync($CMD, ...)
+          - pattern: exec($CMD)
+          - pattern: execSync($CMD)
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '.*(curl|wget).*\|\s*(ba)?sh.*'
+
+  # ── CWE-1336: Server-Side Template Injection — dynamic template compile ──
+  - id: vulnhunterx.js.template-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      A template engine compiles/renders a non-literal (attacker-influenced)
+      string. Server-side template injection in Handlebars / EJS / Pug /
+      Lodash escalates to data disclosure and often remote code execution
+      (CWE-1336). Compile fixed template files and pass user data as context
+      — never build the template body from input.
+    metadata:
+      cwe: ["CWE-1336", "CWE-917"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1336.html
+    patterns:
+      - pattern-either:
+          - pattern: handlebars.compile($T)
+          - pattern: Handlebars.compile($T)
+          - pattern: ejs.render($T, ...)
+          - pattern: ejs.compile($T)
+          - pattern: pug.compile($T)
+          - pattern: pug.render($T, ...)
+          - pattern: _.template($T)
+      - metavariable-pattern:
+          metavariable: $T
+          patterns:
+            - pattern-not: '"..."'
+            - pattern-not: "'...'"
+            - pattern-not: '`...`'
+
+  # ── CWE-1333: Regex injection — request data compiled as a RegExp ──
+  - id: vulnhunterx.js.regex-injection
+    languages: [javascript, typescript]
+    severity: WARNING
+    mode: taint
+    message: |
+      Request data is used to construct a RegExp. An attacker can supply a
+      pattern with catastrophic backtracking (ReDoS) that hangs the event
+      loop, or alter match semantics (CWE-1333). Escape the input or match
+      against a fixed, vetted pattern.
+    metadata:
+      cwe: ["CWE-1333"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/1333.html
+    pattern-sources:
+      - pattern: req.body.$X
+      - pattern: req.query.$X
+      - pattern: req.params.$X
+      - pattern: req.body[...]
+      - pattern: req.query[...]
+      - pattern: req.params[...]
+    pattern-sinks:
+      - pattern: new RegExp(...)
+      - pattern: RegExp(...)
+
+  # ── CWE-915: Mass assignment — ORM model built from full request body ──
+  - id: vulnhunterx.js.mass-assignment
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: |
+      An ORM model is created/updated from the entire req.body. An attacker
+      can set fields that were never meant to be client-writable (role,
+      isAdmin, balance) — privilege escalation via mass assignment (CWE-915).
+      Pick an explicit allowlist of fields from req.body.
+    metadata:
+      cwe: ["CWE-915"]
+      category: security
+      owasp: "A08:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/915.html
+    patterns:
+      - pattern-either:
+          - pattern: $M.create(req.body)
+          - pattern: $M.create(req.body, ...)
+          - pattern: $M.update(req.body, ...)
+          - pattern: $M.findByIdAndUpdate($ID, req.body, ...)
+          - pattern: $M.findOneAndUpdate($Q, req.body, ...)
+          - pattern: new $M(req.body)

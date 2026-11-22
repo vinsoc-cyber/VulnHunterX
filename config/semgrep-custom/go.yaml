@@ -1,0 +1,520 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+#
+# Custom Semgrep rules for Go vulnerabilities not covered by p/gosec
+# (which focuses on common patterns; we target concurrency/runtime gaps).
+#
+# Validate: opengrep --validate --config config/semgrep-custom/go.yaml
+
+rules:
+
+  # ── CWE-405: Goroutine leak — go statement without bounded channel ──
+  - id: vulnhunterx.go.goroutine-leak
+    languages: [go]
+    severity: WARNING
+    message: |
+      Goroutine started inside a request/handler scope writes to an unbuffered
+      channel without a select+timeout — if the receiver never reads, the
+      goroutine blocks forever and leaks. Use a buffered channel, context
+      cancellation, or sync.WaitGroup with bounded receive (CWE-405).
+    metadata:
+      cwe: ["CWE-405"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/405.html
+        - https://go.dev/blog/pipelines
+    patterns:
+      - pattern-either:
+          - pattern: |
+              go func() {
+                ...
+                $CH <- $X
+                ...
+              }()
+      - pattern-not-inside: |
+          $CH := make(chan $T, $N)
+          ...
+      - pattern-not-inside: |
+          select {
+          case ...:
+            ...
+          case <-ctx.Done():
+            ...
+          }
+
+  # ── CWE-248: Unrecovered panic in HTTP handler crashes the process ──
+  - id: vulnhunterx.go.panic-in-handler
+    languages: [go]
+    severity: WARNING
+    message: |
+      net/http handler can panic on a code path not wrapped by recover().
+      An unrecovered panic terminates the goroutine — and without the default
+      net/http panic-handler, can crash the entire server. Wrap handlers with
+      a recovery middleware (CWE-248).
+    metadata:
+      cwe: ["CWE-248"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/248.html
+    patterns:
+      - pattern-either:
+          - pattern: |
+              func $H(w http.ResponseWriter, r *http.Request) {
+                ...
+                panic($MSG)
+                ...
+              }
+          - pattern: |
+              func $H(w http.ResponseWriter, r *http.Request) {
+                ...
+                $X[$I]
+                ...
+              }
+      - pattern-not-inside: |
+          func $H(w http.ResponseWriter, r *http.Request) {
+            defer func() {
+              if $R := recover(); $R != nil {
+                ...
+              }
+            }()
+            ...
+          }
+
+  # ── CWE-704: unsafe.Pointer used for type punning bypasses type safety ──
+  - id: vulnhunterx.go.unsafe-pointer
+    languages: [go]
+    severity: WARNING
+    message: |
+      unsafe.Pointer cast between unrelated types bypasses Go's type system
+      and can cause memory corruption, out-of-bounds reads, or undefined
+      behaviour. Restrict to documented patterns in the unsafe package docs
+      (CWE-704).
+    metadata:
+      cwe: ["CWE-704"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/704.html
+        - https://pkg.go.dev/unsafe#Pointer
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $X := (*$T)(unsafe.Pointer(&$Y))
+          - pattern: |
+              (*$T)(unsafe.Pointer($Y))
+      - pattern-not: |
+          (*$T)(unsafe.Pointer(uintptr($X)))
+
+  # ── CWE-327/328: crypto/md5 / crypto/sha1 used for security ──
+  - id: vulnhunterx.go.weak-hash
+    languages: [go]
+    severity: WARNING
+    message: |
+      crypto/md5 and crypto/sha1 are vulnerable to collision and
+      length-extension attacks. Use crypto/sha256 (or higher) for
+      password hashing, HMAC, signatures, and integrity checks
+      (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+    patterns:
+      - pattern-either:
+          - pattern: md5.New()
+          - pattern: md5.Sum(...)
+          - pattern: sha1.New()
+          - pattern: sha1.Sum(...)
+
+  # ── CWE-330/338: math/rand used in security-named function ──
+  - id: vulnhunterx.go.math-rand-secret
+    languages: [go]
+    severity: WARNING
+    message: |
+      math/rand is a deterministic PRNG seeded predictably. Use crypto/rand
+      for tokens, secrets, passwords, keys, nonces, CSRF, OTP, session
+      ids (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+        - https://pkg.go.dev/crypto/rand
+    patterns:
+      - pattern-either:
+          - pattern: rand.Int(...)
+          - pattern: rand.Intn(...)
+          - pattern: rand.Int31(...)
+          - pattern: rand.Int63(...)
+          - pattern: rand.Read(...)
+          - pattern: rand.Float64()
+      - pattern-inside: |
+          func $F(...) {
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $F
+          regex: '.*(Token|Secret|Password|Passwd|Pwd|Key|Nonce|Csrf|OTP|Session|Generate).*'
+
+  # ── CWE-295: tls.Config{InsecureSkipVerify: true} ──
+  - id: vulnhunterx.go.insecure-skip-verify
+    languages: [go]
+    severity: ERROR
+    message: |
+      tls.Config with InsecureSkipVerify: true disables TLS certificate
+      validation — MITM attacks become trivial on the network path.
+      Set to false (default) and provide a custom RootCAs if needed
+      (CWE-295).
+    metadata:
+      cwe: ["CWE-295"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/295.html
+        - https://pkg.go.dev/crypto/tls#Config
+    patterns:
+      - pattern-either:
+          - pattern: 'tls.Config{ ..., InsecureSkipVerify: true, ... }'
+          - pattern: '&tls.Config{ ..., InsecureSkipVerify: true, ... }'
+
+  # ── CWE-732 / CWE-276: world-writable file permissions ──
+  - id: vulnhunterx.go.world-writable-file
+    languages: [go]
+    severity: WARNING
+    message: |
+      File created with world-writable mode (0o666 / 0o777 / 0o646).
+      Any local user can modify the file's contents, which is dangerous
+      for state files, credentials, and configuration (CWE-732 /
+      CWE-276). Restrict to 0o600 or 0o640 for sensitive data.
+    metadata:
+      cwe: ["CWE-732", "CWE-276"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/732.html
+    patterns:
+      - pattern-either:
+          - pattern: os.OpenFile(..., 0o666)
+          - pattern: os.OpenFile(..., 0o777)
+          - pattern: os.OpenFile(..., 0o646)
+          - pattern: os.OpenFile(..., 0666)
+          - pattern: os.OpenFile(..., 0777)
+          - pattern: os.WriteFile(..., 0o666)
+          - pattern: os.WriteFile(..., 0o777)
+          - pattern: os.WriteFile(..., 0666)
+          - pattern: os.WriteFile(..., 0777)
+          - pattern: ioutil.WriteFile(..., 0o666)
+          - pattern: ioutil.WriteFile(..., 0o777)
+          - pattern: ioutil.WriteFile(..., 0666)
+          - pattern: ioutil.WriteFile(..., 0777)
+
+  # ── CWE-798 / CWE-259: Hardcoded JWT signing secret (literal string) ──
+  - id: vulnhunterx.go.hardcoded-jwt-secret
+    languages: [go]
+    severity: ERROR
+    message: |
+      JWT signing key is a string/byte-slice literal embedded in source.
+      Anyone with read access to the binary or repository can forge
+      tokens (CWE-798/259). Load from env / secret manager / KMS.
+    metadata:
+      cwe: ["CWE-798", "CWE-259"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/798.html
+    patterns:
+      - pattern-either:
+          - pattern: jwt.NewWithClaims($A, $C).SignedString([]byte("..."))
+          - pattern: jwt.NewWithClaims($A, $C).SignedString([]byte($K))
+          - pattern: |
+              $K := "..."
+              ...
+              jwt.NewWithClaims($A, $C).SignedString([]byte($K))
+          - pattern: |
+              $K := []byte("...")
+              ...
+              jwt.NewWithClaims($A, $C).SignedString($K)
+          - pattern: jwt.Parse($T, func(...) (interface{}, error) { return []byte("..."), nil })
+          - pattern: jwt.ParseWithClaims($T, ..., func(...) (interface{}, error) { return []byte("..."), nil })
+
+  # ── CWE-798/321: Hardcoded symmetric / HMAC / cipher key (literal) ──
+  - id: vulnhunterx.go.hardcoded-symmetric-key
+    languages: [go]
+    severity: ERROR
+    message: |
+      A symmetric / HMAC / cipher key is a string- or byte-literal embedded in
+      source. Anyone with read access to the binary or repository can forge
+      signatures or decrypt data (CWE-798/321). This includes placeholder keys
+      like "mock-secret-key" left in production paths. Load the key from env, a
+      secret manager, or a KMS — never a literal.
+    metadata:
+      cwe: ["CWE-798", "CWE-321"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/321.html
+        - https://cwe.mitre.org/data/definitions/798.html
+    patterns:
+      - pattern-either:
+          - pattern: hmac.New($H, []byte("..."))
+          - pattern: aes.NewCipher([]byte("..."))
+          - pattern: des.NewCipher([]byte("..."))
+          - pattern: des.NewTripleDESCipher([]byte("..."))
+          - pattern: |
+              $K := []byte("...")
+              ...
+              hmac.New($H, $K)
+          - pattern: |
+              $K := "..."
+              ...
+              hmac.New($H, []byte($K))
+          - pattern: |
+              $K := []byte("...")
+              ...
+              aes.NewCipher($K)
+
+  # ── CWE-942/346: Permissive CORS — Access-Control-Allow-Origin: * ──
+  - id: vulnhunterx.go.permissive-cors
+    languages: [go]
+    severity: WARNING
+    message: |
+      Access-Control-Allow-Origin is set to the wildcard "*", allowing any
+      origin to read cross-origin responses. On authenticated/credentialed
+      endpoints this enables CSRF-style data exfiltration (CWE-942/346).
+      Reflect a validated origin from an allowlist instead of "*".
+    metadata:
+      cwe: ["CWE-942", "CWE-346"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/942.html
+        - https://developer.mozilla.org/docs/Web/HTTP/CORS
+    patterns:
+      - pattern-either:
+          - pattern: $W.Header().Set("Access-Control-Allow-Origin", "*")
+          - pattern: $W.Header().Add("Access-Control-Allow-Origin", "*")
+
+  # ── CWE-434: Unrestricted file upload — destination from upload filename ──
+  - id: vulnhunterx.go.file-upload
+    languages: [go]
+    severity: ERROR
+    message: |
+      An uploaded file's attacker-controlled FileHeader.Filename is used as
+      the destination path for os.Create / os.OpenFile. The attacker controls
+      the path and extension — enabling path traversal and dangerous-type
+      upload (CWE-434). Generate a server-side name and validate the extension
+      against an allowlist; never trust header.Filename for the path.
+    metadata:
+      cwe: ["CWE-434"]
+      category: security
+      owasp: "A04:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/434.html
+    patterns:
+      - pattern-either:
+          - pattern: os.Create($H.Filename)
+          - pattern: os.Create($DIR + $H.Filename)
+          - pattern: os.Create(filepath.Join($DIR, $H.Filename))
+          - pattern: os.OpenFile($H.Filename, ...)
+          - pattern: os.OpenFile(filepath.Join($DIR, $H.Filename), ...)
+          - pattern: |
+              $NAME := $H.Filename
+              ...
+              os.Create(filepath.Join($DIR, $NAME))
+
+  # ── CWE-269: Setuid/setgid escalation or setuid-bit file creation ──
+  - id: vulnhunterx.go.improper-privilege-management
+    languages: [go]
+    severity: WARNING
+    message: |
+      Escalating to uid/gid 0 via syscall.Setuid/Setgid, or creating a file
+      with the setuid/setgid bit (0o4xxx / 0o2xxx / 0o6xxx). Both grant
+      elevated privileges that are easily abused if the binary or file is
+      attacker-reachable (CWE-269). Drop privileges irreversibly and avoid
+      setuid binaries; use capabilities scoped to the minimum needed.
+    metadata:
+      cwe: ["CWE-269"]
+      category: security
+      owasp: "A01:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/269.html
+    patterns:
+      - pattern-either:
+          - pattern: syscall.Setuid(0)
+          - pattern: syscall.Setgid(0)
+          - pattern: syscall.Seteuid(0)
+          - pattern: os.Chmod($P, 0o4755)
+          - pattern: os.Chmod($P, 0o6755)
+          - pattern: os.Chmod($P, 04755)
+
+  # ── CWE-400/770: Unbounded read of request body into memory ──
+  - id: vulnhunterx.go.resource-exhaustion
+    languages: [go]
+    severity: WARNING
+    message: |
+      io.ReadAll / ioutil.ReadAll on r.Body with no http.MaxBytesReader cap
+      lets a client stream an arbitrarily large body straight into memory,
+      exhausting RAM and enabling denial of service (CWE-400/770). Wrap the
+      body with http.MaxBytesReader(w, r.Body, limit) before reading.
+    metadata:
+      cwe: ["CWE-400", "CWE-770"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/770.html
+        - https://pkg.go.dev/net/http#MaxBytesReader
+    patterns:
+      - pattern-either:
+          - pattern: io.ReadAll($R.Body)
+          - pattern: ioutil.ReadAll($R.Body)
+      - pattern-not-inside: |
+          $R.Body = http.MaxBytesReader(...)
+          ...
+
+  # ── CWE-209: Internal error string written to the HTTP response ──
+  - id: vulnhunterx.go.verbose-error
+    languages: [go]
+    severity: WARNING
+    message: |
+      http.Error is called with err.Error(), writing the raw internal error
+      message to the client. This leaks file paths, driver/SQL details, and
+      internal state (CWE-209). Log err server-side and send a generic
+      message to the client.
+    metadata:
+      cwe: ["CWE-209"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/209.html
+    patterns:
+      - pattern: http.Error($W, $ERR.Error(), $CODE)
+
+  # ── CWE-494: Remote script piped to a shell (curl | bash) ──
+  - id: vulnhunterx.go.download-without-integrity
+    languages: [go]
+    severity: ERROR
+    message: |
+      A remote script is downloaded and piped to a shell (curl/wget ... | sh)
+      with no integrity check. A compromised or MITM'd endpoint yields
+      immediate code execution (CWE-494, OWASP 2025 A03 Software Supply Chain
+      Failures). Pin and verify a checksum/signature before executing.
+    metadata:
+      cwe: ["CWE-494"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/494.html
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command("sh", "-c", $CMD)
+          - pattern: exec.Command("bash", "-c", $CMD)
+          - pattern: exec.CommandContext($CTX, "sh", "-c", $CMD)
+          - pattern: exec.CommandContext($CTX, "bash", "-c", $CMD)
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '.*(curl|wget).*\|\s*(ba)?sh.*'
+
+  # ── CWE-643: XPath injection — request data flows into an XPath expression ──
+  - id: vulnhunterx.go.xpath-injection
+    languages: [go]
+    severity: ERROR
+    mode: taint
+    message: |
+      Request data flows into an XPath expression compiled/evaluated by
+      antchfx (xpath / xmlquery / htmlquery). An attacker can inject XPath
+      metacharacters to read arbitrary nodes or bypass auth predicates
+      (CWE-643). Validate against an allowlist or use fixed expressions with
+      parameter binding.
+    metadata:
+      cwe: ["CWE-643"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/643.html
+    pattern-sources:
+      - pattern: $R.URL.Query().Get(...)
+      - pattern: $R.FormValue(...)
+      - pattern: $R.PostFormValue(...)
+      - pattern: $R.Form.Get(...)
+    pattern-sinks:
+      - pattern: xpath.Compile(...)
+      - pattern: xpath.MustCompile(...)
+      - pattern: xmlquery.Find(...)
+      - pattern: xmlquery.QueryAll(...)
+      - pattern: xmlquery.FindOne(...)
+      - pattern: htmlquery.Find(...)
+      - pattern: htmlquery.QueryAll(...)
+
+  # ── CWE-943: NoSQL injection — MongoDB $where operator in a query ──
+  - id: vulnhunterx.go.nosql-injection
+    languages: [go]
+    severity: ERROR
+    message: |
+      A MongoDB query is built with the $where operator. $where evaluates its
+      value as server-side JavaScript, so an attacker-influenced value yields
+      NoSQL injection with full JS expression power (CWE-943). Use native
+      query operators (bson.M{"field": bson.M{"$eq": v}}) instead of $where.
+    metadata:
+      cwe: ["CWE-943"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/943.html
+    patterns:
+      - pattern-either:
+          - pattern: 'bson.M{"$where": $X}'
+          - pattern: 'bson.M{..., "$where": $X, ...}'
+      - metavariable-pattern:
+          metavariable: $X
+          patterns:
+            - pattern-not: '"..."'
+
+  # ── CWE-1333: Regex injection — request data compiled as a regex pattern ──
+  - id: vulnhunterx.go.regex-injection
+    languages: [go]
+    severity: WARNING
+    mode: taint
+    message: |
+      Request data is compiled as a regular-expression pattern. An attacker
+      can craft a pattern with catastrophic backtracking (ReDoS) or alter the
+      match semantics (CWE-1333). Treat user input as a literal
+      (regexp.QuoteMeta) or match against a fixed, vetted pattern.
+    metadata:
+      cwe: ["CWE-1333"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/1333.html
+    pattern-sources:
+      - pattern: $R.URL.Query().Get(...)
+      - pattern: $R.FormValue(...)
+      - pattern: $R.PostFormValue(...)
+      - pattern: $R.Form.Get(...)
+    pattern-sanitizers:
+      - pattern: regexp.QuoteMeta(...)
+    pattern-sinks:
+      - pattern: regexp.Compile(...)
+      - pattern: regexp.CompilePOSIX(...)
+      - pattern: regexp.MustCompile(...)
+
+  # ── CWE-601: Open redirect — request data as the redirect target ──
+  - id: vulnhunterx.go.open-redirect
+    languages: [go]
+    severity: WARNING
+    mode: taint
+    message: |
+      The redirect target passed to http.Redirect is derived from request
+      data with no allowlist check. An attacker can redirect victims to an
+      external phishing/credential-theft site (CWE-601). Validate the target
+      against a fixed list of permitted destinations or force a relative path.
+    metadata:
+      cwe: ["CWE-601"]
+      category: security
+      owasp: "A01:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/601.html
+    pattern-sources:
+      - pattern: $R.URL.Query().Get(...)
+      - pattern: $R.FormValue(...)
+      - pattern: $R.PostFormValue(...)
+      - pattern: $R.Form.Get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern: http.Redirect($W, $R, $URL, $CODE)
+          - focus-metavariable: $URL

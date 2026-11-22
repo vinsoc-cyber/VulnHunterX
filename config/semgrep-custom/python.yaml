@@ -1,0 +1,760 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+#
+# Custom Semgrep rules for Python vulnerabilities not covered by registry
+# packs (p/python, p/django, p/flask).
+#
+# Validate: opengrep --validate --config config/semgrep-custom/python.yaml
+
+rules:
+
+  # ── CWE-489: Flask app.run(debug=True) leaves Werkzeug debugger exposed ──
+  - id: vulnhunterx.python.flask-debug
+    languages: [python]
+    severity: ERROR
+    message: |
+      Flask app.run(debug=True) enables the Werkzeug interactive debugger
+      which provides shell-level code execution on any unhandled exception.
+      Disable in production — set FLASK_DEBUG=0 / use a production WSGI
+      server (CWE-489).
+    metadata:
+      cwe: ["CWE-489"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/489.html
+        - https://flask.palletsprojects.com/en/latest/debugging/
+    patterns:
+      - pattern-either:
+          - pattern: $APP.run(..., debug=True, ...)
+          - pattern: $APP.run(..., debug=True)
+          - pattern: |
+              app.debug = True
+              ...
+              app.run(...)
+      - pattern-not: $APP.run(..., debug=False, ...)
+
+  # ── CWE-502: yaml.load() without SafeLoader → arbitrary deserialization ──
+  - id: vulnhunterx.python.unsafe-yaml
+    languages: [python]
+    severity: ERROR
+    message: |
+      yaml.load() without an explicit SafeLoader / SafeYAML loader deserialises
+      arbitrary Python objects — equivalent to eval() on untrusted input.
+      Use yaml.safe_load() or pass Loader=yaml.SafeLoader (CWE-502).
+    metadata:
+      cwe: ["CWE-502"]
+      category: security
+      owasp: "A08:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/502.html
+        - https://pyyaml.org/wiki/PyYAMLDocumentation
+    patterns:
+      - pattern-either:
+          - pattern: yaml.load($X)
+          - pattern: yaml.load($X, Loader=yaml.Loader)
+          - pattern: yaml.load($X, Loader=yaml.UnsafeLoader)
+          - pattern: yaml.load($X, Loader=yaml.FullLoader)
+      - pattern-not: yaml.load($X, Loader=yaml.SafeLoader)
+      - pattern-not: yaml.load($X, Loader=yaml.CSafeLoader)
+      - pattern-not: yaml.safe_load($X)
+
+  # ── CWE-295: ssl.SSLContext with check_hostname=False or verify_mode=CERT_NONE ──
+  - id: vulnhunterx.python.insecure-tls-context
+    languages: [python]
+    severity: ERROR
+    message: |
+      SSLContext configured with check_hostname disabled or verify_mode set to
+      CERT_NONE allows man-in-the-middle attacks even on https:// requests
+      (CWE-295). Leave defaults intact — ssl.create_default_context() is safe.
+    metadata:
+      cwe: ["CWE-295"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/295.html
+        - https://docs.python.org/3/library/ssl.html
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $CTX.check_hostname = False
+          - pattern: |
+              $CTX.verify_mode = ssl.CERT_NONE
+          - pattern: ssl._create_unverified_context()
+          - pattern: ssl._create_unverified_context(...)
+
+  # ── CWE-1333: User input used as regex pattern (regex-injection) ──
+  - id: vulnhunterx.python.regex-injection
+    languages: [python]
+    severity: WARNING
+    message: |
+      User-controlled value used as a regex pattern — attacker can craft a
+      pattern with catastrophic backtracking (ReDoS) or anchor manipulation.
+      Use re.escape() on user input or treat as literal substring (CWE-1333).
+    metadata:
+      cwe: ["CWE-1333"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/1333.html
+        - https://owasp.org/www-community/attacks/Regular_expression_Denial_of_Service_-_ReDoS
+    patterns:
+      - pattern-either:
+          # Direct attribute access: request.values, request.json[...]
+          - pattern: re.compile(request.$X, ...)
+          - pattern: re.match(request.$X, ...)
+          # Method-chain access: request.args.get(...) etc.
+          - pattern: re.compile(request.$X.$M(...), ...)
+          - pattern: re.compile(request.$X.$M(...))
+          - pattern: re.match(request.$X.$M(...), ...)
+          - pattern: re.search(request.$X.$M(...), ...)
+          - pattern: re.sub(request.$X.$M(...), ..., ...)
+      - pattern-not: re.compile(re.escape(...))
+      - pattern-not: re.compile(re.escape(...), ...)
+
+  # ── CWE-327/328: hashlib weak hash algorithms ──
+  - id: vulnhunterx.python.weak-hash
+    languages: [python]
+    severity: WARNING
+    message: |
+      Weak cryptographic hash algorithm (MD5 / SHA-1). Both are vulnerable to
+      collision and length-extension attacks. Use SHA-256 or stronger for
+      password hashing, HMAC, signatures, and integrity checks (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+        - https://cwe.mitre.org/data/definitions/328.html
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.sha1(...)
+          - pattern: hashlib.new("md5", ...)
+          - pattern: hashlib.new("sha1", ...)
+          - pattern: hashlib.new("MD5", ...)
+          - pattern: hashlib.new("SHA1", ...)
+          - pattern: hashlib.new("SHA-1", ...)
+
+  # ── CWE-330/338: random module used in security contexts ──
+  - id: vulnhunterx.python.insecure-rng
+    languages: [python]
+    severity: WARNING
+    message: |
+      The 'random' module is not cryptographically secure — predictable from
+      a small amount of output. Use secrets.token_bytes() / secrets.token_hex()
+      / os.urandom() for tokens, passwords, keys, nonces, CSRF, OTP, session
+      ids (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+        - https://docs.python.org/3/library/secrets.html
+    patterns:
+      - pattern-either:
+          - pattern: |
+              def $F(...):
+                ...
+                random.random()
+                ...
+          - pattern: |
+              def $F(...):
+                ...
+                random.randint(...)
+                ...
+          - pattern: |
+              def $F(...):
+                ...
+                random.choice(...)
+                ...
+          - pattern: |
+              def $F(...):
+                ...
+                random.randbytes(...)
+                ...
+      - metavariable-regex:
+          metavariable: $F
+          regex: '(?i).*(token|secret|password|passwd|pwd|key|nonce|csrf|otp|session).*'
+
+  # ── CWE-295: requests / httpx with verify=False ──
+  - id: vulnhunterx.python.requests-verify-false
+    languages: [python]
+    severity: ERROR
+    message: |
+      HTTP client called with verify=False disables TLS certificate
+      validation — MITM attacks become trivial on the network path
+      (CWE-295). Provide a custom CA bundle if the cert is genuinely
+      self-signed, never disable validation in production.
+    metadata:
+      cwe: ["CWE-295"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/295.html
+        - https://requests.readthedocs.io/en/latest/user/advanced/#ssl-cert-verification
+    patterns:
+      - pattern-either:
+          - pattern: requests.get(..., verify=False, ...)
+          - pattern: requests.post(..., verify=False, ...)
+          - pattern: requests.put(..., verify=False, ...)
+          - pattern: requests.patch(..., verify=False, ...)
+          - pattern: requests.delete(..., verify=False, ...)
+          - pattern: requests.head(..., verify=False, ...)
+          - pattern: requests.request(..., verify=False, ...)
+          - pattern: httpx.get(..., verify=False, ...)
+          - pattern: httpx.post(..., verify=False, ...)
+          - pattern: httpx.Client(..., verify=False, ...)
+          - pattern: httpx.AsyncClient(..., verify=False, ...)
+
+  # ── CWE-489 / CWE-200: Django DEBUG = True in settings file ──
+  - id: vulnhunterx.python.django-debug-prod
+    languages: [python]
+    severity: WARNING
+    message: |
+      DEBUG = True at module scope in a Django settings file leaks stack
+      traces, query history, and request internals when shipped to
+      production (CWE-489 + CWE-200). Drive DEBUG from an environment
+      variable defaulting to False.
+    metadata:
+      cwe: ["CWE-489", "CWE-200"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/489.html
+        - https://docs.djangoproject.com/en/stable/ref/settings/#debug
+    paths:
+      include:
+        - "*settings*.py"
+        - "*/settings/*.py"
+    pattern: |
+      DEBUG = True
+
+  # ── CWE-200: Django ALLOWED_HOSTS contains "*" ──
+  - id: vulnhunterx.python.django-allowed-hosts-wildcard
+    languages: [python]
+    severity: WARNING
+    message: |
+      ALLOWED_HOSTS = ["*"] disables Django's Host-header validation,
+      allowing host-header injection and password-reset poisoning
+      (CWE-200). Enumerate exact production hostnames.
+    metadata:
+      cwe: ["CWE-200"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/200.html
+        - https://docs.djangoproject.com/en/stable/ref/settings/#allowed-hosts
+    paths:
+      include:
+        - "*settings*.py"
+        - "*/settings/*.py"
+    pattern-either:
+      - pattern: ALLOWED_HOSTS = ["*"]
+      - pattern: ALLOWED_HOSTS = [..., "*", ...]
+
+  # ── CWE-377: tempfile.mktemp / NamedTemporaryFile(delete=False) ──
+  - id: vulnhunterx.python.predictable-temp-file
+    languages: [python]
+    severity: WARNING
+    message: |
+      tempfile.mktemp() is a race-condition primitive — the filename is
+      returned but the file is not opened atomically, so an attacker can
+      pre-create it. NamedTemporaryFile(delete=False) leaves a predictable
+      path that's not auto-cleaned (CWE-377). Use tempfile.mkstemp() or
+      a context-managed NamedTemporaryFile.
+    metadata:
+      cwe: ["CWE-377"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/377.html
+    patterns:
+      - pattern-either:
+          - pattern: tempfile.mktemp(...)
+          - pattern: tempfile.NamedTemporaryFile(..., delete=False, ...)
+      - pattern-not: tempfile.NamedTemporaryFile(..., delete=True, ...)
+
+  # ── CWE-78: subprocess with shell=True and non-literal command ──
+  - id: vulnhunterx.python.shell-true
+    languages: [python]
+    severity: ERROR
+    message: |
+      subprocess.* with shell=True and a non-literal first argument lets
+      attacker-controlled values reach /bin/sh as shell metacharacters
+      (CWE-78). Pass the command as a list (shell=False) — argv-style
+      invocation is immune to shell injection.
+    metadata:
+      cwe: ["CWE-78"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/78.html
+        - https://docs.python.org/3/library/subprocess.html#security-considerations
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.Popen($CMD, ..., shell=True, ...)
+          - pattern: subprocess.run($CMD, ..., shell=True, ...)
+          - pattern: subprocess.call($CMD, ..., shell=True, ...)
+          - pattern: subprocess.check_call($CMD, ..., shell=True, ...)
+          - pattern: subprocess.check_output($CMD, ..., shell=True, ...)
+      - metavariable-pattern:
+          metavariable: $CMD
+          patterns:
+            - pattern-not: '"..."'
+            - pattern-not: "'...'"
+
+  # ── CWE-532: Sensitive variable logged in clear ──
+  - id: vulnhunterx.python.cleartext-password-log
+    languages: [python]
+    severity: WARNING
+    message: |
+      A variable whose name suggests it is a password, secret, token, or
+      API key is being written to a log or stdout. Even ephemeral log
+      lines reach disk + log aggregators (CWE-532). Redact or omit.
+    metadata:
+      cwe: ["CWE-532", "CWE-200"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/532.html
+    patterns:
+      - pattern-either:
+          - pattern: $LOGGER.info(..., $SECRET, ...)
+          - pattern: $LOGGER.debug(..., $SECRET, ...)
+          - pattern: $LOGGER.warning(..., $SECRET, ...)
+          - pattern: $LOGGER.error(..., $SECRET, ...)
+          - pattern: $LOGGER.critical(..., $SECRET, ...)
+          - pattern: print(..., $SECRET, ...)
+      - metavariable-regex:
+          metavariable: $SECRET
+          regex: '(?i).*(password|passwd|pwd|secret|api_key|apikey|token|access_key|private_key).*'
+
+  # ── CWE-434: Unrestricted file upload — saved under attacker filename ──
+  - id: vulnhunterx.python.file-upload
+    languages: [python]
+    severity: ERROR
+    message: |
+      A Werkzeug/Flask uploaded file is saved using its attacker-controlled
+      .filename without secure_filename() or an extension allowlist. The
+      attacker controls the path component and dangerous type — enabling
+      path traversal and web-shell upload (CWE-434). Wrap with
+      werkzeug.utils.secure_filename() and validate the extension.
+    metadata:
+      cwe: ["CWE-434"]
+      category: security
+      owasp: "A04:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/434.html
+        - https://flask.palletsprojects.com/en/latest/patterns/fileuploads/
+    patterns:
+      - pattern-either:
+          - pattern: $F.save($F.filename)
+          - pattern: $F.save($DIR + $F.filename)
+          - pattern: $F.save(os.path.join($DIR, $F.filename))
+          - pattern: |
+              $NAME = $F.filename
+              ...
+              $F.save(os.path.join($DIR, $NAME))
+      - pattern-not: $F.save(os.path.join($DIR, secure_filename(...)))
+      - pattern-not: $F.save(secure_filename(...))
+
+  # ── CWE-269: Privilege flag assigned from request data ──
+  - id: vulnhunterx.python.improper-privilege-management
+    languages: [python]
+    severity: ERROR
+    message: |
+      A privilege flag (is_superuser / is_staff / is_admin) is assigned a
+      value derived from request data. An attacker can set the field in the
+      request body/params and escalate to administrator (CWE-269). Never bind
+      privilege fields from client input — set them server-side from trusted
+      role logic.
+    metadata:
+      cwe: ["CWE-269"]
+      category: security
+      owasp: "A01:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/269.html
+    patterns:
+      - pattern-either:
+          - pattern: $U.is_superuser = $V
+          - pattern: $U.is_staff = $V
+          - pattern: $U.is_admin = $V
+      - metavariable-pattern:
+          metavariable: $V
+          patterns:
+            - pattern-either:
+                - pattern: request.$X
+                - pattern: request.$X[...]
+                - pattern: request.$X.$M(...)
+                - pattern: request.$X.$Y.$M(...)
+
+  # ── CWE-209: Exception traceback returned in the HTTP response ──
+  - id: vulnhunterx.python.verbose-error
+    languages: [python]
+    severity: WARNING
+    message: |
+      An exception traceback is returned in the HTTP response body, leaking
+      stack frames, file paths, and internal state to the client (CWE-209).
+      Log the detail server-side (logging.exception) and return a generic
+      error message.
+    metadata:
+      cwe: ["CWE-209"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/209.html
+    patterns:
+      - pattern-either:
+          - pattern: return traceback.format_exc()
+          - pattern: return $RESP(traceback.format_exc())
+          - pattern: return $RESP(traceback.format_exc(), ...)
+          - pattern: HttpResponse(traceback.format_exc())
+          - pattern: HttpResponse(traceback.format_exc(), ...)
+          - pattern: make_response(traceback.format_exc(), ...)
+
+  # ── CWE-942: Flask-CORS wildcard origin with credentials ──
+  - id: vulnhunterx.python.cors-misconfiguration
+    languages: [python]
+    severity: ERROR
+    message: |
+      Flask-CORS configured with origins="*" AND supports_credentials=True
+      reflects any site's authenticated requests, exposing session-bound
+      data cross-origin (CWE-942). Use an explicit origin allowlist whenever
+      credentials are permitted.
+    metadata:
+      cwe: ["CWE-942"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/942.html
+    patterns:
+      - pattern-either:
+          - pattern: CORS($APP, ..., origins="*", ..., supports_credentials=True, ...)
+          - pattern: CORS($APP, ..., supports_credentials=True, ..., origins="*", ...)
+          - pattern: flask_cors.CORS($APP, ..., origins="*", ..., supports_credentials=True, ...)
+          - pattern: flask_cors.CORS($APP, ..., supports_credentials=True, ..., origins="*", ...)
+
+  # ── CWE-494: Remote script piped to a shell (curl | bash) ──
+  - id: vulnhunterx.python.download-without-integrity
+    languages: [python]
+    severity: ERROR
+    message: |
+      A remote script is downloaded and piped straight to a shell
+      (curl/wget ... | bash) with no integrity check. A compromised or
+      MITM'd endpoint yields immediate code execution (CWE-494, OWASP 2025
+      A03 Software Supply Chain Failures). Pin a checksum/signature and
+      verify it before executing.
+    metadata:
+      cwe: ["CWE-494"]
+      category: security
+      owasp: "A08:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/494.html
+    patterns:
+      - pattern-either:
+          - pattern: os.system($CMD)
+          - pattern: subprocess.run($CMD, ..., shell=True, ...)
+          - pattern: subprocess.call($CMD, ..., shell=True, ...)
+          - pattern: subprocess.Popen($CMD, ..., shell=True, ...)
+          - pattern: subprocess.check_call($CMD, ..., shell=True, ...)
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '.*(curl|wget).*\|\s*(ba)?sh.*'
+
+  # ── CWE-755: Fail-open — verify() failure swallowed and treated as success ──
+  - id: vulnhunterx.python.swallowed-exception
+    languages: [python]
+    severity: ERROR
+    message: |
+      A signature/credential verification is wrapped in try/except whose
+      handler returns True (or silently passes), so a verification *failure*
+      is treated as success — a fail-open authentication bypass (CWE-755).
+      Return False / re-raise on exception; only return True on the explicit
+      success path.
+    metadata:
+      cwe: ["CWE-755"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/755.html
+    patterns:
+      - pattern-either:
+          - pattern: |
+              try:
+                ...
+                $X.verify(...)
+                ...
+              except ...:
+                return True
+          - pattern: |
+              try:
+                ...
+                $X.verify(...)
+                ...
+              except ...:
+                pass
+
+  # ── CWE-90: LDAP injection — request data flows into a search filter ──
+  - id: vulnhunterx.python.ldap-injection
+    languages: [python]
+    severity: ERROR
+    mode: taint
+    message: |
+      Request data flows unescaped into an LDAP search filter. An attacker can
+      inject filter metacharacters (*, ()&|) to bypass authentication or
+      enumerate the directory (CWE-90). Escape with
+      ldap.filter.escape_filter_chars() before building the filter.
+    metadata:
+      cwe: ["CWE-90"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/90.html
+    pattern-sources:
+      - pattern: request.args.get(...)
+      - pattern: request.args[...]
+      - pattern: request.form.get(...)
+      - pattern: request.form[...]
+      - pattern: request.values.get(...)
+      - pattern: request.GET.get(...)
+      - pattern: request.POST.get(...)
+      - pattern: request.data
+    pattern-sanitizers:
+      - pattern: escape_filter_chars(...)
+      - pattern: ldap.filter.escape_filter_chars(...)
+    pattern-sinks:
+      - pattern: $CONN.search_s(...)
+      - pattern: $CONN.search(...)
+      - pattern: $CONN.search_ext_s(...)
+
+  # ── CWE-1336: Server-Side Template Injection — dynamic Jinja2 template ──
+  - id: vulnhunterx.python.template-injection
+    languages: [python]
+    severity: ERROR
+    message: |
+      A Jinja2 template is compiled from a non-literal (attacker-influenced)
+      string. Jinja2 templates execute Python expressions, so SSTI escalates
+      to remote code execution via {{ ''.__class__.__mro__ }} gadgets
+      (CWE-1336). Render a fixed template file and pass user data as context
+      variables — never build the template body from input.
+    metadata:
+      cwe: ["CWE-1336", "CWE-917"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1336.html
+        - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/18-Testing_for_Server-side_Template_Injection
+    patterns:
+      - pattern-either:
+          - pattern: render_template_string($T)
+          - pattern: render_template_string($T, ...)
+          - pattern: jinja2.Template($T).render(...)
+          - pattern: Template($T).render(...)
+          - pattern: $ENV.from_string($T).render(...)
+      - metavariable-pattern:
+          metavariable: $T
+          patterns:
+            - pattern-not: '"..."'
+            - pattern-not: "'...'"
+
+  # ── CWE-943: NoSQL injection — MongoDB $where with a non-literal value ──
+  - id: vulnhunterx.python.nosql-injection
+    languages: [python]
+    severity: ERROR
+    message: |
+      A MongoDB query uses the $where operator with a non-literal value. $where
+      evaluates the value as server-side JavaScript, so attacker-influenced
+      input yields NoSQL injection with full JS expression power (CWE-943).
+      Use native query operators ($eq, $in, $gt) instead of $where.
+    metadata:
+      cwe: ["CWE-943"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/943.html
+        - https://www.mongodb.com/docs/manual/reference/operator/query/where/
+    patterns:
+      - pattern-either:
+          - pattern: '$C.find({"$where": $X})'
+          - pattern: '$C.find({..., "$where": $X, ...})'
+          - pattern: '$C.find_one({"$where": $X})'
+          - pattern: '$C.find_one({..., "$where": $X, ...})'
+      - metavariable-pattern:
+          metavariable: $X
+          patterns:
+            - pattern-not: '"..."'
+            - pattern-not: "'...'"
+
+  # ── CWE-611: XXE — lxml parser with external entity resolution enabled ──
+  - id: vulnhunterx.python.xxe
+    languages: [python]
+    severity: ERROR
+    message: |
+      An lxml XMLParser is created with resolve_entities=True (or
+      no_network=False), which expands external entities — enabling XXE file
+      disclosure and SSRF when parsing untrusted XML (CWE-611). Use
+      resolve_entities=False and no_network=True, or parse with defusedxml.
+    metadata:
+      cwe: ["CWE-611"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/611.html
+        - https://github.com/tiran/defusedxml
+    patterns:
+      - pattern-either:
+          - pattern: etree.XMLParser(..., resolve_entities=True, ...)
+          - pattern: lxml.etree.XMLParser(..., resolve_entities=True, ...)
+          - pattern: etree.XMLParser(..., no_network=False, ...)
+          - pattern: lxml.etree.XMLParser(..., no_network=False, ...)
+
+  # ── CWE-79: Jinja2 template autoescape disabled → stored/reflected XSS ──
+  # Framework-general: matches the explicit autoescape=False kwarg on a Jinja2
+  # Environment or on a framework template setup helper (aiohttp-jinja2's
+  # setup/setup_jinja, Flask's select_jinja_autoescape override, etc.). When
+  # autoescape is off, every `{{ var }}` rendered from user-controlled data is
+  # an XSS sink — the dvpwa class of bug no registry pack flags.
+  - id: vulnhunterx.python.template-autoescape-disabled
+    languages: [python]
+    severity: ERROR
+    message: |
+      Jinja2 autoescape is explicitly disabled (autoescape=False). With
+      autoescape off, any user-controlled value rendered in a template
+      ({{ value }}) is emitted unescaped, enabling stored/reflected XSS
+      (CWE-79). Enable autoescape (autoescape=True or select_autoescape([...]))
+      and escape any intentional raw HTML explicitly.
+    metadata:
+      cwe: ["CWE-79"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/79.html
+        - https://jinja.palletsprojects.com/en/latest/api/#autoescaping
+    patterns:
+      - pattern-either:
+          - pattern: jinja2.Environment(..., autoescape=False, ...)
+          - pattern: Environment(..., autoescape=False, ...)
+          - pattern: aiohttp_jinja2.setup(..., autoescape=False, ...)
+          - pattern: setup_jinja(..., autoescape=False, ...)
+          - pattern: setup_jinja2(..., autoescape=False, ...)
+
+  # ── CWE-1004/614: aiohttp_session storage with insecure cookie flags ──
+  # Session cookie created with httponly=False (JS can read it → XSS-assisted
+  # session theft) or secure=False (sent over plain HTTP). No aiohttp_session
+  # rule ships in p/python; this is the dvpwa middlewares.py:20 miss.
+  - id: vulnhunterx.python.aiohttp-insecure-session-cookie
+    languages: [python]
+    severity: WARNING
+    message: |
+      An aiohttp_session storage is configured with an insecure cookie flag
+      (httponly=False or secure=False). httponly=False exposes the session
+      cookie to JavaScript (session theft via XSS, CWE-1004); secure=False
+      lets it travel over plaintext HTTP (CWE-614). Use httponly=True and
+      secure=True for session cookies.
+    metadata:
+      cwe: ["CWE-1004", "CWE-614"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1004.html
+        - https://cwe.mitre.org/data/definitions/614.html
+    patterns:
+      - pattern-either:
+          - pattern: RedisStorage(..., httponly=False, ...)
+          - pattern: EncryptedCookieStorage(..., httponly=False, ...)
+          - pattern: SimpleCookieStorage(..., httponly=False, ...)
+          - pattern: NaClCookieStorage(..., httponly=False, ...)
+          - pattern: RedisStorage(..., secure=False, ...)
+          - pattern: EncryptedCookieStorage(..., secure=False, ...)
+          - pattern: SimpleCookieStorage(..., secure=False, ...)
+          - pattern: NaClCookieStorage(..., secure=False, ...)
+
+  # ── CWE-489: aiohttp web.Application(debug=True) ──
+  # Complements the Flask flask-debug rule above. aiohttp's debug mode emits
+  # verbose tracebacks/diagnostics and is not for production. dvpwa app.py:23.
+  - id: vulnhunterx.python.aiohttp-debug-enabled
+    languages: [python]
+    severity: WARNING
+    message: |
+      aiohttp web.Application(debug=True) enables debug mode, which surfaces
+      verbose diagnostics and disables some safety checks. Do not enable in
+      production (CWE-489).
+    metadata:
+      cwe: ["CWE-489"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/489.html
+        - https://docs.aiohttp.org/en/stable/web_reference.html#application
+    patterns:
+      - pattern-either:
+          - pattern: web.Application(..., debug=True, ...)
+          - pattern: aiohttp.web.Application(..., debug=True, ...)
+          - pattern: Application(..., debug=True, ...)
+
+  # ── CWE-798: hardcoded credential literal in a YAML config file ──
+  # gitleaks / p/secrets only flag high-entropy values, so a low-entropy
+  # literal like `password: postgres` (dvpwa config/dev.yaml) slips through.
+  # Scoped to config-style YAML and excludes env interpolation / empty values.
+  - id: vulnhunterx.python.hardcoded-credentials-yaml
+    languages: [yaml]
+    severity: WARNING
+    message: |
+      A credential appears to be hardcoded as a literal in a YAML config file.
+      Checked-in secrets are exposed to anyone with repo access and end up in
+      version history (CWE-798). Load secrets from environment variables or a
+      secrets manager instead.
+    metadata:
+      cwe: ["CWE-798"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/798.html
+    patterns:
+      - pattern-either:
+          - pattern: "password: $V"
+          - pattern: "passwd: $V"
+          - pattern: "secret: $V"
+          - pattern: "secret_key: $V"
+          - pattern: "api_key: $V"
+          - pattern: "apikey: $V"
+          - pattern: "access_key: $V"
+          - pattern: "private_key: $V"
+          - pattern: "token: $V"
+      # Require a plausible literal value: not empty, not an env interpolation
+      # (${VAR}, $VAR, {{ ... }}, %(...)s), and at least 3 chars.
+      - metavariable-regex:
+          metavariable: $V
+          regex: ^(?!\s*$)(?!\$)(?!\{\{)(?!%\()(?!<).{3,}$
+
+  # ── CWE-798: hardcoded credential in an .env / .ini-style config file ──
+  - id: vulnhunterx.python.hardcoded-credentials-env-ini
+    languages: [generic]
+    severity: WARNING
+    paths:
+      include:
+        - "*.env"
+        - "*.ini"
+        - "*.cfg"
+        - "*.conf"
+        - "*.properties"
+    message: |
+      A credential appears to be hardcoded as a literal in a config file
+      (.env/.ini/.cfg/.conf/.properties). Checked-in secrets are exposed to
+      anyone with repo access and persist in version history (CWE-798). Load
+      secrets from the environment or a secrets manager.
+    metadata:
+      cwe: ["CWE-798"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/798.html
+    patterns:
+      - pattern-either:
+          - pattern: PASSWORD=$V
+          - pattern: PASSWD=$V
+          - pattern: SECRET=$V
+          - pattern: SECRET_KEY=$V
+          - pattern: API_KEY=$V
+          - pattern: ACCESS_KEY=$V
+          - pattern: PRIVATE_KEY=$V
+          - pattern: TOKEN=$V
+      - metavariable-regex:
+          metavariable: $V
+          regex: ^(?!\s*$)(?!\$)(?!\{\{)(?!%\().{3,}$

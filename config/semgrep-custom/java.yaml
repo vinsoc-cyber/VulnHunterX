@@ -1,0 +1,421 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+#
+# Custom Semgrep rules for Java vulnerabilities not covered by registry
+# packs (p/java, p/security-audit, p/owasp-top-ten).
+#
+# Target: structural / config / dangerous-default patterns. Taint-driven
+# CWEs (SQLi, XSS, command injection, JNDI, Log4j, JWT-decode-without-verify,
+# mass-assignment) are handled by custom CodeQL queries in
+# config/codeql-custom/java/src/ and are intentionally NOT duplicated here.
+#
+# Validate: opengrep --validate --config config/semgrep-custom/java.yaml
+
+rules:
+
+  # ── CWE-327/328: Weak cipher (DES family) or ECB mode ──
+  - id: vulnhunterx.java.weak-cipher
+    languages: [java]
+    severity: ERROR
+    message: |
+      Cipher.getInstance with a weak algorithm (DES / 3DES / RC2 / RC4 /
+      Blowfish) or ECB mode. DES family is broken; ECB leaks plaintext
+      structure (identical 16-byte blocks encrypt to identical ciphertext).
+      Use AES/GCM/NoPadding or AES/CBC/PKCS5Padding with a fresh IV
+      (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+        - https://owasp.org/www-community/Using_the_Java_Cryptographic_Extensions
+    patterns:
+      - pattern-either:
+          - pattern: Cipher.getInstance("DES")
+          - pattern: Cipher.getInstance("DES/...")
+          - pattern: Cipher.getInstance("DESede")
+          - pattern: Cipher.getInstance("DESede/...")
+          - pattern: Cipher.getInstance("3DES")
+          - pattern: Cipher.getInstance("RC2")
+          - pattern: Cipher.getInstance("RC2/...")
+          - pattern: Cipher.getInstance("RC4")
+          - pattern: Cipher.getInstance("ARCFOUR")
+          - pattern: Cipher.getInstance("Blowfish")
+          - pattern: Cipher.getInstance("Blowfish/...")
+          - pattern: Cipher.getInstance("AES/ECB/...")
+          - pattern: Cipher.getInstance("AES")
+
+  # ── CWE-327/328: MessageDigest with MD5 / SHA-1 ──
+  - id: vulnhunterx.java.weak-hash
+    languages: [java]
+    severity: WARNING
+    message: |
+      MessageDigest.getInstance with MD5 or SHA-1. Both are collision-
+      vulnerable. Use SHA-256 or stronger for password hashing (prefer
+      a memory-hard KDF like Argon2/BCrypt/PBKDF2), HMAC, signatures,
+      and integrity checks (CWE-327/328).
+    metadata:
+      cwe: ["CWE-327", "CWE-328"]
+      category: security
+      owasp: "A02:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+    patterns:
+      - pattern-either:
+          - pattern: MessageDigest.getInstance("MD5")
+          - pattern: MessageDigest.getInstance("SHA1")
+          - pattern: MessageDigest.getInstance("SHA-1")
+          - pattern: MessageDigest.getInstance("md5")
+          - pattern: MessageDigest.getInstance("sha1")
+          - pattern: MessageDigest.getInstance("sha-1")
+
+  # ── CWE-330/338: java.util.Random in security-named method ──
+  - id: vulnhunterx.java.insecure-rng
+    languages: [java]
+    severity: WARNING
+    message: |
+      java.util.Random is a Linear Congruential Generator — output is
+      predictable from a small window of samples. Use java.security.
+      SecureRandom for tokens, secrets, passwords, keys, nonces, CSRF,
+      OTP, session ids (CWE-330/338).
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+        - https://docs.oracle.com/javase/8/docs/api/java/security/SecureRandom.html
+    patterns:
+      - pattern-either:
+          - pattern: new java.util.Random()
+          - pattern: new Random()
+      - pattern-inside: |
+          $T $M(...) {
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $M
+          regex: '.*(Token|Secret|Password|Passwd|Pwd|Key|Nonce|Csrf|OTP|Session|Generate).*'
+
+  # ── CWE-352: Spring Security CSRF disabled ──
+  - id: vulnhunterx.java.spring-csrf-disabled
+    languages: [java]
+    severity: WARNING
+    message: |
+      Spring Security HttpSecurity.csrf().disable() turns off CSRF
+      protection for state-changing endpoints. Only acceptable when the
+      application is purely stateless (e.g. token-authenticated REST
+      API). For session-cookie-authenticated endpoints this is a
+      vulnerability (CWE-352).
+    metadata:
+      cwe: ["CWE-352"]
+      category: security
+      owasp: "A01:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/352.html
+        - https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html
+    patterns:
+      - pattern-either:
+          - pattern: $HTTP.csrf().disable()
+          - pattern: $HTTP.csrf(csrf -> csrf.disable())
+          - pattern: $HTTP.csrf(AbstractHttpConfigurer::disable)
+
+  # ── CWE-611: DocumentBuilderFactory without secure-processing feature ──
+  - id: vulnhunterx.java.xml-no-secure-features
+    languages: [java]
+    severity: ERROR
+    message: |
+      DocumentBuilderFactory created without explicitly disabling external
+      entity expansion (XXE-prone defaults). Set the secure-processing
+      feature and disable DOCTYPE expansion before parsing untrusted XML
+      (CWE-611).
+    metadata:
+      cwe: ["CWE-611"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/611.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $F = DocumentBuilderFactory.newInstance();
+              ...
+              $F.newDocumentBuilder().parse(...);
+      - pattern-not: |
+          $F = DocumentBuilderFactory.newInstance();
+          ...
+          $F.setFeature("http://javax.xml.XMLConstants/feature/secure-processing", true);
+          ...
+          $F.newDocumentBuilder().parse(...);
+      - pattern-not: |
+          $F = DocumentBuilderFactory.newInstance();
+          ...
+          $F.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+          ...
+          $F.newDocumentBuilder().parse(...);
+
+  # ── CWE-798 / CWE-259: Hardcoded JWT signing secret ──
+  - id: vulnhunterx.java.hardcoded-jwt-secret
+    languages: [java]
+    severity: ERROR
+    message: |
+      JWT signing key is a string literal embedded in source. Anyone
+      with repository / classfile access can forge tokens (CWE-798/259).
+      Load from env / vault / KMS / Spring property placeholder.
+    metadata:
+      cwe: ["CWE-798", "CWE-259"]
+      category: security
+      owasp: "A07:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/798.html
+    patterns:
+      - pattern-either:
+          # com.auth0:java-jwt
+          - pattern: Algorithm.HMAC256("...")
+          - pattern: Algorithm.HMAC384("...")
+          - pattern: Algorithm.HMAC512("...")
+          # io.jsonwebtoken:jjwt
+          - pattern: Jwts.parser().setSigningKey("...".getBytes())
+          - pattern: Jwts.parser().setSigningKey("...")
+          - pattern: Jwts.parserBuilder().setSigningKey("...".getBytes())
+          - pattern: Jwts.builder().signWith(SignatureAlgorithm.$ALG, "...")
+
+  # ── CWE-601: Servlet/Spring open redirect from request parameter ──
+  - id: vulnhunterx.java.open-redirect
+    languages: [java]
+    severity: WARNING
+    message: |
+      Redirect target read directly from a request parameter without an
+      allowlist check enables open-redirect (phishing pivot, OAuth token
+      theft) (CWE-601). Validate against a fixed list of permitted
+      destinations.
+    metadata:
+      cwe: ["CWE-601"]
+      category: security
+      owasp: "A01:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/601.html
+    patterns:
+      - pattern-either:
+          - pattern: $RES.sendRedirect($REQ.getParameter($K))
+          - pattern: $RES.sendRedirect($REQ.getHeader($K))
+          - pattern: new RedirectView($REQ.getParameter($K))
+          - pattern: "\"redirect:\" + $REQ.getParameter($K)"
+
+  # ── CWE-434: Unrestricted file upload — saved under MultipartFile name ──
+  - id: vulnhunterx.java.file-upload
+    languages: [java]
+    severity: ERROR
+    message: |
+      A Spring MultipartFile is written to disk using its attacker-controlled
+      getOriginalFilename() as the path, with no extension / content-type
+      allowlist. The attacker controls the path and dangerous type — enabling
+      path traversal and web-shell upload (CWE-434). Generate a server-side
+      filename and validate the extension/MIME against an allowlist.
+    metadata:
+      cwe: ["CWE-434"]
+      category: security
+      owasp: "A04:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/434.html
+    patterns:
+      - pattern-either:
+          - pattern: $MF.transferTo(new File($MF.getOriginalFilename()))
+          - pattern: $MF.transferTo(new File($DIR, $MF.getOriginalFilename()))
+          - pattern: $MF.transferTo(Paths.get($DIR, $MF.getOriginalFilename()))
+          - pattern: |
+              String $NAME = $MF.getOriginalFilename();
+              ...
+              $MF.transferTo(new File($DIR, $NAME));
+          - pattern: |
+              String $NAME = $MF.getOriginalFilename();
+              ...
+              Files.write(Paths.get($DIR, $NAME), $MF.getBytes());
+
+  # ── CWE-269: SecurityManager removed at runtime ──
+  - id: vulnhunterx.java.improper-privilege-management
+    languages: [java]
+    severity: WARNING
+    message: |
+      System.setSecurityManager(null) removes the JVM access-control layer,
+      so any subsequently loaded code runs with no permission checks. If any
+      untrusted code or deserialized gadget executes afterwards it has full
+      privileges (CWE-269). Keep a SecurityManager (or modern equivalent)
+      configured, or isolate untrusted code another way.
+    metadata:
+      cwe: ["CWE-269"]
+      category: security
+      owasp: "A01:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/269.html
+    patterns:
+      - pattern: System.setSecurityManager(null)
+
+  # ── CWE-400/770: Unbounded read of request input stream into memory ──
+  - id: vulnhunterx.java.resource-exhaustion
+    languages: [java]
+    severity: WARNING
+    message: |
+      The full request body is read into memory with no size cap
+      (getInputStream().readAllBytes() / IOUtils.toByteArray / toString).
+      A client can stream an arbitrarily large body and exhaust heap,
+      enabling denial of service (CWE-400/770). Enforce a max size (servlet
+      multipart limits, a bounded read loop, or a streaming parser).
+    metadata:
+      cwe: ["CWE-400", "CWE-770"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/770.html
+    patterns:
+      - pattern-either:
+          - pattern: $REQ.getInputStream().readAllBytes()
+          - pattern: $REQ.getReader().lines().collect(...)
+          - pattern: IOUtils.toByteArray($REQ.getInputStream())
+          - pattern: IOUtils.toString($REQ.getInputStream(), ...)
+
+  # ── CWE-693: Spring Security response-header protections disabled ──
+  - id: vulnhunterx.java.security-headers-disabled
+    languages: [java]
+    severity: WARNING
+    message: |
+      Spring Security secure-header defaults are explicitly disabled. Turning
+      off frame options (clickjacking), HSTS (transport downgrade), or
+      content-type options removes baseline browser hardening (CWE-693).
+      Keep the secure-header defaults and scope any exception narrowly.
+    metadata:
+      cwe: ["CWE-693"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/693.html
+        - https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html
+    patterns:
+      - pattern-either:
+          - pattern: $H.headers().disable()
+          - pattern: $H.headers().frameOptions().disable()
+          - pattern: $H.headers().httpStrictTransportSecurity().disable()
+          - pattern: $H.headers().contentTypeOptions().disable()
+          - pattern: $H.headers(h -> h.disable())
+          - pattern: $H.headers(h -> h.frameOptions(f -> f.disable()))
+
+  # ── CWE-209: Exception detail written to the HTTP response ──
+  - id: vulnhunterx.java.verbose-error
+    languages: [java]
+    severity: WARNING
+    message: |
+      An exception's stack trace or message is written into the HTTP response,
+      leaking class names, file paths, and internal state to the client
+      (CWE-209). Log the detail server-side and return a generic message.
+    metadata:
+      cwe: ["CWE-209"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/209.html
+    patterns:
+      - pattern-either:
+          - pattern: $E.printStackTrace($RESP.getWriter())
+          - pattern: $RESP.getWriter().write($E.getMessage())
+          - pattern: $RESP.getWriter().println($E.getMessage())
+          - pattern: $RESP.sendError($CODE, $E.getMessage())
+
+  # ── CWE-942: Spring @CrossOrigin wildcard origin with credentials ──
+  - id: vulnhunterx.java.cors-misconfiguration
+    languages: [java]
+    severity: ERROR
+    message: |
+      @CrossOrigin (or a CorsConfiguration) that allows origin "*" together
+      with credentials reflects any site's authenticated requests
+      (CWE-942). Replace the wildcard with an explicit allowlist when
+      credentials are permitted.
+    metadata:
+      cwe: ["CWE-942"]
+      category: security
+      owasp: "A05:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/942.html
+    patterns:
+      - pattern-either:
+          - pattern: '@CrossOrigin(origins = "*", allowCredentials = "true")'
+          - pattern: '@CrossOrigin(allowCredentials = "true", origins = "*")'
+          - pattern: |
+              $C.addAllowedOrigin("*");
+              ...
+              $C.setAllowCredentials(true);
+
+  # ── CWE-1336: Server-Side Template Injection — template built from a reader ──
+  - id: vulnhunterx.java.template-injection
+    languages: [java]
+    severity: ERROR
+    message: |
+      A FreeMarker/Velocity template is built or evaluated from a dynamic
+      string/reader rather than a fixed template file. If the body is
+      attacker-influenced, SSTI escalates to remote code execution
+      (CWE-1336). Load templates from a trusted loader and pass user data as
+      model variables only.
+    metadata:
+      cwe: ["CWE-1336", "CWE-917"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/1336.html
+    patterns:
+      - pattern-either:
+          - pattern: new Template($N, new StringReader($T), $CFG)
+          - pattern: Velocity.evaluate($CTX, $W, $TAG, $T)
+          - pattern: $ENGINE.evaluate($CTX, $W, $TAG, $T)
+      - pattern-not: Velocity.evaluate($CTX, $W, $TAG, "...")
+      - pattern-not: $ENGINE.evaluate($CTX, $W, $TAG, "...")
+
+  # ── CWE-943: NoSQL injection — Spring Data query parsed from a dynamic string ──
+  - id: vulnhunterx.java.nosql-injection
+    languages: [java]
+    severity: ERROR
+    message: |
+      A MongoDB query is built from a non-literal string via BasicQuery /
+      Document.parse. Attacker-influenced JSON can inject query operators
+      ($where, $ne, $gt) to bypass filters or run server-side JS (CWE-943).
+      Build queries with the Criteria API and typed values, not string
+      concatenation.
+    metadata:
+      cwe: ["CWE-943"]
+      category: security
+      owasp: "A03:2021"
+      references:
+        - https://cwe.mitre.org/data/definitions/943.html
+    patterns:
+      - pattern-either:
+          - pattern: new BasicQuery($Q)
+          - pattern: Document.parse($Q)
+      - metavariable-pattern:
+          metavariable: $Q
+          patterns:
+            - pattern-not: '"..."'
+
+  # ── CWE-1333: Regex injection — request data compiled as a Pattern ──
+  - id: vulnhunterx.java.regex-injection
+    languages: [java]
+    severity: WARNING
+    mode: taint
+    message: |
+      Request data is compiled into a regular expression. An attacker can
+      supply a pattern with catastrophic backtracking (ReDoS) or alter match
+      semantics (CWE-1333). Use Pattern.quote() on user input or match
+      against a fixed, vetted pattern.
+    metadata:
+      cwe: ["CWE-1333"]
+      category: security
+      references:
+        - https://cwe.mitre.org/data/definitions/1333.html
+    pattern-sources:
+      - pattern: $REQ.getParameter(...)
+      - pattern: $REQ.getHeader(...)
+      - pattern: $REQ.getQueryString()
+    pattern-sanitizers:
+      - pattern: Pattern.quote(...)
+    pattern-sinks:
+      - pattern: Pattern.compile(...)
+      - patterns:
+          - pattern: $S.matches($RE)
+          - focus-metavariable: $RE

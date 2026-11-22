@@ -1,0 +1,893 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 VinSOC Cyber
+
+# Guided Questions Templates for CodeQL/Semgrep Rules (LLM verification style)
+#
+# Questions MUST force the LLM to trace:
+#   1. WHERE variables are declared
+#   2. What their exact SIZES/VALUES are
+#   3. Whether sizes/values CHANGE through assignment or reallocation
+#   4. What CHECKS or CONSTRAINTS exist
+#   5. What OTHER variables feed into the target variables
+#
+# The LLM must answer ALL questions BEFORE giving a verdict.
+# This forces step-by-step reasoning instead of pattern matching.
+#
+# Language: C/C++
+#
+# Format:
+#   rule_id:
+#     short_description: Brief description of the vulnerability
+#     questions: List of questions to answer BEFORE verdict
+#     context_hint: What additional context helps (caller, struct, etc.)
+#     additional_context: List of context types that may be needed
+
+cpp/overflow-buffer:
+  short_description: "Copy function using source size instead of destination size"
+  questions:
+    - "Where is the DESTINATION buffer declared and what is its exact size (in bytes or elements)?"
+    - "Where is the SOURCE buffer/data declared and what is its exact size?"
+    - "Do these sizes ever CHANGE through assignment, reallocation, or function parameters?"
+    - "If source or destination take values from OTHER variables, where are THOSE declared and what are their sizes?"
+    - "Are there any CHECKS or CONSTRAINTS on source size, destination size, or the copy length BEFORE the copy?"
+    - "What other OPERATIONS act on these buffers between declaration and the flagged copy?"
+  context_hint: "Must include buffer declarations. May need caller function if sizes come from parameters."
+  additional_context: ["caller", "struct", "global", "macro"]
+
+cpp/overflowing-snprintf:
+  short_description: "snprintf size argument derived from its own return value"
+  questions:
+    - "Where is the DESTINATION buffer declared and what is its exact size?"
+    - "What is the SIZE argument passed to snprintf and where does it come from?"
+    - "Does the size argument depend on a PREVIOUS snprintf return value?"
+    - "Is the size argument BOUNDED by the actual buffer size, or could snprintf's return value exceed it in subsequent calls?"
+    - "Are there any BOUNDS checks on the size before snprintf is called?"
+    - "Could repeated calls cause the size argument to exceed the buffer?"
+  context_hint: "Include buffer declaration and all snprintf calls in sequence."
+  additional_context: ["caller", "global", "macro"]
+
+cpp/invalid-pointer-deref:
+  short_description: "Pointer dereference that may be out of bounds"
+  questions:
+    - "Where is the POINTER declared and what buffer does it point to?"
+    - "What is the SIZE of the underlying buffer?"
+    - "What OFFSET or arithmetic is applied to the pointer before dereference?"
+    - "Where does the offset VALUE come from - is it user-controlled or bounded?"
+    - "Are there any BOUNDS checks on the pointer or offset BEFORE dereference?"
+    - "Could any code path cause the pointer to exceed the buffer bounds?"
+  context_hint: "Include pointer declaration, buffer allocation, and offset calculations."
+  additional_context: ["caller", "struct"]
+
+# ==============================================================================
+# C/C++ Memory Safety - Allocation/Deallocation
+# ==============================================================================
+
+cpp/use-after-free:
+  short_description: "Use of pointer after memory has been freed"
+  questions:
+    - "ANCHOR FIRST: quote the EXACT statement at the flagged line. Name the function it lives in. Classify the flagged line as one of: (a) a pointer USE (deref / read / write / pass-to-function), (b) a free/delete/destructor call, (c) a function signature or declaration, (d) something else. If (c) or (d), the SAST flag is suspect — record this and weight your verdict accordingly."
+    - "If the snippet contains MULTIPLE functions (e.g. a vulnerable variant alongside a patched or test variant, or a helper alongside its caller), identify which function the flagged line belongs to. Reason ONLY about that function's behavior. Do NOT convict based on UAF patterns visible in sibling functions, regardless of how those functions are named."
+    - "Where is the pointer at the flagged line ALLOCATED (malloc, calloc, new, strdup, custom allocator)? If allocation is in a DIFFERENT function, name that function — request 'caller:<func>' or 'all_callers:<func>' context if you cannot see it."
+    - "List ALL free()/delete calls reachable from the flagged use — include the function name, file, and line number for EACH. If you cannot enumerate them from the snippet, request 'free_sites:<pointer_name>' context. Mark which frees are conditional (inside if/switch/error paths)."
+    - "Is the pointer set to NULL immediately after EACH free? If not, what value does it hold?"
+    - "For EACH (free_site, flagged_use) pair: describe the SHORTEST control-flow path from the free to the use. Account for: loops, goto, longjmp, signal handlers, and callbacks. Is the path actually reachable in any caller?"
+    - "Does the pointer escape this function — is it stored in a struct field, global, returned, or passed to another function that retains it? If so, who is responsible for its lifetime?"
+    - "Are there ALIAS pointers (copies, struct members, array entries, void* casts) that reference the same memory? Could one alias free while another still holds a reference?"
+    - "If the pointer is REASSIGNED between free and use, where and to what value — a new allocation, NULL, or another pointer?"
+    - "DECISION RULE: mark TP when EITHER (a) you can produce a SPECIFIC triple — (free_site file:line, use_site file:line, control-flow path reaching the use after the free), OR (b) you can name the FREE FUNCTION and identify the flagged USE in the same function or a clear caller, AND there is no NULL-assignment, reassignment, or fresh reallocation between them. Mark FP ONLY when you have POSITIVE evidence of a defense: NULL-after-free, pointer reassigned to a fresh allocation, free on an unreachable branch, or the flagged line is a signature/declaration. Pattern-only reasoning based on function NAMES (e.g. assuming a function is buggy because of a suggestive identifier) without supporting code evidence is NOT enough to mark FP — prefer NEEDS_MORE_DATA in that case. The default for an undefended free→use chain in the flagged function is TP, not FP."
+  context_hint: "TRACE: allocation -> free -> flagged_use | NEED: free_sites(ptr_name) FIRST, then caller(ptr_origin), struct(ptr_type_members), callees(functions_ptr_passed_to), destructor(owner_type), field_writes(owner.ptr_field)"
+  additional_context: ["free_sites", "caller", "all_callers", "struct", "callees", "destructor", "field_writes"]
+  min_iterations: 3
+  snippet_window_lines: 60
+
+cpp/double-free:
+  short_description: "Memory freed more than once"
+  questions:
+    - "ANCHOR FIRST: quote the flagged line and name the function. Classify it as (a) a free/delete call, (b) a use leading to free elsewhere, (c) a signature/declaration. If (c), the flag is suspect."
+    - "If the snippet contains MULTIPLE functions (e.g. vulnerable and patched variants side-by-side, or a helper and its caller), restrict your reasoning to the function containing the flagged line. Do NOT convict on free-pairs visible in sibling functions, regardless of how those functions are named."
+    - "Where is the pointer ALLOCATED and what variable holds it?"
+    - "List ALL free() calls reachable from the flagged location with file:line — request 'free_sites:<pointer_name>' context if needed."
+    - "For each pair of free() calls, is there a SPECIFIC code path that reaches BOTH? Describe the path or mark NEEDS_MORE_DATA."
+    - "Is the pointer set to NULL after the FIRST free?"
+    - "If set to NULL, is there a NULL check before the SECOND free?"
+    - "Are there ALIAS pointers (struct field copies, void* casts) that could cause the same memory to be freed via different variables?"
+    - "DECISION RULE: only mark TP if you can name TWO specific (free_line_A, free_line_B) sites with a control-flow path that reaches both. Pattern-matching on free()/free() sequences without an actual reachable path is grounds for NEEDS_MORE_DATA, not TP."
+  context_hint: "Include all control flow paths between free calls."
+  additional_context: ["caller", "struct", "free_sites"]
+  min_iterations: 2
+  snippet_window_lines: 60
+
+cpp/stack-address-escape:
+  short_description: "Address of stack variable escapes function scope"
+  questions:
+    - "Where is the LOCAL variable declared - is it truly on the stack (auto storage)?"
+    - "Is the variable declared as 'static' (which would make it NOT stack-allocated)?"
+    - "HOW does the address escape - return value, global pointer, heap storage, callback?"
+    - "If stored in a struct/object, where is THAT struct allocated (stack or heap)?"
+    - "What happens when the function returns - is the escaped address still used?"
+    - "Could the variable actually be heap-allocated via alloca() or VLA?"
+  context_hint: "Include variable declaration and all uses of its address."
+  additional_context: ["caller", "struct"]
+
+# ==============================================================================
+# C/C++ Memory Safety - Other
+# ==============================================================================
+
+cpp/integer-overflow:
+  short_description: "Integer overflow in arithmetic operation"
+  questions:
+    - "What are the exact TYPES of each operand (int, unsigned int, size_t, int32_t, uint64_t)? What is the maximum value each type can hold?"
+    - "Where do the operand VALUES originate — user input, file header, network packet, function parameter, or compile-time constant? Can an attacker control either operand?"
+    - "Write out the arithmetic: MAX_VAL_OF_TYPE_A <op> MAX_VAL_OF_TYPE_B = ?. Does the result exceed the RESULT TYPE's range? What is the result type after implicit promotion rules?"
+    - "Is there a CHECK for overflow BEFORE the operation? Valid checks: comparing against (TYPE_MAX - b) before a+b, or using __builtin_add_overflow / safe_math helpers. An after-the-fact check on the RESULT is too late for signed overflow (UB)."
+    - "How is the RESULT used — as malloc/calloc size, array index, loop bound, comparison operand, or return value? If used in allocation, could a small-seeming value cause a tiny allocation followed by a large copy?"
+    - "For UNSIGNED types: wrapping is defined behavior but is it INTENTIONAL here? A wrapped-to-small allocation size followed by a large write is a heap overflow."
+    - "For SIGNED types: overflow is undefined behavior — could the compiler optimize away subsequent checks that assume no overflow occurred?"
+  context_hint: "TRACE: operand_sources -> arithmetic_op -> result_use | NEED: caller(operand_origins), macro(MAX_CONSTANTS), typedef(operand_types)"
+  additional_context: ["caller", "macro", "typedef"]
+
+# This is a CORRECTNESS / TYPE-HYGIENE rule (CodeQL tags it reliability/
+# correctness/types). It fires on a PATTERN — a narrow-typed multiplication
+# whose result is later widened (int*int -> long/size_t) — wherever that pattern
+# appears, regardless of whether the operands can actually overflow or the code
+# is reachable with attacker input. "precision: high" means the rule reliably
+# detects the pattern. Request operand origins and types before a verdict.
+cpp/integer-multiplication-cast-to-long:
+  short_description: "Multiplication in a narrow type widened afterward (possible overflow before cast)"
+  questions:
+    - "PATTERN vs BUG: this rule matches `a * b` computed in a narrow type (int/unsigned) then converted to a wider one (long/size_t). The match alone is NOT a vulnerability. To be a True Positive you must show a REACHABLE overflow that flows to a dangerous use. Default to False Positive if you cannot."
+    - "What is the exact TYPE of each operand and the INTERMEDIATE result type (before the widening cast)? What is that intermediate type's maximum value (e.g. INT_MAX = 2147483647)?"
+    - "Where do the operand VALUES come from — compile-time constants, sizeof, a fixed-bound loop counter, or attacker-controlled input (image/file header field, network, argv)? Quote the exact bound or source line for EACH operand."
+    - "Do the arithmetic with the ACTUAL bounds: max_a * max_b = ?. Does that exceed the intermediate type's max? If the operands are provably small (compile-time-bounded loop counters or small constants), overflow CANNOT occur — that is a False Positive even though the pattern matches."
+    - "Is there an explicit overflow guard or an early `(size_t)`/`(uint64_t)` cast of an operand BEFORE the multiplication (so the multiply happens in the wide type)? An operand already widened before the `*` means no narrow-type overflow — False Positive."
+    - "How is the widened result USED — as a malloc/calloc/realloc size, array index, memcpy/memset length, or merely stored / used in bounded arithmetic? Only allocation/index/length sinks make an overflow dangerous."
+    - "Is this file a TEST, BENCHMARK, FUZZ harness, or VENDORED third-party copy? If so, the operands are typically fixed test fixtures, not attacker input — weight reachability accordingly and lean False Positive / Needs More Data unless a real external-input path exists."
+  context_hint: "TRACE: operand_sources -> narrow_multiply -> widening_cast -> result_use | NEED: caller(operand_origins/bounds), macro(MAX/FIX_CONSTANTS), typedef(operand_types)"
+  additional_context: ["caller", "macro", "typedef"]
+  min_iterations: 2
+
+cpp/weak-cryptographic-algorithm:
+  short_description: "Use of weak or broken cryptographic algorithm"
+  questions:
+    - "What ALGORITHM is being used (MD5, SHA1, DES, RC4, etc.)?"
+    - "What is the PURPOSE of the cryptographic operation (password hashing, signatures, encryption)?"
+    - "Is this for SECURITY purposes or just checksums/identifiers?"
+    - "Is the output relied upon for security guarantees (integrity, confidentiality, authentication), or used for non-security purposes?"
+    - "Is this code in a security-critical path or test/legacy code?"
+    - "Is this algorithm used in a protocol negotiation or interop path where the peer mandates it?"
+  context_hint: "Include the crypto function call and its context."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ Injection Vulnerabilities
+# ==============================================================================
+
+cpp/sql-injection:
+  short_description: "User input concatenated into SQL query"
+  questions:
+    - "Where does the INPUT value originate - what is the ultimate SOURCE (argv, getenv, read, recv)?"
+    - "Trace the INPUT through ALL assignments - does it ever get SANITIZED or ESCAPED?"
+    - "Is the query built using STRING CONCATENATION or a PARAMETERIZED query?"
+    - "If concatenated, could SQL metacharacters (quotes, semicolons, comments) alter the query?"
+    - "Does the query structure change based on user input, or is it fixed with only data values varying?"
+    - "What DATABASE API is used and does it support safe parameterization?"
+  context_hint: "Trace from input source through all transformations to SQL execution."
+  additional_context: ["caller", "callees"]
+
+cpp/command-injection:
+  short_description: "User input passed to shell command execution"
+  questions:
+    - "Where does the INPUT value originate - what is the ultimate SOURCE?"
+    - "Is system() or popen() used (shell interpretation) or execv/execl (no shell)?"
+    - "Trace the INPUT - is it ESCAPED for shell metacharacters (;|&$`\\)?"
+    - "Could an attacker inject SHELL METACHARACTERS to execute additional commands?"
+    - "Is the input VALIDATED against an allowlist of safe values?"
+    - "Is the user input embedded in a single command string parsed by a shell interpreter?"
+  context_hint: "Trace from input source to command execution function."
+  additional_context: ["caller", "callees"]
+
+cpp/path-injection:
+  short_description: "User input used in file path allowing traversal"
+  questions:
+    - "Where does the PATH input originate - what is the ultimate SOURCE? Quote the line."
+    - "EXECUTION CONTEXT: is this a standalone command-line tool where the path comes from `argv`/`main()` (chosen by the operator who runs the binary), or a server / web-handler / IPC / setuid / sandboxed context with a real privilege boundary?"
+    - "TRUST BOUNDARY: does the path actually cross a privilege or trust boundary — supplied over the network, a web upload, parsed from untrusted FILE CONTENTS, or used by a process running with MORE privilege than the path's source (setuid/root/service)? Opening a file whose path the invoking user already chose, in a CLI binary that user runs themselves, is the tool's intended function and grants no access the user lacks — that is a FALSE POSITIVE, not CWE-22."
+    - "Is the path VALIDATED to reject directory traversal sequences (../) or CANONICALIZED (realpath) and then CHECKED to be within an allowed directory?"
+    - "Could a LESS-privileged party use '../' or symbolic links to make a MORE-privileged process access files outside the intended directory? (If the same user controls both the path and the privilege level, there is no escalation.)"
+    - "What FILE OPERATIONS are performed with this path (read, write, execute)?"
+  context_hint: "Trace from input source through path construction to file operation. Establish whether a privilege/trust boundary exists; argv in a CLI main() usually means none."
+  additional_context: ["caller", "callees"]
+  # True Positive ONLY when a less-privileged party controls the path AND the
+  # process acts with more privilege (or escapes an intended sandbox/chroot).
+  # A standalone CLI tool opening an argv-supplied path = False Positive (no
+  # trust boundary).
+
+cpp/format-string-injection:
+  short_description: "User input used directly as printf format string"
+  questions:
+    - "Where does the FORMAT STRING come from - is it user-controlled?"
+    - "Is the user input passed as the FIRST argument to printf/sprintf/fprintf?"
+    - "Or is it safely passed as a LATER argument with a fixed format string?"
+    - "Could %n, %x, %s specifiers in the input read/write memory?"
+    - "Is the input VALIDATED to contain only safe characters?"
+    - "Is the format string argument identical across all invocations, or does it vary based on external input?"
+  context_hint: "Include the printf-family call with all arguments."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Scanf and Return Value Checks
+# ==============================================================================
+
+cpp/missing-return-value-check:
+  short_description: "Return value of scanf-like function not checked"
+  questions:
+    - "What FUNCTION is called and what does its return value indicate?"
+    - "Is the return value STORED in a variable or DISCARDED?"
+    - "If stored, is it CHECKED before using the output values?"
+    - "What happens if the function FAILS - are output variables left uninitialized?"
+    - "Is the return value checked ELSEWHERE (in caller, via wrapper)?"
+    - "What is the SECURITY IMPACT if failure is not detected?"
+  context_hint: "Include the function call and subsequent use of output values."
+  additional_context: ["caller"]
+
+cpp/incorrect-return-value-check:
+  short_description: "Incorrect comparison of scanf return value"
+  questions:
+    - "What VALUE is the return being compared against?"
+    - "What does the function ACTUALLY return on success vs failure?"
+    - "Is the comparison checking for the CORRECT success/failure condition?"
+    - "Could a PARTIAL success (fewer items read) be incorrectly treated as full success?"
+    - "What happens to output variables if fewer items are read than expected?"
+    - "Is there a MISMATCH between expected and actual return value semantics?"
+  context_hint: "Include the function call, return value check, and subsequent use."
+  additional_context: []
+
+# ==============================================================================
+# C/C++ - Secrets / Credentials
+# ==============================================================================
+
+cpp/hardcoded-credentials:
+  short_description: "Hardcoded password, key, or secret in C/C++ source"
+  questions:
+    - "Is this string a real credential used in production, or a placeholder/example/test value?"
+    - "Is this value compiled into the binary where it can be extracted with strings(1)?"
+    - "Could an attacker extract this credential from a distributed binary or firmware image?"
+    - "Is there a configuration file or environment variable mechanism that should be used instead?"
+    - "What system does this credential grant access to, and what is the blast radius if leaked?"
+    - "Is this code path reachable in production builds, or is it guarded by #ifdef DEBUG?"
+  context_hint: "Include the credential usage and any build-time guards."
+  additional_context: ["global"]
+
+cpp/insecure-randomness:
+  short_description: "Using rand() or time() for security-sensitive random values"
+  questions:
+    - "What is this random value used for - session token, nonce, key, CSRF token, salt?"
+    - "Is rand() or similar predictable PRNG used (seeded with time, pid, or constant)?"
+    - "Could an attacker predict or brute-force the output space of this PRNG?"
+    - "Is /dev/urandom, getrandom(), or a CSPRNG (libsodium, OpenSSL RAND_bytes) available?"
+    - "What is the security impact if the random value is predictable (session hijacking, forgery)?"
+    - "Is this used in cryptographic context (IV, key, salt) where weak randomness is catastrophic?"
+  context_hint: "Include random generation call and how the value is used."
+  additional_context: ["caller"]
+
+cpp/race-condition:
+  short_description: "TOCTOU or data race on shared state without synchronization"
+  questions:
+    - "Is there a TIME-OF-CHECK-TIME-OF-USE (TOCTOU) gap between checking and using a resource (file, variable)?"
+    - "Is the shared resource (file, global variable, heap object) accessed from multiple threads?"
+    - "Is a mutex, lock, or atomic operation used to protect the shared state?"
+    - "On TOCTOU: could an attacker replace the file/resource between the check and the use (symlink attack)?"
+    - "On data race: what is the impact of reading a partially-written value (corruption, security bypass)?"
+    - "Can the check and use be merged into a single atomic operation (e.g., open with O_CREAT|O_EXCL)?"
+  context_hint: "Include the check and use operations and any locking around them."
+  additional_context: ["caller", "global"]
+
+cpp/thread-safety-violation:
+  short_description: "Unsynchronized access to shared data across threads"
+  questions:
+    - "Is this variable or data structure accessed from multiple threads concurrently?"
+    - "Is there a mutex, spinlock, or atomic type protecting this access?"
+    - "What is the worst-case impact of a data race (heap corruption, use-after-free, security bypass)?"
+    - "Are ALL read AND write accesses to the shared data protected, not just some?"
+    - "Could using std::atomic or _Atomic (C11) replace the need for a mutex here?"
+    - "Are ALL accesses to this variable within the same thread, or do call sites exist in different thread entry points?"
+  context_hint: "Include variable declarations and all accesses across thread boundaries."
+  additional_context: ["global", "caller"]
+
+cpp/resource-leak:
+  short_description: "File handle, socket, or other resource not closed on all code paths"
+  questions:
+    - "Where is the resource OPENED or ALLOCATED (fopen, socket, malloc, CreateHandle)?"
+    - "Is there a corresponding CLOSE or FREE on ALL code paths, including error paths?"
+    - "Are there early returns or exception-like paths (goto, longjmp) that skip cleanup?"
+    - "Is RAII (std::unique_ptr, std::fstream) or a cleanup label used to ensure release?"
+    - "What is the impact of leaking this resource - file descriptor exhaustion, memory exhaustion, lock held?"
+    - "Is this in a long-running process where the leak accumulates, or a short-lived process?"
+  context_hint: "Include resource acquisition, all return paths, and any cleanup code."
+  additional_context: ["caller"]
+
+cpp/memory-leak:
+  short_description: "Heap memory allocated but not freed on all code paths"
+  questions:
+    - "Where is memory ALLOCATED (malloc, calloc, new, strdup, custom allocator) and what variable holds the returned pointer?"
+    - "Draw the CONTROL FLOW of this function: list every return statement, break, continue, goto, and throw with line numbers. For EACH exit point, is the allocated memory freed?"
+    - "Is the pointer stored in a struct/object field, global, or returned to the caller? If so, is ownership TRANSFERRED (caller is now responsible for free) or is this a leak?"
+    - "If there are ERROR PATHS (function call failures, validation failures), does each error path free the allocation before returning? List each error path explicitly."
+    - "Is this allocation inside a LOOP? If so, is each iteration's allocation freed before the next iteration or after the loop, or does each iteration leak?"
+    - "Is RAII used (std::unique_ptr, std::shared_ptr, std::vector, scope guard) to guarantee deallocation? If raw pointers are used, is there a documented ownership convention?"
+    - "Is this in a function called frequently (loop body, request handler, callback) where leaks accumulate over time?"
+  context_hint: "TRACE: alloc_site -> all_return_paths -> dealloc_sites | NEED: caller(who_calls_this), callees(wrapped_alloc_funcs), struct(ownership_fields)"
+  additional_context: ["caller", "callees", "struct"]
+
+# ==============================================================================
+# C/C++ - Type Safety
+# ==============================================================================
+
+cpp/type-confusion:
+  short_description: "Unsafe type cast or union access leading to type confusion"
+  questions:
+    - "What types are involved in the cast - source type and destination type?"
+    - "Is this a reinterpret_cast, C-style cast, or union member access of a different type than written?"
+    - "Does the destination type have a different size, alignment, or representation than the source?"
+    - "Is this pattern defined behavior in the C/C++ standard, or is it UB (strict aliasing violation)?"
+    - "Could an attacker control the value being cast to cause unintended behavior?"
+    - "Would using memcpy to copy bytes (safe for aliasing) or a union with proper semantics fix this?"
+  context_hint: "Include the cast expression and the types involved."
+  additional_context: ["struct", "typedef", "caller"]
+
+cpp/signed-overflow:
+  short_description: "Signed integer overflow which is undefined behavior in C/C++"
+  questions:
+    - "What are the TYPES of the operands (int, long, int32_t) and operation (+, -, *, <<)?"
+    - "What is the MAXIMUM value each operand can hold, and does the result exceed INT_MAX/LONG_MAX?"
+    - "Is this overflow intentional (e.g., wrapping arithmetic) or accidental?"
+    - "Does the result get used for memory allocation, array indexing, or other security-sensitive operations?"
+    - "Is there a CHECK for overflow BEFORE the operation (e.g., comparing operands to INT_MAX - b)?"
+    - "What code path is taken if the overflow occurs — could it corrupt memory, bypass a check, or cause undefined behavior?"
+  context_hint: "Include operand declarations and how the result is used."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# Improper Error Handling / Information Disclosure
+# ==============================================================================
+
+cpp/information-exposure:
+  short_description: "Error message or log reveals sensitive internal details"
+  questions:
+    - "What sensitive information is included in the error output (memory addresses, file paths, credentials, internal state)?"
+    - "Where does this output go - returned to caller, written to log, sent over network, printed to stderr?"
+    - "Is the recipient of this output an untrusted external user or an internal administrator?"
+    - "Could a memory address in an error message help an attacker defeat ASLR?"
+    - "Should the output be split into a user-facing generic message and an internal detailed log?"
+    - "Is this in a debug/test build that would not be shipped to production?"
+  context_hint: "Include error generation and where the output is sent."
+  additional_context: ["caller"]
+
+cpp/unsafe-functions:
+  short_description: "Use of unsafe C functions like gets(), strcpy(), sprintf() without bounds"
+  questions:
+    - "Which unsafe function is used (gets, strcpy, strcat, sprintf, scanf with %s)?"
+    - "What is the SIZE of the destination buffer and can the input exceed it?"
+    - "Is the input from an untrusted source (user input, network, file)?"
+    - "Is the destination buffer size known at compile time, and does the input always fit within it?"
+    - "If using strncpy, is the destination null-terminated - strncpy does NOT guarantee null termination?"
+    - "Is there a code review or compiler warning (e.g., -Wformat, -D_FORTIFY_SOURCE) that should catch this?"
+  context_hint: "Include destination buffer declaration and input source."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Null / Dangling Pointer
+# ==============================================================================
+
+cpp/dangling-pointer:
+  short_description: "Pointer used after the lifetime of the object it references has ended"
+  questions:
+    - "ANCHOR FIRST: quote the flagged line and name the function. Classify the line as (a) a pointer use, (b) a scope end, (c) a signature/declaration. If (c), the flag is suspect."
+    - "If the snippet contains MULTIPLE functions, reason ONLY about the one containing the flagged line."
+    - "Where does the POINTER obtain its value — address of a local variable, temporary, or freed heap object?"
+    - "When does the referenced OBJECT's lifetime end — function return, end of scope, or explicit destruction?"
+    - "Is the pointer USED (read, write, passed) after that lifetime ends?"
+    - "Is this distinct from a use-after-free — is the object stack-allocated or temporary rather than heap-freed?"
+    - "Could the compiler eliminate or reuse the storage (UB in C/C++) before the pointer is used?"
+    - "Is the dangling pointer READ or WRITTEN through — and what data could be corrupted or leaked?"
+    - "DECISION RULE: only mark TP if you can produce (object_declaration_line, scope_end_line, use_line) with a real reachable path. Pattern-matching on 'pointer survives scope' without specific lines is NEEDS_MORE_DATA, not TP."
+  context_hint: "Include object declaration, scope end, and all pointer uses."
+  additional_context: ["caller", "struct"]
+  min_iterations: 2
+  snippet_window_lines: 60
+
+# ==============================================================================
+# C/C++ - Integer / Type Conversion
+# ==============================================================================
+
+cpp/integer-truncation:
+  short_description: "Integer narrowing conversion loses significant bits"
+  questions:
+    - "What are the SOURCE type and DESTINATION type of the conversion (e.g., size_t → int, long → short)?"
+    - "What is the MAXIMUM possible value of the source and does it exceed the destination type's range?"
+    - "Where does the source value come from — user input, file size, network data, arithmetic result?"
+    - "Is the result used in a security-sensitive operation (allocation size, array index, loop bound, comparison)?"
+    - "Is there an explicit CAST or an implicit narrowing conversion?"
+    - "After truncation, is the narrowed value used in a security-sensitive comparison, allocation size, or array index?"
+  context_hint: "Include the conversion site, source value origin, and how the result is used."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Injection (LDAP, XPath)
+# ==============================================================================
+
+cpp/ldap-injection:
+  short_description: "LDAP query or filter built from untrusted user input"
+  questions:
+    - "Where does the INPUT originate — argv, getenv, socket read, file, or other external source?"
+    - "Is the input concatenated directly into an LDAP filter string (e.g., (uid=<input>))?"
+    - "Is the input ESCAPED using a safe LDAP escaping function (e.g., ldap_escape, RFC 4515 encoding)?"
+    - "Could an attacker inject LDAP metacharacters (* ( ) \\ NUL) to alter the filter semantics?"
+    - "What LDAP operations does the injected filter affect — authentication bypass, data extraction, modification?"
+    - "Would using parameterized search APIs or a strict allowlist of input characters prevent this?"
+  context_hint: "Trace from input source through LDAP filter construction to ldap_search."
+  additional_context: ["caller"]
+
+cpp/xpath-injection:
+  short_description: "XPath expression built from untrusted user input"
+  questions:
+    - "Where does the INPUT originate — function argument, environment, file, or network?"
+    - "Is the input concatenated directly into an XPath expression string?"
+    - "Is the input ESCAPED or VALIDATED before inclusion in the XPath query?"
+    - "Could an attacker inject XPath metacharacters (', \", [, ], /) to alter query semantics?"
+    - "What data could be extracted or what authentication could be bypassed with a crafted XPath?"
+    - "Would using parameterized XPath (compiled expressions with variables) prevent this?"
+  context_hint: "Trace from input source to XPath evaluation call."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Format String (Tainted)
+# ==============================================================================
+
+cpp/tainted-format-string:
+  short_description: "Format string argument derived from external/tainted data"
+  questions:
+    - "Where does the FORMAT STRING value originate — environment variable, config file, network, argv?"
+    - "Is the tainted value used as the FORMAT string argument (first arg) of printf/sprintf/fprintf?"
+    - "Or is it passed as a DATA argument with a fixed format string (safe)?"
+    - "Could an attacker embed %n, %x, %s, or other specifiers to read or write memory?"
+    - "Is there any validation that the format string contains only safe characters?"
+    - "Should this use puts() or a fixed format string like printf(\"%s\", input) instead?"
+  context_hint: "Include the format string source and the printf-family call."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Logic / Dead Code
+# ==============================================================================
+
+cpp/comparison-always-true:
+  short_description: "Comparison always evaluates to true or false due to type range"
+  questions:
+    - "What are the TYPES of the two operands being compared (unsigned, signed, char, bool)?"
+    - "Is an UNSIGNED type compared against a negative literal (always true) or a value exceeding its max (always false)?"
+    - "Is a BOOL or bit-field compared against a value outside 0/1?"
+    - "Could this dead branch cause a security bypass — e.g., a bounds check that never triggers?"
+    - "Is this intentional (e.g., a compile-time constant check) or accidental?"
+    - "Does the dead branch guard a security-critical check (bounds, auth, null) that now never executes?"
+  context_hint: "Include the comparison expression and operand type declarations."
+  additional_context: ["macro", "typedef"]
+
+# ==============================================================================
+# C/C++ - Stack Exhaustion
+# ==============================================================================
+
+cpp/alloca-in-loop:
+  short_description: "alloca() called inside a loop causes unbounded stack growth"
+  questions:
+    - "Is alloca() (or a VLA) called inside a loop (for, while, do-while, or recursion)?"
+    - "Does the loop have a BOUNDED iteration count, or can an attacker control the number of iterations?"
+    - "Is the allocation SIZE also user-controlled, making the per-iteration allocation unbounded?"
+    - "What is the STACK SIZE limit of the process and at what number of iterations would it be exceeded?"
+    - "Would using a single heap allocation before the loop (malloc/std::vector) be equivalent and safe?"
+    - "Is this in a recursive function where alloca compounds with recursion depth?"
+  context_hint: "Include the loop bounds, alloca call, and any user-controlled inputs."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Cleartext Data Handling
+# ==============================================================================
+
+cpp/cleartext-storage:
+  short_description: "Sensitive data stored in cleartext without encryption"
+  questions:
+    - "What sensitive data is being stored — password, token, API key, PII, credit card number?"
+    - "Where is the data stored — file, database, shared memory, registry, config, or log?"
+    - "Is the data ENCRYPTED before storage using a vetted encryption API (e.g., OpenSSL EVP, libsodium)?"
+    - "Could an attacker with access to the storage medium (disk, database dump, backup) read the sensitive data?"
+    - "Is this storage reachable in production, or is it only used in debug/test builds?"
+    - "What is the blast radius if this data is exposed — account compromise, credential reuse, regulatory violation?"
+  context_hint: "Include the data source, storage call, and any encryption step in between."
+  additional_context: ["caller"]
+
+cpp/cleartext-transmission:
+  short_description: "Sensitive data transmitted over unencrypted channel (HTTP, plain TCP)"
+  questions:
+    - "What sensitive data is being sent — credentials, tokens, session IDs, PII?"
+    - "Is the transmission over an ENCRYPTED channel (TLS/SSL) or plain HTTP/TCP?"
+    - "If using sockets, is SSL_write/SSL_read (OpenSSL) or equivalent TLS wrapper used?"
+    - "Could an attacker on the network path (MITM) intercept and read this data?"
+    - "Is the URL hardcoded as http:// where https:// should be used?"
+    - "Is this an internal-only connection with compensating network-level encryption (VPN, mTLS)?"
+  context_hint: "Include the data being sent and the network API call."
+  additional_context: ["caller"]
+
+cpp/certificate-validation-disabled:
+  short_description: "TLS certificate verification skipped or disabled in C/C++ code"
+  questions:
+    - "Is SSL_CTX_set_verify() called with SSL_VERIFY_NONE, or is the verify callback always returning 1 (success)?"
+    - "Is CURLOPT_SSL_VERIFYPEER set to 0 or CURLOPT_SSL_VERIFYHOST set to 0 in libcurl?"
+    - "Could an attacker with a self-signed or stolen certificate perform a man-in-the-middle attack?"
+    - "Is this a development/test configuration that should NOT be used in production?"
+    - "What server is being connected to — is it an internal service or an external API?"
+    - "Is there a custom certificate store or pinning that replaces the default validation?"
+  context_hint: "Include the TLS/SSL initialization and verify configuration."
+  additional_context: ["caller"]
+
+cpp/insecure-tls-version:
+  short_description: "Deprecated TLS/SSL protocol version (SSLv3, TLS 1.0, TLS 1.1) used"
+  questions:
+    - "What TLS/SSL method is used — SSLv23_method, TLSv1_method, TLSv1_1_method, or TLS_method with min version?"
+    - "Is SSL_CTX_set_min_proto_version() called to enforce TLS 1.2 or higher?"
+    - "Are deprecated protocols explicitly disabled via SSL_CTX_set_options (SSL_OP_NO_SSLv3, SSL_OP_NO_TLSv1)?"
+    - "Could an attacker force a protocol downgrade to exploit known vulnerabilities (BEAST, POODLE)?"
+    - "Is this connecting to a legacy system that does not support TLS 1.2+?"
+    - "What cipher suites are enabled — do they include weak ciphers (RC4, DES, export-grade)?"
+  context_hint: "Include SSL_CTX creation and all protocol/cipher configuration."
+  additional_context: []
+
+# ==============================================================================
+# C/C++ - Cryptographic Key Size
+# ==============================================================================
+
+cpp/insufficient-key-size:
+  short_description: "Cryptographic key size too small for security requirements"
+  questions:
+    - "What key size is used and for what algorithm (RSA <2048, AES <128, ECC <256, DH <2048)?"
+    - "Is the key size hardcoded or derived from a configuration that could be changed?"
+    - "What is the key used for — TLS handshake, data encryption, code signing, key exchange?"
+    - "Is this key size below current NIST/industry recommendations (RSA 2048+, AES 128+, ECC 256+)?"
+    - "Could an attacker with sufficient compute resources brute-force or factor the key?"
+    - "Is this a legacy system with constraints that prevent upgrading the key size?"
+  context_hint: "Include the key generation or import call and the size parameter."
+  additional_context: []
+
+# ==============================================================================
+# C/C++ - File Permissions
+# ==============================================================================
+
+cpp/overly-permissive-file:
+  short_description: "File or directory created with world-readable or world-writable permissions"
+  questions:
+    - "What permissions are set — is the mode 0777, 0666, or otherwise world-accessible?"
+    - "What data is written to this file — credentials, tokens, config, log data?"
+    - "Could another user or process on the same system read or modify this file?"
+    - "Is open() or mkdir() called without restricting permissions to owner-only (0600/0700)?"
+    - "Is umask() set to restrict default permissions before file creation?"
+    - "Is this on a shared system (multi-user server, container with shared volumes) where other users exist?"
+  context_hint: "Include the file creation call and the mode/permissions argument."
+  additional_context: []
+
+# ==============================================================================
+# C/C++ - XML Security
+# ==============================================================================
+
+cpp/xxe:
+  short_description: "C/C++ XML parser allowing external entity resolution on untrusted input"
+  questions:
+    - "Which XML parser is used — libxml2, Xerces-C, expat, MSXML, RapidXML?"
+    - "Is the XML input from an untrusted source — network, file upload, IPC, user-provided path?"
+    - "Is external entity loading DISABLED (e.g., xmlCtxtUseOptions with XML_PARSE_NOENT removed, or XercesDOMParser::setDisableDefaultEntityResolution)?"
+    - "Is DTD processing disabled to prevent an attacker from defining external entities via DOCTYPE?"
+    - "Could an attacker use an XXE payload to read local files (file:///etc/passwd) or trigger SSRF?"
+    - "Is input size limited to prevent entity expansion DoS (billion-laughs attack)?"
+  context_hint: "Include XML parser creation, option configuration, and input source."
+  additional_context: ["caller"]
+
+# ==============================================================================
+# C/C++ - Resource Exhaustion
+# ==============================================================================
+
+cpp/uncontrolled-allocation-size:
+  short_description: "Allocation size derived from untrusted input without bounds check"
+  questions:
+    - "Where does the ALLOCATION SIZE value originate — network packet, file header, user input, IPC?"
+    - "Is there an UPPER BOUND check on the size before malloc/calloc/new/mmap is called?"
+    - "Could an attacker supply a very large value to exhaust memory and crash the process (DoS)?"
+    - "Could an attacker supply a very small or zero value, then write past the allocation (heap overflow)?"
+    - "Is the size value multiplied by another factor (e.g., count * element_size) that could overflow before the allocation?"
+    - "What is the maximum reasonable size for this allocation, and is it enforced?"
+  context_hint: "Include the allocation call, size parameter origin, and any bounds checks."
+  additional_context: ["caller", "global", "macro"]
+
+# ==============================================================================
+# C/C++ - Additional Memory and Safety Rules
+# ==============================================================================
+
+cpp/off-by-one:
+  short_description: "Off-by-one error in loop bound or buffer index (CWE-193)"
+  questions:
+    - "What is the BUFFER or ARRAY being indexed, and what is its declared size?"
+    - "What is the LOOP BOUND or INDEX expression — does it use <, <=, >, or >=?"
+    - "If using <=, could the index reach EXACTLY the buffer size (one past the end)?"
+    - "Are there any SIZE ADJUSTMENTS (e.g., size-1, len+1) that could be incorrect?"
+    - "Is a null terminator written or expected — does the buffer have room for it?"
+    - "What data is written at the boundary index — could it corrupt adjacent memory?"
+  context_hint: "Include buffer declaration, loop, and any index arithmetic."
+  additional_context: ["caller", "global", "macro"]
+
+cpp/use-after-move:
+  short_description: "Use of C++ object after std::move has transferred ownership"
+  questions:
+    - "Where is std::move() called on the object, and what receives ownership?"
+    - "After the move, is the moved-from object ACCESSED (read, method call, dereference)?"
+    - "Does the moved-from object's type have a well-defined moved-from state (e.g., std::string becomes empty)?"
+    - "Is the object REASSIGNED or RESET before the subsequent access?"
+    - "Could the move and use occur on DIFFERENT code paths (conditional move)?"
+    - "Is this a unique_ptr or shared_ptr — does the use-after-move cause a null dereference?"
+  context_hint: "Include the move call, receiving variable, and all subsequent uses of the moved-from object."
+  additional_context: ["caller"]
+
+cpp/missing-authorization:
+  short_description: "Privileged operation performed without access control check (CWE-862)"
+  questions:
+    - "Quote the EXACT privileged operation the rule flagged (the file write, register modification, capability change, syscall, etc.) with its line number. Do not paraphrase."
+    - "What SPECIFIC check would satisfy the rule on this operation? Name it concretely — e.g. 'CAP_SYS_ADMIN via capable()', 'ns_capable(user_ns, CAP_NET_ADMIN)', 'matching owner UID', 'role == ADMIN', 'ACL entry for caller'. Vague answers like 'an authorization check' are not acceptable."
+    - "Enumerate EVERY reachable path to the operation: caller(s) in this function, callers of those, syscall/ioctl entry points, registered handlers. For each path, state whether the SPECIFIC check from the previous question is present with a file:line citation. If a path is not visible in the provided context, mark it 'Not visible — assumption of guard rejected'."
+    - "What is the LOWEST privilege level that can reach this code on the MOST permissive path you enumerated? (unauthenticated network, any local user, privileged user, root only.)"
+    - "If you cannot point to the specific required check on EVERY reachable path with concrete line numbers, the rule is likely correct. To verdict False Positive you MUST cite (a) the check name, (b) its location, and (c) why it covers every path. Otherwise verdict True Positive or Needs More Data."
+    - "What is the security impact if an unauthorized caller reaches this operation?"
+  context_hint: "Include the function performing the operation and its callers to verify authorization flow."
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
+
+cpp/input-validation:
+  short_description: "External input used without validation at system boundary (CWE-20)"
+  questions:
+    - "Where does the INPUT originate — network socket, file, command-line argument, environment variable, IPC?"
+    - "What TYPE and RANGE is expected — string length, integer bounds, allowed characters?"
+    - "Is the input VALIDATED against the expected type/range BEFORE use?"
+    - "Could malformed input cause a crash (buffer overflow, integer overflow, null deref)?"
+    - "Could malformed input cause a logic error (negative length, empty string, NUL bytes)?"
+    - "Is the input used in a SECURITY-SENSITIVE operation (allocation size, array index, format string, system call)?"
+  context_hint: "Include input source, any validation, and the first use of the input value."
+  additional_context: ["caller"]
+
+cpp/untrusted-search-path:
+  short_description: "Program uses PATH, LD_LIBRARY_PATH, or relative path for loading (CWE-426)"
+  questions:
+    - "Is the program using system(), popen(), exec*p(), or dlopen() with a RELATIVE path or unqualified name?"
+    - "Could an attacker control the PATH or LD_LIBRARY_PATH environment variable?"
+    - "Is the binary or library loaded from a WORLD-WRITABLE directory (e.g., /tmp, CWD)?"
+    - "Does the program run with ELEVATED PRIVILEGES (setuid, setgid, root, service account)?"
+    - "Would using an ABSOLUTE PATH or restricting the search path mitigate this?"
+    - "Is the environment SANITIZED before the exec/load call (clearenv, explicit PATH)?"
+  context_hint: "Include the exec/dlopen call, path argument, and any environment setup."
+  additional_context: ["caller"]
+
+cpp/heap-buffer-overflow:
+  short_description: "Write or read past heap allocation bounds (CWE-122)"
+  questions:
+    - "Where is the HEAP BUFFER allocated and what is its size?"
+    - "What WRITE or READ operation accesses the buffer at the flagged location?"
+    - "Could the ACCESS INDEX or COPY LENGTH exceed the allocated size?"
+    - "Is the buffer size based on UNTRUSTED INPUT that could be manipulated?"
+    - "Are there any BOUNDS CHECKS between allocation and access?"
+    - "Could this overflow corrupt heap metadata, adjacent objects, or function pointers?"
+  context_hint: "Include allocation, size computation, and the out-of-bounds access."
+  additional_context: ["caller", "struct", "global", "macro"]
+
+cpp/exception-unsafe:
+  short_description: "Resource leak or undefined behavior when exception is thrown (RAII violation)"
+  questions:
+    - "What RESOURCE is acquired (memory, file handle, lock, socket) before the throwing operation?"
+    - "If an exception is thrown, is the resource RELEASED via RAII (smart pointer, lock_guard, unique_ptr)?"
+    - "Are there any RAW new/malloc calls without corresponding smart pointer wrappers?"
+    - "Is the resource cleanup in a DESTRUCTOR, or does it rely on reaching a specific cleanup line?"
+    - "Could the exception leave a MUTEX locked, causing deadlock in other threads?"
+    - "Is the function marked noexcept but capable of throwing (undefined behavior)?"
+  context_hint: "Include resource acquisition, potential throw site, and cleanup/destructor code."
+  additional_context: ["caller", "struct"]
+
+cpp/null-pointer-dereference:
+  short_description: "Null pointer dereferenced without a NULL check"
+  questions:
+    - "Where is the POINTER assigned — via malloc/calloc/new, function return value, parameter, or struct member access? Which of these CAN return NULL?"
+    - "Enumerate ALL dereference sites of this pointer — not just the flagged one. List each with its line number."
+    - "For EACH dereference site, is there a NULL check on a path that DOMINATES it (i.e., every possible execution path to the dereference MUST pass through the check)? A check in a sibling branch does NOT protect a different branch."
+    - "If a NULL check exists, verify it checks the EXACT SAME variable (not an alias, not a different pointer, not a stale copy). Does the pointer get reassigned between the check and the dereference?"
+    - "Could the pointer become NULL AFTER the check — via a function call, callback, signal handler, or concurrent modification between check and use?"
+    - "Is this in an error-handling path where NULL is expected (e.g., malloc failure) and the dereference is the bug, or is this a logic error where NULL should never occur?"
+    - "What is the impact — guaranteed crash (DoS), or could an attacker exploit the null dereference for control flow hijacking?"
+  context_hint: "TRACE: ptr_assign -> null_check_paths -> deref_site | NEED: caller(ptr_param_source), struct(type_with_nullable_fields), all_callers(who_passes_null)"
+  additional_context: ["caller", "struct", "all_callers"]
+
+cpp/overflow-destination:
+  short_description: "Write operation overflows the destination buffer"
+  questions:
+    - "What is the SIZE of the destination buffer — declared size, computed size, or heap-allocated size?"
+    - "What is the SIZE or maximum length of the data being written into it?"
+    - "Is there a bounds check (e.g., if (len < sizeof(buf)) or if (n <= capacity)) on ALL paths BEFORE the write?"
+    - "Is the write length controlled by user input, a return value, or a computation that could overflow or wrap?"
+    - "Is memcpy/strcpy/sprintf/gets used instead of safer alternatives (memcpy_s, snprintf, strlcpy, strncpy with explicit bound)?"
+    - "Are there mitigating factors — ASLR, stack canaries, sanitizer in production, or test/internal-only code?"
+  context_hint: "Need the destination buffer declaration and all callers that supply the write length."
+  additional_context: ["caller", "struct", "global", "macro"]
+
+cpp/overrunning-write:
+  short_description: "Write exceeds the allocated size of the target buffer"
+  questions:
+    - "Where is the TARGET buffer declared and what is its allocated size (in bytes)?"
+    - "What is the AMOUNT being written — is it derived from user input, a length field, or a computed value?"
+    - "Is the write amount VALIDATED against the buffer capacity before the write occurs?"
+    - "Could an integer overflow or truncation in the size computation cause the write amount to exceed the buffer?"
+    - "Is the write operation a loop accumulating data without checking remaining capacity?"
+    - "Are there mitigating factors — sanitizer protection, internal-only usage, or test harness code?"
+  context_hint: "Need buffer allocation site and all callers providing the write length."
+  additional_context: ["caller", "struct", "global", "macro"]
+
+cpp/out-of-bounds-read:
+  short_description: "Read operation accesses memory beyond buffer bounds"
+  questions:
+    - "What is the SIZE of the buffer being read — declared, computed, or heap-allocated?"
+    - "What INDEX or OFFSET is used for the read — is it bounds-checked against the buffer size before use?"
+    - "Could the index or offset be influenced by user input, a function return value, or a computation that could exceed the buffer size?"
+    - "Is the result of the read used in a sensitive context (returned to user, written to network/file, used to control further memory access)?"
+    - "Are safer read idioms used (fgets with size, strnlen, memcpy with explicit size) instead of unbounded reads (gets, strcpy, sprintf)?"
+    - "Are there mitigating factors — ASLR, test code, sanitizer enabled in production, or internal-only use?"
+  context_hint: "Need buffer declaration and all callers providing the index or read length."
+  additional_context: ["caller", "struct", "global", "macro"]
+
+cpp/use-of-uninitialized-variable:
+  short_description: "Variable read before being assigned a defined value"
+  questions:
+    - "On what code path is the variable DECLARED but NOT initialized before the flagged read?"
+    - "Is initialization CONDITIONAL — only happens in some branches? List the branches that skip initialization."
+    - "What is the IMPACT if the variable holds stack garbage — could it affect control flow, memory safety, or output?"
+    - "Is the variable a struct or array — if so, is only a portion of it uninitialized while the rest is used?"
+    - "Does the calling code zero-initialize the containing struct or buffer before passing it to this function?"
+    - "Are there mitigating factors — is the uninitialized read in a dead code branch, an assert, or test-only path?"
+  context_hint: "Trace all code paths from variable declaration to the flagged read."
+  additional_context: ["caller", "struct"]
+
+# ==============================================================================
+# C/C++ - Resource Exhaustion, Privilege, Authorization (CWE-770, CWE-269, CWE-863)
+# ==============================================================================
+
+cpp/resource-exhaustion:
+  short_description: "Unbounded memory allocation or loop count from user-controlled input (CWE-770)"
+  questions:
+    - "Is the SIZE argument to malloc(), calloc(), realloc(), new[], or mmap() derived from user-controlled input?"
+    - "Is there an UPPER BOUND check on the size before allocation — e.g., if (size > MAX_ALLOWED) reject?"
+    - "Could an attacker supply SIZE=0xFFFFFFFF to exhaust memory or cause integer overflow in size calculation?"
+    - "Is a loop count or iteration limit controlled by user input without a maximum bound?"
+    - "Is the allocation size multiplied by a user-controlled count (size * count) without overflow checking?"
+    - "What is the impact — OOM crash, system-wide resource exhaustion, or denial of service to other processes?"
+  context_hint: "Include the allocation call, size computation, user input source, and any bounds checks."
+  additional_context: ["caller", "macro"]
+
+cpp/improper-privilege-management:
+  short_description: "Privilege escalation via misuse of setuid/setgid or incomplete privilege drop (CWE-269)"
+  questions:
+    - "Quote the EXACT privilege-management statement(s) the rule flagged (setuid/setgid/capset/setresuid call, or the missing one) with line numbers."
+    - "What SPECIFIC sequence is required for a correct privilege drop on this path? (e.g. 'setgroups(0,NULL) → setgid(target) → setuid(target) → verify with getuid()==target'.) Name each call concretely, not 'a privilege drop'."
+    - "Enumerate EVERY path that reaches the flagged operation. For each path, list which of the required calls appear, in what order, with file:line citations. Missing call → mark explicitly; out-of-order → mark explicitly."
+    - "Is the RETURN VALUE of every setuid/setgid call checked on every path? Quote the check or mark 'unchecked'."
+    - "Could an attacker exploit the window between startup and the (incomplete) privilege drop to perform unauthorized actions?"
+    - "If the required sequence is not present on every path with concrete line numbers, the rule is likely correct. To verdict False Positive, cite (a) the required calls, (b) their locations, (c) why every path executes them in the correct order."
+  context_hint: "Include all setuid/setgid calls, their return value checks, and the order of operations."
+  additional_context: ["caller", "all_callers"]
+  min_iterations: 2
+
+cpp/incorrect-authorization:
+  short_description: "Authorization check on wrong UID/GID or capability allowing privilege bypass (CWE-863)"
+  questions:
+    - "Quote the EXACT authorization check the code performs AND the EXACT privileged operation it gates, both with line numbers."
+    - "What SPECIFIC check would actually satisfy the rule on the resource being accessed? (e.g. 'geteuid() == file_owner_uid', 'ns_capable(target_ns, CAP_X)', 'permission_t & WRITE'.) Vague answers like 'a permission check' are not acceptable."
+    - "Compare the check the code performs to the SPECIFIC check required: are they checking the same identity (real vs effective UID, current vs target namespace, requesting user vs resource owner)? Cite line numbers for both."
+    - "Enumerate EVERY reachable path. For each path, state whether the SPECIFIC required check is present (not just 'a check'), with file:line citations."
+    - "Is there a TOCTOU window — does the check use access()/stat() while the operation uses open()/exec()? Quote both calls."
+    - "If the check performed differs from the check required on any reachable path, the rule is likely correct. To verdict False Positive, cite the matching check on every path."
+  context_hint: "Include the authorization check, UID/GID comparison, and the privileged operation."
+  additional_context: ["caller", "all_callers", "macro"]
+  min_iterations: 2
+
+cpp/log-injection:
+  short_description: "User input written to log output without sanitization in C/C++"
+  questions:
+    - "Where does the INPUT originate — network socket, file, command-line argument, environment variable?"
+    - "Is the input written to a log via syslog(), fprintf(logfile, ...), or a logging library (spdlog, log4cxx)?"
+    - "Is the input used as a format string argument (dangerous) or as a data argument to %s (less dangerous but still injectable)?"
+    - "Could the input contain newline characters (\\n, \\r) that forge additional log entries?"
+    - "Is the input sanitized to strip or escape control characters before logging?"
+    - "Could injected log entries mislead monitoring tools, SIEM, or incident response?"
+  context_hint: "Trace from input through formatting to log output call."
+  additional_context: ["caller"]
+
+cpp/sensitive-data-exposure:
+  short_description: "Sensitive data exposed in error messages, logs, or output in C/C++"
+  questions:
+    - "What sensitive data is exposed — passwords, keys, tokens, PII, internal paths, stack traces?"
+    - "Is the exposure in stderr output, log files, error messages returned to clients, or core dumps?"
+    - "Is perror(), strerror(), or a verbose error handler printing internal details?"
+    - "Does the error message include memory addresses, file paths, or configuration values?"
+    - "Is there a generic error handler that returns safe messages externally while logging details internally?"
+    - "Could the exposed information help an attacker (heap layout, library versions, file structure)?"
+  context_hint: "Check what information reaches output channels (stderr, log files, network responses)."
+  additional_context: ["caller"]
+
+cpp/regex-injection:
+  short_description: "User input used as regex pattern causing catastrophic backtracking in C/C++"
+  questions:
+    - "Is std::regex, PCRE, RE2, or another regex library used with user-controlled pattern?"
+    - "Is std::regex used (vulnerable to catastrophic backtracking) or RE2 (safe, linear time)?"
+    - "Is the pattern validated or restricted (max length, character allowlist) before compilation?"
+    - "Could an attacker supply a pattern like (a+)+ that causes exponential backtracking?"
+    - "Is the user input used as the PATTERN (dangerous) or as the INPUT string to match (safe)?"
+    - "Could catastrophic backtracking cause denial of service by exhausting CPU?"
+  context_hint: "Identify the regex library, whether the pattern is user-controlled, and backtracking behavior."
+  additional_context: ["caller"]
+
+cpp/ssrf:
+  short_description: "User input used in outgoing network request URL in C/C++"
+  questions:
+    - "Where does the URL or hostname originate — command-line argument, config file, network input?"
+    - "Is libcurl (curl_easy_setopt), Boost.Beast, or raw socket connect() used with user-controlled host/URL?"
+    - "Is the URL validated against an allowlist of permitted domains or IP ranges?"
+    - "Could an attacker supply internal network addresses (127.0.0.1, 169.254.169.254, 10.x.x.x) to access internal services?"
+    - "Is DNS resolution done before validation — could DNS rebinding bypass the check?"
+    - "Does the HTTP client follow redirects — could a redirect to an internal address bypass initial validation?"
+  context_hint: "Trace from input through URL construction to the network request function."
+  additional_context: ["caller"]
+
+cpp/cors-misconfiguration:
+  short_description: "CORS headers set to overly permissive values in C/C++ HTTP server"
+  questions:
+    - "Is Access-Control-Allow-Origin set to '*' (wildcard) or reflected from the request Origin header?"
+    - "Is Access-Control-Allow-Credentials set to true along with a permissive origin?"
+    - "Is this in an HTTP server implementation (embedded web server, microhttpd, Crow, cpp-httplib)?"
+    - "Does the CORS configuration validate the Origin against an allowlist of trusted domains?"
+    - "Could an attacker's website make authenticated cross-origin requests and read the response?"
+    - "Is the CORS header set globally or per-endpoint — are sensitive endpoints properly restricted?"
+  context_hint: "Check CORS header values and how Origin validation is performed."
+  additional_context: ["caller"]
+
+cpp/timing-unsafe-comparison:
+  short_description: "Secret/HMAC/token compared with non-constant-time function in C/C++"
+  questions:
+    - "What VALUE is being compared at the flagged line — a password digest, HMAC, session token, API key, or other secret?"
+    - "Which function performs the comparison — memcmp / strcmp / strncmp / == / a custom byte-loop?"
+    - "Does the comparison short-circuit on the first differing byte (memcmp/strcmp do), leaking length information via timing?"
+    - "Is the secret attacker-influenced — supplied via HTTP header, query string, RPC body, or environment?"
+    - "Is a constant-time helper available (CRYPTO_memcmp from OpenSSL, sodium_memcmp from libsodium) and used here?"
+    - "Could remote timing attacks recover the secret byte-by-byte against this comparison?"
+  context_hint: "Identify both operands of the comparison and trace where the user-supplied side originates."
+  additional_context: ["caller"]
+
+cpp/csv-formula-injection:
+  short_description: "User-controlled value written to CSV/spreadsheet cell without leading-character escaping"
+  questions:
+    - "What value is being written into the CSV/TSV/XLSX output at the flagged line?"
+    - "Where does that value come from — HTTP request, file upload, database row populated from user input?"
+    - "Does the writer escape or reject leading '=', '+', '-', '@', tab, or carriage-return characters?"
+    - "Will the output be opened in Excel / LibreOffice / Google Sheets where leading '=' triggers formula evaluation?"
+    - "Could an attacker inject =HYPERLINK / =cmd|'/c calc'! / DDE payloads that exfiltrate data or execute commands when a victim opens the file?"
+    - "Is the value wrapped in quotes or prefixed with a tab/space to neutralise formula interpretation?"
+  context_hint: "Trace input source to the CSV/spreadsheet write site and check for escaping/sanitisation."
+  additional_context: ["caller"]
+
+cpp/overflow-destination:
+  short_description: "memcpy/memmove/strncpy length derived from source size instead of destination size"
+  questions:
+    - "What is the DESTINATION buffer at the flagged copy site — its declared size and how it was allocated?"
+    - "What LENGTH value is passed to the copy — is it derived from sizeof(src), strlen(src), or otherwise from the source?"
+    - "If the source is a pointer (not an array), is sizeof(src) the pointer width (4/8 bytes) rather than its allocation size?"
+    - "Could the length exceed the destination's actual capacity in any code path?"
+    - "Are there any bounds checks on the length BEFORE the copy?"
+    - "Is the destination guaranteed to be NUL-terminated after the copy if it is a C string?"
+  context_hint: "Examine both destination allocation and the length expression in the copy."
+  additional_context: ["caller", "struct"]
